@@ -8,6 +8,16 @@ struct ScanProgress: Equatable {
     var currentPath: String?
 }
 
+/// Result of scanning a single URL off the main actor.
+/// `meta` is nil when the file is unchanged (skip) or when metadata reading failed.
+private struct ScanWorkItem: Sendable {
+    enum Action: Sendable { case skip, update, insert }
+    let url: URL
+    let fileMtime: Date?
+    let meta: EmbeddedMetadata?
+    let action: Action
+}
+
 @Observable
 @MainActor
 final class LibraryService {
@@ -37,36 +47,74 @@ final class LibraryService {
     }
 
     private func scan(root: ScanRoot) async {
-        let rootURL = URL(fileURLWithPath: root.path)
+        // Resolve symlinks so the prefix comparison against scanner-yielded URLs
+        // (which FileManager resolves) matches track.filePath values.
+        let rootURL = URL(fileURLWithPath: root.path).resolvingSymlinksInPath()
+        let resolvedRootPath = rootURL.path
         // AsyncStream 不是 Sequence, 必须用 `for await` 收集。
         var urls: [URL] = []
         for await url in scanner.enumerateAudio(at: rootURL) {
             urls.append(url)
         }
+        let scannedPaths = Set(urls.map { $0.path })
+
+        // Incremental scan: build a map of existing tracks' stored mtime by filePath,
+        // so child tasks can skip re-reading metadata when the file is unchanged.
+        let existingTracks: [Track] = (try? ModelContext(modelContainer).fetch(FetchDescriptor<Track>())) ?? []
+        var existingMtimeByPath: [String: Date] = [:]
+        for t in existingTracks {
+            if let p = t.filePath, let m = t.fileModificationDate {
+                existingMtimeByPath[p] = m
+            }
+        }
+
         var scanned = 0
         scanProgress = .init(scanned: 0, total: urls.count, currentPath: nil)
 
         // Capture the Sendable metadata service so child tasks can read off the main actor.
         let metadataService = self.metadata
-        await withTaskGroup(of: (URL, EmbeddedMetadata?).self) { group in
+        await withTaskGroup(of: ScanWorkItem.self) { group in
             var iter = urls.makeIterator()
             for _ in 0..<8 {
                 if let url = iter.next() {
-                    group.addTask { (url, await metadataService.readEmbedded(at: url)) }
+                    let knownMtime = existingMtimeByPath[url.path]
+                    group.addTask {
+                        let fm = FileManager.default
+                        let fileMtime = try? fm.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
+                        // Unchanged file: skip the expensive AVAsset read.
+                        if let knownMtime = knownMtime, let fileMtime = fileMtime, knownMtime == fileMtime {
+                            return ScanWorkItem(url: url, fileMtime: fileMtime, meta: nil, action: .skip)
+                        }
+                        let meta = await metadataService.readEmbedded(at: url)
+                        let action: ScanWorkItem.Action = (knownMtime != nil) ? .update : .insert
+                        return ScanWorkItem(url: url, fileMtime: fileMtime, meta: meta, action: action)
+                    }
                 }
             }
-            for await (url, meta) in group {
+            for await item in group {
                 scanned += 1
                 scanProgress.scanned = scanned
-                scanProgress.currentPath = url.path
-                if let meta = meta {
-                    self.upsert(url: url, meta: meta)
-                }
+                scanProgress.currentPath = item.url.path
+                self.applyScanItem(item)
                 if let url = iter.next() {
-                    group.addTask { (url, await metadataService.readEmbedded(at: url)) }
+                    let knownMtime = existingMtimeByPath[url.path]
+                    group.addTask {
+                        let fm = FileManager.default
+                        let fileMtime = try? fm.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
+                        if let knownMtime = knownMtime, let fileMtime = fileMtime, knownMtime == fileMtime {
+                            return ScanWorkItem(url: url, fileMtime: fileMtime, meta: nil, action: .skip)
+                        }
+                        let meta = await metadataService.readEmbedded(at: url)
+                        let action: ScanWorkItem.Action = (knownMtime != nil) ? .update : .insert
+                        return ScanWorkItem(url: url, fileMtime: fileMtime, meta: meta, action: action)
+                    }
                 }
             }
         }
+
+        // Soft-delete: mark tracks under this root whose path was NOT scanned as unavailable.
+        markMissingAsUnavailable(rootPath: resolvedRootPath, scannedPaths: scannedPaths)
+
         let ctx = ModelContext(modelContainer)
         if let r = try? ctx.fetch(FetchDescriptor<ScanRoot>()).first(where: { $0.path == root.path }) {
             r.lastScannedAt = .init()
@@ -75,7 +123,65 @@ final class LibraryService {
         scanProgress = .init(scanned: scanned, total: urls.count, currentPath: nil)
     }
 
-    private func upsert(url: URL, meta: EmbeddedMetadata) {
+    private func applyScanItem(_ item: ScanWorkItem) {
+        switch item.action {
+        case .skip:
+            // File unchanged: don't re-read metadata, but ensure the track is still
+            // marked available (it may have been soft-deleted on a prior scan).
+            markAvailable(filePath: item.url.path)
+        case .insert, .update:
+            if let meta = item.meta {
+                upsert(url: item.url, meta: meta, fileMtime: item.fileMtime)
+            }
+        }
+    }
+
+    private func markAvailable(filePath: String) {
+        let ctx = ModelContext(modelContainer)
+        if let t = try? ctx.fetch(FetchDescriptor<Track>(
+            predicate: #Predicate { $0.filePath == filePath })).first {
+            t.availabilityRaw = TrackAvailability.available.rawValue
+            try? ctx.save()
+        }
+    }
+
+    /// Mark tracks whose file has disappeared from disk as `.unavailable` (soft delete).
+    /// Does not remove them from the store; `purgeUnavailable()` later deletes the ones that
+    /// are still gone. We check by file existence rather than path-prefix matching because
+    /// FileManager.enumerator resolves firmlinks (e.g. /var -> /private/var on macOS),
+    /// which makes string-prefix comparisons against the stored ScanRoot path unreliable.
+    private func markMissingAsUnavailable(rootPath: String, scannedPaths: Set<String>) {
+        let ctx = ModelContext(modelContainer)
+        // Narrow to tracks likely under this root: compare against `rootPath` AND its
+        // canonical form so firmlinked roots (e.g. /var vs /private/var) both match.
+        let canonicalRoot = canonicalPath(rootPath)
+        let candidates = (try? ctx.fetch(FetchDescriptor<Track>())) ?? []
+        for t in candidates {
+            guard let p = t.filePath else { continue }
+            let ct = canonicalPath(p)
+            let underRoot = ct.hasPrefix(canonicalRoot.hasSuffix("/") ? canonicalRoot : canonicalRoot + "/")
+            // Mark unavailable if the file is gone from disk. (A file that still exists but
+            // was simply skipped from enumeration would remain available.)
+            if underRoot && !FileManager.default.fileExists(atPath: p) {
+                t.availabilityRaw = TrackAvailability.unavailable.rawValue
+            }
+        }
+        try? ctx.save()
+    }
+
+    /// Best-effort canonical path: resolves symlinks and, for the macOS /var firmlink,
+    /// also yields the /private-prefixed form via realpath.
+    private func canonicalPath(_ path: String) -> String {
+        let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+        // FileManager.enumerator resolves /var -> /private/var; mirror that here so paths
+        // stored from enumerator match paths derived from the unresolved ScanRoot.
+        if resolved.hasPrefix("/var/") {
+            return "/private" + resolved
+        }
+        return resolved
+    }
+
+    private func upsert(url: URL, meta: EmbeddedMetadata, fileMtime: Date?) {
         let ctx = ModelContext(modelContainer)
         let path = url.path
         let existing = try? ctx.fetch(FetchDescriptor<Track>(
@@ -87,7 +193,8 @@ final class LibraryService {
         }
 
         if let existing = existing {
-            // 更新元数据, 保留 playCount/liked
+            // 更新元数据, 保留 playCount/liked; record the new mtime so the next
+            // scan can skip re-reading if the file is unchanged.
             existing.title = meta.title ?? url.deletingPathExtension().lastPathComponent
             existing.artist = meta.artist ?? "Unknown Artist"
             existing.albumTitle = meta.albumTitle
@@ -100,7 +207,7 @@ final class LibraryService {
             existing.localArtworkHash = artworkHash ?? existing.localArtworkHash
             existing.availabilityRaw = TrackAvailability.available.rawValue
             existing.metadataStatusRaw = MetadataStatus.complete.rawValue
-            existing.fileModificationDate = nil
+            existing.fileModificationDate = fileMtime
             try? ctx.save()
             return
         }
@@ -119,6 +226,7 @@ final class LibraryService {
             codec: meta.codec, isLossless: meta.isLossless,
             metadataStatus: .complete, availability: .available
         )
+        track.fileModificationDate = fileMtime
         ctx.insert(track)
 
         // 聚合到 Album
@@ -152,5 +260,22 @@ final class LibraryService {
     func allAlbums() -> [Album] {
         let ctx = ModelContext(modelContainer)
         return ((try? ctx.fetch(FetchDescriptor<Album>())) ?? []).sorted { $0.title < $1.title }
+    }
+
+    func allTracks() -> [Track] {
+        let ctx = ModelContext(modelContainer)
+        return (try? ctx.fetch(FetchDescriptor<Track>())) ?? []
+    }
+
+    /// Return the album's tracks sorted by (discNo, trackNo). Re-fetches the album in a
+    /// fresh ModelContext so the returned `Track` objects are valid for this context.
+    func tracks(in album: Album) -> [Track] {
+        let ctx = ModelContext(modelContainer)
+        let id = album.id
+        guard let fetched = try? ctx.fetch(FetchDescriptor<Album>(
+            predicate: #Predicate { $0.id == id })).first else { return [] }
+        return fetched.tracks.sorted { (a, b) in
+            (a.discNo ?? 0, a.trackNo ?? 0) < (b.discNo ?? 0, b.trackNo ?? 0)
+        }
     }
 }
