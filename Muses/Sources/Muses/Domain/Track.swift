@@ -1,0 +1,66 @@
+import Foundation
+import SwiftData
+
+@Model
+final class Track {
+    @Attribute(.unique) var id: UUID
+    var sourceRaw: String          // TrackSource.rawValue
+    var title: String
+    var artist: String
+    var albumTitle: String?
+    var albumArtist: String?
+    var durationMs: Int
+    var trackNo: Int?
+    var discNo: Int?
+    var year: Int?
+    var genre: String?
+    var filePath: String?          // .local
+    var youTubeId: String?          // .youtube
+    var artworkUrl: String?
+    var localArtworkHash: String?
+    var lyrics: String?
+    var replayGain: Double?
+    var sampleRate: Int?
+    var bitDepth: Int?
+    var codec: String?
+    var isLossless: Bool
+    var metadataStatusRaw: String   // MetadataStatus.rawValue
+    var availabilityRaw: String     // TrackAvailability.rawValue
+    var addedAt: Date
+    var lastPlayedAt: Date?
+    var playCount: Int
+    var liked: Bool
+    var fileModificationDate: Date?
+
+    var album: Album?
+
+    init(id: UUID = UUID(), source: TrackSource, title: String, artist: String,
+         albumTitle: String? = nil, albumArtist: String? = nil, durationMs: Int = 0,
+         trackNo: Int? = nil, discNo: Int? = nil, year: Int? = nil, genre: String? = nil,
+         filePath: String? = nil, youTubeId: String? = nil, artworkUrl: String? = nil,
+         localArtworkHash: String? = nil, lyrics: String? = nil, replayGain: Double? = nil,
+         sampleRate: Int? = nil, bitDepth: Int? = nil, codec: String? = nil, isLossless: Bool = false,
+         metadataStatus: MetadataStatus = .embedded, availability: TrackAvailability = .available,
+         addedAt: Date = .init(), lastPlayedAt: Date? = nil, playCount: Int = 0, liked: Bool = false,
+         fileModificationDate: Date? = nil) {
+        self.id = id; self.sourceRaw = source.rawValue
+        self.title = title; self.artist = artist
+        self.albumTitle = albumTitle; self.albumArtist = albumArtist
+        self.durationMs = durationMs; self.trackNo = trackNo; self.discNo = discNo
+        self.year = year; self.genre = genre; self.filePath = filePath
+        self.youTubeId = youTubeId; self.artworkUrl = artworkUrl
+        self.localArtworkHash = localArtworkHash; self.lyrics = lyrics
+        self.replayGain = replayGain; self.sampleRate = sampleRate
+        self.bitDepth = bitDepth; self.codec = codec; self.isLossless = isLossless
+        self.metadataStatusRaw = metadataStatus.rawValue
+        self.availabilityRaw = availability.rawValue
+        self.addedAt = addedAt; self.lastPlayedAt = lastPlayedAt
+        self.playCount = playCount; self.liked = liked
+        self.fileModificationDate = fileModificationDate
+    }
+
+    var source: TrackSource { TrackSource(rawValue: sourceRaw) ?? .local }
+    var metadataStatus: MetadataStatus { MetadataStatus(rawValue: metadataStatusRaw) ?? .embedded }
+    var availability: TrackAvailability { TrackAvailability(rawValue: availabilityRaw) ?? .available }
+    var durationSeconds: Double { Double(durationMs) / 1000.0 }
+}
