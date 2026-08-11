@@ -74,10 +74,3 @@ struct LikedView: View {
 struct SettingsPlaceholderView: View {
     var body: some View { Text("Settings").frame(maxWidth: .infinity, maxHeight: .infinity) }
 }
-
-// MARK: - Stub (replaced by Task 12)
-// This minimal stub exists only so the app compiles standalone.
-// Task 12 replaces PlayerBar.
-struct PlayerBar: View {
-    var body: some View { Color.clear.frame(height: 76) }
-}
