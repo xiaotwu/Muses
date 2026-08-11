@@ -18,7 +18,7 @@ struct EmbeddedMetadata: Sendable {
     var artworkData: Data?
 }
 
-final class MetadataService {
+final class MetadataService: Sendable {
     let artworkCache: ArtworkCache
     init(artworkCache: ArtworkCache) { self.artworkCache = artworkCache }
 
