@@ -11,7 +11,6 @@ final class QueueService {
     var repeatMode: RepeatMode = .off
     var shuffle: Bool = false
     private var originalOrder: [QueueItem] = []
-    private var nextId = 0
 
     func play(_ track: TrackSnapshot, context: [TrackSnapshot], from: QueueSource) {
         items = context.map { t in
