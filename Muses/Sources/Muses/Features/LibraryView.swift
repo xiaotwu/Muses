@@ -75,14 +75,9 @@ struct SettingsPlaceholderView: View {
     var body: some View { Text("Settings").frame(maxWidth: .infinity, maxHeight: .infinity) }
 }
 
-// MARK: - Stubs (replaced by Task 11 / Task 12)
-// These minimal stubs exist only so Task 10 compiles standalone.
-// Task 11 replaces AlbumDetailView; Task 12 replaces PlayerBar.
-struct AlbumDetailView: View {
-    let album: Album
-    var body: some View { Text(album.title).frame(maxWidth: .infinity, maxHeight: .infinity) }
-}
-
+// MARK: - Stub (replaced by Task 12)
+// This minimal stub exists only so the app compiles standalone.
+// Task 12 replaces PlayerBar.
 struct PlayerBar: View {
     var body: some View { Color.clear.frame(height: 76) }
 }

@@ -11,7 +11,7 @@ struct RootView: View {
             SidebarView(selection: $section)
         } detail: {
             if let album = selectedAlbum {
-                AlbumDetailView(album: album)
+                AlbumDetailView(album: album, selection: $selectedAlbum)
             } else {
                 switch section {
                 case .home, .albums:
