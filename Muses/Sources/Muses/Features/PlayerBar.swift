@@ -60,7 +60,7 @@ struct PlayerBar: View {
             HStack(spacing: 8) {
                 Text(format(playback.state.position)).font(.caption2).foregroundStyle(BrandColors.textSecondary)
                 Slider(value: Binding(
-                    get: { playback.state.position },
+                    get: { seeking ? seekValue : playback.state.position },
                     set: { v in seeking = true; seekValue = v }),
                       in: 0...max(playback.state.duration, 1),
                     onEditingChanged: { end in
