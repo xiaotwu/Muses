@@ -41,4 +41,16 @@ struct TrackSnapshot: Identifiable, Equatable, Sendable {
         self.sampleRate = track.sampleRate; self.bitDepth = track.bitDepth
         self.codec = track.codec; self.isLossless = track.isLossless
     }
+
+    init(id: UUID, title: String, artist: String, albumTitle: String?,
+         durationSeconds: Double, filePath: String?, youTubeId: String?,
+         artworkHash: String?, artworkUrl: String?,
+         sampleRate: Int?, bitDepth: Int?, codec: String?, isLossless: Bool) {
+        self.id = id; self.title = title; self.artist = artist
+        self.albumTitle = albumTitle; self.durationSeconds = durationSeconds
+        self.filePath = filePath; self.youTubeId = youTubeId
+        self.artworkHash = artworkHash; self.artworkUrl = artworkUrl
+        self.sampleRate = sampleRate; self.bitDepth = bitDepth
+        self.codec = codec; self.isLossless = isLossless
+    }
 }
