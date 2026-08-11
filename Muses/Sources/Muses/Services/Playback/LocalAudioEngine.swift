@@ -22,11 +22,11 @@ final class LocalAudioEngine: PlayerEngine {
 
     func load(_ track: TrackSnapshot) async throws {
         guard let path = track.filePath else {
-            state.error = .fileMissing("(nil)"); return
+            state.error = .fileMissing("(nil)"); throw PlayerError.fileMissing("(nil)")
         }
         let url = URL(fileURLWithPath: path)
         guard FileManager.default.fileExists(atPath: path) else {
-            state.error = .fileMissing(path); return
+            state.error = .fileMissing(path); throw PlayerError.fileMissing(path)
         }
         do {
             let file = try AVAudioFile(forReading: url)
@@ -34,6 +34,8 @@ final class LocalAudioEngine: PlayerEngine {
             currentTrack = track
             fileFrames = file.length
             let sr = file.processingFormat.sampleRate
+            // 更新 state.track 以便 UI 绑定能看到当前曲目
+            state.track = track
             state.duration = Double(fileFrames) / sr
             state.position = 0
             state.source = .local
@@ -45,13 +47,20 @@ final class LocalAudioEngine: PlayerEngine {
             state.error = nil
 
             if !engine.isRunning {
-                try engine.start()
+                do { try engine.start() }
+                catch {
+                    state.error = .engineStartFailed
+                    throw PlayerError.engineStartFailed
+                }
             }
             player.scheduleFile(file, at: nil) { [weak self] in
                 Task { @MainActor in self?.handleCompletion() }
             }
+        } catch let error as PlayerError {
+            throw error
         } catch {
             state.error = .decodingFailed(error.localizedDescription)
+            throw PlayerError.decodingFailed(error.localizedDescription)
         }
     }
 
@@ -81,6 +90,8 @@ final class LocalAudioEngine: PlayerEngine {
             player.scheduleSegment(file, startingFrame: frame, frameCount: count, at: nil) {
                 [weak self] in Task { @MainActor in self?.handleCompletion() }
             }
+            // 若引擎已停(暂停过久/设备热插拔), 重启以保证 seek 后可播放
+            if !engine.isRunning { try? engine.start() }
             if state.isPlaying { player.play() }
             state.position = time
         }
