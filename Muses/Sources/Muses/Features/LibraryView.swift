@@ -6,7 +6,6 @@ struct LibraryView: View {
     @Binding var selection: SidebarSection
     @Binding var selectedAlbum: Album?
     @Environment(LibraryService.self) private var library
-    @Environment(PlaybackService.self) private var playback
 
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: 16), count: 5)
