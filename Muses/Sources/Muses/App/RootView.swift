@@ -2,8 +2,10 @@ import SwiftUI
 
 struct RootView: View {
     @Environment(LibraryService.self) private var library
+    @Environment(PlaylistService.self) private var playlistService
     @State private var section: SidebarSection = .home
     @State private var selectedAlbum: Album?
+    @State private var selectedPlaylist: Playlist?
     @State private var showImport = false
     @State private var showNowPlaying = false
     @State private var showQueue = false
@@ -14,6 +16,8 @@ struct RootView: View {
         } detail: {
             if let album = selectedAlbum {
                 AlbumDetailView(album: album, selection: $selectedAlbum)
+            } else if let playlist = selectedPlaylist {
+                PlaylistDetailView(playlist: playlist, selectedPlaylist: $selectedPlaylist)
             } else {
                 switch section {
                 case .home, .albums:
@@ -22,6 +26,8 @@ struct RootView: View {
                     SongsListView()
                 case .liked:
                     LikedView()
+                case .playlists:
+                    PlaylistsView(selectedPlaylist: $selectedPlaylist)
                 case .youtubeImports:
                     YouTubeImportsView()
                 case .youtubeSearch:
@@ -61,7 +67,7 @@ struct RootView: View {
     }
 }
 
-enum SidebarSection: Hashable { case home, albums, songs, liked, youtubeImports, youtubeSearch, settings }
+enum SidebarSection: Hashable { case home, albums, songs, liked, playlists, youtubeImports, youtubeSearch, settings }
 
 enum BrandColors {
     /// 动态主题色:深色沿用原值,浅色用浅色调色板。
