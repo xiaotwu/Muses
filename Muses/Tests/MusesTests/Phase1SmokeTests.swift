@@ -24,7 +24,9 @@ struct Phase1SmokeTests {
 
         let engine = LocalAudioEngine()
         let queue = QueueService()
-        let pb = PlaybackService(engine: engine, queue: queue)
+        let pb = PlaybackService(localEngine: engine,
+                                 youtubeEngine: RecordingEngine(),
+                                 queue: queue)
 
         let ctx = tracks.map { TrackSnapshot(from: $0) }
         pb.playTrack(ctx[0], context: ctx, from: .album)

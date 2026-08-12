@@ -13,7 +13,9 @@ struct NowPlayingManagerTests {
         try makeSilentWav(at: wav, seconds: 1)
         let engine = LocalAudioEngine()
         let queue = QueueService()
-        let playback = PlaybackService(engine: engine, queue: queue)
+        let playback = PlaybackService(localEngine: engine,
+                                        youtubeEngine: RecordingEngine(),
+                                        queue: queue)
         let manager = NowPlayingManager(playback)
 
         let snap = TrackSnapshot(id: UUID(), title: "MyTrack", artist: "Artist",
@@ -38,7 +40,9 @@ struct NowPlayingManagerTests {
     func initNoTrack() async throws {
         let engine = LocalAudioEngine()
         let queue = QueueService()
-        let playback = PlaybackService(engine: engine, queue: queue)
+        let playback = PlaybackService(localEngine: engine,
+                                        youtubeEngine: RecordingEngine(),
+                                        queue: queue)
         let manager = NowPlayingManager(playback)
         // 给 manager 一点时间执行初始 updateInfo
         try await Task.sleep(for: .milliseconds(100))

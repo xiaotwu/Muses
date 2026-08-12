@@ -6,6 +6,7 @@ struct MusesApp: App {
     let modelContainer: ModelContainer
     let libraryService: LibraryService
     let playbackService: PlaybackService
+    let importService: YouTubeImportService
     private let nowPlayingManager: NowPlayingManager
     private let spotlightIndexer: SpotlightIndexer
 
@@ -15,11 +16,17 @@ struct MusesApp: App {
         let meta = MetadataService(artworkCache: .default)
         let library = LibraryService(modelContainer: container, metadata: meta)
         self.libraryService = library
-        let engine = LocalAudioEngine()
+        let localEngine = LocalAudioEngine()
+        let ytdlpBridge = YTDlpBridge()
+        let youtubeEngine = YouTubeStreamEngine(bridge: ytdlpBridge)
         let queue = QueueService()
         queue.modelContext = container.mainContext
         queue.restore()
-        self.playbackService = PlaybackService(engine: engine, queue: queue)
+        self.playbackService = PlaybackService(localEngine: localEngine,
+                                                 youtubeEngine: youtubeEngine,
+                                                 queue: queue)
+        self.importService = YouTubeImportService(bridge: ytdlpBridge,
+                                                  modelContainer: container)
         let enricher = MetadataEnricherService(modelContainer: container)
         library.enricher = enricher
         self.nowPlayingManager = NowPlayingManager(playbackService)
@@ -34,6 +41,7 @@ struct MusesApp: App {
             RootView()
                 .environment(libraryService)
                 .environment(playbackService)
+                .environment(importService)
                 .modelContainer(modelContainer)
                 .onOpenURL { url in
                     // deep link: muses://play?trackId=<id> — 阶段 2 只解析, 播放留待完善

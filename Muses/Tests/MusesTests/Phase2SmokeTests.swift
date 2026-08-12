@@ -38,7 +38,9 @@ struct Phase2SmokeTests {
         let engine = LocalAudioEngine()
         let queue = QueueService()
         queue.modelContext = ctx
-        let playback = PlaybackService(engine: engine, queue: queue)
+        let playback = PlaybackService(localEngine: engine,
+                                        youtubeEngine: RecordingEngine(),
+                                        queue: queue)
 
         let snap = TrackSnapshot(from: tracks[0])
         let context = tracks.map { TrackSnapshot(from: $0) }

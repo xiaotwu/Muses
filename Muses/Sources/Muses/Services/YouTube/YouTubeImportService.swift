@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import Observation
 
 /// YouTube 歌单导入错误。
 enum YouTubeImportError: LocalizedError, Equatable {
@@ -41,6 +42,7 @@ enum YouTubeImportError: LocalizedError, Equatable {
 ///  - `deleteImport(importId:deleteTracks:)` —— 删除导入(级联 items),
 ///    可选是否一并删除懒创建的 `Track`。
 ///  - `addLocalAddition` / `removeLocalAddition` —— 维护本地附加曲目。
+@Observable
 @MainActor
 final class YouTubeImportService {
     private let bridge: any YTDlpBridgeProtocol

@@ -17,7 +17,9 @@ struct EQEditorViewModelTests {
     func setEQUpdatesEngine() async throws {
         let engine = LocalAudioEngine()
         let queue = QueueService()
-        let playback = PlaybackService(engine: engine, queue: queue)
+        let playback = PlaybackService(localEngine: engine,
+                                        youtubeEngine: RecordingEngine(),
+                                        queue: queue)
 
         var bands = EQPresets.flat
         bands[0].gain = 6.0
