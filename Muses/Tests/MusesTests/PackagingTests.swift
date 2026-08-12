@@ -106,4 +106,31 @@ struct PackagingTests {
             atPath: "Muses/Sources/Muses/Resources/AppIcon.icns")[.size] as? Int) ?? 0
         #expect(size > 0, "AppIcon.icns 为空")
     }
+
+    @Test("sign-update.sh 语法通过 bash -n 且可执行")
+    func signUpdateScriptSyntax() throws {
+        let path = "Scripts/sign-update.sh"
+        try #require(FileManager.default.fileExists(atPath: path), "sign-update.sh 不存在")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-n", path]
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0, "sign-update.sh 语法错误")
+        let attrs = try FileManager.default.attributesOfItem(atPath: path)
+        let perm = (attrs[.posixPermissions] as? Int) ?? 0
+        #expect(perm & 0o100 != 0, "sign-update.sh 缺少可执行位")
+    }
+
+    /// Sparkle CLI 工具(若 .build/artifacts 存在)应在预期路径。
+    @Test("Sparkle CLI 工具若存在则在预期路径")
+    func sparkleCLIPresentIfArtifactsExist() {
+        let binDir = ".build/artifacts/sparkle/Sparkle/bin"
+        guard FileManager.default.fileExists(atPath: binDir) else { return }
+        for tool in ["sign_update", "generate_keys", "generate_appcast"] {
+            let p = "\(binDir)/\(tool)"
+            #expect(FileManager.default.isExecutableFile(atPath: p),
+                    "\(tool) 缺失或不可执行")
+        }
+    }
 }
