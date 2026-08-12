@@ -69,6 +69,17 @@ struct RootView: View {
             Task { await library.importURLs(urls) }
             return true
         }
+        .onAppear {
+            DispatchQueue.main.async {
+                NSApp.windows.first?.setFrameAutosaveName("MusesMainWindow")
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .musesToggleQueue)) { _ in
+            showQueue.toggle()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .musesFocusSearch)) { _ in
+            section = .songs
+        }
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button { showImport = true } label: { Image(systemName: "plus") }
@@ -78,6 +89,11 @@ struct RootView: View {
 }
 
 enum SidebarSection: Hashable { case home, albums, artists, songs, liked, playlists, youtubeImports, youtubeSearch, settings }
+
+extension Notification.Name {
+    static let musesToggleQueue = Notification.Name("muses.toggleQueue")
+    static let musesFocusSearch = Notification.Name("muses.focusSearch")
+}
 
 enum BrandColors {
     /// 动态主题色:深色沿用原值,浅色用浅色调色板。

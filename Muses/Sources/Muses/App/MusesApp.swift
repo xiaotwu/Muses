@@ -115,6 +115,25 @@ struct MusesApp: App {
                 }
                 .keyboardShortcut(.rightArrow, modifiers: .command)
 
+                Divider()
+
+                Button("收藏当前歌曲") {
+                    if let id = playbackService.state.track?.id {
+                        libraryService.toggleLike(id: id)
+                    }
+                }
+                .keyboardShortcut("l", modifiers: .command)
+
+                Button("切换队列") {
+                    NotificationCenter.default.post(name: .musesToggleQueue, object: nil)
+                }
+                .keyboardShortcut("k", modifiers: .command)
+
+                Button("搜索") {
+                    NotificationCenter.default.post(name: .musesFocusSearch, object: nil)
+                }
+                .keyboardShortcut("f", modifiers: .command)
+
                 // 睡眠定时器
                 Divider()
                 Menu("睡眠定时器") {
