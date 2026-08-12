@@ -8,6 +8,7 @@ struct MusesApp: App {
     let libraryService: LibraryService
     let playbackService: PlaybackService
     let importService: YouTubeImportService
+    let searchService: YouTubeSearchService
     let ytDlpBridge: YTDlpBridge
     private let nowPlayingManager: NowPlayingManager
     private let spotlightIndexer: SpotlightIndexer
@@ -30,6 +31,8 @@ struct MusesApp: App {
                                                  youtubeEngine: youtubeEngine,
                                                  queue: queue)
         self.importService = YouTubeImportService(bridge: ytdlpBridge,
+                                                  modelContainer: container)
+        self.searchService = YouTubeSearchService(bridge: ytdlpBridge,
                                                   modelContainer: container)
         let enricher = MetadataEnricherService(modelContainer: container)
         library.enricher = enricher
@@ -59,6 +62,7 @@ struct MusesApp: App {
                     .environment(libraryService)
                     .environment(playbackService)
                     .environment(importService)
+                    .environment(searchService)
                     .environment(\.ytDlpBridge, ytDlpBridge)
                     .environment(\.updater, updaterController.updater)
                     .modelContainer(modelContainer)

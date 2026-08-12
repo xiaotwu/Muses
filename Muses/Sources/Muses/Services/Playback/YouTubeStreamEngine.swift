@@ -7,6 +7,7 @@ import AVFoundation
 protocol YTDlpBridgeProtocol: AnyObject {
     func resolveStreamURL(videoId: String, quality: String, timeout: TimeInterval) async throws -> URL
     func fetchPlaylist(url: String, timeout: TimeInterval) async throws -> [YTDlpBridge.YTDlpPlaylistEntry]
+    func searchYouTube(query: String, limit: Int, timeout: TimeInterval) async throws -> [YTDlpBridge.YTDlpPlaylistEntry]
     func version() async -> String?
 }
 

@@ -14,6 +14,7 @@ struct SidebarView: View {
                     Label("Songs", systemImage: "music.note").tag(SidebarSection.songs)
                     Label("Liked", systemImage: "heart").tag(SidebarSection.liked)
                     Label("YouTube Imports", systemImage: "music.note.list").tag(SidebarSection.youtubeImports)
+                    Label("YouTube 搜索", systemImage: "magnifyingglass").tag(SidebarSection.youtubeSearch)
                 }
                 Section("Settings") {
                     Label("Settings", systemImage: "gear").tag(SidebarSection.settings)

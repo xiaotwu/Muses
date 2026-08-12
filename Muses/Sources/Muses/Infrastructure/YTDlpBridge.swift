@@ -267,6 +267,44 @@ final class YTDlpBridge {
         return entries
     }
 
+    /// 通过 yt-dlp `ytsearch{N}:{query}` 搜索 YouTube 视频。
+    ///
+    /// - Parameters:
+    ///   - query: 搜索关键词(如 "artist title")。
+    ///   - limit: 最多返回条目数,默认 10。
+    ///   - timeout: 子进程超时(秒),默认 30。
+    /// - Returns: 按相关性排序的条目数组(复用 `YTDlpPlaylistEntry` 结构)。
+    func searchYouTube(query: String,
+                       limit: Int = 10,
+                       timeout: TimeInterval = 30) async throws -> [YTDlpPlaylistEntry] {
+        let bin = try await resolveBinary()
+        var args = cookieArgs()
+        // ytsearch 语法:yt-dlp "ytsearch10:query" --flat-playlist --dump-json
+        args += ["--flat-playlist", "--dump-json", "ytsearch\(limit):\(query)"]
+        let (stdout, _) = try await runInternal(
+            executablePath: bin,
+            args: args,
+            timeout: timeout)
+        let decoder = JSONDecoder()
+        var entries: [YTDlpPlaylistEntry] = []
+        for (idx, raw) in stdout
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map({ String($0) })
+            .enumerated() {
+            let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+            guard let data = line.data(using: .utf8) else {
+                throw YTDlpError.parseFailed("搜索结果第 \(idx) 行非 UTF-8")
+            }
+            do {
+                entries.append(try decoder.decode(YTDlpPlaylistEntry.self, from: data))
+            } catch {
+                throw YTDlpError.parseFailed("搜索结果第 \(idx) 行 JSON 解析失败:\(error)")
+            }
+        }
+        return entries
+    }
+
     /// 返回已定位的 yt-dlp 可执行文件路径(供设置页只读展示);未找到返回 nil。
     func locateBinary() async -> String? {
         try? await resolveBinary()

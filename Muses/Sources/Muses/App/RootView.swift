@@ -24,6 +24,8 @@ struct RootView: View {
                     LikedView()
                 case .youtubeImports:
                     YouTubeImportsView()
+                case .youtubeSearch:
+                    YouTubeSearchView()
                 case .settings:
                     SettingsView()
                 }
@@ -59,7 +61,7 @@ struct RootView: View {
     }
 }
 
-enum SidebarSection: Hashable { case home, albums, songs, liked, youtubeImports, settings }
+enum SidebarSection: Hashable { case home, albums, songs, liked, youtubeImports, youtubeSearch, settings }
 
 enum BrandColors {
     /// 动态主题色:深色沿用原值,浅色用浅色调色板。

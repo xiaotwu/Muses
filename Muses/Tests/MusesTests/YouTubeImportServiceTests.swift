@@ -319,6 +319,8 @@ struct YouTubeImportServiceTests {
 final class MockImportBridge: YTDlpBridgeProtocol {
     var entries: [YTDlpBridge.YTDlpPlaylistEntry] = []
     var fetchCallCount = 0
+    var searchResults: [YTDlpBridge.YTDlpPlaylistEntry] = []
+    var searchCallCount = 0
 
     func resolveStreamURL(videoId: String, quality: String, timeout: TimeInterval) async throws -> URL {
         URL(string: "https://example.com/a")!
@@ -327,6 +329,11 @@ final class MockImportBridge: YTDlpBridgeProtocol {
     func fetchPlaylist(url: String, timeout: TimeInterval) async throws -> [YTDlpBridge.YTDlpPlaylistEntry] {
         fetchCallCount += 1
         return entries
+    }
+
+    func searchYouTube(query: String, limit: Int, timeout: TimeInterval) async throws -> [YTDlpBridge.YTDlpPlaylistEntry] {
+        searchCallCount += 1
+        return searchResults
     }
 
     func version() async -> String? { "mock" }

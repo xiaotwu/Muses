@@ -105,6 +105,7 @@ final class MockYTDlpBridge: YTDlpBridgeProtocol {
         return streamURL!
     }
     func fetchPlaylist(url: String, timeout: TimeInterval) async throws -> [YTDlpBridge.YTDlpPlaylistEntry] { [] }
+    func searchYouTube(query: String, limit: Int, timeout: TimeInterval) async throws -> [YTDlpBridge.YTDlpPlaylistEntry] { [] }
     func version() async -> String? { "mock" }
 }
 
