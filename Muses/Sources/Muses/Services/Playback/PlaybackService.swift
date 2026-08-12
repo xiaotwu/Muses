@@ -27,7 +27,56 @@ final class PlaybackService {
         self.currentEngine = localEngine
         localEngine.setVolume(volume)
         youtubeEngine.setVolume(volume)
+        setupCompletionHandlers()
         observeCompletion()
+    }
+
+    /// 设置引擎完成回调:当前曲目播完时触发无缝推进。
+    private func setupCompletionHandlers() {
+        localEngine.onCompletion = { [weak self] in
+            self?.handleEngineCompletion()
+        }
+        youtubeEngine.onCompletion = { [weak self] in
+            self?.handleEngineCompletion()
+        }
+    }
+
+    /// 引擎完成回调:优先尝试无缝切换(playPrepared),失败则回退到 load。
+    private func handleEngineCompletion() {
+        // 同一曲目的完成只推进一次
+        if lastCompletedTrackId == state.track?.id { return }
+        lastCompletedTrackId = state.track?.id
+
+        // 队列耗尽(.off 且在最后一首且无插队)则停止
+        if queue.repeatMode == .off,
+           queue.currentIndex >= queue.items.count - 1,
+           queue.upNext.isEmpty {
+            state.isPlaying = false
+            return
+        }
+
+        // 尝试无缝切换
+        if currentEngine?.playPrepared() == true {
+            // 无缝成功:推进队列到新当前曲目
+            _ = queue.next()
+            // 预加载下一首
+            prepareNext()
+        } else {
+            // 无预加载(YouTube 或无下一首):回退到 load
+            next()
+        }
+    }
+
+    /// 预加载队列中的下一首到当前引擎(本地曲目的无缝前置条件)。
+    private func prepareNext() {
+        guard let nextItem = queue.upNext.first else {
+            // .all 模式且 upNext 空:预加载队列首项
+            if queue.repeatMode == .all, let first = queue.items.first {
+                Task { await currentEngine?.prepare(first.track) }
+            }
+            return
+        }
+        Task { await currentEngine?.prepare(nextItem.track) }
     }
 
     func playTrack(_ track: TrackSnapshot, context: [TrackSnapshot], from: QueueSource) {
@@ -110,6 +159,8 @@ final class PlaybackService {
         do {
             try await targetEngine.load(track)
             targetEngine.play()
+            // 预加载下一首(本地无缝播放的前置条件)
+            prepareNext()
         } catch {
             // 引擎已在 load 中设置了 state.error(本地用 .decodingFailed,
             // YouTube 用 .sourceUnavailable);此处只负责停播,不覆盖错误。

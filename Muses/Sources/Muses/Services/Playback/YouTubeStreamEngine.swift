@@ -47,6 +47,8 @@ final class YouTubeStreamEngine: PlayerEngine {
     /// 测试可见的降级状态查询(避免暴露内部存储)。
     var isInFallbackMode: Bool { useAVPlayerFallback }
 
+    var onCompletion: (@MainActor () -> Void)?
+
     init(bridge: any YTDlpBridgeProtocol,
          cache: StreamURLCache = .default,
          session: URLSession = .shared) {
@@ -60,6 +62,12 @@ final class YouTubeStreamEngine: PlayerEngine {
     }
 
     // MARK: - PlayerEngine
+
+    /// YouTube 预加载:no-op(yt-dlp 下载有延迟,无法真正无缝)
+    func prepare(_ track: TrackSnapshot) async {}
+
+    /// YouTube playPrepared:无预加载,返回 false(PlaybackService 回退到 load)
+    func playPrepared() -> Bool { false }
 
     func load(_ track: TrackSnapshot) async throws {
         // 1. 取消进行中的下载
@@ -302,7 +310,7 @@ final class YouTubeStreamEngine: PlayerEngine {
     private func handleCompletion() {
         posTimer?.invalidate()
         state.isPlaying = false
-        // 队列推进由 PlaybackService 监听 isPlaying 翻转
+        onCompletion?()
     }
 
     private func tearDownAVPlayer() {

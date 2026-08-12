@@ -51,4 +51,6 @@ enum PrefKey {
     static let ytCookieSource = "muses.yt.cookieSource"
     static let ytCookiePath = "muses.yt.cookiePath"
     static let notificationsTrackChange = "muses.notifications.trackChange"
+    static let crossfadeSeconds = "muses.playback.crossfadeSeconds"
+    static let replayGainEnabled = "muses.playback.replayGainEnabled"
 }

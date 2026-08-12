@@ -119,11 +119,27 @@ final class RecordingEngine: PlayerEngine {
     var eqBands: [EQBand]?
     var spectrumTapInstalled = false
     private var spectrumHandler: ((SpectrumFrame) -> Void)?
+    var onCompletion: (@MainActor () -> Void)?
+    var prepareCallCount = 0
+    var lastPreparedTrack: TrackSnapshot?
+    var playPreparedCallCount = 0
+    var playPreparedReturnValue = false
 
     func load(_ track: TrackSnapshot) async throws {
         loadCallCount += 1
         lastLoadedTrack = track
         state.track = track
+    }
+
+    func prepare(_ track: TrackSnapshot) async {
+        prepareCallCount += 1
+        lastPreparedTrack = track
+    }
+
+    @discardableResult
+    func playPrepared() -> Bool {
+        playPreparedCallCount += 1
+        return playPreparedReturnValue
     }
 
     func play() { playCallCount += 1 }

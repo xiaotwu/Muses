@@ -15,6 +15,7 @@ struct SettingsView: View {
                 Form {
                     ScanRootsSettingsView()
                     AudioQualitySettingsView()
+                    PlaybackSettingsView()
                     YouTubeSettingsView()
                     LyricsSettingsView()
 
