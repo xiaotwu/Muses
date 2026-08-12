@@ -31,6 +31,7 @@ struct TrackSnapshot: Identifiable, Equatable, Sendable, Codable {
     let bitDepth: Int?
     let codec: String?
     let isLossless: Bool
+    let liked: Bool
 
     init(from track: Track) {
         self.id = track.id; self.title = track.title; self.artist = track.artist
@@ -40,17 +41,45 @@ struct TrackSnapshot: Identifiable, Equatable, Sendable, Codable {
         self.artworkHash = track.localArtworkHash; self.artworkUrl = track.artworkUrl
         self.sampleRate = track.sampleRate; self.bitDepth = track.bitDepth
         self.codec = track.codec; self.isLossless = track.isLossless
+        self.liked = track.liked
     }
 
     init(id: UUID, title: String, artist: String, albumTitle: String?,
          durationSeconds: Double, filePath: String?, youTubeId: String?,
          artworkHash: String?, artworkUrl: String?,
-         sampleRate: Int?, bitDepth: Int?, codec: String?, isLossless: Bool) {
+         sampleRate: Int?, bitDepth: Int?, codec: String?, isLossless: Bool,
+         liked: Bool = false) {
         self.id = id; self.title = title; self.artist = artist
         self.albumTitle = albumTitle; self.durationSeconds = durationSeconds
         self.filePath = filePath; self.youTubeId = youTubeId
         self.artworkHash = artworkHash; self.artworkUrl = artworkUrl
         self.sampleRate = sampleRate; self.bitDepth = bitDepth
         self.codec = codec; self.isLossless = isLossless
+        self.liked = liked
+    }
+
+    // Custom decoder: `liked` defaults to false for backward compat with old
+    // QueueState JSON that predates the field (encode(to:) stays synthesized).
+    private enum CodingKeys: String, CodingKey {
+        case id, title, artist, albumTitle, durationSeconds, filePath, youTubeId
+        case artworkHash, artworkUrl, sampleRate, bitDepth, codec, isLossless, liked
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        artist = try c.decode(String.self, forKey: .artist)
+        albumTitle = try c.decodeIfPresent(String.self, forKey: .albumTitle)
+        durationSeconds = try c.decode(Double.self, forKey: .durationSeconds)
+        filePath = try c.decodeIfPresent(String.self, forKey: .filePath)
+        youTubeId = try c.decodeIfPresent(String.self, forKey: .youTubeId)
+        artworkHash = try c.decodeIfPresent(String.self, forKey: .artworkHash)
+        artworkUrl = try c.decodeIfPresent(String.self, forKey: .artworkUrl)
+        sampleRate = try c.decodeIfPresent(Int.self, forKey: .sampleRate)
+        bitDepth = try c.decodeIfPresent(Int.self, forKey: .bitDepth)
+        codec = try c.decodeIfPresent(String.self, forKey: .codec)
+        isLossless = try c.decode(Bool.self, forKey: .isLossless)
+        liked = try c.decodeIfPresent(Bool.self, forKey: .liked) ?? false
     }
 }

@@ -27,6 +27,8 @@ final class LibraryService {
     var enricher: MetadataEnricherService?
 
     var scanProgress: ScanProgress = .init(scanned: 0, total: 0, currentPath: nil)
+    /// Bumped on every `toggleLike` so views observing LibraryService re-render.
+    var likedRevision: Int = 0
 
     init(modelContainer: ModelContainer, metadata: MetadataService) {
         self.modelContainer = modelContainer
@@ -294,6 +296,33 @@ final class LibraryService {
     func allTracks() -> [Track] {
         let ctx = ModelContext(modelContainer)
         return (try? ctx.fetch(FetchDescriptor<Track>())) ?? []
+    }
+
+    /// Re-fetch the track by id in a fresh context, flip `liked`, and save.
+    /// Mirrors `markAvailable` — the caller's `Track` may belong to a different context.
+    func toggleLike(_ track: Track) { toggleLike(id: track.id) }
+
+    func toggleLike(id: UUID) {
+        let ctx = ModelContext(modelContainer)
+        guard let t = try? ctx.fetch(FetchDescriptor<Track>(
+            predicate: #Predicate { $0.id == id })).first else { return }
+        t.liked.toggle()
+        try? ctx.save()
+        likedRevision += 1
+    }
+
+    func isLiked(id: UUID) -> Bool {
+        let ctx = ModelContext(modelContainer)
+        return ((try? ctx.fetch(FetchDescriptor<Track>(
+            predicate: #Predicate { $0.id == id })).first)?.liked) ?? false
+    }
+
+    func likedTracks() -> [Track] {
+        let ctx = ModelContext(modelContainer)
+        let desc = FetchDescriptor<Track>(
+            predicate: #Predicate { $0.liked == true },
+            sortBy: [SortDescriptor(\.addedAt, order: .reverse)])
+        return (try? ctx.fetch(desc)) ?? []
     }
 
     /// Return the album's tracks sorted by (discNo, trackNo). Re-fetches the album in a

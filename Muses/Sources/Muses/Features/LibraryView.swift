@@ -68,7 +68,52 @@ struct SongsListView: View {
 }
 
 struct LikedView: View {
-    var body: some View { Text("Liked").frame(maxWidth: .infinity, maxHeight: .infinity) }
+    @Environment(LibraryService.self) private var library
+    @Environment(PlaybackService.self) private var playback
+    @Query(filter: #Predicate<Track> { $0.liked == true },
+           sort: \Track.addedAt, order: .reverse)
+    private var tracks: [Track]
+    var body: some View {
+        if tracks.isEmpty {
+            VStack(spacing: 12) {
+                Image(systemName: "heart").font(.system(size: 48))
+                    .foregroundStyle(BrandColors.textSecondary)
+                Text("还没有收藏的歌曲").font(.title3).foregroundStyle(BrandColors.textPrimary)
+                Text("点击歌曲旁的 ❤️ 收藏").font(.subheadline)
+                    .foregroundStyle(BrandColors.textSecondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.vertical, 80)
+            .navigationTitle("Liked")
+        } else {
+            List {
+                ForEach(tracks, id: \.id) { track in
+                    TrackRow(track: track, showHeart: true)
+                        .onTapGesture { play(track) }
+                        .padding(.vertical, 4)
+                }
+            }
+            .navigationTitle("Liked")
+            .safeAreaInset(edge: .bottom) {
+                Button { playAll() } label: {
+                    Label("播放全部", systemImage: "play.fill")
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(BrandColors.magenta)
+                .padding(.horizontal, 16).padding(.bottom, 8)
+            }
+        }
+    }
+    private func play(_ track: Track) {
+        let snaps = tracks.map { TrackSnapshot(from: $0) }
+        guard let snap = snaps.first(where: { $0.id == track.id }) else { return }
+        playback.playTrack(snap, context: snaps, from: .songs)
+    }
+    private func playAll() {
+        guard let first = tracks.first else { return }
+        play(first)
+    }
 }
 
 struct SettingsPlaceholderView: View {

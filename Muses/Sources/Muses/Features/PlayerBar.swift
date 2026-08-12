@@ -3,6 +3,7 @@ import AppKit
 
 struct PlayerBar: View {
     @Environment(PlaybackService.self) private var playback
+    @Environment(LibraryService.self) private var library
     @State private var seeking = false
     @State private var seekValue: Double = 0
     var onArtworkTap: () -> Void = {}
@@ -78,6 +79,18 @@ struct PlayerBar: View {
 
     private var trailingBlock: some View {
         HStack(spacing: 16) {
+            // 收藏当前曲目(访问 likedRevision 注册 @Observable 依赖)
+            let _ = library.likedRevision
+            let liked = playback.state.track.map { library.isLiked(id: $0.id) } ?? false
+            Button {
+                if let id = playback.state.track?.id { library.toggleLike(id: id) }
+            } label: {
+                Image(systemName: liked ? "heart.fill" : "heart")
+            }
+            .foregroundStyle(liked ? BrandColors.magenta : BrandColors.textSecondary)
+            .buttonStyle(.plain)
+            .help(liked ? "取消收藏" : "收藏")
+
             // Repeat 模式循环:off → all → one
             Button {
                 let next: RepeatMode

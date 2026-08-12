@@ -95,6 +95,8 @@ struct AlbumDetailView: View {
 
 struct TrackRow: View {
     let track: Track
+    var showHeart: Bool = true
+    @Environment(LibraryService.self) private var library
     var body: some View {
         HStack {
             Text("\(track.trackNo ?? 0)").foregroundStyle(BrandColors.textSecondary)
@@ -108,6 +110,15 @@ struct TrackRow: View {
                 Text("Hi-Res").font(.caption2).padding(.horizontal, 6).padding(.vertical, 2)
                     .background(BrandColors.green.opacity(0.2))
                     .foregroundStyle(BrandColors.green).cornerRadius(4)
+            }
+            if showHeart {
+                Button { library.toggleLike(track) } label: {
+                    Image(systemName: track.liked ? "heart.fill" : "heart")
+                        .font(.caption)
+                }
+                .foregroundStyle(track.liked ? BrandColors.magenta : BrandColors.textSecondary)
+                .buttonStyle(.plain)
+                .help(track.liked ? "取消收藏" : "收藏")
             }
             Text(formatDuration(track.durationSeconds)).foregroundStyle(BrandColors.textSecondary)
         }
