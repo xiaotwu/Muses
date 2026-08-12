@@ -81,8 +81,7 @@ struct NowPlayingView: View {
         case .cover:
             CoverArtModeView(artworkHash: playback.state.track?.artworkHash)
         case .vinyl:
-            // Task 6 提供 VinylModeView; 先用 cover 占位避免编译期依赖
-            CoverArtModeView(artworkHash: playback.state.track?.artworkHash)
+            VinylModeView(artworkHash: playback.state.track?.artworkHash)
         }
     }
 
