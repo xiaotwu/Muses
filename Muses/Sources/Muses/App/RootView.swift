@@ -10,6 +10,7 @@ struct RootView: View {
     @State private var showImport = false
     @State private var showNowPlaying = false
     @State private var showQueue = false
+    @State private var showSearch = false
 
     var body: some View {
         NavigationSplitView {
@@ -63,8 +64,15 @@ struct RootView: View {
                     .transition(.opacity)
             }
         }
+        .overlay {
+            if showSearch {
+                GlobalSearchView(isPresented: $showSearch)
+                    .transition(.opacity)
+            }
+        }
         .animation(.easeInOut(duration: 0.25), value: showNowPlaying)
         .animation(.easeInOut(duration: 0.25), value: showQueue)
+        .animation(.easeInOut(duration: 0.2), value: showSearch)
         .dropDestination(for: URL.self) { urls, _ in
             Task { await library.importURLs(urls) }
             return true
@@ -78,7 +86,17 @@ struct RootView: View {
             showQueue.toggle()
         }
         .onReceive(NotificationCenter.default.publisher(for: .musesFocusSearch)) { _ in
-            section = .songs
+            showSearch.toggle()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .musesNavigateArtist)) { note in
+            if let artist = note.object as? Artist {
+                selectedArtist = artist
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .musesNavigateAlbum)) { note in
+            if let album = note.object as? Album {
+                selectedAlbum = album
+            }
         }
         .toolbar {
             ToolbarItem(placement: .navigation) {

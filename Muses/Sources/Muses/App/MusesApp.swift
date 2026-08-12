@@ -11,6 +11,7 @@ struct MusesApp: App {
     let searchService: YouTubeSearchService
     let playlistService: PlaylistService
     let sleepTimer: SleepTimerService
+    let globalSearchService: GlobalSearchService
     let ytDlpBridge: YTDlpBridge
     private let nowPlayingManager: NowPlayingManager
     private let spotlightIndexer: SpotlightIndexer
@@ -38,6 +39,8 @@ struct MusesApp: App {
                                                   modelContainer: container)
         self.playlistService = PlaylistService(modelContainer: container)
         self.sleepTimer = SleepTimerService(playbackService: playbackService)
+        self.globalSearchService = GlobalSearchService(
+            library: library, youTubeSearch: searchService)
         let enricher = MetadataEnricherService(modelContainer: container)
         library.enricher = enricher
         library.backfillArtists()
@@ -71,6 +74,7 @@ struct MusesApp: App {
                     .environment(searchService)
                     .environment(playlistService)
                     .environment(sleepTimer)
+                    .environment(globalSearchService)
                     .environment(\.ytDlpBridge, ytDlpBridge)
                     .environment(\.updater, updaterController.updater)
                     .modelContainer(modelContainer)
