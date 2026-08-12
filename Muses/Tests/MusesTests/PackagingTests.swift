@@ -148,4 +148,29 @@ struct PackagingTests {
         let perm = (attrs[.posixPermissions] as? Int) ?? 0
         #expect(perm & 0o100 != 0, "notarize.sh 缺少可执行位")
     }
+
+    @Test("make-dmg.sh 语法通过 bash -n 且可执行")
+    func makeDmgScriptSyntax() throws {
+        let path = "Scripts/make-dmg.sh"
+        try #require(FileManager.default.fileExists(atPath: path), "make-dmg.sh 不存在")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-n", path]
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0, "make-dmg.sh 语法错误")
+        let attrs = try FileManager.default.attributesOfItem(atPath: path)
+        let perm = (attrs[.posixPermissions] as? Int) ?? 0
+        #expect(perm & 0o100 != 0, "make-dmg.sh 缺少可执行位")
+    }
+
+    /// 若 build/Muses-$VER.dmg 已生成,断言非空。
+    @Test("DMG 若存在则非空")
+    func dmgNonEmptyIfPresent() {
+        let dmg = "build/Muses-0.4.0.dmg"
+        guard FileManager.default.fileExists(atPath: dmg) else { return }
+        let size = (try? FileManager.default.attributesOfItem(
+            atPath: dmg)[.size] as? Int) ?? 0
+        #expect(size > 1_000_000, "DMG 异常小(<1MB)")
+    }
 }
