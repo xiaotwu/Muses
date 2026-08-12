@@ -29,6 +29,8 @@ final class LibraryService {
     var scanProgress: ScanProgress = .init(scanned: 0, total: 0, currentPath: nil)
     /// Bumped on every `toggleLike` so views observing LibraryService re-render.
     var likedRevision: Int = 0
+    /// Bumped on every `updateTrack` so views observing LibraryService re-render.
+    var metadataRevision: Int = 0
 
     init(modelContainer: ModelContainer, metadata: MetadataService) {
         self.modelContainer = modelContainer
@@ -458,6 +460,28 @@ final class LibraryService {
         t.liked.toggle()
         try? ctx.save()
         likedRevision += 1
+    }
+
+    /// 更新曲目元数据(fresh context re-fetch + mutate + save)。
+    /// 仅修改 DB,不写文件标签。bump metadataRevision 以刷新 UI。
+    func updateTrack(id: UUID, title: String, artist: String,
+                      albumTitle: String?, albumArtist: String?,
+                      trackNo: Int?, discNo: Int?, year: Int?,
+                      genre: String?, lyrics: String?) {
+        let ctx = ModelContext(modelContainer)
+        guard let t = try? ctx.fetch(FetchDescriptor<Track>(
+            predicate: #Predicate { $0.id == id })).first else { return }
+        t.title = title
+        t.artist = artist
+        t.albumTitle = albumTitle
+        t.albumArtist = albumArtist
+        t.trackNo = trackNo
+        t.discNo = discNo
+        t.year = year
+        t.genre = genre
+        t.lyrics = lyrics
+        try? ctx.save()
+        metadataRevision += 1
     }
 
     func isLiked(id: UUID) -> Bool {

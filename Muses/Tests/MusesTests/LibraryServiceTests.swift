@@ -75,6 +75,49 @@ struct LibraryServiceTests {
         #expect(afterRemoval.count == 1)
         #expect(afterRemoval.first?.availability == .unavailable)
     }
+
+    @Test("updateTrack writes back fields and bumps metadataRevision")
+    func updateTrackWritesFields() async throws {
+        let container = try makeModelContainer(inMemory: true)
+        let svc = LibraryService(modelContainer: container, metadata: MetadataService(
+            artworkCache: ArtworkCache(directory: FileManager.default.temporaryDirectory
+                .appending(path: "muses-lib-test-edit"))))
+
+        let dir = FileManager.default.temporaryDirectory.appending(path: "muses-scan-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try makeSilentWav(at: dir.appending(path: "tone.wav"), seconds: 1)
+
+        try await svc.addScanRoot(dir, watch: false)
+        let track = try #require(svc.allTracks().first)
+        let revBefore = svc.metadataRevision
+
+        svc.updateTrack(
+            id: track.id,
+            title: "新标题",
+            artist: "新艺术家",
+            albumTitle: "新专辑",
+            albumArtist: "专辑艺术家",
+            trackNo: 5,
+            discNo: 2,
+            year: 2024,
+            genre: "Jazz",
+            lyrics: "[00:00.00]测试歌词"
+        )
+
+        #expect(svc.metadataRevision == revBefore + 1)
+
+        // fresh fetch 验证写入
+        let updated = try #require(svc.allTracks().first)
+        #expect(updated.title == "新标题")
+        #expect(updated.artist == "新艺术家")
+        #expect(updated.albumTitle == "新专辑")
+        #expect(updated.albumArtist == "专辑艺术家")
+        #expect(updated.trackNo == 5)
+        #expect(updated.discNo == 2)
+        #expect(updated.year == 2024)
+        #expect(updated.genre == "Jazz")
+        #expect(updated.lyrics == "[00:00.00]测试歌词")
+    }
 }
 
 func makeSilentWav(at url: URL, seconds: Int) throws {

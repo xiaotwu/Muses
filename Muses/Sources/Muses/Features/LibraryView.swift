@@ -140,10 +140,12 @@ struct SongRow: View {
     var onPlayNext: () -> Void = {}
     @Environment(LibraryService.self) private var library
     @Environment(PlaylistService.self) private var playlistService
+    @State private var showEditTrack = false
 
     var body: some View {
-        // 访问 likedRevision 注册 @Observable 依赖,使 toggleLike 后心心即时刷新。
+        // 访问 likedRevision / metadataRevision 注册 @Observable 依赖,使 toggleLike / 编辑信息 后即时刷新。
         let _ = library.likedRevision
+        let _ = library.metadataRevision
         let liked = library.isLiked(id: track.id)
         HStack(spacing: 10) {
             artwork.frame(width: 40, height: 40).cornerRadius(4)
@@ -183,6 +185,11 @@ struct SongRow: View {
                     }
                 }
             }
+            Divider()
+            Button("编辑信息") { showEditTrack = true }
+        }
+        .sheet(isPresented: $showEditTrack) {
+            EditTrackSheet(track: track)
         }
     }
 
