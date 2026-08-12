@@ -127,4 +127,74 @@ final class PlaylistService {
         playlist.items = items
         try? playlist.modelContext?.save()
     }
+
+    // MARK: - M3U 导入/导出
+
+    /// 从 M3U/M3U8 文件导入曲目到歌单。
+    /// 按 filePath 匹配已有 Track,未匹配的跳过(不自动扫描新文件)。
+    /// 返回成功匹配并添加的曲目数。
+    @discardableResult
+    func importM3U(_ playlist: Playlist, from url: URL) -> Int {
+        guard let paths = try? M3UService.parse(url: url) else { return 0 }
+        let ctx = ModelContext(modelContainer)
+        let playlistId = playlist.id
+
+        guard let p = try? ctx.fetch(FetchDescriptor<Playlist>(
+            predicate: #Predicate { $0.id == playlistId }
+        )).first else { return 0 }
+
+        // 预加载所有本地 Track,按 filePath 和文件名建立索引(M3U 导入是手动操作,全量 fetch 可接受)
+        let allTracks = (try? ctx.fetch(FetchDescriptor<Track>())) ?? []
+        let byPath: [String: Track] = Dictionary(uniqueKeysWithValues: allTracks.compactMap { t in
+            t.filePath.map { ($0, t) }
+        })
+        let byFilename: [String: Track] = Dictionary(allTracks.compactMap { t in
+            t.filePath.map { (( $0 as NSString).lastPathComponent, t) }
+        }, uniquingKeysWith: { first, _ in first })
+
+        let existingTrackIds = Set((p.items ?? []).compactMap { $0.track?.id })
+        var added = 0
+        var nextOrder = (p.items ?? []).map { $0.order }.max() ?? -1
+
+        for path in paths {
+            // 先按绝对路径匹配,再按文件名兜底
+            let track = byPath[path] ?? {
+                let fname = (path as NSString).lastPathComponent
+                return byFilename[fname]
+            }()
+            guard let track else { continue }
+            if existingTrackIds.contains(track.id) { continue }
+            nextOrder += 1
+            let item = PlaylistItem(order: nextOrder, playlist: p, track: track)
+            ctx.insert(item)
+            if var items = p.items { items.append(item); p.items = items }
+            else { p.items = [item] }
+            added += 1
+        }
+
+        try? ctx.save()
+        log.info("M3U 导入:从 \(url.lastPathComponent) 添加 \(added) 首到歌单 \(playlist.name)")
+        return added
+    }
+
+    /// 导出歌单为 M3U 文件。
+    /// `relativeTo` 非 nil 时,filePath 转为相对路径。
+    func exportM3U(_ playlist: Playlist, to url: URL, relativeTo: URL? = nil) {
+        let ctx = ModelContext(modelContainer)
+        let playlistId = playlist.id
+        guard let p = try? ctx.fetch(FetchDescriptor<Playlist>(
+            predicate: #Predicate { $0.id == playlistId }
+        )).first else { return }
+
+        let items = (p.items ?? []).sorted { $0.order < $1.order }
+        let entries: [(filePath: String, title: String, durationSeconds: Double)] = items.compactMap { item in
+            guard let track = item.track, let fp = track.filePath else { return nil }
+            let title = "\(track.artist) - \(track.title)"
+            return (filePath: fp, title: title, durationSeconds: track.durationSeconds)
+        }
+
+        let content = M3UService.export(entries: entries, relativeTo: relativeTo)
+        try? content.write(to: url, atomically: true, encoding: .utf8)
+        log.info("M3U 导出:\(entries.count) 首到 \(url.path)")
+    }
 }

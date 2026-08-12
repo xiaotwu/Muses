@@ -1,13 +1,16 @@
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
+import AppKit
 
-/// 歌单详情页:展示曲目列表 + 拖拽排序 + 删除 + 播放。
+/// 歌单详情页:展示曲目列表 + 拖拽排序 + 删除 + 播放 + M3U 导入/导出。
 struct PlaylistDetailView: View {
     let playlist: Playlist
     @Binding var selectedPlaylist: Playlist?
     @Environment(PlaylistService.self) private var playlistService
     @Environment(PlaybackService.self) private var playback
     @State private var showAddTrackSheet = false
+    @State private var showM3UImporter = false
 
     private var sortedItems: [PlaylistItem] {
         (playlist.items ?? []).sorted { $0.order < $1.order }
@@ -48,6 +51,21 @@ struct PlaylistDetailView: View {
                             Label("添加曲目", systemImage: "plus")
                         }
                         .buttonStyle(.bordered)
+
+                        Button {
+                            showM3UImporter = true
+                        } label: {
+                            Label("导入 M3U", systemImage: "square.and.arrow.down")
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button {
+                            exportM3U()
+                        } label: {
+                            Label("导出 M3U", systemImage: "square.and.arrow.up")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(sortedItems.isEmpty)
                     }
                 }
                 Spacer()
@@ -82,6 +100,20 @@ struct PlaylistDetailView: View {
             AddToPlaylistSheet(playlist: playlist)
                 .environment(playlistService)
         }
+        .fileImporter(isPresented: $showM3UImporter,
+                      allowedContentTypes: [.text],
+                      allowsMultipleSelection: false) { result in
+            switch result {
+            case .success(let urls):
+                if let url = urls.first {
+                    if url.startAccessingSecurityScopedResource() {
+                        defer { url.stopAccessingSecurityScopedResource() }
+                        _ = playlistService.importM3U(playlist, from: url)
+                    }
+                }
+            case .failure: break
+            }
+        }
     }
 
     private func playAll() {
@@ -95,6 +127,15 @@ struct PlaylistDetailView: View {
 
     private func removeItem(_ item: PlaylistItem) {
         playlistService.removeItem(item)
+    }
+
+    private func exportM3U() {
+        let panel = NSSavePanel()
+        panel.title = "导出 M3U"
+        panel.allowedContentTypes = [.text]
+        panel.nameFieldStringValue = "\(playlist.name).m3u"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        playlistService.exportM3U(playlist, to: url)
     }
 }
 
