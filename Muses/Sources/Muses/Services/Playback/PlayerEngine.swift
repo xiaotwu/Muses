@@ -11,4 +11,5 @@ protocol PlayerEngine: AnyObject {
     func setVolume(_ v: Float)
     func setEQ(_ bands: [EQBand])
     func installSpectrumTap(_ handler: @escaping (SpectrumFrame) -> Void)
+    func removeSpectrumTap()
 }

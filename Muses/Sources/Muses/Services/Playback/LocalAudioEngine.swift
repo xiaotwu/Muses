@@ -160,6 +160,10 @@ final class LocalAudioEngine: PlayerEngine {
         spectrumTap.start(on: eq, bus: 0, format: eq.outputFormat(forBus: 0), handler: handler)
     }
 
+    func removeSpectrumTap() {
+        spectrumTap.stop()
+    }
+
     private func startPosTimer() {
         posTimer?.invalidate()
         posTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in

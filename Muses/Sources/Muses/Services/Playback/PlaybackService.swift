@@ -33,6 +33,9 @@ final class PlaybackService {
     func installSpectrumHandler(_ h: @escaping (SpectrumFrame) -> Void) {
         engine.installSpectrumTap(h)
     }
+    func removeSpectrumHandler() {
+        engine.removeSpectrumTap()
+    }
 
     func next() {
         guard let item = queue.next() else {
