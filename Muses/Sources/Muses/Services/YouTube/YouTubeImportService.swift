@@ -68,8 +68,9 @@ final class YouTubeImportService {
     /// 流程:
     /// 1. `bridge.fetchPlaylist` 抓取 flat-playlist 条目。
     /// 2. 从 URL 解析 `list=` 参数作为 `playlistId`;失败则抛 `.invalidURL`。
-    /// 3. 新建 `YouTubeImport`,为每个条目创建 item + 懒 `.youtube` Track。
-    /// 4. 设置歌单封面 URL(首条视频 hqdefault),下载并缓存(失败不阻塞)。
+    /// 3. 调 YouTube oEmbed API 获取歌单真实标题/频道/封面;失败回退首条 entry。
+    /// 4. 新建 `YouTubeImport`,为每个条目创建 item + 懒 `.youtube` Track。
+    /// 5. 设置歌单封面 URL(oEmbed 或首条视频 hqdefault),下载并缓存(失败不阻塞)。
     func importPlaylist(url: String) async throws -> UUID {
         // 1. 抓取条目。
         let entries: [YTDlpBridge.YTDlpPlaylistEntry]
@@ -90,11 +91,11 @@ final class YouTubeImportService {
             throw YouTubeImportError.invalidURL
         }
 
-        // 4. flat-playlist 仅输出 per-video 条目,无歌单元数据。
-        //    以首个条目的 uploader 作为频道,标题用通用占位(Phase 4 可经
-        //    YT Data API 补全)。
-        let channel = entries.first?.uploader ?? "Unknown"
-        let title = "YouTube Playlist"
+        // 4. oEmbed 获取歌单元数据(失败回退)。
+        let meta = await fetchOEmbedMetadata(for: url)
+        let title = meta?.title ?? "YouTube Playlist"
+        let channel = meta?.channel ?? entries.first?.uploader ?? "Unknown"
+        let oembedArtwork = meta?.artworkURL
 
         // 5. 新建 ModelContext。
         let ctx = ModelContext(modelContainer)
@@ -141,15 +142,14 @@ final class YouTubeImportService {
         // 8. 首次同步时间。
         imp.lastSyncedAt = Date()
 
-        // 9. 歌单封面:首条视频缩略图 URL,下载并缓存(失败不阻塞导入)。
-        if let firstEntry = entries.first {
-            let artworkURLString = thumbnailURL(forVideoId: firstEntry.id)
+        // 9. 歌单封面:oEmbed 缩略图优先,回退首条视频 hqdefault;下载缓存(失败不阻塞)。
+        let artworkURLString = oembedArtwork
+            ?? (entries.first.map { thumbnailURL(forVideoId: $0.id) })
+        if let artworkURLString {
             imp.artworkUrl = artworkURLString
             if let artworkURL = URL(string: artworkURLString) {
                 if let imageData = await get(artworkURL) {
                     if let hash = try? artworkCache.store(imageData) {
-                        // 将 localArtworkHash 暂存到 import 上不便(无该字段),
-                        // 封面 URL 已设;本地缓存 hash 仅用于去重,此处无需记录。
                         _ = hash
                     }
                 }
@@ -159,7 +159,7 @@ final class YouTubeImportService {
         // 10. 保存。
         try ctx.save()
 
-        log.info("导入歌单 \(playlistId),共 \(items.count) 条")
+        log.info("导入歌单 \(playlistId)(\(title)),共 \(items.count) 条")
         return imp.id
     }
 
@@ -263,6 +263,14 @@ final class YouTubeImportService {
         }
 
         imp.lastSyncedAt = Date()
+
+        // 刷新歌单元数据(oEmbed)。
+        if let meta = await fetchOEmbedMetadata(for: imp.url) {
+            imp.title = meta.title
+            imp.channel = meta.channel
+            if let art = meta.artworkURL { imp.artworkUrl = art }
+        }
+
         try ctx.save()
 
         log.info("resync 完成 \(imp.playlistId),当前 \(imp.items?.count ?? 0) 条")
@@ -341,6 +349,27 @@ final class YouTubeImportService {
     }
 
     // MARK: - Helpers
+
+    /// 从 YouTube oEmbed API 获取歌单元数据(标题/频道/封面)。
+    /// 无需 API key;失败(404/网络)返回 nil,调用方回退。
+    ///
+    /// - Parameter playlistURL: 歌单 URL(含 `list=` 参数)。
+    /// - Returns: `(title, channel, artworkURL?)` 或 nil。
+    private func fetchOEmbedMetadata(for playlistURL: String) async -> (title: String, channel: String, artworkURL: String?)? {
+        guard let encoded = playlistURL.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "https://www.youtube.com/oembed?url=\(encoded)&format=json") else {
+            return nil
+        }
+        guard let data = await get(url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let title = json["title"] as? String,
+              let channel = json["author_name"] as? String else {
+            log.warning("oEmbed 解析失败或未返回,回退占位元数据")
+            return nil
+        }
+        let artwork = json["thumbnail_url"] as? String
+        return (title, channel, artwork)
+    }
 
     /// 从 YouTube URL 中解析 `list=` 参数,返回歌单 id。
     /// 支持 `youtube.com/playlist?list=`, `youtube.com/watch?v=...&list=...`,
