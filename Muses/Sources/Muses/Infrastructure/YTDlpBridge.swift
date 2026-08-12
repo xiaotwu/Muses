@@ -125,11 +125,32 @@ final class YTDlpBridge {
             throw YTDlpError.notFound
         }
 
-        // 2) Bundle 资源。
-        if let bundleURL = Bundle.main.url(forResource: "yt-dlp", withExtension: nil),
-           fm.isExecutableFile(atPath: bundleURL.path) {
-            resolvedBinary = bundleURL.path
-            return bundleURL.path
+        // 2) Bundle 资源。优先 .app 内的 main bundle,其次 SPM 模块资源 bundle
+        //    (Muses_Muses.bundle,由 .copy("Resources") 生成),再回退到工作目录下的
+        //    Resources/yt-dlp(swift run 从仓库根执行时),最后 MUSES_YTDLP_PATH 环境变量。
+        let envPath = ProcessInfo.processInfo.environment["MUSES_YTDLP_PATH"]
+        var candidateURLs: [URL] = []
+        candidateURLs.appendIfPresent(
+            Bundle.main.url(forResource: "yt-dlp", withExtension: nil))
+        candidateURLs.appendIfPresent(
+            Bundle.module.url(forResource: "yt-dlp", withExtension: nil))
+        candidateURLs.append(URL(fileURLWithPath:
+            FileManager.default.currentDirectoryPath
+            + "/Muses/Sources/Muses/Resources/yt-dlp"))
+        if let path = envPath {
+            candidateURLs.append(URL(fileURLWithPath: path))
+        }
+
+        for url in candidateURLs {
+            let path = url.path
+            if !fm.isExecutableFile(atPath: path), fm.fileExists(atPath: path) {
+                // 解压/拷贝后可能丢失 +x 权限,补一次。
+                try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+            }
+            if fm.isExecutableFile(atPath: path) {
+                resolvedBinary = path
+                return path
+            }
         }
 
         // 3) `which yt-dlp`(短超时 5s)。
@@ -329,5 +350,12 @@ final class YTDlpBridge {
             throw YTDlpError.exitCode(Int(status), stderr)
         }
         return (stdout, stderr)
+    }
+}
+
+private extension Array where Element == URL {
+    /// 当可选元素非 nil 时追加。
+    mutating func appendIfPresent(_ url: URL?) {
+        if let url { append(url) }
     }
 }
