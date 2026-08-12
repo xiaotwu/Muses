@@ -27,6 +27,7 @@ struct SettingsView: View {
                     }
 
                     ThemeSettingsView()
+                    NotificationsSettingsView()
                     UpdatesSettingsView()
                     AboutView()
                 }

@@ -1,0 +1,25 @@
+import SwiftUI
+import UserNotifications
+
+/// 通知设置:换歌通知 opt-in 开关。
+struct NotificationsSettingsView: View {
+    @AppStorage(PrefKey.notificationsTrackChange) private var trackChangeEnabled = false
+    @State private var authorizationRequested = false
+
+    var body: some View {
+        Section("通知") {
+            Toggle("换歌时通知", isOn: $trackChangeEnabled)
+                .onChange(of: trackChangeEnabled) { _, on in
+                    if on && !authorizationRequested {
+                        Task { _ = try? await UNUserNotificationCenter.current()
+                            .requestAuthorization(options: [.alert]) }
+                        authorizationRequested = true
+                    }
+                }
+            if trackChangeEnabled {
+                Text("每首歌曲切换时会发送一条系统通知。")
+                    .font(.caption).foregroundStyle(BrandColors.textSecondary)
+            }
+        }
+    }
+}

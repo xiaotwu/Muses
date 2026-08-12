@@ -2,13 +2,16 @@ import Foundation
 import MediaPlayer
 import AppKit
 import Observation
+import UserNotifications
 
 /// 管理 MPNowPlayingInfoCenter(锁屏/控制中心元信息)与 MPRemoteCommandCenter(媒体键)。
 /// 订阅 PlaybackService.state 变化 → 更新 nowPlayingInfo; 绑定远程命令转发回 PlaybackService。
+/// 可选:换歌时发本地通知(opt-in via @AppStorage PrefKey.notificationsTrackChange)。
 @MainActor
 final class NowPlayingManager {
     let playback: PlaybackService
     private var updateTask: Task<Void, Never>?
+    private var lastNotifiedTrackId: UUID?
 
     init(_ playback: PlaybackService) {
         self.playback = playback
@@ -66,6 +69,34 @@ final class NowPlayingManager {
         }
 
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+
+        // 换歌通知(opt-in)
+        if let track = state.track, track.id != lastNotifiedTrackId {
+            lastNotifiedTrackId = track.id
+            sendTrackChangeNotification(title: track.title, body: track.artist)
+        }
+    }
+
+    // MARK: - 换歌通知
+
+    private func sendTrackChangeNotification(title: String, body: String) {
+        let enabled = UserDefaults.standard.bool(forKey: PrefKey.notificationsTrackChange)
+        guard enabled else { return }
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = nil
+        let request = UNNotificationRequest(
+            identifier: "muses.track.\(UUID().uuidString)",
+            content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    /// 请求通知授权(在用户首次开启通知时调用)。
+    func requestNotificationAuthorization() async -> Bool {
+        let center = UNUserNotificationCenter.current()
+        let granted = (try? await center.requestAuthorization(options: [.alert])) ?? false
+        return granted
     }
 
     // MARK: - 远程命令绑定

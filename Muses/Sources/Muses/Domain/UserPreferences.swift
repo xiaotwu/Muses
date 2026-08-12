@@ -50,4 +50,5 @@ enum PrefKey {
     static let checkForUpdates = "muses.updates.checkAutomatically"
     static let ytCookieSource = "muses.yt.cookieSource"
     static let ytCookiePath = "muses.yt.cookiePath"
+    static let notificationsTrackChange = "muses.notifications.trackChange"
 }

@@ -64,6 +64,16 @@ struct NowPlayingView: View {
 
             Spacer()
 
+            // 音量控制
+            HStack(spacing: 6) {
+                Image(systemName: playback.volume > 0 ? "speaker.wave.2" : "speaker.slash")
+                    .font(.caption).foregroundStyle(BrandColors.textSecondary)
+                Slider(value: Binding(
+                    get: { Double(playback.volume) },
+                    set: { playback.setVolume(Float($0)) }), in: 0...1)
+                    .frame(width: 80).tint(BrandColors.cyan)
+            }
+
             Button { playback.toggle() } label: {
                 Image(systemName: playback.state.isPlaying ? "pause.fill" : "play.fill")
                     .font(.title3)
