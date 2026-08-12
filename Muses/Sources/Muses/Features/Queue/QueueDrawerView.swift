@@ -35,6 +35,36 @@ struct QueueDrawerView: View {
         HStack {
             Text("Queue").font(.headline).foregroundStyle(BrandColors.textPrimary)
             Spacer()
+            // Repeat 模式循环
+            Button {
+                let next: RepeatMode
+                switch playback.queue.repeatMode {
+                case .off:  next = .all
+                case .all:  next = .one
+                case .one:  next = .off
+                }
+                playback.queue.setRepeat(next)
+            } label: {
+                Image(systemName: playback.queue.repeatMode == .one ? "repeat.1" : "repeat")
+                    .font(.callout)
+            }
+            .foregroundStyle(playback.queue.repeatMode == .off
+                             ? BrandColors.textSecondary : BrandColors.magenta)
+            .buttonStyle(.plain)
+            .help("循环模式")
+
+            // Shuffle 切换
+            Button {
+                playback.queue.toggleShuffle()
+            } label: {
+                Image(systemName: "shuffle")
+                    .font(.callout)
+            }
+            .foregroundStyle(playback.queue.shuffle
+                             ? BrandColors.magenta : BrandColors.textSecondary)
+            .buttonStyle(.plain)
+            .help("随机播放")
+
             Button { isPresented = false } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.title3)

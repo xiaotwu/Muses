@@ -78,14 +78,48 @@ struct PlayerBar: View {
 
     private var trailingBlock: some View {
         HStack(spacing: 16) {
+            // Repeat 模式循环:off → all → one
+            Button {
+                let next: RepeatMode
+                switch playback.queue.repeatMode {
+                case .off:  next = .all
+                case .all:  next = .one
+                case .one:  next = .off
+                }
+                playback.queue.setRepeat(next)
+            } label: {
+                Image(systemName: playback.queue.repeatMode == .one ? "repeat.1" : "repeat")
+            }
+            .foregroundStyle(playback.queue.repeatMode == .off
+                             ? BrandColors.textSecondary : BrandColors.magenta)
+            .buttonStyle(.plain)
+            .help(repeatHelp)
+
+            // Shuffle 切换
+            Button {
+                playback.queue.toggleShuffle()
+            } label: {
+                Image(systemName: "shuffle")
+            }
+            .foregroundStyle(playback.queue.shuffle
+                             ? BrandColors.magenta : BrandColors.textSecondary)
+            .buttonStyle(.plain)
+            .help(playback.queue.shuffle ? "随机:开" : "随机:关")
+
             Slider(value: Binding(
                 get: { Double(playback.volume) },
                 set: { playback.setVolume(Float($0)) }), in: 0...1)
                 .frame(width: 100).tint(BrandColors.cyan)
             Button { onQueueTap() } label: { Image(systemName: "list.bullet") }
                 .foregroundStyle(BrandColors.textSecondary)
-            Button { } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
-                .foregroundStyle(BrandColors.textSecondary)
+        }
+    }
+
+    private var repeatHelp: String {
+        switch playback.queue.repeatMode {
+        case .off: "循环:关"
+        case .all: "循环:全部"
+        case .one: "循环:单曲"
         }
     }
 
