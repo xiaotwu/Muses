@@ -133,4 +133,19 @@ struct PackagingTests {
                     "\(tool) 缺失或不可执行")
         }
     }
+
+    @Test("notarize.sh 语法通过 bash -n 且可执行")
+    func notarizeScriptSyntax() throws {
+        let path = "Scripts/notarize.sh"
+        try #require(FileManager.default.fileExists(atPath: path), "notarize.sh 不存在")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-n", path]
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0, "notarize.sh 语法错误")
+        let attrs = try FileManager.default.attributesOfItem(atPath: path)
+        let perm = (attrs[.posixPermissions] as? Int) ?? 0
+        #expect(perm & 0o100 != 0, "notarize.sh 缺少可执行位")
+    }
 }
