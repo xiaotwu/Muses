@@ -75,29 +75,30 @@ struct SongsListView: View {
 
     var body: some View {
         let tracks = sortedTracks(library.allTracks(search: searchText.isEmpty ? nil : searchText))
-        if tracks.isEmpty {
-            EmptyStateView(
-                icon: "music.note",
-                title: searchText.isEmpty ? "资料库中没有歌曲" : "无搜索结果",
-                subtitle: searchText.isEmpty ? "点击左上角 + 导入音乐文件夹" : nil)
-                .navigationTitle("Songs")
-        } else {
-            List(tracks, id: \.id) { track in
-                SongRow(track: track,
-                        onPlay: { play(track, from: tracks) },
-                        onAddToQueue: { playback.queue.addToQueue(TrackSnapshot(from: track)) },
-                        onPlayNext: { playback.queue.playNext(TrackSnapshot(from: track)) })
-                    .tag(track.id)
-            }
-            .navigationTitle("Songs")
-            .searchable(text: $searchText, prompt: "搜索歌曲、艺术家、专辑")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Picker("排序", selection: $sortKey) {
-                        ForEach(SortKey.allCases) { key in Text(key.label).tag(key) }
-                    }
-                    .pickerStyle(.menu)
+        Group {
+            if tracks.isEmpty {
+                EmptyStateView(
+                    icon: "music.note",
+                    title: searchText.isEmpty ? "资料库中没有歌曲" : "无搜索结果",
+                    subtitle: searchText.isEmpty ? "点击左上角 + 导入音乐文件夹" : nil)
+            } else {
+                List(tracks, id: \.id) { track in
+                    SongRow(track: track,
+                            onPlay: { play(track, from: tracks) },
+                            onAddToQueue: { playback.queue.addToQueue(TrackSnapshot(from: track)) },
+                            onPlayNext: { playback.queue.playNext(TrackSnapshot(from: track)) })
+                        .tag(track.id)
                 }
+            }
+        }
+        .navigationTitle("Songs")
+        .searchable(text: $searchText, prompt: "搜索歌曲、艺术家、专辑")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Picker("排序", selection: $sortKey) {
+                    ForEach(SortKey.allCases) { key in Text(key.label).tag(key) }
+                }
+                .pickerStyle(.menu)
             }
         }
     }
@@ -129,6 +130,9 @@ struct SongRow: View {
     @Query(sort: \Playlist.name) private var playlists: [Playlist]
 
     var body: some View {
+        // 访问 likedRevision 注册 @Observable 依赖,使 toggleLike 后心心即时刷新。
+        let _ = library.likedRevision
+        let liked = library.isLiked(id: track.id)
         HStack(spacing: 10) {
             artwork.frame(width: 40, height: 40).cornerRadius(4)
             VStack(alignment: .leading, spacing: 2) {
@@ -144,9 +148,9 @@ struct SongRow: View {
                     .foregroundStyle(BrandColors.green).cornerRadius(4)
             }
             Button { library.toggleLike(track) } label: {
-                Image(systemName: track.liked ? "heart.fill" : "heart").font(.caption)
+                Image(systemName: liked ? "heart.fill" : "heart").font(.caption)
             }
-            .foregroundStyle(track.liked ? BrandColors.magenta : BrandColors.textSecondary)
+            .foregroundStyle(liked ? BrandColors.magenta : BrandColors.textSecondary)
             .buttonStyle(.plain)
             Text(formatDuration(track.durationSeconds)).foregroundStyle(BrandColors.textSecondary)
                 .frame(width: 44, alignment: .trailing)
@@ -158,7 +162,7 @@ struct SongRow: View {
             Button("下一首播放") { onPlayNext() }
             Button("加入队列") { onAddToQueue() }
             Divider()
-            Button(track.liked ? "取消收藏" : "收藏") { library.toggleLike(track) }
+            Button(liked ? "取消收藏" : "收藏") { library.toggleLike(track) }
             if !playlists.isEmpty {
                 Divider()
                 Menu("添加到歌单") {

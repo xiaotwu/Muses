@@ -98,6 +98,9 @@ struct TrackRow: View {
     var showHeart: Bool = true
     @Environment(LibraryService.self) private var library
     var body: some View {
+        // 访问 likedRevision 注册 @Observable 依赖,使 toggleLike 后心心即时刷新。
+        let _ = library.likedRevision
+        let liked = library.isLiked(id: track.id)
         HStack {
             Text("\(track.trackNo ?? 0)").foregroundStyle(BrandColors.textSecondary)
                 .frame(width: 28, alignment: .trailing)
@@ -113,12 +116,12 @@ struct TrackRow: View {
             }
             if showHeart {
                 Button { library.toggleLike(track) } label: {
-                    Image(systemName: track.liked ? "heart.fill" : "heart")
+                    Image(systemName: liked ? "heart.fill" : "heart")
                         .font(.caption)
                 }
-                .foregroundStyle(track.liked ? BrandColors.magenta : BrandColors.textSecondary)
+                .foregroundStyle(liked ? BrandColors.magenta : BrandColors.textSecondary)
                 .buttonStyle(.plain)
-                .help(track.liked ? "取消收藏" : "收藏")
+                .help(liked ? "取消收藏" : "收藏")
             }
             Text(formatDuration(track.durationSeconds)).foregroundStyle(BrandColors.textSecondary)
         }
