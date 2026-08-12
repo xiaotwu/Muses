@@ -159,4 +159,110 @@ struct LyricsServiceTests {
         #expect(result.syncedLyrics != nil)
         #expect(result.syncedLyrics?.contains("[00:01.00] hello") == true)
     }
+
+    // MARK: - 5. Musixmatch fetch via stub URLProtocol
+
+    @Test("Musixmatch fetch 返回同步歌词 (search → subtitle)")
+    func musixmatchFetchReturnsSyncedLyrics() async throws {
+        // track.search 响应:含一个 track_id=15953433。
+        let searchJSON = """
+        {"message":{"header":{"status_code":200},"body":{"track_list":[{"track":{"track_id":15953433}}]}}}
+        """
+        // track.subtitle.get 响应:subtitle_body 为 LRC。
+        let subtitleJSON = """
+        {"message":{"header":{"status_code":200},"body":{"subtitle":{"subtitle_body":"[00:01.00] hello\\n[00:03.50] world"}}}}
+        """
+
+        StubURLProtocol.reset()
+        let stub = StubURLProtocol()
+        // Musixmatch 三个端点共用 host,按 path 分发 canned 响应。
+        stub.respond(forHostContaining: "musixmatch") { req in
+            let path = req.url?.path ?? ""
+            if path.contains("track.search") {
+                return StubResponse(statusCode: 200, body: Data(searchJSON.utf8))
+            }
+            if path.contains("track.subtitle.get") {
+                return StubResponse(statusCode: 200, body: Data(subtitleJSON.utf8))
+            }
+            return StubResponse(statusCode: 404, body: Data())
+        }
+        // LRCLIB 不应被命中(Musixmatch 成功)。
+        stub.respond(forHostEndingWith: "lrclib.net") { _ in
+            StubResponse(statusCode: 404, body: Data())
+        }
+
+        let session = URLSession(configuration: StubURLProtocol.makeConfig(stub))
+        let service = LyricsService(session: session)
+
+        let original = UserDefaults.standard.string(forKey: PrefKey.lyricsSource)
+        UserDefaults.standard.set("musixmatch", forKey: PrefKey.lyricsSource)
+        defer {
+            if let original {
+                UserDefaults.standard.set(original, forKey: PrefKey.lyricsSource)
+            } else {
+                UserDefaults.standard.removeObject(forKey: PrefKey.lyricsSource)
+            }
+        }
+
+        let track = TrackSnapshot(
+            id: UUID(), title: "Test", artist: "Artist", albumTitle: nil,
+            durationSeconds: 200, filePath: nil, youTubeId: nil,
+            artworkHash: nil, artworkUrl: nil,
+            sampleRate: nil, bitDepth: nil, codec: nil, isLossless: false
+        )
+
+        let result = try #require(await service.fetch(track: track))
+        #expect(result.source == LyricsSource.musixmatch)
+        #expect(result.syncedLyrics?.contains("[00:01.00] hello") == true)
+    }
+
+    // MARK: - 6. Musixmatch 失败回退 LRCLIB
+
+    @Test("Musixmatch 未命中时回退 LRCLIB")
+    func musixmatchFallbackToLrclib() async throws {
+        // track.search 空结果。
+        let emptySearch = """
+        {"message":{"header":{"status_code":200},"body":{"track_list":[]}}}
+        """
+        let lrclibJSON = """
+        {"plainLyrics":null,"syncedLyrics":"[00:02.00] fallback"}
+        """
+
+        StubURLProtocol.reset()
+        let stub = StubURLProtocol()
+        stub.respond(forHostContaining: "musixmatch") { req in
+            let path = req.url?.path ?? ""
+            if path.contains("track.search") {
+                return StubResponse(statusCode: 200, body: Data(emptySearch.utf8))
+            }
+            return StubResponse(statusCode: 404, body: Data())
+        }
+        stub.respond(forHostEndingWith: "lrclib.net") { _ in
+            StubResponse(statusCode: 200, body: Data(lrclibJSON.utf8))
+        }
+
+        let session = URLSession(configuration: StubURLProtocol.makeConfig(stub))
+        let service = LyricsService(session: session)
+
+        let original = UserDefaults.standard.string(forKey: PrefKey.lyricsSource)
+        UserDefaults.standard.set("musixmatch", forKey: PrefKey.lyricsSource)
+        defer {
+            if let original {
+                UserDefaults.standard.set(original, forKey: PrefKey.lyricsSource)
+            } else {
+                UserDefaults.standard.removeObject(forKey: PrefKey.lyricsSource)
+            }
+        }
+
+        let track = TrackSnapshot(
+            id: UUID(), title: "Test", artist: "Artist", albumTitle: nil,
+            durationSeconds: 200, filePath: nil, youTubeId: nil,
+            artworkHash: nil, artworkUrl: nil,
+            sampleRate: nil, bitDepth: nil, codec: nil, isLossless: false
+        )
+
+        let result = try #require(await service.fetch(track: track))
+        #expect(result.source == LyricsSource.lrclib)
+        #expect(result.syncedLyrics?.contains("[00:02.00] fallback") == true)
+    }
 }

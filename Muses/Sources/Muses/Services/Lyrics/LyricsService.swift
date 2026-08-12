@@ -2,8 +2,9 @@ import Foundation
 
 /// 歌词来源。
 enum LyricsSource: String, Sendable {
-    case local   // 本地 .lrc 文件
-    case lrclib  // LRCLIB API
+    case local       // 本地 .lrc 文件
+    case lrclib      // LRCLIB API
+    case musixmatch  // Musixmatch 公共 Web API
 }
 
 /// 单行歌词(可带时间标签)。
@@ -38,8 +39,9 @@ final class LyricsService {
     /// 根据用户偏好(`PrefKey.lyricsSource`)按优先级获取歌词。
     /// - source == "local":先本地 .lrc,失败回退 LRCLIB
     /// - source == "lrclib":先 LRCLIB,失败回退本地 .lrc
+    /// - source == "musixmatch":先 Musixmatch,失败回退 LRCLIB 再本地
     /// - 默认:LRCLIB 再本地
-    /// 任一来源成功即返回;两者均失败返回 nil。
+    /// 任一来源成功即返回;全部失败返回 nil。
     func fetch(track: TrackSnapshot) async -> LyricsResult? {
         let pref = UserDefaults.standard.string(forKey: PrefKey.lyricsSource) ?? "lrclib"
 
@@ -48,6 +50,10 @@ final class LyricsService {
             if let local = fetchLocal(track: track) { return local }
             return await fetchLrclib(track: track)
         case "lrclib":
+            if let remote = await fetchLrclib(track: track) { return remote }
+            return fetchLocal(track: track)
+        case "musixmatch":
+            if let mx = await fetchMusixmatch(track: track) { return mx }
             if let remote = await fetchLrclib(track: track) { return remote }
             return fetchLocal(track: track)
         default:
@@ -132,6 +138,101 @@ final class LyricsService {
             }
         }
         return nil
+    }
+
+    // MARK: - Musixmatch
+
+    /// 查询 Musixmatch 公共 Web API:`track.search` 取首个 track_id,
+    /// 再分别拉 `track.subtitle.get`(同步 LRC)与 `track.lyrics.get`(纯文本)。
+    /// 任一步失败返回 nil(由 `fetch` 回退到 LRCLIB)。
+    private func fetchMusixmatch(track: TrackSnapshot) async -> LyricsResult? {
+        // 1. 搜索曲目,取首个带 track_id 的条目。
+        let searchURL = LyricsEndpoint.musixmatchSearch(
+            track: track.title, artist: track.artist
+        )
+        guard let searchData = await get(searchURL),
+              let trackId = parseMusixmatchTrackId(data: searchData)
+        else {
+            log.info("musixmatch: no track_id for \(track.title) / \(track.artist)")
+            return nil
+        }
+
+        // 2. 拉同步歌词(subtitle)。优先,失败再拉纯文本。
+        let subtitleURL = LyricsEndpoint.musixmatchSubtitle(trackId: trackId)
+        var synced: String?
+        if let subData = await get(subtitleURL) {
+            synced = parseMusixmatchSubtitle(data: subData)
+        }
+
+        // 3. 拉纯文本歌词。subtitle 已有 synced 时 plain 仅作冗余回退。
+        var plain: String?
+        if synced == nil {
+            let lyricsURL = LyricsEndpoint.musixmatchLyrics(trackId: trackId)
+            if let lyrData = await get(lyricsURL) {
+                plain = parseMusixmatchLyrics(data: lyrData)
+            }
+        }
+
+        guard (synced?.isEmpty == false) || (plain?.isEmpty == false) else {
+            log.info("musixmatch: track_id \(trackId) 无歌词内容")
+            return nil
+        }
+        return LyricsResult(
+            plainLyrics: plain, syncedLyrics: synced, source: .musixmatch
+        )
+    }
+
+    /// 解析 `track.search` 响应,返回首个 `track_id`。
+    private func parseMusixmatchTrackId(data: Data) -> Int? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let message = json["message"] as? [String: Any],
+              let body = message["body"] as? [String: Any],
+              let trackList = body["track_list"] as? [[String: Any]]
+        else {
+            log.warning("musixmatch search: JSON parse failed")
+            return nil
+        }
+        for entry in trackList {
+            if let track = entry["track"] as? [String: Any],
+               let id = track["track_id"] as? Int {
+                return id
+            }
+        }
+        return nil
+    }
+
+    /// 解析 `track.subtitle.get` 响应,返回 `subtitle_body`(LRC 文本)。
+    private func parseMusixmatchSubtitle(data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let message = json["message"] as? [String: Any],
+              let body = message["body"] as? [String: Any],
+              let subtitle = body["subtitle"] as? [String: Any],
+              let text = subtitle["subtitle_body"] as? String,
+              !text.isEmpty
+        else {
+            return nil
+        }
+        return text
+    }
+
+    /// 解析 `track.lyrics.get` 响应,返回 `lyrics_body`(纯文本)。
+    /// 截断 Musixmatch 末尾的 "******* This Lyrics is NOT for Commercial use ******" 标记。
+    private func parseMusixmatchLyrics(data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let message = json["message"] as? [String: Any],
+              let body = message["body"] as? [String: Any],
+              let lyrics = body["lyrics"] as? [String: Any],
+              let text = lyrics["lyrics_body"] as? String,
+              !text.isEmpty
+        else {
+            return nil
+        }
+        // 去除商业使用警告尾部。
+        if let cutRange = text.range(of: "\n******* This Lyrics") {
+            return String(text[..<cutRange.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return text
     }
 
     // MARK: - LRC parsing

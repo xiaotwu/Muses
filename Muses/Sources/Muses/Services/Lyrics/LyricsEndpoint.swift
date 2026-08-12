@@ -30,4 +30,45 @@ enum LyricsEndpoint {
         ]
         return components.url!
     }
+
+    // MARK: - Musixmatch
+
+    /// Musixmatch 公共 Web API key(嵌于其官网 JS,非个人凭据)。
+    /// 个人使用;失败时 `LyricsService` 自动回退 LRCLIB。
+    static let musixmatchApiKey = "1603acfb09e00fa3f6c4e8c4d30f40c8"
+
+    /// Musixmatch `track.search`:按曲名/艺人搜索,优先返回带同步歌词的曲目。
+    static func musixmatchSearch(track: String, artist: String) -> URL {
+        var components = URLComponents(string: "https://api.musixmatch.com/ws/1.1/track.search")!
+        components.queryItems = [
+            URLQueryItem(name: "q_track", value: track),
+            URLQueryItem(name: "q_artist", value: artist),
+            URLQueryItem(name: "f_subtitle_has_length", value: "1"),
+            URLQueryItem(name: "s_track_rating", value: "desc"),
+            URLQueryItem(name: "page_size", value: "5"),
+            URLQueryItem(name: "page", value: "1"),
+            URLQueryItem(name: "apikey", value: musixmatchApiKey),
+        ]
+        return components.url!
+    }
+
+    /// Musixmatch `track.subtitle.get`:返回同步歌词(LRC `subtitle_body`)。
+    static func musixmatchSubtitle(trackId: Int) -> URL {
+        var components = URLComponents(string: "https://api.musixmatch.com/ws/1.1/track.subtitle.get")!
+        components.queryItems = [
+            URLQueryItem(name: "track_id", value: String(trackId)),
+            URLQueryItem(name: "apikey", value: musixmatchApiKey),
+        ]
+        return components.url!
+    }
+
+    /// Musixmatch `track.lyrics.get`:返回纯文本歌词(`lyrics_body`)。
+    static func musixmatchLyrics(trackId: Int) -> URL {
+        var components = URLComponents(string: "https://api.musixmatch.com/ws/1.1/track.lyrics.get")!
+        components.queryItems = [
+            URLQueryItem(name: "track_id", value: String(trackId)),
+            URLQueryItem(name: "apikey", value: musixmatchApiKey),
+        ]
+        return components.url!
+    }
 }
