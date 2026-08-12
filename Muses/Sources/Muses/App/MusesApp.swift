@@ -80,5 +80,31 @@ struct MusesApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1280, height: 800)
+        .commands {
+            // 替换系统 About:弹出标准 About 面板(读 Info.plist 版本)
+            CommandGroup(replacing: .appInfo) {
+                Button("关于 Muses") {
+                    NSApp.orderFrontStandardAboutPanel(nil)
+                }
+            }
+            // 播放控制快捷键
+            CommandGroup(after: .toolbar) {
+                Divider()
+                Button("播放/暂停") {
+                    playbackService.toggle()
+                }
+                .keyboardShortcut("p", modifiers: .command)
+
+                Button("上一首") {
+                    playbackService.previous()
+                }
+                .keyboardShortcut(.leftArrow, modifiers: .command)
+
+                Button("下一首") {
+                    playbackService.next()
+                }
+                .keyboardShortcut(.rightArrow, modifiers: .command)
+            }
+        }
     }
 }
