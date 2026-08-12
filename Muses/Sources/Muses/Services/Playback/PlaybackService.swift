@@ -36,6 +36,7 @@ final class PlaybackService {
     }
 
     func toggle() { currentEngine?.toggle() }
+    func pause() { currentEngine?.pause() }
     func seek(to time: Double) { currentEngine?.seek(to: time) }
     func setVolume(_ v: Float) {
         volume = max(0, min(1, v))

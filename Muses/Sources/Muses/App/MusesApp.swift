@@ -10,6 +10,7 @@ struct MusesApp: App {
     let importService: YouTubeImportService
     let searchService: YouTubeSearchService
     let playlistService: PlaylistService
+    let sleepTimer: SleepTimerService
     let ytDlpBridge: YTDlpBridge
     private let nowPlayingManager: NowPlayingManager
     private let spotlightIndexer: SpotlightIndexer
@@ -36,6 +37,7 @@ struct MusesApp: App {
         self.searchService = YouTubeSearchService(bridge: ytdlpBridge,
                                                   modelContainer: container)
         self.playlistService = PlaylistService(modelContainer: container)
+        self.sleepTimer = SleepTimerService(playbackService: playbackService)
         let enricher = MetadataEnricherService(modelContainer: container)
         library.enricher = enricher
         self.nowPlayingManager = NowPlayingManager(playbackService)
@@ -66,6 +68,7 @@ struct MusesApp: App {
                     .environment(importService)
                     .environment(searchService)
                     .environment(playlistService)
+                    .environment(sleepTimer)
                     .environment(\.ytDlpBridge, ytDlpBridge)
                     .environment(\.updater, updaterController.updater)
                     .modelContainer(modelContainer)
@@ -111,6 +114,21 @@ struct MusesApp: App {
                     playbackService.next()
                 }
                 .keyboardShortcut(.rightArrow, modifiers: .command)
+
+                // 睡眠定时器
+                Divider()
+                Menu("睡眠定时器") {
+                    Button("15 分钟") { sleepTimer.start(minutes: 15) }
+                    Button("30 分钟") { sleepTimer.start(minutes: 30) }
+                    Button("45 分钟") { sleepTimer.start(minutes: 45) }
+                    Button("60 分钟") { sleepTimer.start(minutes: 60) }
+                    Divider()
+                    Button("取消定时器") { sleepTimer.cancel() }
+                        .disabled(!sleepTimer.isActive)
+                }
+                if sleepTimer.isActive {
+                    Text("睡眠定时器:\(sleepTimer.remainingFormatted)")
+                }
             }
         }
     }
