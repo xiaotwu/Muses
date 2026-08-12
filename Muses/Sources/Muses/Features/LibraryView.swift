@@ -18,13 +18,19 @@ struct LibraryView: View {
                 ProgressView(value: Double(progress.scanned), total: Double(progress.total))
                     .padding()
             }
-            LazyVGrid(columns: columns, spacing: 20) {
-                ForEach(library.allAlbums(), id: \.id) { album in
-                    AlbumCard(album: album)
-                        .onTapGesture { selectedAlbum = album }
+            let albums = library.allAlbums()
+            if albums.isEmpty && progress.total == 0 {
+                EmptyStateView(icon: "square.stack", title: "资料库为空",
+                               subtitle: "点击左上角 + 导入音乐文件夹,或拖拽文件到窗口")
+            } else {
+                LazyVGrid(columns: columns, spacing: 20) {
+                    ForEach(albums, id: \.id) { album in
+                        AlbumCard(album: album)
+                            .onTapGesture { selectedAlbum = album }
+                    }
                 }
+                .padding(20)
             }
-            .padding(20)
         }
         .navigationTitle("Albums")
         .background(BrandColors.background)
@@ -70,19 +76,11 @@ struct SongsListView: View {
     var body: some View {
         let tracks = sortedTracks(library.allTracks(search: searchText.isEmpty ? nil : searchText))
         if tracks.isEmpty {
-            VStack(spacing: 12) {
-                Image(systemName: "music.note").font(.system(size: 48))
-                    .foregroundStyle(BrandColors.textSecondary)
-                Text(searchText.isEmpty ? "资料库中没有歌曲" : "无搜索结果")
-                    .font(.title3).foregroundStyle(BrandColors.textPrimary)
-                if searchText.isEmpty {
-                    Text("点击左上角 + 导入音乐文件夹").font(.subheadline)
-                        .foregroundStyle(BrandColors.textSecondary)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.vertical, 80)
-            .navigationTitle("Songs")
+            EmptyStateView(
+                icon: "music.note",
+                title: searchText.isEmpty ? "资料库中没有歌曲" : "无搜索结果",
+                subtitle: searchText.isEmpty ? "点击左上角 + 导入音乐文件夹" : nil)
+                .navigationTitle("Songs")
         } else {
             List(tracks, id: \.id) { track in
                 SongRow(track: track,
@@ -198,16 +196,9 @@ struct LikedView: View {
     private var tracks: [Track]
     var body: some View {
         if tracks.isEmpty {
-            VStack(spacing: 12) {
-                Image(systemName: "heart").font(.system(size: 48))
-                    .foregroundStyle(BrandColors.textSecondary)
-                Text("还没有收藏的歌曲").font(.title3).foregroundStyle(BrandColors.textPrimary)
-                Text("点击歌曲旁的 ❤️ 收藏").font(.subheadline)
-                    .foregroundStyle(BrandColors.textSecondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.vertical, 80)
-            .navigationTitle("Liked")
+            EmptyStateView(icon: "heart", title: "还没有收藏的歌曲",
+                           subtitle: "点击歌曲旁的 ❤️ 收藏")
+                .navigationTitle("Liked")
         } else {
             List {
                 ForEach(tracks, id: \.id) { track in

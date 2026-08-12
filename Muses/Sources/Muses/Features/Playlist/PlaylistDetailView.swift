@@ -56,11 +56,8 @@ struct PlaylistDetailView: View {
 
             // 曲目列表
             if sortedItems.isEmpty {
-                Spacer()
-                Text("歌单为空,点「添加曲目」导入")
-                    .font(.callout)
-                    .foregroundStyle(BrandColors.textSecondary)
-                Spacer()
+                EmptyStateView(icon: "music.note.list", title: "歌单为空",
+                               subtitle: "点击「添加曲目」导入歌曲")
             } else {
                 List {
                     ForEach(sortedItems, id: \.id) { item in

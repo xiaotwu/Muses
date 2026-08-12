@@ -13,10 +13,8 @@ struct PlaylistsView: View {
         ScrollView {
             LazyVStack(spacing: 8) {
                 if playlists.isEmpty {
-                    Text("暂无歌单,点右上角 + 创建")
-                        .font(.callout)
-                        .foregroundStyle(BrandColors.textSecondary)
-                        .padding(.top, 80)
+                    EmptyStateView(icon: "music.note.list", title: "暂无歌单",
+                                   subtitle: "点击右上角 + 创建歌单")
                 } else {
                     ForEach(playlists, id: \.id) { playlist in
                         PlaylistCard(playlist: playlist,

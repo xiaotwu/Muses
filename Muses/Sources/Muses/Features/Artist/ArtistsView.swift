@@ -14,13 +14,9 @@ struct ArtistsView: View {
         let artists = filteredArtists()
         ScrollView {
             if artists.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "person.2").font(.system(size: 48))
-                        .foregroundStyle(BrandColors.textSecondary)
-                    Text(searchText.isEmpty ? "资料库中没有艺术家" : "无搜索结果")
-                        .font(.title3).foregroundStyle(BrandColors.textPrimary)
-                }
-                .frame(maxWidth: .infinity).padding(.vertical, 80)
+                EmptyStateView(
+                    icon: "person.2",
+                    title: searchText.isEmpty ? "资料库中没有艺术家" : "无搜索结果")
             } else {
                 LazyVGrid(columns: columns, spacing: 20) {
                     ForEach(artists, id: \.self) { name in
