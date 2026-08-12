@@ -114,8 +114,8 @@ extension Notification.Name {
 }
 
 enum BrandColors {
-    /// 动态主题色:深色沿用原值,浅色用浅色调色板。
-    /// 用 `NSColor(name:dynamicProvider:)` 让 142 处调用零改动地随外观切换。
+    /// 动态主题色:深色采用纯黑(Apple Music 风格),浅色用浅色调色板。
+    /// 用 `NSColor(name:dynamicProvider:)` 让所有调用零改动地随外观切换。
     private static func dynamic(_ dark: NSColor, _ light: NSColor) -> Color {
         Color(nsColor: NSColor(name: nil) { (appearance: NSAppearance) -> NSColor in
             appearance.name == NSAppearance.Name.darkAqua ? dark : light
@@ -126,12 +126,14 @@ enum BrandColors {
         NSColor(srgbRed: r, green: g, blue: b, alpha: a)
     }
 
+    /// 纯黑背景(Apple Music 深色风格)。
     static let background = dynamic(
-        rgb(0.055, 0.055, 0.07),
+        rgb(0, 0, 0),
         rgb(0.97, 0.97, 0.96)
     )
+    /// 卡片/表面色:略高于纯黑,用于卡片背景。
     static let surface = dynamic(
-        rgb(0.094, 0.094, 0.125),
+        rgb(0.08, 0.08, 0.10),
         rgb(0.92, 0.92, 0.94)
     )
     static let magenta = dynamic(
@@ -155,10 +157,10 @@ enum BrandColors {
         rgb(0.45, 0.45, 0.48)
     )
 
-    /// 细分隔线/描边。深色 white 0.08,浅色 black 0.12。
+    /// 分隔线:透明(取消所有分割线,实现整体统一)。
     static let hairline = dynamic(
-        rgb(1, 1, 1, 0.08),
-        rgb(0, 0, 0, 0.12)
+        rgb(1, 1, 1, 0),
+        rgb(0, 0, 0, 0)
     )
     /// 遮罩 scrim。深色 black 0.35,浅色 black 0.25。
     static let scrim = dynamic(

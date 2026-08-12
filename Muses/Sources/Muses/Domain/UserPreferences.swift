@@ -53,4 +53,5 @@ enum PrefKey {
     static let notificationsTrackChange = "muses.notifications.trackChange"
     static let crossfadeSeconds = "muses.playback.crossfadeSeconds"
     static let replayGainEnabled = "muses.playback.replayGainEnabled"
+    static let gpuAcceleration = "muses.gpuAcceleration"
 }
