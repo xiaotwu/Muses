@@ -1,0 +1,278 @@
+import SwiftUI
+import SwiftData
+
+/// YouTube 歌单导入管理视图(spec §7.5)。
+///
+/// 列出所有已导入的 YouTube 歌单,支持重新同步、在 YT 中打开、删除、播放;
+/// 可展开查看条目与本地附加区。顶部按钮弹出导入 sheet。
+struct YouTubeImportsView: View {
+    @Environment(YouTubeImportService.self) private var importService
+    @Environment(PlaybackService.self) private var playback
+    @Query(sort: \YouTubeImport.importedAt, order: .reverse) private var imports: [YouTubeImport]
+
+    @State private var showImportSheet = false
+    @State private var importing = false
+    @State private var error: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                // 标题栏
+                HStack {
+                    Text("YouTube Imports")
+                        .font(.largeTitle).fontWeight(.bold)
+                        .foregroundStyle(BrandColors.textPrimary)
+                    Spacer()
+                    Button {
+                        showImportSheet = true
+                    } label: {
+                        Label("导入 YouTube 歌单", systemImage: "plus")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(BrandColors.magenta)
+                    .disabled(importing)
+                }
+                .padding(.horizontal, 20)
+
+                if let err = error {
+                    Text(err).font(.callout).foregroundStyle(.red)
+                        .padding(.horizontal, 20)
+                }
+
+                if imports.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "music.note.list")
+                            .font(.system(size: 48))
+                            .foregroundStyle(BrandColors.textSecondary.opacity(0.5))
+                        Text("尚未导入任何 YouTube 歌单")
+                            .font(.title3).foregroundStyle(BrandColors.textSecondary)
+                        Text("点击右上角按钮,粘贴 YouTube 歌单链接开始导入")
+                            .font(.callout).foregroundStyle(BrandColors.textSecondary.opacity(0.7))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 80)
+                } else {
+                    LazyVStack(spacing: 12) {
+                        ForEach(imports, id: \.id) { imp in
+                            YouTubeImportCard(imp: imp)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
+            }
+            .padding(.vertical, 24)
+        }
+        .navigationTitle("YouTube Imports")
+        .background(BrandColors.background)
+        .sheet(isPresented: $showImportSheet) {
+            YouTubeImportSheet { url in
+                importing = true
+                error = nil
+                Task {
+                    do {
+                        _ = try await importService.importPlaylist(url: url)
+                    } catch let err {
+                        error = "\(err)"
+                    }
+                    importing = false
+                    showImportSheet = false
+                }
+            }
+        }
+    }
+}
+
+/// 单条 YouTube 导入卡片:封面 + 标题 + 元信息 + 操作按钮 + 可展开条目。
+struct YouTubeImportCard: View {
+    let imp: YouTubeImport
+    @Environment(YouTubeImportService.self) private var importService
+    @Environment(PlaybackService.self) private var playback
+    @State private var expanded = false
+    @State private var syncing = false
+
+    private var items: [YouTubeImportItem] {
+        (imp.items ?? []).sorted { $0.order < $1.order }
+    }
+    private var localAdditions: [Track] {
+        imp.localAdditions ?? []
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // 头部:封面 + 信息 + 操作
+            HStack(spacing: 14) {
+                // 封面
+                artworkView
+                    .frame(width: 80, height: 80)
+                    .cornerRadius(8)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(imp.title).font(.headline).foregroundStyle(BrandColors.textPrimary)
+                        .lineLimit(1)
+                    HStack(spacing: 8) {
+                        Text(imp.channel).font(.caption).foregroundStyle(BrandColors.textSecondary)
+                        Text("·").foregroundStyle(BrandColors.textSecondary)
+                        Text("\(items.count) 首").font(.caption).foregroundStyle(BrandColors.textSecondary)
+                        if let synced = imp.lastSyncedAt {
+                            Text("·").foregroundStyle(BrandColors.textSecondary)
+                            Text("上次同步 \(relativeDate(synced))").font(.caption)
+                                .foregroundStyle(BrandColors.textSecondary)
+                        }
+                    }
+                    // 操作按钮
+                    HStack(spacing: 8) {
+                        Button {
+                            Task {
+                                syncing = true
+                                _ = try? await importService.resync(importId: imp.id)
+                                syncing = false
+                            }
+                        } label: {
+                            if syncing {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Label("重新同步", systemImage: "arrow.clockwise")
+                            }
+                        }
+                        .buttonStyle(.bordered).disabled(syncing)
+
+                        Button {
+                            if let url = URL(string: imp.url) { NSWorkspace.shared.open(url) }
+                        } label: { Label("在 YT 中打开", systemImage: "arrow.up.right.square") }
+                        .buttonStyle(.bordered)
+
+                        Button(role: .destructive) {
+                            importService.deleteImport(importId: imp.id)
+                        } label: { Label("删除", systemImage: "trash") }
+                        .buttonStyle(.bordered)
+
+                        Button {
+                            playAll()
+                        } label: { Label("播放", systemImage: "play.fill") }
+                        .buttonStyle(.borderedProminent).tint(BrandColors.magenta)
+                    }
+                    .padding(.top, 2)
+                }
+
+                Spacer()
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
+                } label: {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .foregroundStyle(BrandColors.textSecondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(12)
+
+            // 展开条目
+            if expanded {
+                Divider().background(BrandColors.textSecondary.opacity(0.1))
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(items, id: \.id) { item in
+                        YouTubeImportItemRow(item: item)
+                    }
+
+                    // 本地附加区
+                    if !localAdditions.isEmpty {
+                        Divider().background(BrandColors.textSecondary.opacity(0.1))
+                        Text("本地附加(仅本地显示,不同步回 YT)")
+                            .font(.caption).fontWeight(.medium)
+                            .foregroundStyle(BrandColors.green)
+                            .padding(.horizontal, 12).padding(.top, 8)
+                        ForEach(localAdditions, id: \.id) { track in
+                            HStack {
+                                Image(systemName: "music.note").foregroundStyle(BrandColors.green)
+                                    .frame(width: 20)
+                                Text(track.title).foregroundStyle(BrandColors.textPrimary)
+                                Text("本地").font(.caption2)
+                                    .padding(.horizontal, 6).padding(.vertical, 2)
+                                    .background(BrandColors.green.opacity(0.2))
+                                    .cornerRadius(4)
+                                Spacer()
+                                Button {
+                                    importService.removeLocalAddition(importId: imp.id, trackId: track.id)
+                                } label: { Image(systemName: "minus.circle") }
+                                .buttonStyle(.plain).foregroundStyle(BrandColors.textSecondary)
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                        }
+                    }
+                }
+            }
+        }
+        .background(BrandColors.surface)
+        .cornerRadius(12)
+    }
+
+    private var artworkView: some View {
+        Group {
+            if let urlStr = imp.artworkUrl, let url = URL(string: urlStr) {
+                AsyncImage(url: url) { phase in
+                    if let img = phase.image { img.resizable().scaledToFill() }
+                    else { placeholder }
+                }
+            } else {
+                placeholder
+            }
+        }
+    }
+    private var placeholder: some View {
+        RoundedRectangle(cornerRadius: 8).fill(BrandColors.surface)
+            .overlay(Image(systemName: "music.note.list")
+                .font(.title2).foregroundStyle(BrandColors.textSecondary.opacity(0.5)))
+    }
+
+    private func playAll() {
+        let snaps = items.compactMap { $0.track }.map { TrackSnapshot(from: $0) }
+        guard let first = snaps.first else { return }
+        playback.playTrack(first, context: snaps, from: .import)
+    }
+
+    private func relativeDate(_ d: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: d, relativeTo: .now)
+    }
+}
+
+/// YouTube 导入条目行:序号 + 标题 + 艺术家 + 时长 + 操作。
+struct YouTubeImportItemRow: View {
+    let item: YouTubeImportItem
+    @Environment(PlaybackService.self) private var playback
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text("\(item.order + 1)").font(.caption).foregroundStyle(BrandColors.textSecondary)
+                .frame(width: 24, alignment: .trailing)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title).font(.callout).foregroundStyle(BrandColors.textPrimary)
+                    .lineLimit(1)
+                Text(item.artist).font(.caption2).foregroundStyle(BrandColors.textSecondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Text(format(item.durationMs)).font(.caption).foregroundStyle(BrandColors.textSecondary)
+            Button {
+                if let t = item.track {
+                    let snap = TrackSnapshot(from: t)
+                    playback.playTrack(snap, context: [snap], from: .import)
+                }
+            } label: { Image(systemName: "play.fill") }
+            .buttonStyle(.plain).foregroundStyle(BrandColors.magenta)
+            Button {
+                if let t = item.track {
+                    playback.queue.addToQueue(TrackSnapshot(from: t))
+                }
+            } label: { Image(systemName: "text.badge.plus") }
+            .buttonStyle(.plain).foregroundStyle(BrandColors.textSecondary)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 6)
+    }
+
+    private func format(_ ms: Int) -> String {
+        let s = ms / 1000
+        return String(format: "%d:%02d", s / 60, s % 60)
+    }
+}

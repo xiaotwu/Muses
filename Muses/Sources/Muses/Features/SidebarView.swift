@@ -13,6 +13,7 @@ struct SidebarView: View {
                     Label("Albums", systemImage: "square.stack").tag(SidebarSection.albums)
                     Label("Songs", systemImage: "music.note").tag(SidebarSection.songs)
                     Label("Liked", systemImage: "heart").tag(SidebarSection.liked)
+                    Label("YouTube Imports", systemImage: "music.note.list").tag(SidebarSection.youtubeImports)
                 }
                 Section("Settings") {
                     Label("Settings", systemImage: "gear").tag(SidebarSection.settings)

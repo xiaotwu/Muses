@@ -22,6 +22,8 @@ struct RootView: View {
                     SongsListView()
                 case .liked:
                     LikedView()
+                case .youtubeImports:
+                    YouTubeImportsView()
                 case .settings:
                     SettingsView()
                 }
@@ -57,7 +59,7 @@ struct RootView: View {
     }
 }
 
-enum SidebarSection: Hashable { case home, albums, songs, liked, settings }
+enum SidebarSection: Hashable { case home, albums, songs, liked, youtubeImports, settings }
 
 enum BrandColors {
     static let background = Color(red: 0.055, green: 0.055, blue: 0.07)
