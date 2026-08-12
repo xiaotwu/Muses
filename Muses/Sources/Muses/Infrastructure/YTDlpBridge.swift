@@ -96,6 +96,29 @@ final class YTDlpBridge {
         self.binaryPath = binaryPath
     }
 
+    // MARK: - Cookie / 登录
+
+    /// 根据 UserDefaults 中 `PrefKey.ytCookieSource` 构造 yt-dlp cookie 参数。
+    /// - `none` → `[]`
+    /// - `safari/chrome/firefox` → `["--cookies-from-browser", browser]`
+    /// - `file` → `["--cookies", path]`(path 为空则返回 `[]`)
+    ///
+    /// 测试可见(internal),便于单元测试验证分支逻辑。
+    internal func cookieArgs() -> [String] {
+        let raw = UserDefaults.standard.string(forKey: PrefKey.ytCookieSource) ?? YTCookieSource.none.rawValue
+        let source = YTCookieSource(rawValue: raw) ?? .none
+        switch source {
+        case .none:
+            return []
+        case .safari, .chrome, .firefox:
+            return ["--cookies-from-browser", source.rawValue]
+        case .file:
+            let path = UserDefaults.standard.string(forKey: PrefKey.ytCookiePath) ?? ""
+            guard !path.isEmpty else { return [] }
+            return ["--cookies", path]
+        }
+    }
+
     // MARK: - Binary resolution
 
     /// 解析并缓存 yt-dlp 可执行文件路径。
@@ -191,8 +214,9 @@ final class YTDlpBridge {
                           timeout: TimeInterval = 30) async throws -> URL {
         let bin = try await resolveBinary()
         let format = Self.qualityMap[quality] ?? quality
-        let args = ["-f", format, "--no-playlist", "-g",
-                    "https://youtu.be/\(videoId)"]
+        var args = cookieArgs()
+        args += ["-f", format, "--no-playlist", "-g",
+                 "https://youtu.be/\(videoId)"]
         let (stdout, _) = try await runInternal(
             executablePath: bin,
             args: args,
@@ -217,7 +241,8 @@ final class YTDlpBridge {
     func fetchPlaylist(url: String,
                        timeout: TimeInterval = 60) async throws -> [YTDlpPlaylistEntry] {
         let bin = try await resolveBinary()
-        let args = ["--flat-playlist", "--dump-json", url]
+        var args = cookieArgs()
+        args += ["--flat-playlist", "--dump-json", url]
         let (stdout, _) = try await runInternal(
             executablePath: bin,
             args: args,

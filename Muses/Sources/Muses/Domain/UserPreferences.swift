@@ -21,6 +21,25 @@ enum AppTheme: String, CaseIterable, Codable {
     }
 }
 
+/// yt-dlp cookie 来源(@AppStorage 字符串)。
+enum YTCookieSource: String, CaseIterable, Codable {
+    case none      // 不使用 cookie
+    case safari
+    case chrome
+    case firefox
+    case file      // 自定义 cookie 文件路径
+
+    var displayName: String {
+        switch self {
+        case .none:    return "不使用"
+        case .safari:  return "Safari"
+        case .chrome:  return "Chrome"
+        case .firefox: return "Firefox"
+        case .file:    return "Cookie 文件"
+        }
+    }
+}
+
 /// @AppStorage 键常量集中管理。
 enum PrefKey {
     static let nowPlayingMode = "muses.nowPlayingMode"
@@ -29,4 +48,6 @@ enum PrefKey {
     static let lyricsSource = "muses.lyrics.source"
     static let audioQuality = "muses.audio.quality"
     static let checkForUpdates = "muses.updates.checkAutomatically"
+    static let ytCookieSource = "muses.yt.cookieSource"
+    static let ytCookiePath = "muses.yt.cookiePath"
 }
