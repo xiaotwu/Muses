@@ -56,12 +56,56 @@ final class LocalAudioEngine: PlayerEngine {
             player.scheduleFile(file, at: nil) { [weak self] in
                 Task { @MainActor in self?.handleCompletion() }
             }
+
+            // 后台预扫描整曲波形峰值,存入 WaveformCache(命中则跳过)
+            if WaveformCache.default.load(forTrackId: track.id) == nil {
+                let trackId = track.id
+                let filePath = path
+                Task.detached(priority: .utility) {
+                    guard let file = try? AVAudioFile(forReading: URL(fileURLWithPath: filePath)) else { return }
+                    let peaks = Self.computeWaveformPeaks(file: file, buckets: 2000)
+                    try? WaveformCache.default.save(peaks, forTrackId: trackId)
+                }
+            }
         } catch let error as PlayerError {
             throw error
         } catch {
             state.error = .decodingFailed(error.localizedDescription)
             throw PlayerError.decodingFailed(error.localizedDescription)
         }
+    }
+
+    /// 整曲 PCM 按桶聚合 `max(abs(sample))`,归一化 0...1。静态 nonisolated,不碰实例状态,可离 actor 调用。
+    nonisolated static func computeWaveformPeaks(file: AVAudioFile, buckets: Int) -> [Float] {
+        let totalFrames = Int(file.length)
+        guard totalFrames > 0 else { return [Float](repeating: 0, count: buckets) }
+        let format = file.processingFormat
+        let channels = Int(format.channelCount)
+        let framesPerBuffer = min(4096, totalFrames)
+        var peaks = [Float](repeating: 0, count: buckets)
+        var counts = [Int](repeating: 0, count: buckets)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(framesPerBuffer)) else { return peaks }
+        var framesRead: Int = 0
+        while framesRead < totalFrames {
+            let toRead = AVAudioFrameCount(min(framesPerBuffer, totalFrames - framesRead))
+            buffer.frameLength = toRead
+            do { try file.read(into: buffer) } catch { break }
+            guard let ch = buffer.floatChannelData else { break }
+            let n = Int(toRead)
+            for i in 0..<n {
+                var s: Float = 0
+                for c in 0..<channels { s += abs(ch[c][i]) }
+                let mono = s / Float(channels)
+                let bucket = min(buckets - 1, Int(Double(framesRead + i) / Double(totalFrames) * Double(buckets)))
+                peaks[bucket] = max(peaks[bucket], mono)
+                counts[bucket] += 1
+            }
+            framesRead += n
+        }
+        // 归一化到 0...1
+        let maxPeak = peaks.max() ?? 0
+        if maxPeak > 0 { for i in 0..<buckets { peaks[i] /= maxPeak } }
+        return peaks
     }
 
     func play() {
