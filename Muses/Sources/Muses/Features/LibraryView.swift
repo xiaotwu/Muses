@@ -52,18 +52,141 @@ struct AlbumCard: View {
 
 struct SongsListView: View {
     @Environment(LibraryService.self) private var library
-    var body: some View {
-        let tracks = library.allTracks()
-        List(tracks, id: \.id) { t in
-            HStack {
-                Text(t.title); Spacer(); Text(format(t.durationSeconds))
+    @Environment(PlaybackService.self) private var playback
+    @Environment(PlaylistService.self) private var playlistService
+    @State private var searchText = ""
+    @State private var sortKey: SortKey = .title
+
+    private enum SortKey: String, CaseIterable, Identifiable {
+        case title, artist, album, dateAdded
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .title: "标题"; case .artist: "艺术家"; case .album: "专辑"; case .dateAdded: "添加时间"
             }
         }
-        .navigationTitle("Songs")
     }
-    private func format(_ s: Double) -> String {
-        let m = Int(s) / 60, sec = Int(s) % 60
-        return String(format: "%d:%02d", m, sec)
+
+    var body: some View {
+        let tracks = sortedTracks(library.allTracks(search: searchText.isEmpty ? nil : searchText))
+        if tracks.isEmpty {
+            VStack(spacing: 12) {
+                Image(systemName: "music.note").font(.system(size: 48))
+                    .foregroundStyle(BrandColors.textSecondary)
+                Text(searchText.isEmpty ? "资料库中没有歌曲" : "无搜索结果")
+                    .font(.title3).foregroundStyle(BrandColors.textPrimary)
+                if searchText.isEmpty {
+                    Text("点击左上角 + 导入音乐文件夹").font(.subheadline)
+                        .foregroundStyle(BrandColors.textSecondary)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.vertical, 80)
+            .navigationTitle("Songs")
+        } else {
+            List(tracks, id: \.id) { track in
+                SongRow(track: track,
+                        onPlay: { play(track, from: tracks) },
+                        onAddToQueue: { playback.queue.addToQueue(TrackSnapshot(from: track)) },
+                        onPlayNext: { playback.queue.playNext(TrackSnapshot(from: track)) })
+                    .tag(track.id)
+            }
+            .navigationTitle("Songs")
+            .searchable(text: $searchText, prompt: "搜索歌曲、艺术家、专辑")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Picker("排序", selection: $sortKey) {
+                        ForEach(SortKey.allCases) { key in Text(key.label).tag(key) }
+                    }
+                    .pickerStyle(.menu)
+                }
+            }
+        }
+    }
+
+    private func sortedTracks(_ tracks: [Track]) -> [Track] {
+        switch sortKey {
+        case .title:     tracks.sorted { $0.title < $1.title }
+        case .artist:    tracks.sorted { $0.artist < $1.artist }
+        case .album:     tracks.sorted { ($0.albumTitle ?? "") < ($1.albumTitle ?? "") }
+        case .dateAdded: tracks.sorted { $0.addedAt > $1.addedAt }
+        }
+    }
+
+    private func play(_ track: Track, from tracks: [Track]) {
+        let snaps = tracks.map { TrackSnapshot(from: $0) }
+        guard let snap = snaps.first(where: { $0.id == track.id }) else { return }
+        playback.playTrack(snap, context: snaps, from: .songs)
+    }
+}
+
+/// 增强歌曲行:封面缩略图 + 标题 + 艺术家 + 专辑 + Hi-Res + 心心 + 时长 + 上下文菜单。
+struct SongRow: View {
+    let track: Track
+    var onPlay: () -> Void = {}
+    var onAddToQueue: () -> Void = {}
+    var onPlayNext: () -> Void = {}
+    @Environment(LibraryService.self) private var library
+    @Environment(PlaylistService.self) private var playlistService
+    @Query(sort: \Playlist.name) private var playlists: [Playlist]
+
+    var body: some View {
+        HStack(spacing: 10) {
+            artwork.frame(width: 40, height: 40).cornerRadius(4)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(track.title).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
+                Text(track.artist).font(.caption).foregroundStyle(BrandColors.textSecondary).lineLimit(1)
+            }
+            Spacer()
+            Text(track.albumTitle ?? "").font(.caption)
+                .foregroundStyle(BrandColors.textSecondary).lineLimit(1).frame(width: 160, alignment: .leading)
+            if track.isLossless {
+                Text("Hi-Res").font(.caption2).padding(.horizontal, 5).padding(.vertical, 2)
+                    .background(BrandColors.green.opacity(0.2))
+                    .foregroundStyle(BrandColors.green).cornerRadius(4)
+            }
+            Button { library.toggleLike(track) } label: {
+                Image(systemName: track.liked ? "heart.fill" : "heart").font(.caption)
+            }
+            .foregroundStyle(track.liked ? BrandColors.magenta : BrandColors.textSecondary)
+            .buttonStyle(.plain)
+            Text(formatDuration(track.durationSeconds)).foregroundStyle(BrandColors.textSecondary)
+                .frame(width: 44, alignment: .trailing)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) { onPlay() }
+        .contextMenu {
+            Button("播放") { onPlay() }
+            Button("下一首播放") { onPlayNext() }
+            Button("加入队列") { onAddToQueue() }
+            Divider()
+            Button(track.liked ? "取消收藏" : "收藏") { library.toggleLike(track) }
+            if !playlists.isEmpty {
+                Divider()
+                Menu("添加到歌单") {
+                    ForEach(playlists, id: \.id) { pl in
+                        Button(pl.name) { playlistService.addTrack(pl, track: track) }
+                    }
+                }
+            }
+        }
+    }
+
+    private var artwork: some View {
+        Group {
+            let hash = track.localArtworkHash ?? track.album?.artworkHash
+            if let h = hash, let p = ArtworkCache.default.path(forHash: h) {
+                Image(nsImage: NSImage(byReferencing: p)).resizable().scaledToFill()
+            } else {
+                RoundedRectangle(cornerRadius: 4).fill(BrandColors.surface)
+                    .overlay(Image(systemName: "music.note").font(.title3))
+            }
+        }
+        .clipped()
+    }
+
+    private func formatDuration(_ s: Double) -> String {
+        String(format: "%d:%02d", Int(s) / 60, Int(s) % 60)
     }
 }
 

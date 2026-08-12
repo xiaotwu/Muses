@@ -298,6 +298,20 @@ final class LibraryService {
         return (try? ctx.fetch(FetchDescriptor<Track>())) ?? []
     }
 
+    /// All tracks optionally filtered by a case-insensitive search query matched
+    /// against title, artist, and albumTitle. Sorted by title.
+    func allTracks(search: String?) -> [Track] {
+        let ctx = ModelContext(modelContainer)
+        let all = (try? ctx.fetch(FetchDescriptor<Track>(
+            sortBy: [SortDescriptor(\.title)]))) ?? []
+        guard let q = search?.trimmingCharacters(in: .whitespaces), !q.isEmpty else { return all }
+        return all.filter { t in
+            t.title.localizedCaseInsensitiveContains(q)
+            || t.artist.localizedCaseInsensitiveContains(q)
+            || (t.albumTitle ?? "").localizedCaseInsensitiveContains(q)
+        }
+    }
+
     /// Re-fetch the track by id in a fresh context, flip `liked`, and save.
     /// Mirrors `markAvailable` — the caller's `Track` may belong to a different context.
     func toggleLike(_ track: Track) { toggleLike(id: track.id) }
