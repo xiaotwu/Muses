@@ -89,6 +89,7 @@ struct YouTubeImportCard: View {
     @Environment(PlaybackService.self) private var playback
     @State private var expanded = false
     @State private var syncing = false
+    @State private var showAddLocalSheet = false
 
     private var items: [YouTubeImportItem] {
         (imp.items ?? []).sorted { $0.order < $1.order }
@@ -175,12 +176,29 @@ struct YouTubeImportCard: View {
                     }
 
                     // 本地附加区
-                    if !localAdditions.isEmpty {
-                        Divider().background(BrandColors.textSecondary.opacity(0.1))
+                    Divider().background(BrandColors.textSecondary.opacity(0.1))
+                    HStack {
                         Text("本地附加(仅本地显示,不同步回 YT)")
                             .font(.caption).fontWeight(.medium)
                             .foregroundStyle(BrandColors.green)
-                            .padding(.horizontal, 12).padding(.top, 8)
+                        Spacer()
+                        Button {
+                            showAddLocalSheet = true
+                        } label: {
+                            Image(systemName: "plus.circle")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(BrandColors.green)
+                        .help("添加本地曲目到此导入")
+                    }
+                    .padding(.horizontal, 12).padding(.top, 8)
+
+                    if localAdditions.isEmpty {
+                        Text("暂无本地附加,点 + 添加")
+                            .font(.caption2)
+                            .foregroundStyle(BrandColors.textSecondary)
+                            .padding(.horizontal, 12).padding(.bottom, 8)
+                    } else {
                         ForEach(localAdditions, id: \.id) { track in
                             HStack {
                                 Image(systemName: "music.note").foregroundStyle(BrandColors.green)
@@ -204,6 +222,13 @@ struct YouTubeImportCard: View {
         }
         .background(BrandColors.surface)
         .cornerRadius(12)
+        .sheet(isPresented: $showAddLocalSheet) {
+            LocalTrackPickerSheet(
+                importId: imp.id,
+                existingTrackIds: Set(localAdditions.map { $0.id })
+            )
+            .environment(importService)
+        }
     }
 
     private var artworkView: some View {
@@ -274,5 +299,79 @@ struct YouTubeImportItemRow: View {
     private func format(_ ms: Int) -> String {
         let s = ms / 1000
         return String(format: "%d:%02d", s / 60, s % 60)
+    }
+}
+
+/// 本地曲目选择 sheet:从本地 Track(source == .local)中多选,
+/// 确认后批量调 `addLocalAddition`。
+struct LocalTrackPickerSheet: View {
+    let importId: UUID
+    let existingTrackIds: Set<UUID>
+    @Environment(YouTubeImportService.self) private var importService
+    @Environment(\.dismiss) private var dismiss
+    @Query(filter: #Predicate<Track> { $0.sourceRaw == "local" },
+           sort: \Track.title)
+    private var localTracks: [Track]
+
+    @State private var selectedIds: Set<UUID> = []
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text("添加本地曲目到此导入")
+                .font(.headline)
+                .foregroundStyle(BrandColors.textPrimary)
+                .padding(.top, 16).padding(.bottom, 12)
+
+            if localTracks.isEmpty {
+                Text("资料库中暂无本地曲目")
+                    .font(.caption)
+                    .foregroundStyle(BrandColors.textSecondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    ForEach(localTracks, id: \.id) { track in
+                        HStack {
+                            Image(systemName: selectedIds.contains(track.id) || existingTrackIds.contains(track.id)
+                                  ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(BrandColors.magenta)
+                            VStack(alignment: .leading) {
+                                Text(track.title).foregroundStyle(BrandColors.textPrimary)
+                                Text(track.artist).font(.caption).foregroundStyle(BrandColors.textSecondary)
+                            }
+                            Spacer()
+                            if existingTrackIds.contains(track.id) {
+                                Text("已添加").font(.caption2).foregroundStyle(BrandColors.textSecondary)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            guard !existingTrackIds.contains(track.id) else { return }
+                            if selectedIds.contains(track.id) {
+                                selectedIds.remove(track.id)
+                            } else {
+                                selectedIds.insert(track.id)
+                            }
+                        }
+                    }
+                }
+            }
+
+            HStack {
+                Button("取消") { dismiss() }
+                    .buttonStyle(.bordered)
+                Spacer()
+                Button("添加 \(selectedIds.count) 首") {
+                    for id in selectedIds {
+                        importService.addLocalAddition(importId: importId, trackId: id)
+                    }
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(BrandColors.magenta)
+                .disabled(selectedIds.isEmpty)
+            }
+            .padding(16)
+        }
+        .frame(width: 420, height: 480)
     }
 }
