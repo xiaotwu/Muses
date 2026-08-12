@@ -83,7 +83,6 @@ final class LocalAudioEngine: PlayerEngine {
         let channels = Int(format.channelCount)
         let framesPerBuffer = min(4096, totalFrames)
         var peaks = [Float](repeating: 0, count: buckets)
-        var counts = [Int](repeating: 0, count: buckets)
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(framesPerBuffer)) else { return peaks }
         var framesRead: Int = 0
         while framesRead < totalFrames {
@@ -98,7 +97,6 @@ final class LocalAudioEngine: PlayerEngine {
                 let mono = s / Float(channels)
                 let bucket = min(buckets - 1, Int(Double(framesRead + i) / Double(totalFrames) * Double(buckets)))
                 peaks[bucket] = max(peaks[bucket], mono)
-                counts[bucket] += 1
             }
             framesRead += n
         }
