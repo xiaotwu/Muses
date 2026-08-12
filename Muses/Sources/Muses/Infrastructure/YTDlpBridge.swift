@@ -242,6 +242,11 @@ final class YTDlpBridge {
         return entries
     }
 
+    /// 返回已定位的 yt-dlp 可执行文件路径(供设置页只读展示);未找到返回 nil。
+    func locateBinary() async -> String? {
+        try? await resolveBinary()
+    }
+
     /// 返回 yt-dlp 版本字符串;任何错误下返回 nil(永不抛出)。
     func version() async -> String? {
         guard let bin = try? await resolveBinary() else { return nil }

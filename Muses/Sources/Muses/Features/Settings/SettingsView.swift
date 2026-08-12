@@ -15,6 +15,7 @@ struct SettingsView: View {
                 Form {
                     ScanRootsSettingsView()
                     AudioQualitySettingsView()
+                    YouTubeSettingsView()
                     LyricsSettingsView()
 
                     Section("Equalizer") {

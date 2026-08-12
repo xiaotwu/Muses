@@ -8,6 +8,7 @@ struct MusesApp: App {
     let libraryService: LibraryService
     let playbackService: PlaybackService
     let importService: YouTubeImportService
+    let ytDlpBridge: YTDlpBridge
     private let nowPlayingManager: NowPlayingManager
     private let spotlightIndexer: SpotlightIndexer
     private let updaterController: SPUStandardUpdaterController
@@ -20,6 +21,7 @@ struct MusesApp: App {
         self.libraryService = library
         let localEngine = LocalAudioEngine()
         let ytdlpBridge = YTDlpBridge()
+        self.ytDlpBridge = ytdlpBridge
         let youtubeEngine = YouTubeStreamEngine(bridge: ytdlpBridge)
         let queue = QueueService()
         queue.modelContext = container.mainContext
@@ -56,6 +58,7 @@ struct MusesApp: App {
                 .environment(libraryService)
                 .environment(playbackService)
                 .environment(importService)
+                .environment(\.ytDlpBridge, ytDlpBridge)
                 .environment(\.updater, updaterController.updater)
                 .modelContainer(modelContainer)
                 .onOpenURL { url in
