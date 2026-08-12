@@ -8,6 +8,29 @@ import SwiftUI
 @Suite("Packaging")
 struct PackagingTests {
 
+    // MARK: - 汇总:所有打包脚本存在且语法通过
+
+    @Test("所有 Scripts/*.sh 存在且 bash -n 通过")
+    func allScriptsSyntax() throws {
+        let scripts = [
+            "Scripts/copy-ytdlp.sh",
+            "Scripts/make-icon.sh",
+            "Scripts/build-app.sh",
+            "Scripts/sign-update.sh",
+            "Scripts/notarize.sh",
+            "Scripts/make-dmg.sh",
+        ]
+        for path in scripts {
+            try #require(FileManager.default.fileExists(atPath: path), "\(path) 不存在")
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = ["-n", path]
+            try process.run()
+            process.waitUntilExit()
+            #expect(process.terminationStatus == 0, "\(path) 语法错误")
+        }
+    }
+
     // MARK: - Info.plist 模板
 
     /// Info.plist 是 Muses 模块资源(SPM `.copy("Resources")`)。
