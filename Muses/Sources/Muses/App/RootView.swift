@@ -62,11 +62,67 @@ struct RootView: View {
 enum SidebarSection: Hashable { case home, albums, songs, liked, youtubeImports, settings }
 
 enum BrandColors {
-    static let background = Color(red: 0.055, green: 0.055, blue: 0.07)
-    static let surface = Color(red: 0.094, green: 0.094, blue: 0.125)
-    static let magenta = Color(red: 0.94, green: 0.56, blue: 0.94)
-    static let cyan = Color(red: 0.09, green: 0.66, blue: 0.94)
-    static let green = Color(red: 0.09, green: 0.66, blue: 0.09)
-    static let textPrimary = Color(red: 0.94, green: 0.94, blue: 0.94)
-    static let textSecondary = Color(red: 0.53, green: 0.53, blue: 0.57)
+    /// 动态主题色:深色沿用原值,浅色用浅色调色板。
+    /// 用 `NSColor(name:dynamicProvider:)` 让 142 处调用零改动地随外观切换。
+    private static func dynamic(_ dark: NSColor, _ light: NSColor) -> Color {
+        Color(nsColor: NSColor(name: nil) { (appearance: NSAppearance) -> NSColor in
+            appearance.name == NSAppearance.Name.darkAqua ? dark : light
+        })
+    }
+
+    private static func rgb(_ r: Double, _ g: Double, _ b: Double, _ a: Double = 1.0) -> NSColor {
+        NSColor(srgbRed: r, green: g, blue: b, alpha: a)
+    }
+
+    static let background = dynamic(
+        rgb(0.055, 0.055, 0.07),
+        rgb(0.97, 0.97, 0.96)
+    )
+    static let surface = dynamic(
+        rgb(0.094, 0.094, 0.125),
+        rgb(0.92, 0.92, 0.94)
+    )
+    static let magenta = dynamic(
+        rgb(0.94, 0.56, 0.94),
+        rgb(0.82, 0.40, 0.82)
+    )
+    static let cyan = dynamic(
+        rgb(0.09, 0.66, 0.94),
+        rgb(0.05, 0.55, 0.85)
+    )
+    static let green = dynamic(
+        rgb(0.09, 0.66, 0.09),
+        rgb(0.06, 0.58, 0.22)
+    )
+    static let textPrimary = dynamic(
+        rgb(0.94, 0.94, 0.94),
+        rgb(0.09, 0.09, 0.10)
+    )
+    static let textSecondary = dynamic(
+        rgb(0.53, 0.53, 0.57),
+        rgb(0.45, 0.45, 0.48)
+    )
+
+    /// 细分隔线/描边。深色 white 0.08,浅色 black 0.12。
+    static let hairline = dynamic(
+        rgb(1, 1, 1, 0.08),
+        rgb(0, 0, 0, 0.12)
+    )
+    /// 遮罩 scrim。深色 black 0.35,浅色 black 0.25。
+    static let scrim = dynamic(
+        rgb(0, 0, 0, 0.35),
+        rgb(0, 0, 0, 0.25)
+    )
+}
+
+/// 读 `@AppStorage(PrefKey.theme)` 并施加 `.preferredColorScheme`,
+/// 驱动 BrandColors 动态 NSColor 在外观切换时重解析。
+struct ThemeApplier<Content: View>: View {
+    @AppStorage(PrefKey.theme) private var themeRaw: String = AppTheme.dark.rawValue
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        let scheme = AppTheme(rawValue: themeRaw)?.effectiveColorScheme
+        content().preferredColorScheme(scheme)
+    }
 }

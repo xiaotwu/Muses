@@ -54,27 +54,29 @@ struct MusesApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .environment(libraryService)
-                .environment(playbackService)
-                .environment(importService)
-                .environment(\.ytDlpBridge, ytDlpBridge)
-                .environment(\.updater, updaterController.updater)
-                .modelContainer(modelContainer)
-                .onOpenURL { url in
-                    // deep link: muses://play?trackId=<id> — Spotlight / 外部唤起播放
-                    guard let trackId = SpotlightIndexer.trackId(from: url) else { return }
-                    AppLog.for("MusesApp").info("deep link trackId: \(trackId)")
-                    let context = modelContainer.mainContext
-                    let descriptor = FetchDescriptor<Track>()
-                    guard let track = (try? context.fetch(descriptor))?
-                        .first(where: { $0.id == trackId }) else {
-                        AppLog.for("MusesApp").warning("deep link: track \(trackId) not found")
-                        return
+            ThemeApplier {
+                RootView()
+                    .environment(libraryService)
+                    .environment(playbackService)
+                    .environment(importService)
+                    .environment(\.ytDlpBridge, ytDlpBridge)
+                    .environment(\.updater, updaterController.updater)
+                    .modelContainer(modelContainer)
+                    .onOpenURL { url in
+                        // deep link: muses://play?trackId=<id> — Spotlight / 外部唤起播放
+                        guard let trackId = SpotlightIndexer.trackId(from: url) else { return }
+                        AppLog.for("MusesApp").info("deep link trackId: \(trackId)")
+                        let context = modelContainer.mainContext
+                        let descriptor = FetchDescriptor<Track>()
+                        guard let track = (try? context.fetch(descriptor))?
+                            .first(where: { $0.id == trackId }) else {
+                            AppLog.for("MusesApp").warning("deep link: track \(trackId) not found")
+                            return
+                        }
+                        let snap = TrackSnapshot(from: track)
+                        playbackService.playTrack(snap, context: [snap], from: .songs)
                     }
-                    let snap = TrackSnapshot(from: track)
-                    playbackService.playTrack(snap, context: [snap], from: .songs)
-                }
+            }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1280, height: 800)
