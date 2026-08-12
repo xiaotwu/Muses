@@ -133,7 +133,7 @@ struct NowPlayingView: View {
 
             WaveformView()
 
-            LyricsPlaceholderView()
+            LyricsView()
         }
         // 水平拖拽 seek 手势(基于起始位置 + 偏移量)
         .gesture(
