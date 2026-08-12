@@ -6,6 +6,7 @@ struct MusesApp: App {
     let modelContainer: ModelContainer
     let libraryService: LibraryService
     let playbackService: PlaybackService
+    private let nowPlayingManager: NowPlayingManager
 
     init() {
         let container = try! makeModelContainer()
@@ -17,6 +18,7 @@ struct MusesApp: App {
         queue.modelContext = container.mainContext
         queue.restore()
         self.playbackService = PlaybackService(engine: engine, queue: queue)
+        self.nowPlayingManager = NowPlayingManager(playbackService)
     }
 
     var body: some Scene {
