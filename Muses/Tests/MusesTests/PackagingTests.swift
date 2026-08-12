@@ -59,4 +59,35 @@ struct PackagingTests {
         #expect(AppTheme.light.effectiveColorScheme == .light)
         #expect(AppTheme.system.effectiveColorScheme == nil)
     }
+
+    // MARK: - Shell 脚本语法
+
+    /// 所有打包脚本应通过 `bash -n` 语法检查。
+    @Test("make-icon.sh 语法通过 bash -n")
+    func makeIconScriptSyntax() throws {
+        try #require(FileManager.default.fileExists(atPath: "Scripts/make-icon.sh"),
+                     "make-icon.sh 不存在")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-n", "Scripts/make-icon.sh"]
+        let pipe = Pipe()
+        process.standardError = pipe
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0, "make-icon.sh 语法错误")
+    }
+
+    /// 若 AppIcon.icns 已生成(脚本运行过),断言非空。
+    @Test("AppIcon.icns 若存在则非空")
+    func appIconNonEmptyIfPresent() {
+        guard FileManager.default.fileExists(
+            atPath: "Muses/Sources/Muses/Resources/AppIcon.icns")
+        else {
+            // CI/未跑 make-icon.sh 时跳过本断言。
+            return
+        }
+        let size = (try? FileManager.default.attributesOfItem(
+            atPath: "Muses/Sources/Muses/Resources/AppIcon.icns")[.size] as? Int) ?? 0
+        #expect(size > 0, "AppIcon.icns 为空")
+    }
 }

@@ -3,5 +3,8 @@
 .DS_Store
 .superpowers/
 Muses/Sources/Muses/Resources/yt-dlp
+Muses/Sources/Muses/Resources/yt-dlp-LICENSE
+Muses/Sources/Muses/Resources/AppIcon.icns
 Muses/main
 Muses/.build
+build/
