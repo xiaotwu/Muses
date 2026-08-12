@@ -49,6 +49,57 @@ final class LibraryService {
         for root in roots { await scan(root: root) }
     }
 
+    /// One-shot import of dropped files/folders. Scans directories for audio,
+    /// reads embedded metadata, and upserts — without registering a ScanRoot.
+    func importURLs(_ urls: [URL]) async {
+        var audioURLs: [URL] = []
+        for url in urls {
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+                for await audioURL in scanner.enumerateAudio(at: url) {
+                    audioURLs.append(audioURL)
+                }
+            } else if DirectoryScanner.extensions.contains(url.pathExtension.lowercased()) {
+                audioURLs.append(url)
+            }
+        }
+        guard !audioURLs.isEmpty else { return }
+
+        let metadataService = self.metadata
+        var scanned = 0
+        scanProgress = .init(scanned: 0, total: audioURLs.count, currentPath: nil)
+        await withTaskGroup(of: ScanWorkItem.self) { group in
+            var iter = audioURLs.makeIterator()
+            for _ in 0..<8 {
+                if let url = iter.next() {
+                    group.addTask {
+                        let fm = FileManager.default
+                        let fileMtime = try? fm.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
+                        let meta = await metadataService.readEmbedded(at: url)
+                        return ScanWorkItem(url: url, fileMtime: fileMtime, meta: meta, action: .insert)
+                    }
+                }
+            }
+            for await item in group {
+                scanned += 1
+                scanProgress.scanned = scanned
+                scanProgress.currentPath = item.url.path
+                if let meta = item.meta {
+                    upsert(url: item.url, meta: meta, fileMtime: item.fileMtime)
+                }
+                if let url = iter.next() {
+                    group.addTask {
+                        let fm = FileManager.default
+                        let fileMtime = try? fm.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
+                        let meta = await metadataService.readEmbedded(at: url)
+                        return ScanWorkItem(url: url, fileMtime: fileMtime, meta: meta, action: .insert)
+                    }
+                }
+            }
+        }
+        scanProgress = .init(scanned: scanned, total: audioURLs.count, currentPath: nil)
+    }
+
     private func scan(root: ScanRoot) async {
         // Resolve symlinks so the prefix comparison against scanner-yielded URLs
         // (which FileManager resolves) matches track.filePath values.

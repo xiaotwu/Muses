@@ -65,6 +65,10 @@ struct RootView: View {
         }
         .animation(.easeInOut(duration: 0.25), value: showNowPlaying)
         .animation(.easeInOut(duration: 0.25), value: showQueue)
+        .dropDestination(for: URL.self) { urls, _ in
+            Task { await library.importURLs(urls) }
+            return true
+        }
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button { showImport = true } label: { Image(systemName: "plus") }
