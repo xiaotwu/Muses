@@ -60,7 +60,10 @@ struct SongsListView: View {
     @Environment(LibraryService.self) private var library
     @Environment(PlaybackService.self) private var playback
     @Environment(PlaylistService.self) private var playlistService
+    @Query(sort: \Playlist.name) private var allPlaylists: [Playlist]
     @State private var searchText = ""
+    @State private var debouncedSearch = ""
+    @State private var searchTask: Task<Void, Never>?
     @State private var sortKey: SortKey = .title
 
     private enum SortKey: String, CaseIterable, Identifiable {
@@ -74,7 +77,7 @@ struct SongsListView: View {
     }
 
     var body: some View {
-        let tracks = sortedTracks(library.allTracks(search: searchText.isEmpty ? nil : searchText))
+        let tracks = sortedTracks(library.allTracks(search: debouncedSearch.isEmpty ? nil : debouncedSearch))
         Group {
             if tracks.isEmpty {
                 EmptyStateView(
@@ -84,6 +87,7 @@ struct SongsListView: View {
             } else {
                 List(tracks, id: \.id) { track in
                     SongRow(track: track,
+                            playlists: allPlaylists,
                             onPlay: { play(track, from: tracks) },
                             onAddToQueue: { playback.queue.addToQueue(TrackSnapshot(from: track)) },
                             onPlayNext: { playback.queue.playNext(TrackSnapshot(from: track)) })
@@ -93,6 +97,14 @@ struct SongsListView: View {
         }
         .navigationTitle("Songs")
         .searchable(text: $searchText, prompt: "搜索歌曲、艺术家、专辑")
+        .onChange(of: searchText) { _, newValue in
+            searchTask?.cancel()
+            searchTask = Task {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                guard !Task.isCancelled else { return }
+                debouncedSearch = newValue
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Picker("排序", selection: $sortKey) {
@@ -122,12 +134,12 @@ struct SongsListView: View {
 /// 增强歌曲行:封面缩略图 + 标题 + 艺术家 + 专辑 + Hi-Res + 心心 + 时长 + 上下文菜单。
 struct SongRow: View {
     let track: Track
+    var playlists: [Playlist] = []
     var onPlay: () -> Void = {}
     var onAddToQueue: () -> Void = {}
     var onPlayNext: () -> Void = {}
     @Environment(LibraryService.self) private var library
     @Environment(PlaylistService.self) private var playlistService
-    @Query(sort: \Playlist.name) private var playlists: [Playlist]
 
     var body: some View {
         // 访问 likedRevision 注册 @Observable 依赖,使 toggleLike 后心心即时刷新。
