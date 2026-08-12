@@ -23,7 +23,7 @@ struct RootView: View {
                 case .liked:
                     LikedView()
                 case .settings:
-                    SettingsPlaceholderView()
+                    SettingsView()
                 }
             }
         }
