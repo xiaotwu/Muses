@@ -14,7 +14,7 @@ struct AboutView: View {
                         )
                         .frame(width: 64, height: 64)
                         .overlay(Text("M").font(.system(size: 36, weight: .bold))
-                            .foregroundStyle(.white))
+                            .foregroundStyle(BrandColors.textPrimary))
                     VStack(alignment: .leading) {
                         Text("Muses").font(.title2).fontWeight(.bold)
                             .foregroundStyle(BrandColors.textPrimary)

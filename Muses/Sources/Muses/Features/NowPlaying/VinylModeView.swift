@@ -44,7 +44,7 @@ struct VinylModeView: View {
                             ctx.stroke(
                                 Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r,
                                                         width: r * 2, height: r * 2)),
-                                with: .color(Color.white.opacity(0.03)),
+                                with: .color(BrandColors.textPrimary.opacity(0.05)),
                                 lineWidth: 0.5
                             )
                         }

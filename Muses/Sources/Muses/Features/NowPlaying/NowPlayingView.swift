@@ -20,7 +20,7 @@ struct NowPlayingView: View {
             // 渐变背景 + 深色罩
             LinearGradient(colors: gradient, startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
-                .overlay(Color.black.opacity(0.35).ignoresSafeArea())
+                .overlay(BrandColors.scrim.ignoresSafeArea())
 
             VStack(spacing: 0) {
                 topBar

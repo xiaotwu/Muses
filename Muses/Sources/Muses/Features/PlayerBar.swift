@@ -17,7 +17,7 @@ struct PlayerBar: View {
         .padding(.horizontal, 16)
         .frame(height: 76)
         .background(.ultraThinMaterial)
-        .overlay(Rectangle().frame(height: 1).foregroundStyle(.white.opacity(0.08)), alignment: .top)
+        .overlay(Rectangle().frame(height: 1).foregroundStyle(BrandColors.hairline), alignment: .top)
     }
 
     private var leadingBlock: some View {
@@ -27,7 +27,7 @@ struct PlayerBar: View {
                 .cornerRadius(6)
                 .onTapGesture { onArtworkTap() }
             VStack(alignment: .leading, spacing: 2) {
-                Text(playback.state.track?.title ?? "").font(.callout).lineLimit(1).foregroundStyle(.white)
+                Text(playback.state.track?.title ?? "").font(.callout).lineLimit(1).foregroundStyle(BrandColors.textPrimary)
                 Text(playback.state.track?.artist ?? "").font(.caption)
                     .foregroundStyle(BrandColors.textSecondary).lineLimit(1)
             }
@@ -51,13 +51,13 @@ struct PlayerBar: View {
         VStack(spacing: 4) {
             HStack(spacing: 24) {
                 Button { playback.previous() } label: { Image(systemName: "backward.fill") }
-                    .foregroundStyle(.white)
+                    .foregroundStyle(BrandColors.textPrimary)
                 Button { playback.toggle() } label: {
                     Image(systemName: playback.state.isPlaying ? "pause.fill" : "play.fill").font(.title2)
                 }
                 .foregroundStyle(BrandColors.magenta)
                 Button { playback.next() } label: { Image(systemName: "forward.fill") }
-                    .foregroundStyle(.white)
+                    .foregroundStyle(BrandColors.textPrimary)
             }
             .buttonStyle(.plain)
             HStack(spacing: 8) {

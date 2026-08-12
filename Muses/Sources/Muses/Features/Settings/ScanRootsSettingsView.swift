@@ -14,7 +14,7 @@ struct ScanRootsSettingsView: View {
             ForEach(scanRoots) { root in
                 HStack {
                     VStack(alignment: .leading) {
-                        Text(root.path).font(.callout).foregroundStyle(.white)
+                        Text(root.path).font(.callout).foregroundStyle(BrandColors.textPrimary)
                             .lineLimit(1).truncationMode(.middle)
                         if let scanned = root.lastScannedAt {
                             Text("上次扫描: \(scanned.formatted(.dateTime))")

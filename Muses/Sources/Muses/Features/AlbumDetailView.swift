@@ -34,7 +34,7 @@ struct AlbumDetailView: View {
                 .frame(width: 220, height: 220)
                 .shadow(radius: 12)
             VStack(alignment: .leading, spacing: 8) {
-                Text(album.title).font(.largeTitle).fontWeight(.bold).foregroundStyle(.white)
+                Text(album.title).font(.largeTitle).fontWeight(.bold).foregroundStyle(BrandColors.textPrimary)
                 Text(album.albumArtist).font(.title3).foregroundStyle(BrandColors.textSecondary)
                 Button { playAll() } label: {
                     Label("Play", systemImage: "play.fill").padding(.horizontal, 14).padding(.vertical, 8)
@@ -100,7 +100,7 @@ struct TrackRow: View {
             Text("\(track.trackNo ?? 0)").foregroundStyle(BrandColors.textSecondary)
                 .frame(width: 28, alignment: .trailing)
             VStack(alignment: .leading) {
-                Text(track.title).foregroundStyle(.white)
+                Text(track.title).foregroundStyle(BrandColors.textPrimary)
                 Text(track.artist).font(.caption).foregroundStyle(BrandColors.textSecondary)
             }
             Spacer()

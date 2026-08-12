@@ -9,14 +9,14 @@ struct QueueDrawerView: View {
     var body: some View {
         HStack(spacing: 0) {
             // 点击左侧遮罩关闭
-            Color.black.opacity(0.35)
+            BrandColors.scrim
                 .ignoresSafeArea()
                 .onTapGesture { isPresented = false }
 
             drawer
                 .frame(width: 360)
                 .background(.ultraThinMaterial)
-                .overlay(Rectangle().frame(width: 1).foregroundStyle(.white.opacity(0.08)),
+                .overlay(Rectangle().frame(width: 1).foregroundStyle(BrandColors.hairline),
                          alignment: .leading)
                 .transition(.move(edge: .trailing))
         }
@@ -26,14 +26,14 @@ struct QueueDrawerView: View {
     private var drawer: some View {
         VStack(spacing: 0) {
             header
-            Divider().background(.white.opacity(0.08))
+            Divider().background(BrandColors.hairline)
             list
         }
     }
 
     private var header: some View {
         HStack {
-            Text("Queue").font(.headline).foregroundStyle(.white)
+            Text("Queue").font(.headline).foregroundStyle(BrandColors.textPrimary)
             Spacer()
             Button { isPresented = false } label: {
                 Image(systemName: "xmark.circle.fill")
@@ -93,7 +93,7 @@ private struct QueueRow: View {
                 .foregroundStyle(isCurrent ? BrandColors.magenta : BrandColors.textSecondary)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.track.title).foregroundStyle(.white).lineLimit(1)
+                Text(item.track.title).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
                 Text(item.track.artist)
                     .font(.caption)
                     .foregroundStyle(BrandColors.textSecondary)

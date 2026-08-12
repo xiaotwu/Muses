@@ -31,7 +31,7 @@ struct YouTubeSettingsView: View {
                 Text("yt-dlp 版本").foregroundStyle(BrandColors.textSecondary)
                 Spacer()
                 if let versionString {
-                    Text(versionString).foregroundStyle(.white)
+                    Text(versionString).foregroundStyle(BrandColors.textPrimary)
                 } else if checkingVersion {
                     ProgressView().controlSize(.small)
                 } else {
@@ -62,7 +62,7 @@ struct YouTubeSettingsView: View {
             Text(label).foregroundStyle(BrandColors.textSecondary)
             Spacer()
             Text(value)
-                .foregroundStyle(.white)
+                .foregroundStyle(BrandColors.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .help(value)
