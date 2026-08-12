@@ -12,12 +12,15 @@ struct MusesApp: App {
         let container = try! makeModelContainer()
         self.modelContainer = container
         let meta = MetadataService(artworkCache: .default)
-        self.libraryService = LibraryService(modelContainer: container, metadata: meta)
+        let library = LibraryService(modelContainer: container, metadata: meta)
+        self.libraryService = library
         let engine = LocalAudioEngine()
         let queue = QueueService()
         queue.modelContext = container.mainContext
         queue.restore()
         self.playbackService = PlaybackService(engine: engine, queue: queue)
+        let enricher = MetadataEnricherService(modelContainer: container)
+        library.enricher = enricher
         self.nowPlayingManager = NowPlayingManager(playbackService)
     }
 

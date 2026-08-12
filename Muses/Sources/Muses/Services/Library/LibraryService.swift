@@ -24,6 +24,7 @@ final class LibraryService {
     let modelContainer: ModelContainer
     let metadata: MetadataService
     let scanner = DirectoryScanner()
+    var enricher: MetadataEnricherService?
 
     var scanProgress: ScanProgress = .init(scanned: 0, total: 0, currentPath: nil)
 
@@ -121,6 +122,34 @@ final class LibraryService {
             try? ctx.save()
         }
         scanProgress = .init(scanned: scanned, total: urls.count, currentPath: nil)
+        // 扫描完成后异步补全缺封面的曲目(联网 iTunes/MusicBrainz)
+        triggerEnrichment()
+    }
+
+    /// 查找 metadataStatus == .embedded 且缺封面/专辑名的曲目, 并发限 4 调 enricher。
+    private func triggerEnrichment() {
+        guard let enricher else { return }
+        let ctx = ModelContext(modelContainer)
+        let candidates = (try? ctx.fetch(FetchDescriptor<Track>(
+            predicate: #Predicate { $0.metadataStatusRaw == "embedded" && ($0.localArtworkHash == nil || $0.albumTitle == nil) }
+        ))) ?? []
+        guard !candidates.isEmpty else { return }
+        let trackIds = candidates.map(\.id)
+        Task { [enricher] in
+            await withTaskGroup(of: Void.self) { group in
+                var iter = trackIds.makeIterator()
+                for _ in 0..<4 {
+                    if let id = iter.next() {
+                        group.addTask { await enricher.enrich(trackId: id) }
+                    }
+                }
+                for await _ in group {
+                    if let id = iter.next() {
+                        group.addTask { await enricher.enrich(trackId: id) }
+                    }
+                }
+            }
+        }
     }
 
     private func applyScanItem(_ item: ScanWorkItem) {
