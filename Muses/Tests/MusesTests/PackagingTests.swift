@@ -77,6 +77,22 @@ struct PackagingTests {
         #expect(process.terminationStatus == 0, "make-icon.sh 语法错误")
     }
 
+    @Test("build-app.sh 语法通过 bash -n 且可执行")
+    func buildAppScriptSyntax() throws {
+        let path = "Scripts/build-app.sh"
+        try #require(FileManager.default.fileExists(atPath: path), "build-app.sh 不存在")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-n", path]
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0, "build-app.sh 语法错误")
+        // 可执行位。
+        let attrs = try FileManager.default.attributesOfItem(atPath: path)
+        let perm = (attrs[.posixPermissions] as? Int) ?? 0
+        #expect(perm & 0o100 != 0, "build-app.sh 缺少可执行位")
+    }
+
     /// 若 AppIcon.icns 已生成(脚本运行过),断言非空。
     @Test("AppIcon.icns 若存在则非空")
     func appIconNonEmptyIfPresent() {
