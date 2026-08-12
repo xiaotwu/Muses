@@ -293,6 +293,39 @@ final class LibraryService {
         return ((try? ctx.fetch(FetchDescriptor<Album>())) ?? []).sorted { $0.title < $1.title }
     }
 
+    /// Distinct artist names derived from Album.albumArtist, sorted alphabetically.
+    func allArtists() -> [String] {
+        let ctx = ModelContext(modelContainer)
+        let albums = (try? ctx.fetch(FetchDescriptor<Album>())) ?? []
+        var seen = Set<String>()
+        var result: [String] = []
+        for a in albums {
+            let name = a.albumArtist.trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty, !seen.contains(name) else { continue }
+            seen.insert(name)
+            result.append(name)
+        }
+        return result.sorted()
+    }
+
+    func albums(byArtist artist: String) -> [Album] {
+        let ctx = ModelContext(modelContainer)
+        let desc = FetchDescriptor<Album>(
+            predicate: #Predicate { $0.albumArtist == artist },
+            sortBy: [SortDescriptor(\.title)])
+        return (try? ctx.fetch(desc)) ?? []
+    }
+
+    func tracks(byArtist artist: String) -> [Track] {
+        let ctx = ModelContext(modelContainer)
+        let all = (try? ctx.fetch(FetchDescriptor<Track>())) ?? []
+        return all.filter {
+            $0.artist == artist || ($0.albumArtist ?? "") == artist
+        }.sorted { (a, b) in
+            (a.albumTitle ?? "", a.trackNo ?? 0) < (b.albumTitle ?? "", b.trackNo ?? 0)
+        }
+    }
+
     func allTracks() -> [Track] {
         let ctx = ModelContext(modelContainer)
         return (try? ctx.fetch(FetchDescriptor<Track>())) ?? []

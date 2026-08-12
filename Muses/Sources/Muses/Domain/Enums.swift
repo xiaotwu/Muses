@@ -14,7 +14,7 @@ enum RepeatMode: String, Codable, Sendable {
 }
 
 enum QueueSource: String, Codable, Sendable {
-    case album, playlist, `import`, search, songs
+    case album, playlist, `import`, search, songs, artist
 }
 
 enum MetadataStatus: String, Codable, Sendable {

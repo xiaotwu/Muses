@@ -11,6 +11,7 @@ struct SidebarView: View {
                 Section("Muses") {
                     Label("Home", systemImage: "house").tag(SidebarSection.home)
                     Label("Albums", systemImage: "square.stack").tag(SidebarSection.albums)
+                    Label("艺术家", systemImage: "person.2").tag(SidebarSection.artists)
                     Label("Songs", systemImage: "music.note").tag(SidebarSection.songs)
                     Label("Liked", systemImage: "heart").tag(SidebarSection.liked)
                     Label("歌单", systemImage: "music.note.list").tag(SidebarSection.playlists)

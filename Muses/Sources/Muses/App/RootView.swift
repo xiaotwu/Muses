@@ -6,6 +6,7 @@ struct RootView: View {
     @State private var section: SidebarSection = .home
     @State private var selectedAlbum: Album?
     @State private var selectedPlaylist: Playlist?
+    @State private var selectedArtist: String?
     @State private var showImport = false
     @State private var showNowPlaying = false
     @State private var showQueue = false
@@ -16,12 +17,17 @@ struct RootView: View {
         } detail: {
             if let album = selectedAlbum {
                 AlbumDetailView(album: album, selection: $selectedAlbum)
+            } else if let artist = selectedArtist {
+                ArtistDetailView(artistName: artist, selection: $selectedArtist,
+                                 selectedAlbum: $selectedAlbum)
             } else if let playlist = selectedPlaylist {
                 PlaylistDetailView(playlist: playlist, selectedPlaylist: $selectedPlaylist)
             } else {
                 switch section {
                 case .home, .albums:
                     LibraryView(selection: $section, selectedAlbum: $selectedAlbum)
+                case .artists:
+                    ArtistsView(selectedArtist: $selectedArtist)
                 case .songs:
                     SongsListView()
                 case .liked:
@@ -67,7 +73,7 @@ struct RootView: View {
     }
 }
 
-enum SidebarSection: Hashable { case home, albums, songs, liked, playlists, youtubeImports, youtubeSearch, settings }
+enum SidebarSection: Hashable { case home, albums, artists, songs, liked, playlists, youtubeImports, youtubeSearch, settings }
 
 enum BrandColors {
     /// 动态主题色:深色沿用原值,浅色用浅色调色板。
