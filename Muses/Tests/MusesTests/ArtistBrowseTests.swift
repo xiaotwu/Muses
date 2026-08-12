@@ -3,7 +3,8 @@ import Foundation
 import SwiftData
 @testable import Muses
 
-/// 艺术家浏览(派生方案)测试:allArtists 去重排序,albums(byArtist:) 过滤。
+/// 艺术家浏览测试:backfillArtists 创建 + 链接,allArtists 返回 [Artist],
+/// albums(byArtist:)/tracks(byArtist:) 关系遍历。
 @MainActor
 @Suite("ArtistBrowse")
 struct ArtistBrowseTests {
@@ -30,7 +31,30 @@ struct ArtistBrowseTests {
         return album
     }
 
-    @Test("allArtists 返回去重 + 排序")
+    @Test("backfillArtists 创建 Artist 并链接 albums/tracks")
+    func backfillCreatesAndLinks() throws {
+        let container = try makeContainer()
+        let library = makeLibrary(container: container)
+        seedAlbum(container, title: "A Night at the Opera", artist: "Queen")
+        seedAlbum(container, title: "Jazz", artist: "Queen")
+        seedAlbum(container, title: "Help!", artist: "The Beatles")
+
+        // backfill 之前没有 Artist 实体
+        #expect(library.allArtists().isEmpty)
+
+        library.backfillArtists()
+
+        let artists = library.allArtists()
+        #expect(artists.count == 2)  // Queen + The Beatles(去重)
+        #expect(artists.map(\.name) == ["Queen", "The Beatles"])  // 按名排序
+
+        // 验证关系链接:Queen 的 albums 包含 2 张,traces 包含 2 首
+        let queen = artists.first { $0.name == "Queen" }!
+        #expect(library.albums(byArtist: queen).count == 2)
+        #expect(library.tracks(byArtist: queen).count == 2)
+    }
+
+    @Test("allArtists 返回去重 + 排序的 [Artist]")
     func allArtistsDistinctSorted() throws {
         let container = try makeContainer()
         let library = makeLibrary(container: container)
@@ -39,26 +63,42 @@ struct ArtistBrowseTests {
         seedAlbum(container, title: "Help!", artist: "The Beatles")
         seedAlbum(container, title: "Abbey Road", artist: "The Beatles")
 
+        library.backfillArtists()
+
         let artists = library.allArtists()
-        #expect(artists == ["Queen", "The Beatles"])  // 去重 + 按字母排序
+        #expect(artists.count == 2)  // 去重
+        #expect(artists.map(\.name) == ["Queen", "The Beatles"])  // 按字母排序
     }
 
-    @Test("albums(byArtist:) 只返回匹配的 Album")
-    func albumsByArtistFilters() throws {
+    @Test("albums(byArtist:) 关系遍历只返回匹配的 Album")
+    func albumsByArtistRelationship() throws {
         let container = try makeContainer()
         let library = makeLibrary(container: container)
         seedAlbum(container, title: "A Night at the Opera", artist: "Queen")
         seedAlbum(container, title: "Jazz", artist: "Queen")
         seedAlbum(container, title: "Help!", artist: "The Beatles")
 
-        let queen = library.albums(byArtist: "Queen")
-        #expect(queen.count == 2)
-        #expect(queen.allSatisfy { $0.albumArtist == "Queen" })
-        #expect(queen.first?.title == "A Night at the Opera")  // sorted by title
+        library.backfillArtists()
 
-        let beatles = library.albums(byArtist: "The Beatles")
-        #expect(beatles.count == 1)
+        let queen = library.allArtists().first { $0.name == "Queen" }!
+        let queenAlbums = library.albums(byArtist: queen)
+        #expect(queenAlbums.count == 2)
+        #expect(queenAlbums.allSatisfy { $0.albumArtist == "Queen" })
+        #expect(queenAlbums.first?.title == "A Night at the Opera")  // sorted by title
 
-        #expect(library.albums(byArtist: "Nobody").isEmpty)
+        let beatles = library.allArtists().first { $0.name == "The Beatles" }!
+        #expect(library.albums(byArtist: beatles).count == 1)
+    }
+
+    @Test("backfillArtists 幂等 — 重复调用不创建重复 Artist")
+    func backfillIdempotent() throws {
+        let container = try makeContainer()
+        let library = makeLibrary(container: container)
+        seedAlbum(container, title: "Jazz", artist: "Queen")
+
+        library.backfillArtists()
+        library.backfillArtists()  // 重复调用
+
+        #expect(library.allArtists().count == 1)  // 不重复
     }
 }

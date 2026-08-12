@@ -34,6 +34,9 @@ final class Track {
 
     var album: Album?
 
+    /// 指向 Artist 实体(optional;轻量迁移加 nullable 列)。保留 `artist: String` 不删。
+    var artistRef: Artist?
+
     /// 反向关联:若本 Track 由某 `YouTubeImportItem` 懒创建,指向该 item。
     var youTubeImportItem: YouTubeImportItem?
     /// 反向关联:若本 Track 作为某 `YouTubeImport` 的本地附加,指向该 import。

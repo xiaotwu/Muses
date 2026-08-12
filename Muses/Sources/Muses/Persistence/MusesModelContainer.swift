@@ -3,7 +3,7 @@ import SwiftData
 
 enum MusesSchema {
     static var v1: Schema {
-        Schema([Track.self, Album.self, ScanRoot.self, QueueState.self, EQPreset.self,
+        Schema([Track.self, Album.self, Artist.self, ScanRoot.self, QueueState.self, EQPreset.self,
                 YouTubeImport.self, YouTubeImportItem.self,
                 Playlist.self, PlaylistItem.self])
     }

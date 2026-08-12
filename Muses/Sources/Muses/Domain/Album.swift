@@ -14,6 +14,9 @@ final class Album {
     @Relationship(deleteRule: .nullify, inverse: \Track.album)
     var tracks: [Track]
 
+    /// 指向 Artist 实体(optional;轻量迁移加 nullable 列)。保留 `albumArtist: String` 不删。
+    var artistRef: Artist?
+
     init(id: UUID = UUID(), title: String, albumArtist: String, year: Int? = nil,
          artworkUrl: String? = nil, artworkHash: String? = nil, isVarious: Bool = false) {
         self.id = id; self.title = title; self.albumArtist = albumArtist

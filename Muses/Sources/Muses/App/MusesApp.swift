@@ -40,6 +40,7 @@ struct MusesApp: App {
         self.sleepTimer = SleepTimerService(playbackService: playbackService)
         let enricher = MetadataEnricherService(modelContainer: container)
         library.enricher = enricher
+        library.backfillArtists()
         self.nowPlayingManager = NowPlayingManager(playbackService)
         let indexer = SpotlightIndexer(modelContainer: container)
         self.spotlightIndexer = indexer

@@ -2,8 +2,8 @@ import SwiftUI
 import AppKit
 
 struct ArtistDetailView: View {
-    let artistName: String
-    @Binding var selection: String?
+    let artist: Artist
+    @Binding var selection: Artist?
     @Environment(LibraryService.self) private var library
     @Environment(PlaybackService.self) private var playback
     @Binding var selectedAlbum: Album?
@@ -11,6 +11,15 @@ struct ArtistDetailView: View {
 
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: 16), count: 4)
+    }
+
+    /// 从 Artist 关系派生的专辑(按标题排序),在 fresh context 中 re-fetch 以获得有效对象。
+    private var albums: [Album] {
+        library.albums(byArtist: artist)
+    }
+    /// 从 Artist 关系派生的曲目(按专辑+曲目号排序)。
+    private var tracks: [Track] {
+        library.tracks(byArtist: artist)
     }
 
     var body: some View {
@@ -39,19 +48,26 @@ struct ArtistDetailView: View {
         .onAppear { extractGradient() }
     }
 
-    private var albums: [Album] { library.albums(byArtist: artistName) }
-    private var tracks: [Track] { library.tracks(byArtist: artistName) }
-
     private var header: some View {
         HStack(alignment: .top, spacing: 20) {
+            let art = artist.artworkHash.flatMap { ArtworkCache.default.path(forHash: $0) }
+                .map { NSImage(byReferencing: $0) }
             ZStack {
                 Circle().fill(BrandColors.surface).frame(width: 180, height: 180)
-                Image(systemName: "person.2.fill").font(.system(size: 48))
-                    .foregroundStyle(BrandColors.textSecondary)
+                if let img = art {
+                    Image(nsImage: img).resizable().scaledToFill()
+                        .frame(width: 180, height: 180).clipShape(Circle())
+                } else {
+                    Image(systemName: "person.2.fill").font(.system(size: 48))
+                        .foregroundStyle(BrandColors.textSecondary)
+                }
             }
             VStack(alignment: .leading, spacing: 8) {
-                Text(artistName).font(.largeTitle).fontWeight(.bold)
+                Text(artist.name).font(.largeTitle).fontWeight(.bold)
                     .foregroundStyle(BrandColors.textPrimary)
+                if let genre = artist.primaryGenre {
+                    Text(genre).font(.caption).foregroundStyle(BrandColors.cyan)
+                }
                 Text("\(albums.count) 张专辑 · \(tracks.count) 首歌曲")
                     .font(.title3).foregroundStyle(BrandColors.textSecondary)
                 Button { playAll() } label: {

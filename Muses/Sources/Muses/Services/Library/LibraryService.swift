@@ -98,6 +98,7 @@ final class LibraryService {
             }
         }
         scanProgress = .init(scanned: scanned, total: audioURLs.count, currentPath: nil)
+        backfillArtists()
     }
 
     private func scan(root: ScanRoot) async {
@@ -177,6 +178,8 @@ final class LibraryService {
         scanProgress = .init(scanned: scanned, total: urls.count, currentPath: nil)
         // 扫描完成后异步补全缺封面的曲目(联网 iTunes/MusicBrainz)
         triggerEnrichment()
+        // 增量 back-fill 新扫描产生的 Artist 实体
+        backfillArtists()
     }
 
     /// 查找 metadataStatus == .embedded 且缺封面/专辑名的曲目, 并发限 4 调 enricher。
@@ -344,35 +347,54 @@ final class LibraryService {
         return ((try? ctx.fetch(FetchDescriptor<Album>())) ?? []).sorted { $0.title < $1.title }
     }
 
-    /// Distinct artist names derived from Album.albumArtist, sorted alphabetically.
-    func allArtists() -> [String] {
+    /// 幂等 back-fill:从 `Album.albumArtist` 去重创建 Artist 实体并链接 albums/tracks。
+    /// 首次启动及后续新增扫描后均安全调用 — 只创建尚不存在的 Artist、只链接尚未链接的 album/track。
+    func backfillArtists() {
         let ctx = ModelContext(modelContainer)
         let albums = (try? ctx.fetch(FetchDescriptor<Album>())) ?? []
-        var seen = Set<String>()
-        var result: [String] = []
-        for a in albums {
-            let name = a.albumArtist.trimmingCharacters(in: .whitespaces)
-            guard !name.isEmpty, !seen.contains(name) else { continue }
-            seen.insert(name)
-            result.append(name)
+        guard !albums.isEmpty else { return }
+
+        // 已有 Artist 按名索引(避免重复创建)
+        let existing = (try? ctx.fetch(FetchDescriptor<Artist>())) ?? []
+        var byName: [String: Artist] = [:]
+        for a in existing { byName[a.name] = a }
+
+        for album in albums {
+            let name = album.albumArtist.trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty else { continue }
+            let artist = byName[name] ?? {
+                let a = Artist(name: name)
+                ctx.insert(a)
+                byName[name] = a
+                return a
+            }()
+            if album.artistRef == nil { album.artistRef = artist }
+            for t in album.tracks where t.artistRef == nil { t.artistRef = artist }
         }
-        return result.sorted()
+        try? ctx.save()
     }
 
-    func albums(byArtist artist: String) -> [Album] {
+    /// 所有 Artist 实体,按名称排序。
+    func allArtists() -> [Artist] {
         let ctx = ModelContext(modelContainer)
-        let desc = FetchDescriptor<Album>(
-            predicate: #Predicate { $0.albumArtist == artist },
-            sortBy: [SortDescriptor(\.title)])
+        let desc = FetchDescriptor<Artist>(sortBy: [SortDescriptor(\.name)])
         return (try? ctx.fetch(desc)) ?? []
     }
 
-    func tracks(byArtist artist: String) -> [Track] {
+    func albums(byArtist artist: Artist) -> [Album] {
         let ctx = ModelContext(modelContainer)
-        let all = (try? ctx.fetch(FetchDescriptor<Track>())) ?? []
-        return all.filter {
-            $0.artist == artist || ($0.albumArtist ?? "") == artist
-        }.sorted { (a, b) in
+        let id = artist.id
+        guard let fetched = try? ctx.fetch(FetchDescriptor<Artist>(
+            predicate: #Predicate { $0.id == id })).first else { return [] }
+        return fetched.albums.sorted { $0.title < $1.title }
+    }
+
+    func tracks(byArtist artist: Artist) -> [Track] {
+        let ctx = ModelContext(modelContainer)
+        let id = artist.id
+        guard let fetched = try? ctx.fetch(FetchDescriptor<Artist>(
+            predicate: #Predicate { $0.id == id })).first else { return [] }
+        return fetched.tracks.sorted { (a, b) in
             (a.albumTitle ?? "", a.trackNo ?? 0) < (b.albumTitle ?? "", b.trackNo ?? 0)
         }
     }
