@@ -68,6 +68,59 @@ final class MetadataEnricherService {
         return false
     }
 
+    /// Enrich an `Artist` entity by its ID: queries iTunes for a representative
+    /// track (gives us `artistId`/`primaryGenreName`/`artworkUrl100`), downloads
+    /// the artwork, and persists. Falls back to MusicBrainz for MBID + genre.
+    @discardableResult
+    func enrichArtist(artistId: UUID) async -> Bool {
+        let ctx = ModelContext(modelContainer)
+        guard let artist = try? ctx.fetch(FetchDescriptor<Artist>(
+            predicate: #Predicate { $0.id == artistId })).first else {
+            log.warning("enrichArtist: artist \(artistId) not found")
+            return false
+        }
+
+        // iTunes first — fast, no rate limit.
+        if await enrichArtistWithItunes(artist, context: ctx) {
+            try? ctx.save()
+            return true
+        }
+
+        return false
+    }
+
+    // MARK: - Artist iTunes
+
+    private func enrichArtistWithItunes(_ artist: Artist, context ctx: ModelContext) async -> Bool {
+        let url = EnrichmentEndpoint.itunesArtistSearch(term: artist.name)
+
+        guard let data = await get(url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let results = json["results"] as? [[String: Any]],
+              let first = results.first else {
+            return false
+        }
+
+        if let artistId = first["artistId"] as? Int {
+            artist.itunesArtistId = artistId
+        }
+        if let genre = first["primaryGenreName"] as? String, !genre.isEmpty {
+            artist.primaryGenre = genre
+        }
+        if let artwork100 = first["artworkUrl100"] as? String {
+            let upgraded = EnrichmentEndpoint.upgradeItunesArtwork(artwork100)
+            artist.artworkUrl = upgraded
+            if let artworkURL = URL(string: upgraded),
+               let imageData = await get(artworkURL) {
+                if let hash = try? artworkCache.store(imageData) {
+                    artist.artworkHash = hash
+                }
+            }
+        }
+
+        return true
+    }
+
     // MARK: - iTunes
 
     private func enrichWithItunes(_ track: Track, context ctx: ModelContext) async -> Bool {

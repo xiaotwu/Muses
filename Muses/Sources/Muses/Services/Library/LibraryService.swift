@@ -99,6 +99,7 @@ final class LibraryService {
         }
         scanProgress = .init(scanned: scanned, total: audioURLs.count, currentPath: nil)
         backfillArtists()
+        triggerArtistEnrichment()
     }
 
     private func scan(root: ScanRoot) async {
@@ -180,6 +181,7 @@ final class LibraryService {
         triggerEnrichment()
         // 增量 back-fill 新扫描产生的 Artist 实体
         backfillArtists()
+        triggerArtistEnrichment()
     }
 
     /// 查找 metadataStatus == .embedded 且缺封面/专辑名的曲目, 并发限 4 调 enricher。
@@ -202,6 +204,32 @@ final class LibraryService {
                 for await _ in group {
                     if let id = iter.next() {
                         group.addTask { await enricher.enrich(trackId: id) }
+                    }
+                }
+            }
+        }
+    }
+
+    /// 并发限 4 对缺图片的 Artist 调 enricher.enrichArtist。
+    func triggerArtistEnrichment() {
+        guard let enricher else { return }
+        let ctx = ModelContext(modelContainer)
+        let candidates = (try? ctx.fetch(FetchDescriptor<Artist>(
+            predicate: #Predicate { $0.artworkHash == nil }
+        ))) ?? []
+        guard !candidates.isEmpty else { return }
+        let artistIds = candidates.map(\.id)
+        Task { [enricher] in
+            await withTaskGroup(of: Void.self) { group in
+                var iter = artistIds.makeIterator()
+                for _ in 0..<4 {
+                    if let id = iter.next() {
+                        group.addTask { await enricher.enrichArtist(artistId: id) }
+                    }
+                }
+                for await _ in group {
+                    if let id = iter.next() {
+                        group.addTask { await enricher.enrichArtist(artistId: id) }
                     }
                 }
             }

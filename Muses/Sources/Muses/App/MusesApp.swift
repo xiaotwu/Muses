@@ -41,6 +41,7 @@ struct MusesApp: App {
         let enricher = MetadataEnricherService(modelContainer: container)
         library.enricher = enricher
         library.backfillArtists()
+        library.triggerArtistEnrichment()
         self.nowPlayingManager = NowPlayingManager(playbackService)
         let indexer = SpotlightIndexer(modelContainer: container)
         self.spotlightIndexer = indexer

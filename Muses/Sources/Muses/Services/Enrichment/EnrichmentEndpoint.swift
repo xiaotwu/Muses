@@ -20,11 +20,36 @@ enum EnrichmentEndpoint {
         return components.url!
     }
 
+    /// iTunes artist search: uses `entity=song&attribute=artistTerm` so the
+    /// result includes `artistId`/`primaryGenreName`/`artworkUrl100` from a
+    /// representative track (the Search API's musicArtist entity has no artwork).
+    static func itunesArtistSearch(term: String) -> URL {
+        var components = URLComponents(string: "https://itunes.apple.com/search")!
+        components.queryItems = [
+            URLQueryItem(name: "term", value: term),
+            URLQueryItem(name: "entity", value: "song"),
+            URLQueryItem(name: "attribute", value: "artistTerm"),
+            URLQueryItem(name: "limit", value: "1"),
+        ]
+        return components.url!
+    }
+
     /// MusicBrainz release-group search. Requires a descriptive `User-Agent`
     /// header and a maximum of 1 request per second.
     /// Example: `https://musicbrainz.org/ws/2/release-group/?query=One+More+Time&fmt=json`
     static func musicBrainzReleaseGroup(query: String) -> URL {
         var components = URLComponents(string: "https://musicbrainz.org/ws/2/release-group/")!
+        components.queryItems = [
+            URLQueryItem(name: "query", value: query),
+            URLQueryItem(name: "fmt", value: "json"),
+        ]
+        return components.url!
+    }
+
+    /// MusicBrainz artist search. Returns `id` (MBID), `name`, `type`, `tags`,
+    /// `area`, etc. No image — use for MBID + genre tags.
+    static func musicBrainzArtist(query: String) -> URL {
+        var components = URLComponents(string: "https://musicbrainz.org/ws/2/artist/")!
         components.queryItems = [
             URLQueryItem(name: "query", value: query),
             URLQueryItem(name: "fmt", value: "json"),
