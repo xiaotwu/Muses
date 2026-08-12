@@ -6,6 +6,7 @@ struct RootView: View {
     @State private var selectedAlbum: Album?
     @State private var showImport = false
     @State private var showNowPlaying = false
+    @State private var showQueue = false
 
     var body: some View {
         NavigationSplitView {
@@ -32,7 +33,13 @@ struct RootView: View {
         }
         .background(BrandColors.background)
         .overlay(alignment: .bottom) {
-            PlayerBar(onArtworkTap: { showNowPlaying = true })
+            PlayerBar(onArtworkTap: { showNowPlaying = true },
+                      onQueueTap: { showQueue = true })
+        }
+        .overlay(alignment: .trailing) {
+            if showQueue {
+                QueueDrawerView(isPresented: $showQueue)
+            }
         }
         .overlay {
             if showNowPlaying {
@@ -41,6 +48,7 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: showNowPlaying)
+        .animation(.easeInOut(duration: 0.25), value: showQueue)
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button { showImport = true } label: { Image(systemName: "plus") }

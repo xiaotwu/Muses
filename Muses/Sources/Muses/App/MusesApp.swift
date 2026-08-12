@@ -14,6 +14,8 @@ struct MusesApp: App {
         self.libraryService = LibraryService(modelContainer: container, metadata: meta)
         let engine = LocalAudioEngine()
         let queue = QueueService()
+        queue.modelContext = container.mainContext
+        queue.restore()
         self.playbackService = PlaybackService(engine: engine, queue: queue)
     }
 

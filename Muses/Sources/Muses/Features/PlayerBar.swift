@@ -6,6 +6,7 @@ struct PlayerBar: View {
     @State private var seeking = false
     @State private var seekValue: Double = 0
     var onArtworkTap: () -> Void = {}
+    var onQueueTap: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 16) {
@@ -81,7 +82,8 @@ struct PlayerBar: View {
                 get: { Double(playback.volume) },
                 set: { playback.setVolume(Float($0)) }), in: 0...1)
                 .frame(width: 100).tint(BrandColors.cyan)
-            Button { } label: { Image(systemName: "list.bullet") }.foregroundStyle(BrandColors.textSecondary)
+            Button { onQueueTap() } label: { Image(systemName: "list.bullet") }
+                .foregroundStyle(BrandColors.textSecondary)
             Button { } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
                 .foregroundStyle(BrandColors.textSecondary)
         }

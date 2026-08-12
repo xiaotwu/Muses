@@ -1,6 +1,6 @@
 import Foundation
 
-struct QueueItem: Identifiable, Equatable, Sendable {
+struct QueueItem: Identifiable, Equatable, Sendable, Codable {
     let id: UUID
     let track: TrackSnapshot
     let source: TrackSource
@@ -17,7 +17,7 @@ struct QueueItem: Identifiable, Equatable, Sendable {
 }
 
 /// 轻量只读快照,避免 UI 直接持有 SwiftData @Model 在队列中跨线程传递。
-struct TrackSnapshot: Identifiable, Equatable, Sendable {
+struct TrackSnapshot: Identifiable, Equatable, Sendable, Codable {
     let id: UUID
     let title: String
     let artist: String
