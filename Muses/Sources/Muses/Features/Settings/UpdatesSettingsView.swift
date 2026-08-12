@@ -5,6 +5,10 @@ import Sparkle
 enum MusesResources {
     /// appcast.xml 模板 URL(随 Muses 模块 bundle 分发)。
     static let appcastURL = Bundle.module.url(forResource: "appcast", withExtension: "xml")
+    /// Info.plist 模板 URL(打包脚本注入 .app 的 Contents/Info.plist)。
+    static let infoPlistURL = Bundle.module.url(forResource: "Info", withExtension: "plist")
+    /// entitlements 模板 URL(codesign --entitlements 用)。
+    static let entitlementsURL = Bundle.module.url(forResource: "Muses", withExtension: "entitlements")
 }
 
 /// Sparkle 自动更新的环境注入键。

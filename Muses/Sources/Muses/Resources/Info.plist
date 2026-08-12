@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>com.muses.app</string>
+	<key>CFBundleName</key>
+	<string>Muses</string>
+	<key>CFBundleDisplayName</key>
+	<string>Muses</string>
+	<key>CFBundleExecutable</key>
+	<string>Muses</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.4.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSUIElement</key>
+	<false/>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<!-- Sparkle 自动更新。SUFeedURL 占位;真实地址发布时由 sign-update.sh / 手工填入。 -->
+	<key>SUFeedURL</key>
+	<string>https://muses.example/appcast.xml</string>
+	<!-- SUPublicEDKey 由 sign-update.sh 在生成 EdDSA 密钥后注入。 -->
+	<key>SUPublicEDKey</key>
+	<string></string>
+	<key>SUEnableAutomaticUpdates</key>
+	<true/>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
+</dict>
+</plist>
