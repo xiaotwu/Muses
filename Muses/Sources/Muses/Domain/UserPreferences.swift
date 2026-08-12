@@ -18,4 +18,5 @@ enum PrefKey {
     static let eqActivePresetId = "muses.eq.activePresetId"
     static let lyricsSource = "muses.lyrics.source"
     static let audioQuality = "muses.audio.quality"
+    static let checkForUpdates = "muses.updates.checkAutomatically"
 }

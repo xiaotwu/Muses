@@ -26,6 +26,7 @@ struct SettingsView: View {
                     }
 
                     ThemeSettingsView()
+                    UpdatesSettingsView()
                     AboutView()
                 }
                 .formStyle(.grouped)

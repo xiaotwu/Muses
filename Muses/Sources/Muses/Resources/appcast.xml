@@ -1,0 +1,41 @@
+<?xml version="1.0" standalone="yes"?>
+<!--
+  Muses appcast 模板(Sparkle 2 / EdDSA 签名)。
+
+  发布流程(Phase 4 / release):
+    1. ./Scripts/copy-ytdlp.sh                 (打包 yt-dlp)
+    2. swift build -c release                  (产物 .build/release/Muses)
+    3. 用 Sparkle 的 sign_update 生成 EdDSA 签名:
+         sign_update "path/to/Muses.app" with ed-key-file ~/.muses/ed25519-priv.pem
+    4. 把下方 item 复制一份,更新 sparkle:version / url / pubDate / sparkle:edSignature
+    5. 上传 appcast.xml 到 SUFeedURL 指向的 HTTPS 地址
+
+  Info.plist 必需键(打包 .app 时注入,SPM executable 无自定义 Info.plist):
+    SUFeedURL                = https://your-host/muses/appcast.xml
+    SUPublicEDKey            = EdDSA 公钥(来自 sign_update generate-key-pair)
+    SUEnableAutomaticUpdates = true
+    SUAutomaticallyUpdate    = false   (自动检查但需用户确认安装)
+-->
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Muses</title>
+    <link>https://your-host/muses/appcast.xml</link>
+    <description>Muses release feed</description>
+    <language>en</language>
+    <!--
+    <item>
+      <title>Version 0.3.0</title>
+      <pubDate>Wed, 12 Aug 2026 00:00:00 +0000</pubDate>
+      <sparkle:version>1</sparkle:version>
+      <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
+      <sparkle:edSignature>BASE64_EDDSA_SIGNATURE</sparkle:edSignature>
+      <enclosure
+        url="https://your-host/muses/Muses-0.3.0.zip"
+        sparkle:edSignature="BASE64_EDDSA_SIGNATURE"
+        length="0"
+        type="application/octet-stream" />
+      <description><![CDATA[<ul><li>初始在线与同步体验</li></ul>]]></description>
+    </item>
+    -->
+  </channel>
+</rss>

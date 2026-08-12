@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import Sparkle
 
 @main
 struct MusesApp: App {
@@ -9,6 +10,7 @@ struct MusesApp: App {
     let importService: YouTubeImportService
     private let nowPlayingManager: NowPlayingManager
     private let spotlightIndexer: SpotlightIndexer
+    private let updaterController: SPUStandardUpdaterController
 
     init() {
         let container = try! makeModelContainer()
@@ -34,6 +36,18 @@ struct MusesApp: App {
         self.spotlightIndexer = indexer
         // 启动后异步索引到 Spotlight
         Task { @MainActor in indexer.indexAll() }
+
+        // Sparkle 自动更新。SUFeedURL / SUPublicEDKey 需在 .app 的 Info.plist 注入
+        // (见 Resources/appcast.xml 注释)。SPM executable 无自定义 Info.plist,
+        // 故仅在主 bundle 配置了 SUFeedURL 时才 startUpdater,避免 Sparkle 弹出
+        // "misconfigured" 警告窗;开发/测试构建静默 no-op。
+        let controller = SPUStandardUpdaterController(
+            startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil
+        )
+        if Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil {
+            controller.startUpdater()
+        }
+        self.updaterController = controller
     }
 
     var body: some Scene {
@@ -42,6 +56,7 @@ struct MusesApp: App {
                 .environment(libraryService)
                 .environment(playbackService)
                 .environment(importService)
+                .environment(\.updater, updaterController.updater)
                 .modelContainer(modelContainer)
                 .onOpenURL { url in
                     // deep link: muses://play?trackId=<id> — Spotlight / 外部唤起播放
