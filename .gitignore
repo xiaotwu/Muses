@@ -2,4 +2,5 @@
 .swiftpm/
 .DS_Store
 .superpowers/
-Muses/Sources/Muses/Resources/yt-dlp
+Muses/Sources/Muses/Resources/yt-dlpMuses/main
+Muses/.build
