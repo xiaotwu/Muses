@@ -6,11 +6,10 @@ import SwiftUI
 /// 按 `playback.state.position` 高亮当前行并自动滚动。
 struct LyricsView: View {
     @Environment(PlaybackService.self) private var playback
+    @Environment(LyricsService.self) private var service
     @State private var lines: [LyricLine]?
     @State private var loadedTrackId: UUID?
     @State private var currentLineIndex: Int?
-
-    private let service = LyricsService()
 
     var body: some View {
         Group {
@@ -69,6 +68,7 @@ struct LyricsView: View {
     }
 
     /// 加载当前曲目的歌词(曲目变化时重新加载)。
+    /// 缓存优先:TrackSnapshot.lyrics 命中则直接解析,跳过网络。
     private func loadLyrics() {
         guard let track = playback.state.track else {
             lines = nil; loadedTrackId = nil; return
@@ -76,18 +76,30 @@ struct LyricsView: View {
         guard track.id != loadedTrackId else { return }
         loadedTrackId = track.id
         lines = nil
+
+        // 缓存命中:直接解析,不联网
+        if let cached = service.fetchCached(track: track) {
+            applyLyrics(cached)
+            return
+        }
+
         Task {
             let result = await service.fetch(track: track)
-            if let synced = result?.syncedLyrics, !synced.isEmpty {
-                lines = LyricsService.parseLRC(synced)
-            } else if let plain = result?.plainLyrics, !plain.isEmpty {
-                // 无时间标签的纯文本歌词
-                lines = plain.split(separator: "\n").map {
-                    LyricLine(id: UUID(), time: nil, text: String($0))
-                }
-            } else {
-                lines = nil
+            if let result { applyLyrics(result) }
+        }
+    }
+
+    /// 将 LyricsResult 解析为 LyricLine 数组并更新 lines。
+    private func applyLyrics(_ result: LyricsResult) {
+        if let synced = result.syncedLyrics, !synced.isEmpty {
+            lines = LyricsService.parseLRC(synced)
+        } else if let plain = result.plainLyrics, !plain.isEmpty {
+            // 无时间标签的纯文本歌词
+            lines = plain.split(separator: "\n").map {
+                LyricLine(id: UUID(), time: nil, text: String($0))
             }
+        } else {
+            lines = nil
         }
     }
 

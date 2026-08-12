@@ -1,10 +1,12 @@
 import Foundation
+import SwiftData
 
 /// 歌词来源。
 enum LyricsSource: String, Sendable {
     case local       // 本地 .lrc 文件
     case lrclib      // LRCLIB API
     case musixmatch  // Musixmatch 公共 Web API
+    case cached      // Track.lyrics 持久化缓存
 }
 
 /// 单行歌词(可带时间标签)。
@@ -25,16 +27,44 @@ struct LyricsResult: Sendable {
 ///
 /// 遵循 `MetadataEnricherService` 的模式:`@MainActor`、吞掉所有传输错误、
 /// 失败返回 `nil` 而不抛出。
+@Observable
 @MainActor
 final class LyricsService {
     private let session: URLSession
+    private let modelContainer: ModelContainer?
     private let log = AppLog.for("LyricsService")
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession = .shared, modelContainer: ModelContainer? = nil) {
         self.session = session
+        self.modelContainer = modelContainer
     }
 
     // MARK: - Public
+
+    /// 检查持久化缓存(Track.lyrics)。命中返回 LyricsResult(source: .cached)。
+    func fetchCached(track: TrackSnapshot) -> LyricsResult? {
+        if let lyrics = track.lyrics, !lyrics.isEmpty {
+            // 判断是 LRC(含时间标签)还是纯文本
+            let isLRC = lyrics.contains("[") && lyrics.range(of: #"\[\d{2}:\d{2}"#, options: .regularExpression) != nil
+            if isLRC {
+                return LyricsResult(plainLyrics: nil, syncedLyrics: lyrics, source: .cached)
+            } else {
+                return LyricsResult(plainLyrics: lyrics, syncedLyrics: nil, source: .cached)
+            }
+        }
+        return nil
+    }
+
+    /// 将歌词写回 Track.lyrics 持久化缓存。
+    private func persistLyrics(_ result: LyricsResult, for trackId: UUID) {
+        guard let container = modelContainer else { return }
+        let ctx = ModelContext(container)
+        let descriptor = FetchDescriptor<Track>(predicate: #Predicate { $0.id == trackId })
+        guard let track = try? ctx.fetch(descriptor).first else { return }
+        // 优先缓存同步歌词(LRC),其次纯文本
+        track.lyrics = result.syncedLyrics ?? result.plainLyrics
+        try? ctx.save()
+    }
 
     /// 根据用户偏好(`PrefKey.lyricsSource`)按优先级获取歌词。
     /// - source == "local":先本地 .lrc,失败回退 LRCLIB
@@ -47,18 +77,49 @@ final class LyricsService {
 
         switch pref {
         case "local":
-            if let local = fetchLocal(track: track) { return local }
-            return await fetchLrclib(track: track)
+            if let local = fetchLocal(track: track) {
+                persistLyrics(local, for: track.id)
+                return local
+            }
+            if let remote = await fetchLrclib(track: track) {
+                persistLyrics(remote, for: track.id)
+                return remote
+            }
+            return nil
         case "lrclib":
-            if let remote = await fetchLrclib(track: track) { return remote }
-            return fetchLocal(track: track)
+            if let remote = await fetchLrclib(track: track) {
+                persistLyrics(remote, for: track.id)
+                return remote
+            }
+            if let local = fetchLocal(track: track) {
+                persistLyrics(local, for: track.id)
+                return local
+            }
+            return nil
         case "musixmatch":
-            if let mx = await fetchMusixmatch(track: track) { return mx }
-            if let remote = await fetchLrclib(track: track) { return remote }
-            return fetchLocal(track: track)
+            if let mx = await fetchMusixmatch(track: track) {
+                persistLyrics(mx, for: track.id)
+                return mx
+            }
+            if let remote = await fetchLrclib(track: track) {
+                persistLyrics(remote, for: track.id)
+                return remote
+            }
+            if let local = fetchLocal(track: track) {
+                persistLyrics(local, for: track.id)
+                return local
+            }
+            return nil
         default:
-            if let remote = await fetchLrclib(track: track) { return remote }
-            return fetchLocal(track: track)
+            if let remote = await fetchLrclib(track: track) {
+                persistLyrics(remote, for: track.id)
+                return remote
+            }
+            if let local = fetchLocal(track: track) {
+                persistLyrics(local, for: track.id)
+                return local
+            }
+            return nil
         }
     }
 

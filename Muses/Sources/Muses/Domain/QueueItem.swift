@@ -32,6 +32,7 @@ struct TrackSnapshot: Identifiable, Equatable, Sendable, Codable {
     let codec: String?
     let isLossless: Bool
     let liked: Bool
+    let lyrics: String?
 
     init(from track: Track) {
         self.id = track.id; self.title = track.title; self.artist = track.artist
@@ -42,13 +43,14 @@ struct TrackSnapshot: Identifiable, Equatable, Sendable, Codable {
         self.sampleRate = track.sampleRate; self.bitDepth = track.bitDepth
         self.codec = track.codec; self.isLossless = track.isLossless
         self.liked = track.liked
+        self.lyrics = track.lyrics
     }
 
     init(id: UUID, title: String, artist: String, albumTitle: String?,
          durationSeconds: Double, filePath: String?, youTubeId: String?,
          artworkHash: String?, artworkUrl: String?,
          sampleRate: Int?, bitDepth: Int?, codec: String?, isLossless: Bool,
-         liked: Bool = false) {
+         liked: Bool = false, lyrics: String? = nil) {
         self.id = id; self.title = title; self.artist = artist
         self.albumTitle = albumTitle; self.durationSeconds = durationSeconds
         self.filePath = filePath; self.youTubeId = youTubeId
@@ -56,6 +58,7 @@ struct TrackSnapshot: Identifiable, Equatable, Sendable, Codable {
         self.sampleRate = sampleRate; self.bitDepth = bitDepth
         self.codec = codec; self.isLossless = isLossless
         self.liked = liked
+        self.lyrics = lyrics
     }
 
     // Custom decoder: `liked` defaults to false for backward compat with old
@@ -63,6 +66,7 @@ struct TrackSnapshot: Identifiable, Equatable, Sendable, Codable {
     private enum CodingKeys: String, CodingKey {
         case id, title, artist, albumTitle, durationSeconds, filePath, youTubeId
         case artworkHash, artworkUrl, sampleRate, bitDepth, codec, isLossless, liked
+        case lyrics
     }
 
     init(from decoder: Decoder) throws {
@@ -81,5 +85,6 @@ struct TrackSnapshot: Identifiable, Equatable, Sendable, Codable {
         codec = try c.decodeIfPresent(String.self, forKey: .codec)
         isLossless = try c.decode(Bool.self, forKey: .isLossless)
         liked = try c.decodeIfPresent(Bool.self, forKey: .liked) ?? false
+        lyrics = try c.decodeIfPresent(String.self, forKey: .lyrics)
     }
 }
