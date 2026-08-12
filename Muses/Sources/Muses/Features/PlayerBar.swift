@@ -5,6 +5,7 @@ struct PlayerBar: View {
     @Environment(PlaybackService.self) private var playback
     @State private var seeking = false
     @State private var seekValue: Double = 0
+    var onArtworkTap: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 16) {
@@ -23,6 +24,7 @@ struct PlayerBar: View {
             artwork
                 .frame(width: 56, height: 56)
                 .cornerRadius(6)
+                .onTapGesture { onArtworkTap() }
             VStack(alignment: .leading, spacing: 2) {
                 Text(playback.state.track?.title ?? "").font(.callout).lineLimit(1).foregroundStyle(.white)
                 Text(playback.state.track?.artist ?? "").font(.caption)

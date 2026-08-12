@@ -5,6 +5,7 @@ struct RootView: View {
     @State private var section: SidebarSection = .home
     @State private var selectedAlbum: Album?
     @State private var showImport = false
+    @State private var showNowPlaying = false
 
     var body: some View {
         NavigationSplitView {
@@ -31,8 +32,15 @@ struct RootView: View {
         }
         .background(BrandColors.background)
         .overlay(alignment: .bottom) {
-            PlayerBar()
+            PlayerBar(onArtworkTap: { showNowPlaying = true })
         }
+        .overlay {
+            if showNowPlaying {
+                NowPlayingView(isPresented: $showNowPlaying)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: showNowPlaying)
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button { showImport = true } label: { Image(systemName: "plus") }
