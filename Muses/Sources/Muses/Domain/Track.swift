@@ -34,6 +34,11 @@ final class Track {
 
     var album: Album?
 
+    /// 反向关联:若本 Track 由某 `YouTubeImportItem` 懒创建,指向该 item。
+    var youTubeImportItem: YouTubeImportItem?
+    /// 反向关联:若本 Track 作为某 `YouTubeImport` 的本地附加,指向该 import。
+    var youTubeImportLocalAddition: YouTubeImport?
+
     init(id: UUID = UUID(), source: TrackSource, title: String, artist: String,
          albumTitle: String? = nil, albumArtist: String? = nil, durationMs: Int = 0,
          trackNo: Int? = nil, discNo: Int? = nil, year: Int? = nil, genre: String? = nil,
