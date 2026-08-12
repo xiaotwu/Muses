@@ -100,7 +100,7 @@ final class LocalAudioEngine: PlayerEngine {
             let next = inactivePlayer
             next.scheduleFile(file, at: nil) { }
             activePlayer.stop()
-            next.volume = baseVolume
+            next.volume = effectiveVolume()
             next.play()
             activePlayer = next
 
@@ -138,6 +138,11 @@ final class LocalAudioEngine: PlayerEngine {
     func playPrepared() -> Bool {
         guard let file = prefetchedFile, let track = prefetchedTrack else { return false }
 
+        // 先更新 currentTrack,使 effectiveVolume() 使用新曲目的 ReplayGain
+        currentFile = file
+        currentTrack = track
+        fileFrames = prefetchedFrames
+
         // 交叉淡入淡出检查
         let crossfade = UserDefaults.standard.double(forKey: PrefKey.crossfadeSeconds)
 
@@ -150,16 +155,13 @@ final class LocalAudioEngine: PlayerEngine {
             let next = inactivePlayer
             next.scheduleFile(file, at: nil) { }
             if !engine.isRunning { try? engine.start() }
-            next.volume = baseVolume
+            next.volume = effectiveVolume()
             next.play()
             activePlayer = next
         }
 
         // 更新 state 到新曲目
         let sr = file.processingFormat.sampleRate
-        currentFile = file
-        currentTrack = track
-        fileFrames = prefetchedFrames
         state.track = track
         state.duration = Double(prefetchedFrames) / sr
         state.position = 0
@@ -201,12 +203,12 @@ final class LocalAudioEngine: PlayerEngine {
         guard steps > 0 else {
             // 极短交叉淡入淡出:直接切换
             activePlayer.stop()
-            next.volume = baseVolume
+            next.volume = effectiveVolume()
             activePlayer = next
             isCrossfading = false
             return
         }
-        let vol = baseVolume
+        let vol = effectiveVolume()
         crossfadeStep = 0
         crossfadeTimer = Timer.scheduledTimer(withTimeInterval: 0.02, repeats: true) { [weak self] timer in
             guard let self else { timer.invalidate(); return }
@@ -301,7 +303,15 @@ final class LocalAudioEngine: PlayerEngine {
     func setVolume(_ v: Float) {
         baseVolume = max(0, min(1, v))
         // 交叉淡入淡出期间不覆盖渐变音量
-        if !isCrossfading { activePlayer.volume = baseVolume }
+        if !isCrossfading { activePlayer.volume = effectiveVolume() }
+    }
+
+    /// 应用 ReplayGain 后的实际音量 = baseVolume × 10^(gain/20)。
+    /// replayGainEnabled 关闭或无 gain 标签时返回 baseVolume。
+    private func effectiveVolume() -> Float {
+        guard UserDefaults.standard.bool(forKey: PrefKey.replayGainEnabled),
+              let gain = currentTrack?.replayGain else { return baseVolume }
+        return baseVolume * Float(pow(10.0, gain / 20.0))
     }
 
     func setEQ(_ bands: [EQBand]) {

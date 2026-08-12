@@ -16,6 +16,8 @@ struct EmbeddedMetadata: Sendable {
     var codec: String?
     var isLossless: Bool
     var artworkData: Data?
+    /// ReplayGain track gain(dB),如 -6.43。nil 表示无标签。
+    var replayGain: Double?
 }
 
 final class MetadataService: Sendable {
@@ -27,7 +29,8 @@ final class MetadataService: Sendable {
         var meta = EmbeddedMetadata(
             title: nil, artist: nil, albumTitle: nil, albumArtist: nil,
             durationMs: 0, trackNo: nil, discNo: nil, year: nil, genre: nil,
-            sampleRate: nil, bitDepth: nil, codec: nil, isLossless: false, artworkData: nil)
+            sampleRate: nil, bitDepth: nil, codec: nil, isLossless: false,
+            artworkData: nil, replayGain: nil)
 
         do {
             let duration = try await asset.load(.duration)
@@ -59,11 +62,43 @@ final class MetadataService: Sendable {
                 default: break
                 }
             }
+
+            // ReplayGain 标签不在 commonMetadata 中,需遍历完整 metadata 列表
+            // 按 key 字符串匹配(ID3 TXXX:REPLAYGAIN_TRACK_GAIN / Vorbis REPLAYGAIN_TRACK_GAIN /
+            // MP4 ----:com.apple.iTunes:replaygain_track_gain)
+            if meta.replayGain == nil {
+                for item in try await asset.load(.metadata) {
+                    let keyString = (item.key as? String) ?? (item.identifier?.rawValue ?? "")
+                    let lower = keyString.lowercased()
+                    if lower.contains("replaygain_track_gain") || lower == "replaygain_track_gain" {
+                        if let val = try? await item.load(.stringValue) {
+                            meta.replayGain = Self.parseReplayGain(val)
+                            if meta.replayGain != nil { break }
+                        }
+                    }
+                }
+            }
         } catch {
             AppLog.for("MetadataService").error("read failed \(url): \(error)")
             return nil
         }
         return meta
+    }
+
+    /// 解析 ReplayGain 字符串(如 "-6.43 dB" → -6.43)。纯函数,便于测试。
+    static func parseReplayGain(_ s: String) -> Double? {
+        let trimmed = s.trimmingCharacters(in: .whitespaces)
+        // 去掉 "dB" 后缀
+        let withoutDB = trimmed.replacingOccurrences(of: "dB", with: "",
+                                                     options: .caseInsensitive)
+            .trimmingCharacters(in: .whitespaces)
+        return Double(withoutDB)
+    }
+
+    /// 计算 ReplayGain 增益因子:scale = 10^(gain/20)。nil 或 0 dB → 1.0。
+    static func replayGainScale(_ gain: Double?) -> Float {
+        guard let gain else { return 1.0 }
+        return Float(pow(10.0, gain / 20.0))
     }
 
     private func codecName(from formatID: FourCharCode) -> String {

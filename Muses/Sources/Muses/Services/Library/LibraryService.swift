@@ -317,6 +317,7 @@ final class LibraryService {
             existing.year = meta.year; existing.genre = meta.genre
             existing.sampleRate = meta.sampleRate; existing.bitDepth = meta.bitDepth
             existing.codec = meta.codec; existing.isLossless = meta.isLossless
+            existing.replayGain = meta.replayGain
             existing.localArtworkHash = artworkHash ?? existing.localArtworkHash
             existing.availabilityRaw = TrackAvailability.available.rawValue
             existing.metadataStatusRaw = MetadataStatus.complete.rawValue
@@ -334,7 +335,7 @@ final class LibraryService {
             durationMs: meta.durationMs,
             trackNo: meta.trackNo, discNo: meta.discNo, year: meta.year, genre: meta.genre,
             filePath: path, youTubeId: nil, artworkUrl: nil,
-            localArtworkHash: artworkHash, lyrics: nil,
+            localArtworkHash: artworkHash, lyrics: nil, replayGain: meta.replayGain,
             sampleRate: meta.sampleRate, bitDepth: meta.bitDepth,
             codec: meta.codec, isLossless: meta.isLossless,
             metadataStatus: .complete, availability: .available
