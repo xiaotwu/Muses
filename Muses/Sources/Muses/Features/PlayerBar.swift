@@ -16,9 +16,10 @@ struct PlayerBar: View {
             trailingBlock
         }
         .padding(.horizontal, 16)
-        .frame(height: 76)
+        .frame(height: 72)
         .background(.ultraThinMaterial)
-        .overlay(Rectangle().frame(height: 1).foregroundStyle(BrandColors.hairline), alignment: .top)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .shadow(color: .black.opacity(0.3), radius: 12, x: 0, y: 4)
     }
 
     private var leadingBlock: some View {

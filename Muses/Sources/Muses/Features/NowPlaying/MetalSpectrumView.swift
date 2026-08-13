@@ -133,13 +133,13 @@ final class SpectrumRenderer: NSObject, MTKViewDelegate {
             out.position = float4(ndcX, ndcY, 0.0, 1.0);
 
             if (isLower) {
-                // 镜像:30% 透明 magenta
-                out.color = float4(0.94, 0.56, 0.94, 0.3);
+                // 镜像:30% 透明白色
+                out.color = float4(1.0, 1.0, 1.0, 0.3);
             } else {
-                // 上半:magenta(底)→ cyan(顶)渐变
+                // 上半:白色渐变(底 100% → 顶 70%,保留轻微深度)
                 float t = barH > 0.001 ? (c.y / barH) : 0.0;
-                // magenta=(0.94,0.56,0.94) cyan=(0.09,0.66,0.94)
-                out.color = float4(0.94 - t * 0.85, 0.56 + t * 0.10, 0.94, 1.0);
+                float v = 1.0 - t * 0.3;
+                out.color = float4(v, v, v, 1.0);
             }
             return out;
         }

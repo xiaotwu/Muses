@@ -20,40 +20,43 @@ struct RootView: View {
                         showSettings: $showSettings,
                         showAbout: $showAbout)
         } detail: {
-            if let album = selectedAlbum {
-                AlbumDetailView(album: album, selection: $selectedAlbum)
-            } else if let artist = selectedArtist {
-                ArtistDetailView(artist: artist, selection: $selectedArtist,
-                                 selectedAlbum: $selectedAlbum)
-            } else if let playlist = selectedPlaylist {
-                PlaylistDetailView(playlist: playlist, selectedPlaylist: $selectedPlaylist)
-            } else {
-                switch section {
-                case .home:
-                    HomeView(selection: $section, selectedAlbum: $selectedAlbum)
-                case .new:
-                    NewView()
-                case .search:
-                    // Search 触发 GlobalSearchView overlay
-                    EmptyView()
-                        .onAppear { showSearch = true; section = .home }
-                case .pins:
-                    PinsView(selection: $section, selectedAlbum: $selectedAlbum,
-                             selectedPlaylist: $selectedPlaylist)
-                case .recently:
-                    RecentlyView(selection: $section, selectedAlbum: $selectedAlbum)
-                case .albums:
-                    LibraryView(selection: $section, selectedAlbum: $selectedAlbum)
-                case .artists:
-                    ArtistsView(selectedArtist: $selectedArtist)
-                case .songs:
-                    SongsListView()
-                case .youtubeMusic:
-                    YouTubeMusicView()
-                case .playlists:
-                    PlaylistsView(selectedPlaylist: $selectedPlaylist)
+            Group {
+                if let album = selectedAlbum {
+                    AlbumDetailView(album: album, selection: $selectedAlbum)
+                } else if let artist = selectedArtist {
+                    ArtistDetailView(artist: artist, selection: $selectedArtist,
+                                     selectedAlbum: $selectedAlbum)
+                } else if let playlist = selectedPlaylist {
+                    PlaylistDetailView(playlist: playlist, selectedPlaylist: $selectedPlaylist)
+                } else {
+                    switch section {
+                    case .home:
+                        HomeView(selection: $section, selectedAlbum: $selectedAlbum)
+                    case .new:
+                        NewView()
+                    case .search:
+                        // Search 触发 GlobalSearchView overlay
+                        EmptyView()
+                            .onAppear { showSearch = true; section = .home }
+                    case .pins:
+                        PinsView(selection: $section, selectedAlbum: $selectedAlbum,
+                                 selectedPlaylist: $selectedPlaylist)
+                    case .recently:
+                        RecentlyView(selection: $section, selectedAlbum: $selectedAlbum)
+                    case .albums:
+                        LibraryView(selection: $section, selectedAlbum: $selectedAlbum)
+                    case .artists:
+                        ArtistsView(selectedArtist: $selectedArtist)
+                    case .songs:
+                        SongsListView()
+                    case .youtubeMusic:
+                        YouTubeMusicView()
+                    case .playlists:
+                        PlaylistsView(selectedPlaylist: $selectedPlaylist)
+                    }
                 }
             }
+            .padding(.bottom, 96)
         }
         .sheet(isPresented: $showImport) {
             ImportSheet()
@@ -69,6 +72,8 @@ struct RootView: View {
         .overlay(alignment: .bottom) {
             PlayerBar(onArtworkTap: { showNowPlaying = true },
                       onQueueTap: { showQueue = true })
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
         }
         .overlay(alignment: .trailing) {
             if showQueue {
@@ -163,17 +168,18 @@ enum BrandColors {
         rgb(0.08, 0.08, 0.10),
         rgb(0.92, 0.92, 0.94)
     )
+    /// 纯黑白主题:副颜色为白色(深色)或黑色(浅色)。
     static let magenta = dynamic(
-        rgb(0.94, 0.56, 0.94),
-        rgb(0.82, 0.40, 0.82)
+        rgb(1, 1, 1),
+        rgb(0, 0, 0)
     )
     static let cyan = dynamic(
-        rgb(0.09, 0.66, 0.94),
-        rgb(0.05, 0.55, 0.85)
+        rgb(1, 1, 1),
+        rgb(0, 0, 0)
     )
     static let green = dynamic(
-        rgb(0.09, 0.66, 0.09),
-        rgb(0.06, 0.58, 0.22)
+        rgb(1, 1, 1),
+        rgb(0, 0, 0)
     )
     static let textPrimary = dynamic(
         rgb(0.94, 0.94, 0.94),

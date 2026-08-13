@@ -6,15 +6,23 @@ struct AboutView: View {
         Section(tr("About", "关于")) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 16) {
-                    // Logo 占位
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(
-                            LinearGradient(colors: [BrandColors.magenta, BrandColors.cyan],
-                                           startPoint: .topLeading, endPoint: .bottomTrailing)
-                        )
-                        .frame(width: 64, height: 64)
-                        .overlay(Text("M").font(.system(size: 36, weight: .bold))
-                            .foregroundStyle(BrandColors.textPrimary))
+                    // Logo(从 bundle 加载,回退到白色圆角占位)
+                    Group {
+                        if let url = Bundle.main.url(forResource: "logo", withExtension: "png"),
+                           let nsImage = NSImage(contentsOf: url) {
+                            Image(nsImage: nsImage)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 64, height: 64)
+                                .cornerRadius(12)
+                        } else {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(BrandColors.magenta)
+                                .frame(width: 64, height: 64)
+                                .overlay(Text("M").font(.system(size: 36, weight: .bold))
+                                    .foregroundStyle(BrandColors.textPrimary))
+                        }
+                    }
                     VStack(alignment: .leading) {
                         Text("Muses").font(.title2).fontWeight(.bold)
                             .foregroundStyle(BrandColors.textPrimary)
