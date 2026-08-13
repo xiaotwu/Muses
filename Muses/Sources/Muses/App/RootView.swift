@@ -14,13 +14,16 @@ struct RootView: View {
     @State private var showSearch = false
     @State private var showSettings = false
     @State private var showAbout = false
+    /// 由 Profile 弹出菜单设置,用于直接跳转到指定 Settings 分类(如 YouTube 登录)。
+    @State private var initialSettingsCategory: SettingsCategory? = nil
     @AppStorage(PrefKey.language) private var language = "system"
 
     var body: some View {
         NavigationSplitView {
             SidebarView(selection: $section,
                         showSettings: $showSettings,
-                        showAbout: $showAbout)
+                        showAbout: $showAbout,
+                        initialSettingsCategory: $initialSettingsCategory)
         } detail: {
             Group {
                 if let album = selectedAlbum {
@@ -71,8 +74,11 @@ struct RootView: View {
             ImportSheet()
                 .environment(library)
         }
-        .sheet(isPresented: $showSettings, onDismiss: { showAbout = false }) {
-            SettingsSheet(initialCategory: showAbout ? .about : nil)
+        .sheet(isPresented: $showSettings, onDismiss: {
+            showAbout = false
+            initialSettingsCategory = nil
+        }) {
+            SettingsSheet(initialCategory: initialSettingsCategory ?? (showAbout ? .about : nil))
         }
         .overlay(alignment: .trailing) {
             if showQueue {
@@ -160,7 +166,17 @@ enum BrandColors {
     /// 用 `NSColor(name:dynamicProvider:)` 让所有调用零改动地随外观切换。
     private static func dynamic(_ dark: NSColor, _ light: NSColor) -> Color {
         Color(nsColor: NSColor(name: nil) { (appearance: NSAppearance) -> NSColor in
-            appearance.name == NSAppearance.Name.darkAqua ? dark : light
+            // `appearance.name == .darkAqua` 仅匹配标准深色外观,会漏掉高对比深色
+            // (.accessibilityHighContrastDarkAqua) 与 vibrantDark 等变体,导致在
+            // 这些变体下误用浅色分支(浅色文字近乎黑色,深色背景下不可读)。
+            // `bestMatch` 在外观层级中返回首个命中的标准外观,可覆盖所有深色变体。
+            let darkMatches: [NSAppearance.Name] = [
+                .darkAqua,
+                .vibrantDark,
+                .accessibilityHighContrastDarkAqua,
+                .accessibilityHighContrastVibrantDark
+            ]
+            return appearance.bestMatch(from: darkMatches) != nil ? dark : light
         })
     }
 

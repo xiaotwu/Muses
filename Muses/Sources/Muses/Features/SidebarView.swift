@@ -7,10 +7,12 @@ struct SidebarView: View {
     @Binding var selection: SidebarSection
     @Binding var showSettings: Bool
     @Binding var showAbout: Bool
+    @Binding var initialSettingsCategory: SettingsCategory?
     @Environment(PlaylistService.self) private var playlistService
-    @Environment(PlaybackService.self) private var playback
     @State private var playlists: [Playlist] = []
     @State private var showProfilePopover = false
+    /// YouTube 登录态:反映 cookie 来源设置,用于 Profile 副标题与头像着色。
+    @AppStorage(PrefKey.ytCookieSource) private var cookieSourceRaw = YTCookieSource.none.rawValue
 
     var body: some View {
         VStack(spacing: 0) {
@@ -108,18 +110,17 @@ struct SidebarView: View {
         }
     }
 
-    /// 底部用户控件:点击弹出 Profile / Settings / About。
+    /// 底部用户控件:点击弹出 Your YouTube / Sign-in / Settings / About。
     private var profileControl: some View {
         HStack(spacing: 10) {
-            logoImage
+            profileAvatar
                 .frame(width: 28, height: 28)
-                .cornerRadius(14)
             VStack(alignment: .leading, spacing: 1) {
-                Text(tr("Profile", "个人"))
+                Text(tr("Your YouTube", "你的 YouTube"))
                     .font(.callout)
                     .foregroundStyle(BrandColors.textPrimary)
                     .lineLimit(1)
-                Text(playback.state.track?.title ?? tr("Not Playing", "未播放"))
+                Text(youTubeSignInSubtitle)
                     .font(.caption2)
                     .foregroundStyle(BrandColors.textSecondary)
                     .lineLimit(1)
@@ -136,8 +137,28 @@ struct SidebarView: View {
         .popover(isPresented: $showProfilePopover, arrowEdge: .top) {
             ProfilePopover(showSettings: $showSettings,
                            showAbout: $showAbout,
+                           initialSettingsCategory: $initialSettingsCategory,
                            isPresented: $showProfilePopover)
         }
+    }
+
+    /// 灰色人形头像(默认未登录态);已登录时使用主色高亮,直观反映登录状态。
+    private var profileAvatar: some View {
+        Image(systemName: "person.circle.fill")
+            .resizable()
+            .scaledToFit()
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(isSignedInToYouTube
+                ? BrandColors.textPrimary
+                : BrandColors.textSecondary)
+    }
+
+    private var isSignedInToYouTube: Bool {
+        YTCookieSource(rawValue: cookieSourceRaw) ?? .none != .none
+    }
+
+    private var youTubeSignInSubtitle: String {
+        isSignedInToYouTube ? tr("Signed in", "已登录") : tr("Not signed in", "未登录")
     }
 
     private func refreshPlaylists() {
@@ -145,26 +166,36 @@ struct SidebarView: View {
     }
 }
 
-/// 用户 Profile 弹出菜单:Profile / Settings / About。
+/// 用户 Profile 弹出菜单:Your YouTube / Sign-in / Settings / About。
 struct ProfilePopover: View {
     @Binding var showSettings: Bool
     @Binding var showAbout: Bool
+    @Binding var initialSettingsCategory: SettingsCategory?
     @Binding var isPresented: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            popoverItem(icon: "person.circle", title: tr("Profile", "个人资料")) {
+            popoverItem(icon: "play.rectangle",
+                        title: tr("Your YouTube", "你的 YouTube")) {
                 if let url = URL(string: "https://music.youtube.com") {
                     NSWorkspace.shared.open(url)
                 }
                 isPresented = false
             }
+            popoverItem(icon: "person.badge.key",
+                        title: tr("YouTube Sign-in…", "YouTube 登录…")) {
+                isPresented = false
+                initialSettingsCategory = .youtube
+                showSettings = true
+            }
             popoverItem(icon: "gearshape", title: tr("Settings", "设置")) {
                 isPresented = false
+                initialSettingsCategory = nil
                 showSettings = true
             }
             popoverItem(icon: "info.circle", title: tr("About", "关于")) {
                 isPresented = false
+                initialSettingsCategory = .about
                 showAbout = true
                 showSettings = true
             }

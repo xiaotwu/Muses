@@ -15,25 +15,14 @@ struct HomeView: View {
     @State private var ytTrending: [YTDlpBridge.YTDlpPlaylistEntry] = []
     @State private var trendingLoading = false
     @State private var trendingError: String?
-
-    private var albums: [Album] { library.allAlbums() }
+    /// 缓存资料库快照,避免在 computed property 中每次渲染都 fetch。
+    @State private var albums: [Album] = []
+    @State private var recentlyAdded: [Album] = []
+    @State private var pinnedAlbumsCache: [Album] = []
+    @State private var heroAlbum: Album? = nil
 
     /// Hero 专辑:优先选最近播放的,否则最近添加的,否则第一个。
-    private var heroAlbum: Album? {
-        library.mostRecentlyPlayedAlbum() ?? albums.first
-    }
-
-    /// 最近添加的专辑(按曲目 addedAt 降序,前 20)。
-    private var recentlyAdded: [Album] {
-        albums.sorted { a, b in
-            let aDate = a.tracks.map(\.addedAt).max() ?? .distantPast
-            let bDate = b.tracks.map(\.addedAt).max() ?? .distantPast
-            return aDate > bDate
-        }.prefix(20).map { $0 }
-    }
-
-    /// 钉选专辑。
-    private var pinnedAlbums: [Album] { library.pinnedAlbums() }
+    /// 现在读取缓存的 `heroAlbum`,由 `refreshLibrarySnapshot()` 维护。
 
     var body: some View {
         ScrollView {
@@ -52,10 +41,10 @@ struct HomeView: View {
                 }
 
                 // 钉选
-                if !pinnedAlbums.isEmpty {
+                if !pinnedAlbumsCache.isEmpty {
                     horizontalSection(
                         title: tr("Pinned", "钉选"),
-                        albums: pinnedAlbums
+                        albums: pinnedAlbumsCache
                     )
                 }
 
@@ -82,10 +71,28 @@ struct HomeView: View {
                 .animation(.easeInOut(duration: 0.4), value: heroAlbum?.id)
         )
         .onAppear {
+            refreshLibrarySnapshot()
             updateGradient()
             loadTrending()
         }
         .onChange(of: heroAlbum?.id) { _, _ in updateGradient() }
+        .onChange(of: library.metadataRevision) { _, _ in refreshLibrarySnapshot() }
+        .onChange(of: library.pinRevision) { _, _ in refreshLibrarySnapshot() }
+        .onChange(of: library.likedRevision) { _, _ in refreshLibrarySnapshot() }
+    }
+
+    /// 一次性刷新资料库快照(专辑 / 最近添加 / 钉选 / Hero),
+    /// 避免每次渲染都 fetch + O(albums×tracks) 排序。
+    private func refreshLibrarySnapshot() {
+        let allAlbums = library.allAlbums()
+        albums = allAlbums
+        recentlyAdded = allAlbums.sorted { a, b in
+            let aDate = a.tracks.map(\.addedAt).max() ?? .distantPast
+            let bDate = b.tracks.map(\.addedAt).max() ?? .distantPast
+            return aDate > bDate
+        }.prefix(20).map { $0 }
+        pinnedAlbumsCache = library.pinnedAlbums()
+        heroAlbum = library.mostRecentlyPlayedAlbum() ?? allAlbums.first
     }
 
     // MARK: - Hero

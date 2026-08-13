@@ -439,6 +439,10 @@ final class LibraryService {
 
     /// All tracks optionally filtered by a case-insensitive search query matched
     /// against title, artist, and albumTitle. Sorted by title.
+    ///
+    /// 注:`localizedStandardContains` 下推到 `#Predicate` 在当前 SwiftData
+    /// 版本对可选字符串的 SQL 生成不稳定(静默返回空),故仍取全量在 Swift
+    /// 侧过滤;搜索词为空时直接返回排序结果,避免无谓过滤。
     func allTracks(search: String?) -> [Track] {
         let ctx = ModelContext(modelContainer)
         let all = (try? ctx.fetch(FetchDescriptor<Track>(
@@ -492,6 +496,18 @@ final class LibraryService {
             predicate: #Predicate { $0.id == id })).first)?.liked) ?? false
     }
 
+    /// 批量查询已喜欢曲目 id 集合:一次 fetch 替代 N 次 `isLiked(id:)` 调用,
+    /// 避免每行渲染都新建 ModelContext。视图在 `.onAppear` /
+    /// `.onChange(of: likedRevision)` 时构造一次,行内用 `contains` O(1) 查询。
+    func likedIDs(for ids: [UUID]) -> Set<UUID> {
+        guard !ids.isEmpty else { return [] }
+        let ctx = ModelContext(modelContainer)
+        let desc = FetchDescriptor<Track>(
+            predicate: #Predicate { ids.contains($0.id) && $0.liked == true })
+        let liked = (try? ctx.fetch(desc)) ?? []
+        return Set(liked.map(\.id))
+    }
+
     func likedTracks() -> [Track] {
         let ctx = ModelContext(modelContainer)
         let desc = FetchDescriptor<Track>(
@@ -540,6 +556,16 @@ final class LibraryService {
         let id = album.id
         return ((try? ctx.fetch(FetchDescriptor<Album>(
             predicate: #Predicate { $0.id == id })).first)?.pinned) ?? false
+    }
+
+    /// 批量查询已钉选专辑 id 集合:一次 fetch 替代 N 次 `isPinned` 调用。
+    func pinnedIDs(for ids: [UUID]) -> Set<UUID> {
+        guard !ids.isEmpty else { return [] }
+        let ctx = ModelContext(modelContainer)
+        let desc = FetchDescriptor<Album>(
+            predicate: #Predicate { ids.contains($0.id) && $0.pinned == true })
+        let pinned = (try? ctx.fetch(desc)) ?? []
+        return Set(pinned.map(\.id))
     }
 
     /// 获取最近播放的专辑(有 lastPlayedAt 的曲目所属专辑)。

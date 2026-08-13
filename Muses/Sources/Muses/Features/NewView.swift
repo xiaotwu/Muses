@@ -9,7 +9,10 @@ import SwiftUI
 struct NewView: View {
     @Binding var selectedAlbum: Album?
     @Environment(RecommendationService.self) private var recommendation
-    @State private var recs = RecommendationService.Recommendations()
+    @Environment(LibraryService.self) private var library
+    /// nil = 尚未计算完成(显示占位);非 nil = 已计算。
+    @State private var recs: RecommendationService.Recommendations? = nil
+    @State private var computeTask: Task<Void, Never>?
 
     var body: some View {
         ScrollView {
@@ -21,31 +24,39 @@ struct NewView: View {
                     .padding(.horizontal, 24)
                     .padding(.top, 20)
 
-                if recs.hasContent {
-                    if !recs.becauseYouListened.isEmpty {
+                if let r = recs, r.hasContent {
+                    if !r.becauseYouListened.isEmpty {
                         recSection(
                             title: tr("Because You Listened", "因为你听过"),
                             subtitle: tr("More from your most-played artists",
                                           "来自你播放最多的艺术家"),
-                            albums: recs.becauseYouListened
+                            albums: r.becauseYouListened
                         )
                     }
-                    if !recs.unplayedGems.isEmpty {
+                    if !r.unplayedGems.isEmpty {
                         recSection(
                             title: tr("Unplayed Gems", "未探索"),
                             subtitle: tr("Albums in your library you haven't played yet",
                                           "资料库中尚未播放的专辑"),
-                            albums: recs.unplayedGems
+                            albums: r.unplayedGems
                         )
                     }
-                    if !recs.fromLiked.isEmpty {
+                    if !r.fromLiked.isEmpty {
                         recSection(
                             title: tr("From Your Liked Songs", "基于收藏"),
                             subtitle: tr("Artists you've liked, more to explore",
                                           "你收藏的艺术家,更多探索"),
-                            albums: recs.fromLiked
+                            albums: r.fromLiked
                         )
                     }
+                } else if recs == nil {
+                    // 计算中:轻量占位,不用 spinner 避免视觉跳动。
+                    EmptyStateView(
+                        icon: "sparkles",
+                        title: tr("Finding picks for you…", "正在为你挑选…"),
+                        subtitle: nil
+                    )
+                    .padding(.top, 60)
                 } else {
                     EmptyStateView(
                         icon: "sparkles",
@@ -59,7 +70,22 @@ struct NewView: View {
             .padding(.bottom, 100)
         }
         .background(BrandColors.background)
-        .onAppear { recs = recommendation.compute() }
+        .onAppear { scheduleCompute() }
+        .onDisappear { computeTask?.cancel() }
+        .onChange(of: library.likedRevision) { _, _ in scheduleCompute() }
+        .onChange(of: library.metadataRevision) { _, _ in scheduleCompute() }
+    }
+
+    /// 异步触发推荐计算(后台离线计算,完成后回主线程赋值)。
+    /// 重复调用会取消上一个进行中的任务,避免排队。
+    private func scheduleCompute() {
+        computeTask?.cancel()
+        let service = recommendation
+        computeTask = Task { @MainActor in
+            let result = await service.compute()
+            guard !Task.isCancelled else { return }
+            recs = result
+        }
     }
 
     // MARK: - 推荐区

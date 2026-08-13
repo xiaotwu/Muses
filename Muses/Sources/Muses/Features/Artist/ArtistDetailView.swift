@@ -8,6 +8,8 @@ struct ArtistDetailView: View {
     @Environment(PlaybackService.self) private var playback
     @Binding var selectedAlbum: Album?
     @State private var gradient: [Color] = [BrandColors.background, BrandColors.surface]
+    /// 批量已喜欢 id 集合,避免每行 `TrackRow` 单独 fetch。
+    @State private var likedSet: Set<UUID> = []
 
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: 16), count: 4)
@@ -45,7 +47,8 @@ struct ArtistDetailView: View {
                 Button { selection = nil } label: { Image(systemName: "chevron.backward") }
             }
         }
-        .onAppear { extractGradient() }
+        .onAppear { extractGradient(); refreshLikedSet() }
+        .onChange(of: library.likedRevision) { _, _ in refreshLikedSet() }
     }
 
     private var header: some View {
@@ -97,7 +100,7 @@ struct ArtistDetailView: View {
             Text(tr("Songs", "歌曲")).font(.headline).foregroundStyle(BrandColors.textPrimary)
             VStack(spacing: 0) {
                 ForEach(tracks, id: \.id) { track in
-                    TrackRow(track: track, showHeart: true)
+                    TrackRow(track: track, showHeart: true, likedIDs: likedSet)
                         .onTapGesture { play(track) }
                         .padding(.vertical, 6)
                 }
@@ -109,6 +112,10 @@ struct ArtistDetailView: View {
         let snaps = tracks.map { TrackSnapshot(from: $0) }
         guard let snap = snaps.first(where: { $0.id == track.id }) else { return }
         playback.playTrack(snap, context: snaps, from: .artist)
+    }
+
+    private func refreshLikedSet() {
+        likedSet = library.likedIDs(for: tracks.map(\.id))
     }
 
     private func playAll() {

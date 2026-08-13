@@ -43,6 +43,12 @@ final class YouTubeStreamEngine: PlayerEngine {
     private let session: URLSession
     private let log = AppLog.for("YouTubeStreamEngine")
     private var downloadTask: Task<Void, Never>?
+    /// 预加载任务:为队列下一首在后台解析+下载到临时文件,使 `load()` 命中本地缓存。
+    private var preloadTask: Task<Void, Never>?
+    /// 已预加载(后台下载完成)的 videoId,供 `load()` 跳过网络。
+    private var preparedVideoId: String?
+    /// 预加载下载完成的本地文件 URL(`preparedVideoId` 对应)。
+    private var preparedTempURL: URL?
 
     /// 测试可见的降级状态查询(避免暴露内部存储)。
     var isInFallbackMode: Bool { useAVPlayerFallback }
@@ -63,14 +69,29 @@ final class YouTubeStreamEngine: PlayerEngine {
 
     // MARK: - PlayerEngine
 
-    /// YouTube 预加载:no-op(yt-dlp 下载有延迟,无法真正无缝)
-    func prepare(_ track: TrackSnapshot) async {}
+    /// YouTube 预加载:在后台为下一首解析流 URL 并下载到临时文件,
+    /// 使随后 `load()` 命中本地缓存而跳过网络(大幅缩短起播延迟)。
+    /// 单节点引擎无法真正无缝切换,`playPrepared()` 仍返回 false,
+    /// 但 `load()` 因文件已在磁盘而近乎瞬时。
+    func prepare(_ track: TrackSnapshot) async {
+        guard let videoId = track.youTubeId else { return }
+        // 已为同一曲目预加载过且文件仍在:无需重复。
+        if preparedVideoId == videoId, existingTempFile(for: videoId) != nil { return }
+        preloadTask?.cancel()
+        preparedVideoId = videoId
+        preparedTempURL = nil
+        preloadTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.preloadToDisk(videoId: videoId)
+        }
+    }
 
-    /// YouTube playPrepared:无预加载,返回 false(PlaybackService 回退到 load)
+    /// 单节点引擎无预加载切换能力,始终返回 false 回退到 `load()`。
+    /// `load()` 会优先使用 `prepare()` 已下载的本地文件。
     func playPrepared() -> Bool { false }
 
     func load(_ track: TrackSnapshot) async throws {
-        // 1. 取消进行中的下载
+        // 1. 取消进行中的下载 / 预加载(但保留预加载已完成的文件)
         downloadTask?.cancel()
         downloadTask = nil
 
@@ -83,15 +104,21 @@ final class YouTubeStreamEngine: PlayerEngine {
         // 3. 拆除既有 AVPlayer 降级
         tearDownAVPlayer()
 
-        // 4. 解析流 URL(缓存优先,失败重试一次)
-        let resolvedURL: URL = try await resolveStreamURL(for: videoId)
-
-        // 5. 进入缓冲态
+        // 4. 进入缓冲态
         state.buffering = true
         state.track = track
         currentTrack = track
 
-        // 6. 下载到临时文件
+        // 5. 优先复用磁盘上的临时文件(预加载或上次播放留下的)→ 跳过网络,瞬时起播。
+        if let cachedURL = existingTempFile(for: videoId),
+           tryDecodeAndSchedule(tempURL: cachedURL, track: track) {
+            return
+        }
+
+        // 6. 解析流 URL(缓存优先,失败重试一次)
+        let resolvedURL: URL = try await resolveStreamURL(for: videoId)
+
+        // 7. 下载到临时文件
         let tempURL = streamsDir().appendingPathComponent("\(videoId).\(guessExt(from: resolvedURL))")
         let downloadOK: Bool
         do {
@@ -108,50 +135,19 @@ final class YouTubeStreamEngine: PlayerEngine {
             }
             try data.write(to: tempURL, options: .atomic)
             downloadOK = true
+            preparedTempURL = tempURL
+            preparedVideoId = videoId
         } catch {
             log.error("下载失败,降级到 AVPlayer:\(error.localizedDescription)")
             downloadOK = false
         }
 
-        // 7. 尝试用 AVAudioFile 解码
-        if downloadOK {
-            do {
-                let file = try AVAudioFile(forReading: tempURL)
-                currentFile = file
-                fileFrames = file.length
-                let sr = file.processingFormat.sampleRate
-                state.duration = Double(fileFrames) / sr
-                state.position = 0
-                state.source = .youtube
-                state.quality = AudioQualityInfo(
-                    sampleRate: Int(sr),
-                    bitDepth: 16,
-                    codec: guessCodec(from: tempURL),
-                    isLossless: false)
-                state.error = nil
-                state.buffering = false
-                useAVPlayerFallback = false
-
-                if !engine.isRunning {
-                    do { try engine.start() }
-                    catch {
-                        state.error = .engineStartFailed
-                        throw PlayerError.engineStartFailed
-                    }
-                }
-                player.scheduleFile(file, at: nil) { [weak self] in
-                    Task { @MainActor in self?.handleCompletion() }
-                }
-                return
-            } catch let error as PlayerError {
-                throw error
-            } catch {
-                log.error("AVAudioFile 解码失败,降级到 AVPlayer:\(error.localizedDescription)")
-                // 落入下面的降级路径
-            }
+        // 8. 尝试用 AVAudioFile 解码本地文件
+        if downloadOK, tryDecodeAndSchedule(tempURL: tempURL, track: track) {
+            return
         }
 
-        // 8. AVPlayer 降级
+        // 9. AVPlayer 降级
         useAVPlayerFallback = true
         state.buffering = false
         state.source = .youtube
@@ -265,6 +261,90 @@ final class YouTubeStreamEngine: PlayerEngine {
 
     // MARK: - Private helpers
 
+    /// 在 streamsDir 中查找已存在的临时文件(按 videoId 前缀匹配任意扩展名)。
+    /// 返回首个 > 4KB 的文件(过小视为半下载损坏),用于跳过网络直接解码播放。
+    private func existingTempFile(for videoId: String) -> URL? {
+        let dir = streamsDir()
+        guard let candidates = try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.fileSizeKey]) else { return nil }
+        for url in candidates where url.lastPathComponent.hasPrefix("\(videoId).") {
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            if size > 4096 { return url }
+        }
+        return nil
+    }
+
+    /// 尝试用 `AVAudioFile` 解码本地文件并调度播放。成功返回 true。
+    /// 失败(损坏 / 不支持的格式)返回 false,调用方降级到网络或 AVPlayer。
+    private func tryDecodeAndSchedule(tempURL: URL, track: TrackSnapshot) -> Bool {
+        do {
+            let file = try AVAudioFile(forReading: tempURL)
+            currentFile = file
+            fileFrames = file.length
+            let sr = file.processingFormat.sampleRate
+            state.duration = Double(fileFrames) / sr
+            state.position = 0
+            state.source = .youtube
+            state.quality = AudioQualityInfo(
+                sampleRate: Int(sr),
+                bitDepth: 16,
+                codec: guessCodec(from: tempURL),
+                isLossless: false)
+            state.error = nil
+            state.buffering = false
+            useAVPlayerFallback = false
+            preparedTempURL = tempURL
+            preparedVideoId = track.youTubeId
+
+            if !engine.isRunning {
+                do { try engine.start() }
+                catch {
+                    state.error = .engineStartFailed
+                    return false
+                }
+            }
+            player.scheduleFile(file, at: nil) { [weak self] in
+                Task { @MainActor in self?.handleCompletion() }
+            }
+            return true
+        } catch {
+            log.error("AVAudioFile 解码失败,降级到 AVPlayer:\(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// 后台预加载:解析流 URL 并下载到临时文件,不调度、不播放。
+    /// 完成后 `preparedVideoId` / `preparedTempURL` 指向已就绪文件。
+    private func preloadToDisk(videoId: String) async {
+        // 若文件已在磁盘(上次播放过),直接标记就绪。
+        if let cached = existingTempFile(for: videoId) {
+            preparedTempURL = cached
+            preparedVideoId = videoId
+            return
+        }
+        do {
+            let resolvedURL = try await resolveStreamURL(for: videoId)
+            let tempURL = streamsDir().appendingPathComponent(
+                "\(videoId).\(guessExt(from: resolvedURL))")
+            let data: Data
+            if resolvedURL.isFileURL {
+                data = try Data(contentsOf: resolvedURL)
+            } else {
+                let (d, resp) = try await session.data(from: resolvedURL)
+                guard let http = resp as? HTTPURLResponse,
+                      (200..<300).contains(http.statusCode) else {
+                    throw PlayerError.networkError("非 2xx 响应")
+                }
+                data = d
+            }
+            try data.write(to: tempURL, options: .atomic)
+            preparedTempURL = tempURL
+            preparedVideoId = videoId
+        } catch {
+            log.error("预加载失败:\(error.localizedDescription)")
+        }
+    }
+
     /// 解析流 URL:缓存优先,首次失败则失效缓存并重试一次。
     /// 两次都失败时设置 `state.error` 并抛出 `PlayerError.sourceUnavailable`。
     private func resolveStreamURL(for videoId: String) async throws -> URL {
@@ -274,7 +354,7 @@ final class YouTubeStreamEngine: PlayerEngine {
         let quality = UserDefaults.standard.string(forKey: PrefKey.ytAudioQuality) ?? "bestaudio"
         do {
             let url = try await bridge.resolveStreamURL(
-                videoId: videoId, quality: quality, timeout: 30)
+                videoId: videoId, quality: quality, timeout: 15)
             cache.set(videoId: videoId, url: url)
             return url
         } catch {
@@ -282,7 +362,7 @@ final class YouTubeStreamEngine: PlayerEngine {
             cache.invalidate(videoId: videoId)
             do {
                 let url = try await bridge.resolveStreamURL(
-                    videoId: videoId, quality: quality, timeout: 30)
+                    videoId: videoId, quality: quality, timeout: 15)
                 cache.set(videoId: videoId, url: url)
                 return url
             } catch {

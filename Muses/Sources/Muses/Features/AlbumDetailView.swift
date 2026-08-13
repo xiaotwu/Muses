@@ -7,6 +7,8 @@ struct AlbumDetailView: View {
     @Environment(PlaybackService.self) private var playback
     @Environment(LibraryService.self) private var library
     @State private var gradient: [Color] = [BrandColors.background, BrandColors.surface]
+    /// 批量已喜欢 id 集合,避免每行 `TrackRow` 单独 fetch。
+    @State private var likedSet: Set<UUID> = []
 
     var body: some View {
         ZStack {
@@ -27,7 +29,12 @@ struct AlbumDetailView: View {
                 Button { selection = nil } label: { Image(systemName: "chevron.backward") }
             }
         }
-        .onAppear { extractGradient() }
+        .onAppear { extractGradient(); refreshLikedSet() }
+        .onChange(of: library.likedRevision) { _, _ in refreshLikedSet() }
+    }
+
+    private func refreshLikedSet() {
+        likedSet = library.likedIDs(for: sortedTracks().map(\.id))
     }
 
     private var header: some View {
@@ -101,7 +108,7 @@ struct AlbumDetailView: View {
     private var trackList: some View {
         VStack(spacing: 0) {
             ForEach(sortedTracks(), id: \.id) { track in
-                TrackRow(track: track)
+                TrackRow(track: track, likedIDs: likedSet)
                     .onTapGesture { play(track) }
                     .padding(.vertical, 6)
             }
@@ -145,12 +152,14 @@ struct AlbumDetailView: View {
 struct TrackRow: View {
     let track: Track
     var showHeart: Bool = true
+    /// 父视图批量查询的已喜欢 id 集合;为 nil 时回退到单次 `isLiked(id:)`。
+    var likedIDs: Set<UUID>? = nil
     @Environment(LibraryService.self) private var library
     @State private var showEditTrack = false
     var body: some View {
         let _ = library.likedRevision
         let _ = library.metadataRevision
-        let liked = library.isLiked(id: track.id)
+        let liked = likedIDs?.contains(track.id) ?? library.isLiked(id: track.id)
         HStack {
             Text("\(track.trackNo ?? 0)").foregroundStyle(BrandColors.textSecondary)
                 .frame(width: 28, alignment: .trailing)

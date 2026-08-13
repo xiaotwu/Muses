@@ -73,6 +73,9 @@ struct SongsListView: View {
     @State private var debouncedSearch = ""
     @State private var searchTask: Task<Void, Never>?
     @State private var sortKey: SortKey = .title
+    /// 批量已喜欢 id 集合:在 `.onAppear` / `likedRevision` 变化时一次性 fetch,
+    /// 避免每行 `SongRow` 各自新建 ModelContext 查询。
+    @State private var likedSet: Set<UUID> = []
 
     private enum SortKey: String, CaseIterable, Identifiable {
         case title, artist, album, dateAdded
@@ -96,6 +99,7 @@ struct SongsListView: View {
                 List(tracks, id: \.id) { track in
                     SongRow(track: track,
                             playlists: allPlaylists,
+                            likedIDs: likedSet,
                             onPlay: { play(track, from: tracks) },
                             onAddToQueue: { playback.queue.addToQueue(TrackSnapshot(from: track)) },
                             onPlayNext: { playback.queue.playNext(TrackSnapshot(from: track)) })
@@ -113,6 +117,9 @@ struct SongsListView: View {
                 debouncedSearch = newValue
             }
         }
+        .onAppear { refreshLikedSet() }
+        .onChange(of: library.likedRevision) { _, _ in refreshLikedSet() }
+        .onChange(of: debouncedSearch) { _, _ in refreshLikedSet() }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Picker(tr("Sort", "排序"), selection: $sortKey) {
@@ -137,12 +144,20 @@ struct SongsListView: View {
         guard let snap = snaps.first(where: { $0.id == track.id }) else { return }
         playback.playTrack(snap, context: snaps, from: .songs)
     }
+
+    /// 用当前可见曲目的 id 批量查询已喜欢集合,行内查询降为 O(1) `contains`。
+    private func refreshLikedSet() {
+        let tracks = sortedTracks(library.allTracks(search: debouncedSearch.isEmpty ? nil : debouncedSearch))
+        likedSet = library.likedIDs(for: tracks.map(\.id))
+    }
 }
 
 /// 增强歌曲行:封面缩略图 + 标题 + 艺术家 + 专辑 + Hi-Res + 心心 + 时长 + 上下文菜单。
 struct SongRow: View {
     let track: Track
     var playlists: [Playlist] = []
+    /// 父视图批量查询的已喜欢 id 集合;为 nil 时回退到单次 `isLiked(id:)`。
+    var likedIDs: Set<UUID>? = nil
     var onPlay: () -> Void = {}
     var onAddToQueue: () -> Void = {}
     var onPlayNext: () -> Void = {}
@@ -154,7 +169,7 @@ struct SongRow: View {
         // 访问 likedRevision / metadataRevision 注册 @Observable 依赖,使 toggleLike / 编辑信息 后即时刷新。
         let _ = library.likedRevision
         let _ = library.metadataRevision
-        let liked = library.isLiked(id: track.id)
+        let liked = likedIDs?.contains(track.id) ?? library.isLiked(id: track.id)
         HStack(spacing: 10) {
             artwork.frame(width: 40, height: 40).cornerRadius(4)
             VStack(alignment: .leading, spacing: 2) {

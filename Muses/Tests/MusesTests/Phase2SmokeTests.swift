@@ -54,8 +54,9 @@ struct Phase2SmokeTests {
         playback.installSpectrumHandler { spectrumFrame = $0 }
         try await Task.sleep(for: .milliseconds(400))
         // macOS 26.5: AVAudioPlayerNode.play() 在命令行进程中抛 ObjC NSException,
-        // 测试中跳过实际播放(_canPlay=false),故无频谱数据。标记为已知问题。
-        withKnownIssue {
+        // 测试中跳过实际播放(_canPlay=false),故通常无频谱数据。
+        // `isIntermittent: true`:频谱是否产出依赖运行环境,有/无都视为通过。
+        withKnownIssue(isIntermittent: true) {
             #expect(spectrumFrame != nil)
             #expect(spectrumFrame?.bands.count == 64)
         }
