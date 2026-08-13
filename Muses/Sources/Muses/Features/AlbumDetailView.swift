@@ -5,11 +5,12 @@ struct AlbumDetailView: View {
     let album: Album
     @Binding var selection: Album?
     @Environment(PlaybackService.self) private var playback
+    @Environment(LibraryService.self) private var library
     @State private var gradient: [Color] = [BrandColors.background, BrandColors.surface]
 
     var body: some View {
         ZStack {
-            LinearGradient(colors: gradient, startPoint: .top, endPoint: .bottom)
+            LinearGradient(colors: gradient, startPoint: .top, endPoint: .center)
                 .ignoresSafeArea()
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
@@ -17,6 +18,7 @@ struct AlbumDetailView: View {
                     trackList
                 }
                 .padding(24)
+                .padding(.bottom, 100)
             }
         }
         .navigationTitle("")
@@ -29,21 +31,59 @@ struct AlbumDetailView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 20) {
+        HStack(alignment: .top, spacing: 24) {
             artwork
-                .frame(width: 220, height: 220)
-                .shadow(radius: 12)
+                .frame(width: 240, height: 240)
+                .shadow(radius: 20)
             VStack(alignment: .leading, spacing: 8) {
-                Text(album.title).font(.largeTitle).fontWeight(.bold).foregroundStyle(BrandColors.textPrimary)
-                Text(album.albumArtist).font(.title3).foregroundStyle(BrandColors.textSecondary)
-                Button { playAll() } label: {
-                    Label("Play", systemImage: "play.fill").padding(.horizontal, 14).padding(.vertical, 8)
+                // 小标签:ALBUM
+                Text(tr("ALBUM", "专辑"))
+                    .font(.caption).fontWeight(.bold)
+                    .foregroundStyle(BrandColors.textSecondary)
+                    .tracking(1.5)
+
+                Text(album.title)
+                    .font(.largeTitle).fontWeight(.bold)
+                    .foregroundStyle(BrandColors.textPrimary)
+                    .lineLimit(2)
+
+                // 元数据行:艺术家 • 年份 • 曲目数 • 总时长
+                Text(metadataLine)
+                    .font(.subheadline)
+                    .foregroundStyle(BrandColors.textSecondary)
+
+                HStack(spacing: 12) {
+                    Button { playAll() } label: {
+                        Label(tr("Play", "播放"), systemImage: "play.fill")
+                            .padding(.horizontal, 16).padding(.vertical, 8)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(BrandColors.magenta)
+
+                    // 钉选按钮
+                    let pinned = library.isPinned(album)
+                    Button { library.togglePin(album) } label: {
+                        Image(systemName: pinned ? "pin.fill" : "pin")
+                    }
+                    .buttonStyle(.bordered)
+                    .help(pinned ? tr("Unpin", "取消钉选") : tr("Pin", "钉选"))
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(BrandColors.magenta)
+                .padding(.top, 4)
             }
             Spacer()
         }
+    }
+
+    /// 元数据:艺术家 • 年份 • 曲目数 • 总时长。
+    private var metadataLine: String {
+        let tracks = sortedTracks()
+        var parts: [String] = [album.albumArtist]
+        if let year = album.year { parts.append(String(year)) }
+        let count = tracks.count
+        parts.append("\(count) \(count == 1 ? tr("song", "首") : tr("songs", "首"))")
+        let totalSec = tracks.reduce(0.0) { $0 + $1.durationSeconds }
+        parts.append(formatDuration(totalSec))
+        return parts.joined(separator: " • ")
     }
 
     private var artwork: some View {
@@ -51,11 +91,11 @@ struct AlbumDetailView: View {
             if let h = album.artworkHash, let p = ArtworkCache.default.path(forHash: h) {
                 Image(nsImage: NSImage(byReferencing: p)).resizable().scaledToFill()
             } else {
-                RoundedRectangle(cornerRadius: 8).fill(BrandColors.surface)
+                RoundedRectangle(cornerRadius: 12).fill(BrandColors.surface)
                     .overlay(Image(systemName: "music.note").font(.largeTitle))
             }
         }
-        .clipped().cornerRadius(8)
+        .clipped().cornerRadius(12)
     }
 
     private var trackList: some View {
@@ -88,8 +128,17 @@ struct AlbumDetailView: View {
     private func extractGradient() {
         guard let h = album.artworkHash, let p = ArtworkCache.default.path(forHash: h),
               let img = NSImage(contentsOf: p) else { return }
-        let colors = AlbumArtworkExtractor.dominantColors(img, count: 3)
+        let colors = AlbumArtworkExtractor.dominantColors(img, count: 4)
         gradient = colors.map { Color(nsColor: $0) } + [BrandColors.background]
+    }
+
+    private func formatDuration(_ s: Double) -> String {
+        let mins = Int(s) / 60
+        let secs = Int(s) % 60
+        if mins >= 60 {
+            return String(format: "%d:%02d:%02d", mins / 60, mins % 60, secs)
+        }
+        return String(format: "%d:%02d", mins, secs)
     }
 }
 
@@ -99,7 +148,6 @@ struct TrackRow: View {
     @Environment(LibraryService.self) private var library
     @State private var showEditTrack = false
     var body: some View {
-        // 访问 likedRevision / metadataRevision 注册 @Observable 依赖,使 toggleLike / 编辑信息 后即时刷新。
         let _ = library.likedRevision
         let _ = library.metadataRevision
         let liked = library.isLiked(id: track.id)
@@ -123,12 +171,12 @@ struct TrackRow: View {
                 }
                 .foregroundStyle(liked ? BrandColors.magenta : BrandColors.textSecondary)
                 .buttonStyle(.plain)
-                .help(liked ? "取消收藏" : "收藏")
+                .help(liked ? tr("Unlike", "取消收藏") : tr("Like", "收藏"))
             }
             Text(formatDuration(track.durationSeconds)).foregroundStyle(BrandColors.textSecondary)
         }
         .contextMenu {
-            Button("编辑信息") { showEditTrack = true }
+            Button(tr("Edit Info", "编辑信息")) { showEditTrack = true }
         }
         .sheet(isPresented: $showEditTrack) {
             EditTrackSheet(track: track)
