@@ -102,7 +102,10 @@ struct PlaylistCard: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button("删除歌单", role: .destructive, action: onDelete)
+            Button(playlist.pinned ? tr("Unpin", "取消钉选") : tr("Pin", "钉选")) {
+                playlistService.togglePin(playlist)
+            }
+            Button(tr("Delete Playlist", "删除歌单"), role: .destructive, action: onDelete)
         }
     }
 }

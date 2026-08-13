@@ -39,7 +39,10 @@ struct LibraryView: View {
 
 struct AlbumCard: View {
     let album: Album
+    @Environment(LibraryService.self) private var library
     var body: some View {
+        let _ = library.pinRevision
+        let pinned = library.isPinned(album)
         VStack(alignment: .leading, spacing: 8) {
             let art = album.artworkHash.flatMap { ArtworkCache.default.path(forHash: $0) }
                 .map { NSImage(byReferencing: $0) }
@@ -52,6 +55,11 @@ struct AlbumCard: View {
             }
             Text(album.title).font(.subheadline).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
             Text(album.albumArtist).font(.caption).foregroundStyle(BrandColors.textSecondary).lineLimit(1)
+        }
+        .contextMenu {
+            Button(pinned ? tr("Unpin", "取消钉选") : tr("Pin", "钉选")) {
+                library.togglePin(album)
+            }
         }
     }
 }
