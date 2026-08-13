@@ -14,31 +14,31 @@ struct ThemeSettingsView: View {
 
     var body: some View {
         Form {
-            Section("Now Playing 模式") {
-                Picker("展示模式", selection: Binding(
+            Section(tr("Now Playing Mode", "Now Playing 模式")) {
+                Picker(tr("Display Mode", "展示模式"), selection: Binding(
                     get: { modeRaw },
                     set: { modeRaw = $0 }
                 )) {
-                    Text("巨大封面").tag(NowPlayingMode.cover.rawValue)
-                    Text("唱片旋转").tag(NowPlayingMode.vinyl.rawValue)
+                    Text(tr("Large Cover", "巨大封面")).tag(NowPlayingMode.cover.rawValue)
+                    Text(tr("Spinning Vinyl", "唱片旋转")).tag(NowPlayingMode.vinyl.rawValue)
                 }
                 .pickerStyle(.radioGroup)
-                Text("选择 Now Playing 全屏页面的视觉风格。")
+                Text(tr("Choose the visual style of the Now Playing full-screen page.", "选择 Now Playing 全屏页面的视觉风格。"))
                     .font(.caption)
                     .foregroundStyle(BrandColors.textSecondary)
             }
 
-            Section("应用主题") {
-                Picker("主题", selection: Binding(
+            Section(tr("App Theme", "应用主题")) {
+                Picker(tr("Theme", "主题"), selection: Binding(
                     get: { themeRaw },
                     set: { themeRaw = $0 }
                 )) {
-                    Text("深色").tag(AppTheme.dark.rawValue)
-                    Text("浅色").tag(AppTheme.light.rawValue)
-                    Text("跟随系统").tag(AppTheme.system.rawValue)
+                    Text(tr("Dark", "深色")).tag(AppTheme.dark.rawValue)
+                    Text(tr("Light", "浅色")).tag(AppTheme.light.rawValue)
+                    Text(tr("Match System", "跟随系统")).tag(AppTheme.system.rawValue)
                 }
                 .pickerStyle(.radioGroup)
-                Text("阶段 2 仅支持深色主题; 浅色/跟随系统将在阶段 4 实现。")
+                Text(tr("Stage 2 supports only the Dark theme; Light / Match System will be implemented in stage 4.", "阶段 2 仅支持深色主题; 浅色/跟随系统将在阶段 4 实现。"))
                     .font(.caption)
                     .foregroundStyle(BrandColors.textSecondary)
             }

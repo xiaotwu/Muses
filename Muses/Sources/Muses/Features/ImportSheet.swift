@@ -10,20 +10,22 @@ struct ImportSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Add Library Folder").font(.title2)
+            Text(tr("Add Library Folder", "添加资料库文件夹")).font(.title2)
+                .foregroundStyle(BrandColors.textPrimary)
             HStack {
-                TextField("Folder path", text: $path).textFieldStyle(.roundedBorder)
-                Button("Browse") { browse() }
+                TextField(tr("Folder path", "文件夹路径"), text: $path).textFieldStyle(.roundedBorder)
+                Button(tr("Browse", "浏览")) { browse() }
             }
-            Toggle("Watch for changes", isOn: $watch)
+            Toggle(tr("Watch for changes", "监视变化"), isOn: $watch)
             HStack {
                 Spacer()
-                Button("Cancel") { dismiss() }
-                Button("Add") { add() }.disabled(path.isEmpty || importing)
+                Button(tr("Cancel", "取消")) { dismiss() }
+                Button(tr("Add", "添加")) { add() }.disabled(path.isEmpty || importing)
             }
         }
         .padding(20)
         .frame(width: 460)
+        .background(.ultraThinMaterial)
     }
 
     private func browse() {

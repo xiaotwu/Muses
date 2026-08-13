@@ -7,7 +7,7 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                Text("设置").font(.largeTitle).fontWeight(.bold)
+                Text(tr("Settings", "设置")).font(.largeTitle).fontWeight(.bold)
                     .foregroundStyle(BrandColors.textPrimary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.bottom, 16)
@@ -19,9 +19,9 @@ struct SettingsView: View {
                     YouTubeSettingsView()
                     LyricsSettingsView()
 
-                    Section("Equalizer") {
+                    Section(tr("Equalizer", "均衡器")) {
                         Button { showEQEditor = true } label: {
-                            Label("打开 EQ 编辑器", systemImage: "slider.vertical.3")
+                            Label(tr("Open EQ Editor", "打开 EQ 编辑器"), systemImage: "slider.vertical.3")
                         }
                         .buttonStyle(.bordered)
                         .tint(BrandColors.cyan)

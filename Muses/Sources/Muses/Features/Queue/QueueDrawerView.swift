@@ -33,7 +33,7 @@ struct QueueDrawerView: View {
 
     private var header: some View {
         HStack {
-            Text("Queue").font(.headline).foregroundStyle(BrandColors.textPrimary)
+            Text(tr("Queue", "队列")).font(.headline).foregroundStyle(BrandColors.textPrimary)
             Spacer()
             // Repeat 模式循环
             Button {
@@ -51,7 +51,7 @@ struct QueueDrawerView: View {
             .foregroundStyle(playback.queue.repeatMode == .off
                              ? BrandColors.textSecondary : BrandColors.magenta)
             .buttonStyle(.plain)
-            .help("循环模式")
+            .help(tr("Repeat mode", "循环模式"))
 
             // Shuffle 切换
             Button {
@@ -63,7 +63,7 @@ struct QueueDrawerView: View {
             .foregroundStyle(playback.queue.shuffle
                              ? BrandColors.magenta : BrandColors.textSecondary)
             .buttonStyle(.plain)
-            .help("随机播放")
+            .help(tr("Shuffle", "随机播放"))
 
             Button { isPresented = false } label: {
                 Image(systemName: "xmark.circle.fill")
@@ -78,7 +78,7 @@ struct QueueDrawerView: View {
 
     private var list: some View {
         List {
-            Section("当前队列") {
+            Section(tr("Current Queue", "当前队列")) {
                 ForEach(playback.queue.items) { item in
                     QueueRow(item: item,
                              isCurrent: playback.queue.currentIndex ==
@@ -90,7 +90,7 @@ struct QueueDrawerView: View {
                                         to: destination > from ? destination - 1 : destination)
                 }
             }
-            Section("Up Next") {
+            Section(tr("Up Next", "下一首")) {
                 ForEach(playback.queue.upNext) { item in
                     QueueRow(item: item, isCurrent: false)
                 }
@@ -100,7 +100,7 @@ struct QueueDrawerView: View {
                                               to: destination > from ? destination - 1 : destination)
                 }
             }
-            Section("History") {
+            Section(tr("History", "历史记录")) {
                 ForEach(playback.queue.history) { item in
                     QueueRow(item: item, isCurrent: false)
                 }

@@ -89,7 +89,7 @@ struct PlayerBar: View {
             }
             .foregroundStyle(liked ? BrandColors.magenta : BrandColors.textSecondary)
             .buttonStyle(.plain)
-            .help(liked ? "取消收藏" : "收藏")
+            .help(liked ? tr("Unfavorite", "取消收藏") : tr("Favorite", "收藏"))
 
             // Repeat 模式循环:off → all → one
             Button {
@@ -117,7 +117,7 @@ struct PlayerBar: View {
             .foregroundStyle(playback.queue.shuffle
                              ? BrandColors.magenta : BrandColors.textSecondary)
             .buttonStyle(.plain)
-            .help(playback.queue.shuffle ? "随机:开" : "随机:关")
+            .help(playback.queue.shuffle ? tr("Shuffle: On", "随机:开") : tr("Shuffle: Off", "随机:关"))
 
             Slider(value: Binding(
                 get: { Double(playback.volume) },
@@ -130,9 +130,9 @@ struct PlayerBar: View {
 
     private var repeatHelp: String {
         switch playback.queue.repeatMode {
-        case .off: "循环:关"
-        case .all: "循环:全部"
-        case .one: "循环:单曲"
+        case .off: tr("Repeat: Off", "循环:关")
+        case .all: tr("Repeat: All", "循环:全部")
+        case .one: tr("Repeat: One", "循环:单曲")
         }
     }
 

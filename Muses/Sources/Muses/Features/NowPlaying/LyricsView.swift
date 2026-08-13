@@ -59,8 +59,8 @@ struct LyricsView: View {
     /// 无歌词占位(沿用阶段 2 文案)。
     private var placeholder: some View {
         VStack(spacing: 8) {
-            Text("无可用歌词").font(.title3).foregroundStyle(BrandColors.textPrimary)
-            Text("歌词将在播放时自动从 LRCLIB 或本地 .lrc 加载")
+            Text(tr("No lyrics available", "无可用歌词")).font(.title3).foregroundStyle(BrandColors.textPrimary)
+            Text(tr("Lyrics will load automatically from LRCLIB or local .lrc files during playback", "歌词将在播放时自动从 LRCLIB 或本地 .lrc 加载"))
                 .font(.callout).foregroundStyle(BrandColors.textSecondary)
         }
         .frame(maxWidth: .infinity)

@@ -20,11 +20,11 @@ struct EditTrackSheet: View {
         VStack(spacing: 0) {
             // 标题栏
             HStack {
-                Text("编辑信息").font(.headline).foregroundStyle(BrandColors.textPrimary)
+                Text(tr("Edit Info", "编辑信息")).font(.headline).foregroundStyle(BrandColors.textPrimary)
                 Spacer()
-                Button("取消") { dismiss() }
+                Button(tr("Cancel", "取消")) { dismiss() }
                     .foregroundStyle(BrandColors.textSecondary)
-                Button("保存") { save() }
+                Button(tr("Save", "保存")) { save() }
                     .buttonStyle(.borderedProminent)
                     .tint(BrandColors.cyan)
             }
@@ -33,19 +33,19 @@ struct EditTrackSheet: View {
             Divider().background(BrandColors.hairline)
 
             Form {
-                Section("基本信息") {
-                    TextField("标题", text: $title)
-                    TextField("艺术家", text: $artist)
-                    TextField("专辑", text: $albumTitle)
-                    TextField("专辑艺术家", text: $albumArtist)
+                Section(tr("Basic Info", "基本信息")) {
+                    TextField(tr("Title", "标题"), text: $title)
+                    TextField(tr("Artist", "艺术家"), text: $artist)
+                    TextField(tr("Album", "专辑"), text: $albumTitle)
+                    TextField(tr("Album Artist", "专辑艺术家"), text: $albumArtist)
                 }
-                Section("曲目信息") {
-                    TextField("曲目号", text: $trackNo)
-                    TextField("碟号", text: $discNo)
-                    TextField("年份", text: $year)
-                    TextField("流派", text: $genre)
+                Section(tr("Track Info", "曲目信息")) {
+                    TextField(tr("Track No.", "曲目号"), text: $trackNo)
+                    TextField(tr("Disc No.", "碟号"), text: $discNo)
+                    TextField(tr("Year", "年份"), text: $year)
+                    TextField(tr("Genre", "流派"), text: $genre)
                 }
-                Section("歌词") {
+                Section(tr("Lyrics", "歌词")) {
                     TextEditor(text: $lyrics)
                         .font(.caption)
                         .frame(minHeight: 80)
@@ -54,7 +54,7 @@ struct EditTrackSheet: View {
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
         }
-        .background(BrandColors.background)
+        .background(.ultraThinMaterial)
         .frame(width: 480)
         .frame(maxHeight: 560)
         .onAppear { loadFields() }

@@ -32,14 +32,14 @@ struct PlaylistDetailView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(playlist.name).font(.largeTitle).fontWeight(.bold)
                         .foregroundStyle(BrandColors.textPrimary)
-                    Text("\(sortedItems.count) 首")
+                    Text("\(sortedItems.count) \(tr("songs", "首"))")
                         .font(.caption).foregroundStyle(BrandColors.textSecondary)
 
                     HStack(spacing: 12) {
                         Button {
                             playAll()
                         } label: {
-                            Label("播放全部", systemImage: "play.fill")
+                            Label(tr("Play All", "播放全部"), systemImage: "play.fill")
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(BrandColors.magenta)
@@ -48,21 +48,21 @@ struct PlaylistDetailView: View {
                         Button {
                             showAddTrackSheet = true
                         } label: {
-                            Label("添加曲目", systemImage: "plus")
+                            Label(tr("Add Tracks", "添加曲目"), systemImage: "plus")
                         }
                         .buttonStyle(.bordered)
 
                         Button {
                             showM3UImporter = true
                         } label: {
-                            Label("导入 M3U", systemImage: "square.and.arrow.down")
+                            Label(tr("Import M3U", "导入 M3U"), systemImage: "square.and.arrow.down")
                         }
                         .buttonStyle(.bordered)
 
                         Button {
                             exportM3U()
                         } label: {
-                            Label("导出 M3U", systemImage: "square.and.arrow.up")
+                            Label(tr("Export M3U", "导出 M3U"), systemImage: "square.and.arrow.up")
                         }
                         .buttonStyle(.bordered)
                         .disabled(sortedItems.isEmpty)
@@ -74,8 +74,8 @@ struct PlaylistDetailView: View {
 
             // 曲目列表
             if sortedItems.isEmpty {
-                EmptyStateView(icon: "music.note.list", title: "歌单为空",
-                               subtitle: "点击「添加曲目」导入歌曲")
+                EmptyStateView(icon: "music.note.list", title: tr("Playlist is empty", "歌单为空"),
+                               subtitle: tr("Tap \"Add Tracks\" to import songs", "点击「添加曲目」导入歌曲"))
             } else {
                 List {
                     ForEach(sortedItems, id: \.id) { item in
@@ -131,7 +131,7 @@ struct PlaylistDetailView: View {
 
     private func exportM3U() {
         let panel = NSSavePanel()
-        panel.title = "导出 M3U"
+        panel.title = tr("Export M3U", "导出 M3U")
         panel.allowedContentTypes = [.text]
         panel.nameFieldStringValue = "\(playlist.name).m3u"
         guard panel.runModal() == .OK, let url = panel.url else { return }
@@ -164,7 +164,7 @@ struct PlaylistTrackRow: View {
             } else {
                 Image(systemName: "exclamationmark.triangle")
                     .foregroundStyle(BrandColors.textSecondary)
-                Text("(曲目已删除)").foregroundStyle(BrandColors.textSecondary)
+                Text(tr("(Track deleted)", "(曲目已删除)")).foregroundStyle(BrandColors.textSecondary)
             }
             Spacer()
             Button(role: .destructive, action: onRemove) {
@@ -193,13 +193,13 @@ struct AddToPlaylistSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text("添加曲目到「\(playlist.name)」")
+            Text(tr("Add tracks to \"\(playlist.name)\"", "添加曲目到「\(playlist.name)」"))
                 .font(.headline)
                 .foregroundStyle(BrandColors.textPrimary)
                 .padding(.top, 16).padding(.bottom, 12)
 
             if localTracks.isEmpty {
-                Text("资料库中暂无本地曲目")
+                Text(tr("No local tracks in library", "资料库中暂无本地曲目"))
                     .font(.caption)
                     .foregroundStyle(BrandColors.textSecondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -216,7 +216,7 @@ struct AddToPlaylistSheet: View {
                             }
                             Spacer()
                             if existingTrackIds.contains(track.id) {
-                                Text("已在歌单").font(.caption2).foregroundStyle(BrandColors.textSecondary)
+                                Text(tr("Already in playlist", "已在歌单")).font(.caption2).foregroundStyle(BrandColors.textSecondary)
                             }
                         }
                         .contentShape(Rectangle())
@@ -233,10 +233,10 @@ struct AddToPlaylistSheet: View {
             }
 
             HStack {
-                Button("取消") { dismiss() }
+                Button(tr("Cancel", "取消")) { dismiss() }
                     .buttonStyle(.bordered)
                 Spacer()
-                Button("添加 \(selectedIds.count) 首") {
+                Button(tr("Add \(selectedIds.count) songs", "添加 \(selectedIds.count) 首")) {
                     for track in localTracks where selectedIds.contains(track.id) {
                         playlistService.addTrack(playlist, track: track)
                     }
@@ -249,5 +249,6 @@ struct AddToPlaylistSheet: View {
             .padding(16)
         }
         .frame(width: 420, height: 480)
+        .background(.ultraThinMaterial)
     }
 }

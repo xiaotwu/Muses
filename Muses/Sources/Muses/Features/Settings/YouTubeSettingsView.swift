@@ -33,11 +33,11 @@ struct YouTubeSettingsView: View {
     }
 
     var body: some View {
-        Section("YouTube / yt-dlp") {
-            row("yt-dlp 路径", value: binaryPath ?? "未找到(将用 PATH 中的 yt-dlp 或随包二进制)")
+        Section(tr("YouTube / yt-dlp", "YouTube / yt-dlp")) {
+            row(tr("yt-dlp Path", "yt-dlp 路径"), value: binaryPath ?? tr("Not found (will use yt-dlp from PATH or bundled binary)", "未找到(将用 PATH 中的 yt-dlp 或随包二进制)"))
 
             HStack {
-                Text("yt-dlp 版本").foregroundStyle(BrandColors.textSecondary)
+                Text(tr("yt-dlp Version", "yt-dlp 版本")).foregroundStyle(BrandColors.textSecondary)
                 Spacer()
                 if let versionString {
                     Text(versionString).foregroundStyle(BrandColors.textPrimary)
@@ -51,15 +51,15 @@ struct YouTubeSettingsView: View {
             Button {
                 Task { await checkVersion() }
             } label: {
-                Label("检查 yt-dlp 版本", systemImage: "arrow.clockwise")
+                Label(tr("Check yt-dlp Version", "检查 yt-dlp 版本"), systemImage: "arrow.clockwise")
             }
             .buttonStyle(.bordered)
             .tint(BrandColors.cyan)
             .disabled(bridge == nil || checkingVersion)
         }
 
-        Section("登录 / Cookie") {
-            Picker("Cookie 来源", selection: $cookieSourceRaw) {
+        Section(tr("Sign-in / Cookies", "登录 / Cookie")) {
+            Picker(tr("Cookie Source", "Cookie 来源"), selection: $cookieSourceRaw) {
                 ForEach(YTCookieSource.allCases, id: \.rawValue) { src in
                     Text(src.displayName).tag(src.rawValue)
                 }
@@ -67,9 +67,9 @@ struct YouTubeSettingsView: View {
 
             if cookieSource == .file {
                 HStack {
-                    Text("Cookie 文件").foregroundStyle(BrandColors.textSecondary)
+                    Text(tr("Cookie File", "Cookie 文件")).foregroundStyle(BrandColors.textSecondary)
                     Spacer()
-                    Text(cookiePath.isEmpty ? "未选择" : cookiePath)
+                    Text(cookiePath.isEmpty ? tr("Not selected", "未选择") : cookiePath)
                         .foregroundStyle(BrandColors.textPrimary)
                         .lineLimit(1).truncationMode(.middle)
                         .help(cookiePath)
@@ -77,7 +77,7 @@ struct YouTubeSettingsView: View {
                 Button {
                     showFilePicker = true
                 } label: {
-                    Label("选择 Cookie 文件…", systemImage: "doc")
+                    Label(tr("Choose Cookie File…", "选择 Cookie 文件…"), systemImage: "doc")
                 }
                 .buttonStyle(.bordered)
             }
@@ -103,15 +103,15 @@ struct YouTubeSettingsView: View {
     private var cookieHelpText: String {
         switch cookieSource {
         case .none:
-            return "不使用 cookie。公开内容可直接播放/导入;登录态内容(年龄限制/私有歌单)无法访问。"
+            return tr("No cookies used. Public content can be played/imported directly; login-required content (age-restricted/private playlists) is inaccessible.", "不使用 cookie。公开内容可直接播放/导入;登录态内容(年龄限制/私有歌单)无法访问。")
         case .safari:
-            return "从 Safari 读取 cookie。需在 系统设置 → 隐私与安全性 → 完全磁盘访问 中授权 Muses。"
+            return tr("Read cookies from Safari. Grant Muses full disk access in System Settings → Privacy & Security → Full Disk Access.", "从 Safari 读取 cookie。需在 系统设置 → 隐私与安全性 → 完全磁盘访问 中授权 Muses。")
         case .chrome:
-            return "从 Chrome 读取 cookie。Chrome 需已登录 YouTube。"
+            return tr("Read cookies from Chrome. Chrome must be signed in to YouTube.", "从 Chrome 读取 cookie。Chrome 需已登录 YouTube。")
         case .firefox:
-            return "从 Firefox 读取 cookie。Firefox 需已登录 YouTube。"
+            return tr("Read cookies from Firefox. Firefox must be signed in to YouTube.", "从 Firefox 读取 cookie。Firefox 需已登录 YouTube。")
         case .file:
-            return "使用 Netscape 格式的 cookie 文件(可用浏览器扩展导出)。适合跨浏览器或无 GUI 场景。"
+            return tr("Use a Netscape-format cookie file (exportable via browser extensions). Suited for cross-browser or headless scenarios.", "使用 Netscape 格式的 cookie 文件(可用浏览器扩展导出)。适合跨浏览器或无 GUI 场景。")
         }
     }
 

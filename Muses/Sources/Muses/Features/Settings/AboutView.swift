@@ -3,7 +3,7 @@ import SwiftUI
 /// 关于页: 版本号 + logo + 合规声明。
 struct AboutView: View {
     var body: some View {
-        Section("关于") {
+        Section(tr("About", "关于")) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 16) {
                     // Logo 占位
@@ -18,7 +18,7 @@ struct AboutView: View {
                     VStack(alignment: .leading) {
                         Text("Muses").font(.title2).fontWeight(.bold)
                             .foregroundStyle(BrandColors.textPrimary)
-                        Text("版本 \(appVersion)")
+                        Text("\(tr("Version", "版本")) \(appVersion)")
                             .font(.caption)
                             .foregroundStyle(BrandColors.textSecondary)
                     }
@@ -26,17 +26,17 @@ struct AboutView: View {
 
                 Divider()
 
-                Text("Muses 是一款受 TIDAL 启发的 macOS 音乐播放器, 支持本地音乐与 YouTube 歌单。")
+                Text(tr("Muses is a TIDAL-inspired macOS music player supporting local music and YouTube playlists.", "Muses 是一款受 TIDAL 启发的 macOS 音乐播放器, 支持本地音乐与 YouTube 歌单。"))
                     .font(.callout)
                     .foregroundStyle(BrandColors.textPrimary)
                     .lineSpacing(4)
 
-                Text("合规声明: 本软件仅供个人使用, 不在 App Store 分发。YouTube 内容受 YouTube 服务条款约束, 下载行为需遵守当地法律法规。")
+                Text(tr("Notice: This software is for personal use only and is not distributed on the App Store. YouTube content is subject to YouTube's Terms of Service; downloading must comply with applicable local laws.", "合规声明: 本软件仅供个人使用, 不在 App Store 分发。YouTube 内容受 YouTube 服务条款约束, 下载行为需遵守当地法律法规。"))
                     .font(.caption)
                     .foregroundStyle(BrandColors.textSecondary)
                     .lineSpacing(3)
 
-                Text("技术栈: Swift + SwiftUI + AVAudioEngine + SwiftData + yt-dlp")
+                Text(tr("Tech stack: Swift + SwiftUI + AVAudioEngine + SwiftData + yt-dlp", "技术栈: Swift + SwiftUI + AVAudioEngine + SwiftData + yt-dlp"))
                     .font(.caption2)
                     .foregroundStyle(BrandColors.textSecondary.opacity(0.7))
             }

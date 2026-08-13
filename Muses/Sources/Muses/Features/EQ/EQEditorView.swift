@@ -25,7 +25,7 @@ struct EQEditorView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(BrandColors.background)
+        .background(.ultraThinMaterial)
         .onAppear {
             if bands.count == 10, bands.allSatisfy({ $0.gain == 0 }) {
                 loadPreset(named: activePresetIdRaw)
@@ -37,10 +37,10 @@ struct EQEditorView: View {
 
     private var header: some View {
         HStack {
-            Text("Equalizer").font(.title2).fontWeight(.bold)
+            Text(tr("Equalizer", "均衡器")).font(.title2).fontWeight(.bold)
                 .foregroundStyle(BrandColors.textPrimary)
             Spacer()
-            Button("Reset") {
+            Button(tr("Reset", "重置")) {
                 bands = EQPresets.flat
                 applyBands()
                 activePresetIdRaw = "Flat"
@@ -141,11 +141,11 @@ struct EQEditorView: View {
     private var presetSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Presets").font(.headline).foregroundStyle(BrandColors.textPrimary)
+                Text(tr("Presets", "预设")).font(.headline).foregroundStyle(BrandColors.textPrimary)
                 Spacer()
                 Button {
                     showSaveDialog = true
-                } label: { Label("Save As", systemImage: "plus") }
+                } label: { Label(tr("Save As", "另存为"), systemImage: "plus") }
                     .buttonStyle(.bordered)
                     .tint(BrandColors.cyan)
             }
@@ -165,15 +165,15 @@ struct EQEditorView: View {
                             applyBands()
                             activePresetIdRaw = preset.id.uuidString
                         }
-                        .contextMenu { Button("Delete", role: .destructive) { deletePreset(preset) } }
+                        .contextMenu { Button(tr("Delete", "删除"), role: .destructive) { deletePreset(preset) } }
                     }
                 }
             }
         }
-        .alert("Save Preset", isPresented: $showSaveDialog) {
-            TextField("Name", text: $newPresetName)
-            Button("Save") { savePreset() }
-            Button("Cancel", role: .cancel) {}
+        .alert(tr("Save Preset", "保存预设"), isPresented: $showSaveDialog) {
+            TextField(tr("Name", "名称"), text: $newPresetName)
+            Button(tr("Save", "保存")) { savePreset() }
+            Button(tr("Cancel", "取消"), role: .cancel) {}
         }
     }
 

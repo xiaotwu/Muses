@@ -102,60 +102,60 @@ struct MusesApp: App {
         .commands {
             // 替换系统 About:弹出标准 About 面板(读 Info.plist 版本)
             CommandGroup(replacing: .appInfo) {
-                Button("关于 Muses") {
+                Button(tr("About Muses", "关于 Muses")) {
                     NSApp.orderFrontStandardAboutPanel(nil)
                 }
             }
             // 播放控制快捷键
             CommandGroup(after: .toolbar) {
                 Divider()
-                Button("播放/暂停") {
+                Button(tr("Play/Pause", "播放/暂停")) {
                     playbackService.toggle()
                 }
                 .keyboardShortcut("p", modifiers: .command)
 
-                Button("上一首") {
+                Button(tr("Previous", "上一首")) {
                     playbackService.previous()
                 }
                 .keyboardShortcut(.leftArrow, modifiers: .command)
 
-                Button("下一首") {
+                Button(tr("Next", "下一首")) {
                     playbackService.next()
                 }
                 .keyboardShortcut(.rightArrow, modifiers: .command)
 
                 Divider()
 
-                Button("收藏当前歌曲") {
+                Button(tr("Like Current Song", "收藏当前歌曲")) {
                     if let id = playbackService.state.track?.id {
                         libraryService.toggleLike(id: id)
                     }
                 }
                 .keyboardShortcut("l", modifiers: .command)
 
-                Button("切换队列") {
+                Button(tr("Toggle Queue", "切换队列")) {
                     NotificationCenter.default.post(name: .musesToggleQueue, object: nil)
                 }
                 .keyboardShortcut("k", modifiers: .command)
 
-                Button("搜索") {
+                Button(tr("Search", "搜索")) {
                     NotificationCenter.default.post(name: .musesFocusSearch, object: nil)
                 }
                 .keyboardShortcut("f", modifiers: .command)
 
                 // 睡眠定时器
                 Divider()
-                Menu("睡眠定时器") {
-                    Button("15 分钟") { sleepTimer.start(minutes: 15) }
-                    Button("30 分钟") { sleepTimer.start(minutes: 30) }
-                    Button("45 分钟") { sleepTimer.start(minutes: 45) }
-                    Button("60 分钟") { sleepTimer.start(minutes: 60) }
+                Menu(tr("Sleep Timer", "睡眠定时器")) {
+                    Button(tr("15 min", "15 分钟")) { sleepTimer.start(minutes: 15) }
+                    Button(tr("30 min", "30 分钟")) { sleepTimer.start(minutes: 30) }
+                    Button(tr("45 min", "45 分钟")) { sleepTimer.start(minutes: 45) }
+                    Button(tr("60 min", "60 分钟")) { sleepTimer.start(minutes: 60) }
                     Divider()
-                    Button("取消定时器") { sleepTimer.cancel() }
+                    Button(tr("Cancel Timer", "取消定时器")) { sleepTimer.cancel() }
                         .disabled(!sleepTimer.isActive)
                 }
                 if sleepTimer.isActive {
-                    Text("睡眠定时器:\(sleepTimer.remainingFormatted)")
+                    Text("\(tr("Sleep Timer", "睡眠定时器")):\(sleepTimer.remainingFormatted)")
                 }
             }
         }

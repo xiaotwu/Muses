@@ -29,7 +29,7 @@ struct YouTubeSearchView: View {
             HStack {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(BrandColors.textSecondary)
-                TextField("搜索 YouTube 歌曲、艺术家…", text: $query)
+                TextField(tr("Search YouTube songs, artists…", "搜索 YouTube 歌曲、艺术家…"), text: $query)
                     .textFieldStyle(.plain)
                     .onSubmit { Task { await runSearch() } }
                 if searching {
@@ -61,7 +61,7 @@ struct YouTubeSearchView: View {
             // 结果列表
             if results.isEmpty && !searching {
                 Spacer()
-                Text(query.isEmpty ? "输入关键词搜索 YouTube" : "无结果")
+                Text(query.isEmpty ? tr("Enter keywords to search YouTube", "输入关键词搜索 YouTube") : tr("No results", "无结果"))
                     .font(.callout)
                     .foregroundStyle(BrandColors.textSecondary)
                 Spacer()
@@ -139,7 +139,7 @@ struct YouTubeSearchResultRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.title).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
-                Text(entry.uploader ?? "Unknown")
+                Text(entry.uploader ?? tr("Unknown", "未知"))
                     .font(.caption).foregroundStyle(BrandColors.textSecondary).lineLimit(1)
             }
 
@@ -154,14 +154,14 @@ struct YouTubeSearchResultRow: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(BrandColors.magenta)
-            .help("播放")
+            .help(tr("Play", "播放"))
 
             Button(action: onImport) {
                 Image(systemName: isImported ? "checkmark.circle.fill" : "plus.circle")
             }
             .buttonStyle(.plain)
             .foregroundStyle(isImported ? BrandColors.green : BrandColors.cyan)
-            .help(isImported ? "已导入" : "导入到资料库")
+            .help(isImported ? tr("Imported", "已导入") : tr("Import to library", "导入到资料库"))
         }
         .padding(.vertical, 4)
     }

@@ -39,8 +39,8 @@ struct UpdatesSettingsView: View {
     }
 
     var body: some View {
-        Section("更新") {
-            Toggle("自动检查更新", isOn: $checkAutomatically)
+        Section(tr("Updates", "更新")) {
+            Toggle(tr("Check for Updates Automatically", "自动检查更新"), isOn: $checkAutomatically)
                 .disabled(updater == nil)
                 .onChange(of: checkAutomatically) {
                     updater?.automaticallyChecksForUpdates = checkAutomatically
@@ -49,18 +49,18 @@ struct UpdatesSettingsView: View {
             Button {
                 updater?.checkForUpdates()
             } label: {
-                Label("立即检查更新", systemImage: "arrow.triangle.2.circlepath")
+                Label(tr("Check for Updates Now", "立即检查更新"), systemImage: "arrow.triangle.2.circlepath")
             }
             .buttonStyle(.bordered)
             .tint(BrandColors.cyan)
             .disabled(updater == nil)
 
             if isConfigured {
-                Text("通过 Sparkle 检查并安装更新;发布时用 EdDSA 签名 appcast 验证。")
+                Text(tr("Checks and installs updates via Sparkle; on release, appcast is verified with an EdDSA signature.", "通过 Sparkle 检查并安装更新;发布时用 EdDSA 签名 appcast 验证。"))
                     .font(.caption)
                     .foregroundStyle(BrandColors.textSecondary)
             } else {
-                Text("自动更新待配置:打包 .app 时需在 Info.plist 注入 SUFeedURL 与 SUPublicEDKey。")
+                Text(tr("Automatic updates pending configuration: when packaging the .app, inject SUFeedURL and SUPublicEDKey into Info.plist.", "自动更新待配置:打包 .app 时需在 Info.plist 注入 SUFeedURL 与 SUPublicEDKey。"))
                     .font(.caption)
                     .foregroundStyle(BrandColors.textSecondary)
             }

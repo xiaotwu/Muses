@@ -18,7 +18,7 @@ struct ArtistsView: View {
             if artists.isEmpty {
                 EmptyStateView(
                     icon: "person.2",
-                    title: searchText.isEmpty ? "资料库中没有艺术家" : "无搜索结果")
+                    title: searchText.isEmpty ? tr("No artists in library", "资料库中没有艺术家") : tr("No results", "无搜索结果"))
             } else {
                 LazyVGrid(columns: columns, spacing: 20) {
                     ForEach(artists, id: \.id) { artist in
@@ -29,8 +29,8 @@ struct ArtistsView: View {
                 .padding(20)
             }
         }
-        .navigationTitle("艺术家")
-        .searchable(text: $searchText, prompt: "搜索艺术家")
+        .navigationTitle(tr("Artists", "艺术家"))
+        .searchable(text: $searchText, prompt: tr("Search artists", "搜索艺术家"))
         .onChange(of: searchText) { _, newValue in
             searchTask?.cancel()
             searchTask = Task {
@@ -67,7 +67,7 @@ struct ArtistCard: View {
                 }
             }
             Text(artist.name).font(.subheadline).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
-            Text("\(artist.albums.count) 张专辑").font(.caption).foregroundStyle(BrandColors.textSecondary)
+            Text("\(artist.albums.count) \(tr("albums", "张专辑"))").font(.caption).foregroundStyle(BrandColors.textSecondary)
         }
     }
 }

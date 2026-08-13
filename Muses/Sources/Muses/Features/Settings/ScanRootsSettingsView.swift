@@ -10,17 +10,17 @@ struct ScanRootsSettingsView: View {
     @State private var showingPicker = false
 
     var body: some View {
-        Section("Library 扫描目录") {
+        Section(tr("Library Scan Folders", "Library 扫描目录")) {
             ForEach(scanRoots) { root in
                 HStack {
                     VStack(alignment: .leading) {
                         Text(root.path).font(.callout).foregroundStyle(BrandColors.textPrimary)
                             .lineLimit(1).truncationMode(.middle)
                         if let scanned = root.lastScannedAt {
-                            Text("上次扫描: \(scanned.formatted(.dateTime))")
+                            Text("\(tr("Last scanned:", "上次扫描:")) \(scanned.formatted(.dateTime))")
                                 .font(.caption).foregroundStyle(BrandColors.textSecondary)
                         } else {
-                            Text("未扫描").font(.caption)
+                            Text(tr("Not scanned", "未扫描")).font(.caption)
                                 .foregroundStyle(BrandColors.textSecondary)
                         }
                     }
@@ -42,19 +42,19 @@ struct ScanRootsSettingsView: View {
 
             Button {
                 showingPicker = true
-            } label: { Label("添加目录", systemImage: "plus.circle") }
+            } label: { Label(tr("Add Folder", "添加目录"), systemImage: "plus.circle") }
                 .buttonStyle(.bordered)
                 .tint(BrandColors.cyan)
 
             HStack {
                 Button { Task { await library.rescan() } } label: {
-                    Label("重新扫描", systemImage: "arrow.clockwise")
+                    Label(tr("Rescan", "重新扫描"), systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(.bordered)
                 .tint(BrandColors.magenta)
 
                 Button { try? library.purgeUnavailable() } label: {
-                    Label("清理不可用", systemImage: "trash")
+                    Label(tr("Purge Unavailable", "清理不可用"), systemImage: "trash")
                 }
                 .buttonStyle(.bordered)
             }

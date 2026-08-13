@@ -68,10 +68,10 @@ struct ArtistDetailView: View {
                 if let genre = artist.primaryGenre {
                     Text(genre).font(.caption).foregroundStyle(BrandColors.cyan)
                 }
-                Text("\(albums.count) 张专辑 · \(tracks.count) 首歌曲")
+                Text("\(albums.count) \(tr("albums", "张专辑")) · \(tracks.count) \(tr("songs", "首歌曲"))")
                     .font(.title3).foregroundStyle(BrandColors.textSecondary)
                 Button { playAll() } label: {
-                    Label("Play", systemImage: "play.fill").padding(.horizontal, 14).padding(.vertical, 8)
+                    Label(tr("Play", "播放"), systemImage: "play.fill").padding(.horizontal, 14).padding(.vertical, 8)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(BrandColors.magenta)
@@ -82,7 +82,7 @@ struct ArtistDetailView: View {
 
     private var albumSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("专辑").font(.headline).foregroundStyle(BrandColors.textPrimary)
+            Text(tr("Albums", "专辑")).font(.headline).foregroundStyle(BrandColors.textPrimary)
             LazyVGrid(columns: columns, spacing: 16) {
                 ForEach(albums, id: \.id) { album in
                     AlbumCard(album: album)
@@ -94,7 +94,7 @@ struct ArtistDetailView: View {
 
     private var trackSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("歌曲").font(.headline).foregroundStyle(BrandColors.textPrimary)
+            Text(tr("Songs", "歌曲")).font(.headline).foregroundStyle(BrandColors.textPrimary)
             VStack(spacing: 0) {
                 ForEach(tracks, id: \.id) { track in
                     TrackRow(track: track, showHeart: true)

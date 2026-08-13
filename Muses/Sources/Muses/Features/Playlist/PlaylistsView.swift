@@ -13,8 +13,8 @@ struct PlaylistsView: View {
         ScrollView {
             LazyVStack(spacing: 8) {
                 if playlists.isEmpty {
-                    EmptyStateView(icon: "music.note.list", title: "暂无歌单",
-                                   subtitle: "点击右上角 + 创建歌单")
+                    EmptyStateView(icon: "music.note.list", title: tr("No playlists", "暂无歌单"),
+                                   subtitle: tr("Tap + at top right to create a playlist", "点击右上角 + 创建歌单"))
                 } else {
                     ForEach(playlists, id: \.id) { playlist in
                         PlaylistCard(playlist: playlist,
@@ -33,12 +33,12 @@ struct PlaylistsView: View {
         }
         .sheet(isPresented: $showCreateSheet) {
             VStack(spacing: 16) {
-                Text("新建歌单").font(.headline)
-                TextField("歌单名称", text: $newPlaylistName)
+                Text(tr("New Playlist", "新建歌单")).font(.headline)
+                TextField(tr("Playlist name", "歌单名称"), text: $newPlaylistName)
                     .textFieldStyle(.roundedBorder)
                 HStack {
-                    Button("取消") { showCreateSheet = false; newPlaylistName = "" }
-                    Button("创建") {
+                    Button(tr("Cancel", "取消")) { showCreateSheet = false; newPlaylistName = "" }
+                    Button(tr("Create", "创建")) {
                         let name = newPlaylistName.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !name.isEmpty {
                             playlistService.create(name: name)
@@ -54,6 +54,7 @@ struct PlaylistsView: View {
             }
             .padding(24)
             .frame(width: 320)
+            .background(.ultraThinMaterial)
         }
         .onAppear { refresh() }
     }
@@ -90,7 +91,7 @@ struct PlaylistCard: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(playlist.name).font(.headline).foregroundStyle(BrandColors.textPrimary)
-                    Text("\(playlist.items?.count ?? 0) 首")
+                    Text("\(playlist.items?.count ?? 0) \(tr("songs", "首"))")
                         .font(.caption).foregroundStyle(BrandColors.textSecondary)
                 }
 

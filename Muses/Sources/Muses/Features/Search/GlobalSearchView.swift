@@ -36,7 +36,7 @@ struct GlobalSearchView: View {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(BrandColors.textSecondary)
-                TextField("搜索歌曲、艺术家、专辑、YouTube…", text: Binding(
+                TextField(tr("Search songs, artists, albums, YouTube…", "搜索歌曲、艺术家、专辑、YouTube…"), text: Binding(
                     get: { search.query },
                     set: { search.query = $0 }
                 ))
@@ -61,7 +61,7 @@ struct GlobalSearchView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     if !search.trackResults.isEmpty {
-                        section(title: "歌曲", count: search.trackResults.count) {
+                        section(title: tr("Songs", "歌曲"), count: search.trackResults.count) {
                             ForEach(search.trackResults.prefix(8), id: \.id) { track in
                                 GlobalSearchTrackRow(track: track) {
                                     play(track, from: search.trackResults)
@@ -70,7 +70,7 @@ struct GlobalSearchView: View {
                         }
                     }
                     if !search.artistResults.isEmpty {
-                        section(title: "艺术家", count: search.artistResults.count) {
+                        section(title: tr("Artists", "艺术家"), count: search.artistResults.count) {
                             ForEach(search.artistResults.prefix(5), id: \.id) { artist in
                                 GlobalSearchArtistRow(artist: artist) {
                                     navigateToArtist(artist)
@@ -79,7 +79,7 @@ struct GlobalSearchView: View {
                         }
                     }
                     if !search.albumResults.isEmpty {
-                        section(title: "专辑", count: search.albumResults.count) {
+                        section(title: tr("Albums", "专辑"), count: search.albumResults.count) {
                             ForEach(search.albumResults.prefix(6), id: \.id) { album in
                                 GlobalSearchAlbumRow(album: album) {
                                     navigateToAlbum(album)
@@ -98,7 +98,7 @@ struct GlobalSearchView: View {
                     }
 
                     if search.query.trimmingCharacters(in: .whitespaces).isEmpty {
-                        Text("输入关键词搜索本地资料库和 YouTube")
+                        Text(tr("Type to search your library and YouTube", "输入关键词搜索本地资料库和 YouTube"))
                             .font(.callout)
                             .foregroundStyle(BrandColors.textSecondary)
                             .frame(maxWidth: .infinity)
@@ -108,7 +108,7 @@ struct GlobalSearchView: View {
                                 && search.artistResults.isEmpty
                                 && search.youtubeResults.isEmpty
                                 && !search.isSearchingYouTube {
-                        Text("无搜索结果")
+                        Text(tr("No results", "无搜索结果"))
                             .font(.callout)
                             .foregroundStyle(BrandColors.textSecondary)
                             .frame(maxWidth: .infinity)

@@ -7,8 +7,8 @@ struct NotificationsSettingsView: View {
     @State private var authorizationRequested = false
 
     var body: some View {
-        Section("通知") {
-            Toggle("换歌时通知", isOn: $trackChangeEnabled)
+        Section(tr("Notifications", "通知")) {
+            Toggle(tr("Notify on Track Change", "换歌时通知"), isOn: $trackChangeEnabled)
                 .onChange(of: trackChangeEnabled) { _, on in
                     if on && !authorizationRequested {
                         Task { _ = try? await UNUserNotificationCenter.current()
@@ -17,7 +17,7 @@ struct NotificationsSettingsView: View {
                     }
                 }
             if trackChangeEnabled {
-                Text("每首歌曲切换时会发送一条系统通知。")
+                Text(tr("A system notification is sent each time the track changes.", "每首歌曲切换时会发送一条系统通知。"))
                     .font(.caption).foregroundStyle(BrandColors.textSecondary)
             }
         }

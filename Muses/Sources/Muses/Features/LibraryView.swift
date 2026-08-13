@@ -20,8 +20,8 @@ struct LibraryView: View {
             }
             let albums = library.allAlbums()
             if albums.isEmpty && progress.total == 0 {
-                EmptyStateView(icon: "square.stack", title: "资料库为空",
-                               subtitle: "点击左上角 + 导入音乐文件夹,或拖拽文件到窗口")
+                EmptyStateView(icon: "square.stack", title: tr("Library is empty", "资料库为空"),
+                               subtitle: tr("Click + at the top-left to import a music folder, or drag files into the window", "点击左上角 + 导入音乐文件夹,或拖拽文件到窗口"))
             } else {
                 LazyVGrid(columns: columns, spacing: 20) {
                     ForEach(albums, id: \.id) { album in
@@ -32,7 +32,7 @@ struct LibraryView: View {
                 .padding(20)
             }
         }
-        .navigationTitle("Albums")
+        .navigationTitle(tr("Albums", "专辑"))
         .background(BrandColors.background)
     }
 }
@@ -79,7 +79,7 @@ struct SongsListView: View {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .title: "标题"; case .artist: "艺术家"; case .album: "专辑"; case .dateAdded: "添加时间"
+            case .title: tr("Title", "标题"); case .artist: tr("Artist", "艺术家"); case .album: tr("Album", "专辑"); case .dateAdded: tr("Date Added", "添加时间")
             }
         }
     }
@@ -90,8 +90,8 @@ struct SongsListView: View {
             if tracks.isEmpty {
                 EmptyStateView(
                     icon: "music.note",
-                    title: searchText.isEmpty ? "资料库中没有歌曲" : "无搜索结果",
-                    subtitle: searchText.isEmpty ? "点击左上角 + 导入音乐文件夹" : nil)
+                    title: searchText.isEmpty ? tr("No songs in library", "资料库中没有歌曲") : tr("No search results", "无搜索结果"),
+                    subtitle: searchText.isEmpty ? tr("Click + at the top-left to import a music folder", "点击左上角 + 导入音乐文件夹") : nil)
             } else {
                 List(tracks, id: \.id) { track in
                     SongRow(track: track,
@@ -103,8 +103,8 @@ struct SongsListView: View {
                 }
             }
         }
-        .navigationTitle("Songs")
-        .searchable(text: $searchText, prompt: "搜索歌曲、艺术家、专辑")
+        .navigationTitle(tr("Songs", "歌曲"))
+        .searchable(text: $searchText, prompt: tr("Search songs, artists, albums", "搜索歌曲、艺术家、专辑"))
         .onChange(of: searchText) { _, newValue in
             searchTask?.cancel()
             searchTask = Task {
@@ -115,7 +115,7 @@ struct SongsListView: View {
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Picker("排序", selection: $sortKey) {
+                Picker(tr("Sort", "排序"), selection: $sortKey) {
                     ForEach(SortKey.allCases) { key in Text(key.label).tag(key) }
                 }
                 .pickerStyle(.menu)
@@ -180,21 +180,21 @@ struct SongRow: View {
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { onPlay() }
         .contextMenu {
-            Button("播放") { onPlay() }
-            Button("下一首播放") { onPlayNext() }
-            Button("加入队列") { onAddToQueue() }
+            Button(tr("Play", "播放")) { onPlay() }
+            Button(tr("Play Next", "下一首播放")) { onPlayNext() }
+            Button(tr("Add to Queue", "加入队列")) { onAddToQueue() }
             Divider()
-            Button(liked ? "取消收藏" : "收藏") { library.toggleLike(track) }
+            Button(liked ? tr("Unlike", "取消收藏") : tr("Like", "收藏")) { library.toggleLike(track) }
             if !playlists.isEmpty {
                 Divider()
-                Menu("添加到歌单") {
+                Menu(tr("Add to Playlist", "添加到歌单")) {
                     ForEach(playlists, id: \.id) { pl in
                         Button(pl.name) { playlistService.addTrack(pl, track: track) }
                     }
                 }
             }
             Divider()
-            Button("编辑信息") { showEditTrack = true }
+            Button(tr("Edit Info", "编辑信息")) { showEditTrack = true }
         }
         .sheet(isPresented: $showEditTrack) {
             EditTrackSheet(track: track)
@@ -227,9 +227,9 @@ struct LikedView: View {
     private var tracks: [Track]
     var body: some View {
         if tracks.isEmpty {
-            EmptyStateView(icon: "heart", title: "还没有收藏的歌曲",
-                           subtitle: "点击歌曲旁的 ❤️ 收藏")
-                .navigationTitle("Liked")
+            EmptyStateView(icon: "heart", title: tr("No liked songs yet", "还没有收藏的歌曲"),
+                           subtitle: tr("Tap ❤️ next to a song to like it", "点击歌曲旁的 ❤️ 收藏"))
+                .navigationTitle(tr("Liked", "我喜欢"))
         } else {
             List {
                 ForEach(tracks, id: \.id) { track in
@@ -238,10 +238,10 @@ struct LikedView: View {
                         .padding(.vertical, 4)
                 }
             }
-            .navigationTitle("Liked")
+            .navigationTitle(tr("Liked", "我喜欢"))
             .safeAreaInset(edge: .bottom) {
                 Button { playAll() } label: {
-                    Label("播放全部", systemImage: "play.fill")
+                    Label(tr("Play All", "播放全部"), systemImage: "play.fill")
                         .padding(.horizontal, 14).padding(.vertical, 8)
                 }
                 .buttonStyle(.borderedProminent)
@@ -262,5 +262,5 @@ struct LikedView: View {
 }
 
 struct SettingsPlaceholderView: View {
-    var body: some View { Text("Settings").frame(maxWidth: .infinity, maxHeight: .infinity) }
+    var body: some View { Text(tr("Settings", "设置")).frame(maxWidth: .infinity, maxHeight: .infinity) }
 }
