@@ -2,9 +2,12 @@ import SwiftUI
 
 /// 镜像柱状频谱可视化: 上半部分 64 段从 midline 向上(Magenta→Cyan 渐变),
 /// 下半部分以 30% 透明度镜像反射。开启 Reduce Motion 时直接绘制原始频段,不做峰值衰减。
+///
+/// 根据 `PrefKey.gpuAcceleration` 在 Metal(MTKView 硬件加速)与 Canvas(CPU 绘制)之间切换。
 struct SpectrumView: View {
     @Environment(PlaybackService.self) private var playback
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(PrefKey.gpuAcceleration) private var gpuAcceleration = true
 
     @State private var current: SpectrumFrame?
     @State private var peaks: [Float] = Array(repeating: 0, count: 64)
@@ -15,6 +18,16 @@ struct SpectrumView: View {
     private let peakDecayPerSecond: Float = 1.0 / 0.2
 
     var body: some View {
+        if gpuAcceleration {
+            MetalSpectrumView()
+                .frame(height: 120)
+        } else {
+            canvasSpectrum
+        }
+    }
+
+    /// Canvas(CPU)渲染的频谱。
+    private var canvasSpectrum: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
             // 在 ViewBuilder 闭包里(主线程、渲染前)更新峰值,避免在 Canvas 绘制期间写 @State
             let decayed = updatePeaks(date: timeline.date)
