@@ -440,19 +440,24 @@ final class LibraryService {
     /// All tracks optionally filtered by a case-insensitive search query matched
     /// against title, artist, and albumTitle. Sorted by title.
     ///
-    /// 注:`localizedStandardContains` 下推到 `#Predicate` 在当前 SwiftData
-    /// 版本对可选字符串的 SQL 生成不稳定(静默返回空),故仍取全量在 Swift
-    /// 侧过滤;搜索词为空时直接返回排序结果,避免无谓过滤。
+    /// 过滤下推到 `#Predicate`:SwiftData 仅支持 `localizedStandardContains`
+    /// (映射 `CONTAINS[cdl]`)。可选 `albumTitle` 用 `?.… == true` 解包,
+    /// 避免不被 SQL 生成支持的 `??` 运算符。单次 fetch,正确的 OR 语义。
     func allTracks(search: String?) -> [Track] {
         let ctx = ModelContext(modelContainer)
-        let all = (try? ctx.fetch(FetchDescriptor<Track>(
-            sortBy: [SortDescriptor(\.title)]))) ?? []
-        guard let q = search?.trimmingCharacters(in: .whitespaces), !q.isEmpty else { return all }
-        return all.filter { t in
-            t.title.localizedCaseInsensitiveContains(q)
-            || t.artist.localizedCaseInsensitiveContains(q)
-            || (t.albumTitle ?? "").localizedCaseInsensitiveContains(q)
+        let q = search?.trimmingCharacters(in: .whitespaces) ?? ""
+        guard !q.isEmpty else {
+            return (try? ctx.fetch(FetchDescriptor<Track>(
+                sortBy: [SortDescriptor(\.title)]))) ?? []
         }
+        let desc = FetchDescriptor<Track>(
+            predicate: #Predicate {
+                $0.title.localizedStandardContains(q)
+                || $0.artist.localizedStandardContains(q)
+                || $0.albumTitle?.localizedStandardContains(q) == true
+            },
+            sortBy: [SortDescriptor(\.title)])
+        return (try? ctx.fetch(desc)) ?? []
     }
 
     /// Re-fetch the track by id in a fresh context, flip `liked`, and save.

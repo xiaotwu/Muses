@@ -53,13 +53,10 @@ struct Phase2SmokeTests {
         var spectrumFrame: SpectrumFrame?
         playback.installSpectrumHandler { spectrumFrame = $0 }
         try await Task.sleep(for: .milliseconds(400))
-        // macOS 26.5: AVAudioPlayerNode.play() 在命令行进程中抛 ObjC NSException,
-        // 测试中跳过实际播放(_canPlay=false),故通常无频谱数据。
-        // `isIntermittent: true`:频谱是否产出依赖运行环境,有/无都视为通过。
-        withKnownIssue(isIntermittent: true) {
-            #expect(spectrumFrame != nil)
-            #expect(spectrumFrame?.bands.count == 64)
-        }
+        // ensureEngineRunning() 现在用 RunLoop 自旋等待 IO 周期就绪后再 play(),
+        // 渲染线程真实拉取样本,频谱 tap 产出 64 帧数据。无需 withKnownIssue。
+        #expect(spectrumFrame != nil)
+        #expect(spectrumFrame?.bands.count == 64)
 
         // 6. 波形缓存命中
         let waveform = WaveformCache.default.load(forTrackId: tracks[0].id)

@@ -22,12 +22,10 @@ struct SpectrumTapTests {
         // 等待若干帧
         try await Task.sleep(for: .milliseconds(300))
         engine.pause()
-        // macOS 26.5: AVAudioPlayerNode.play() 在命令行进程中抛 ObjC NSException,
-        // 测试中跳过实际播放(_canPlay=false),故通常无频谱数据。
-        // `isIntermittent: true`:频谱是否产出依赖运行环境,有/无都视为通过。
-        withKnownIssue(isIntermittent: true) {
-            #expect(received != nil)
-            #expect(received?.bands.count == 64)
-        }
+        // macOS 26.5: AVAudioPlayerNode.play() 曾在命令行进程抛 ObjC NSException,
+        // 但 ensureEngineRunning() 现在用 RunLoop 自旋等待 IO 周期就绪后再 play(),
+        // 渲染线程真实拉取样本,频谱 tap 产出 64 帧数据。无需 withKnownIssue。
+        #expect(received != nil)
+        #expect(received?.bands.count == 64)
     }
 }

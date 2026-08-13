@@ -89,6 +89,102 @@ struct YouTubeStreamEngineTests {
         #expect(engine.isInFallbackMode)
         #expect(engine.state.buffering == false)
     }
+
+    // MARK: - 5. 双节点切换:load 交换 activePlayer
+
+    @Test("load 后 activePlayer 已初始化且 state 正确")
+    func loadSwapsActivePlayer() async throws {
+        let wav = try makeWAVFile()
+        let bridge = MockYTDlpBridge()
+        bridge.streamURL = wav
+        let engine = YouTubeStreamEngine(bridge: bridge, cache: StreamURLCache(defaultTTL: 3600))
+        let snap = TrackSnapshot(
+            id: UUID(), title: "t", artist: "a", albumTitle: nil,
+            durationSeconds: 1, filePath: nil, youTubeId: "vid5",
+            artworkHash: nil, artworkUrl: nil,
+            sampleRate: 44100, bitDepth: 16, codec: "aac", isLossless: false)
+        try await engine.load(snap)
+        // 初始 activePlayer = playerA;load() 把文件调度到 inactive(playerB)并交换
+        #expect(engine._activeIsPlayerA == false)
+        #expect(!engine.isInFallbackMode)
+        #expect(!engine._isStreamingMode)
+    }
+
+    // MARK: - 6. 预加载:prepare 后台下载+解码到 prefetch 槽
+
+    @Test("prepare 预加载下一首文件且不改变当前 state")
+    func preparePrefetchesFile() async throws {
+        let wav = try makeWAVFile()
+        let bridge = MockYTDlpBridge()
+        bridge.streamURL = wav
+        let engine = YouTubeStreamEngine(bridge: bridge, cache: StreamURLCache(defaultTTL: 3600))
+        let snapA = TrackSnapshot(
+            id: UUID(), title: "Track A", artist: "a", albumTitle: nil,
+            durationSeconds: 1, filePath: nil, youTubeId: "vid6",
+            artworkHash: nil, artworkUrl: nil,
+            sampleRate: 44100, bitDepth: 16, codec: "aac", isLossless: false)
+        let snapB = TrackSnapshot(
+            id: UUID(), title: "Track B", artist: "a", albumTitle: nil,
+            durationSeconds: 1, filePath: nil, youTubeId: "vid7",
+            artworkHash: nil, artworkUrl: nil,
+            sampleRate: 44100, bitDepth: 16, codec: "aac", isLossless: false)
+
+        try await engine.load(snapA)
+        engine.play()
+
+        // 预加载前:无 prefetch
+        #expect(!engine._isPrefetched)
+
+        await engine.prepare(snapB)
+
+        // 预加载后:prefetch 就绪,但当前播放仍是 Track A
+        #expect(engine._isPrefetched)
+        #expect(engine.state.track?.title == "Track A")
+        #expect(engine.state.isPlaying)
+    }
+
+    // MARK: - 7. playPrepared 无缝切换到预加载曲目
+
+    @Test("playPrepared 切换到预加载曲目并交换 activePlayer")
+    func playPreparedSwapsPlayer() async throws {
+        let wav = try makeWAVFile()
+        let bridge = MockYTDlpBridge()
+        bridge.streamURL = wav
+        let engine = YouTubeStreamEngine(bridge: bridge, cache: StreamURLCache(defaultTTL: 3600))
+        let snapA = TrackSnapshot(
+            id: UUID(), title: "Track A", artist: "a", albumTitle: nil,
+            durationSeconds: 1, filePath: nil, youTubeId: "vid8",
+            artworkHash: nil, artworkUrl: nil,
+            sampleRate: 44100, bitDepth: 16, codec: "aac", isLossless: false)
+        let snapB = TrackSnapshot(
+            id: UUID(), title: "Track B", artist: "a", albumTitle: nil,
+            durationSeconds: 1, filePath: nil, youTubeId: "vid9",
+            artworkHash: nil, artworkUrl: nil,
+            sampleRate: 44100, bitDepth: 16, codec: "aac", isLossless: false)
+
+        try await engine.load(snapA)
+        engine.play()
+        let activeBefore = engine._activeIsPlayerA
+
+        await engine.prepare(snapB)
+        let ok = engine.playPrepared()
+        #expect(ok)
+
+        // state 切换到 Track B
+        #expect(engine.state.track?.title == "Track B")
+        #expect(engine.state.isPlaying)
+        #expect(engine.state.duration > 0)
+
+        // activePlayer 已交换
+        #expect(engine._activeIsPlayerA != activeBefore)
+
+        // 预加载已清除
+        #expect(!engine._isPrefetched)
+
+        // 无预加载时 playPrepared 返回 false
+        let ok2 = engine.playPrepared()
+        #expect(!ok2)
+    }
 }
 
 // MARK: - Mock YTDlpBridge

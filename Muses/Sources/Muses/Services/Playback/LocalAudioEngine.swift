@@ -39,17 +39,12 @@ final class LocalAudioEngine: PlayerEngine {
     internal var _activePlayerVolume: Float { activePlayer.volume }
     internal var _inactivePlayerVolume: Float { inactivePlayer.volume }
     internal var _activeIsPlayerA: Bool { activePlayer === playerA }
-    /// 测试注入:设为 false 跳过实际 `play()` 调用(避免 macOS 26.5 命令行
-    /// 进程中 AVAudioPlayerNode.play() 抛 ObjC NSException "player did not see
-    /// an IO cycle" 导致进程崩溃;Swift 无法 catch NSException)。
-    /// 在 swift-testing / XCTest 环境中自动设为 false。
-    internal var _canPlay: Bool = {
-        let args = ProcessInfo.processInfo.arguments
-        let isTest = args.contains("--testing-library")
-            || args.contains(where: { $0.contains("xctest") })
-            || NSClassFromString("XCTestCase") != nil
-        return !isTest
-    }()
+    /// 运行时信号:engine 的渲染线程是否已进入 IO 周期(`mainMixerNode.lastRenderTime`
+    /// 非 nil)。仅在此为真时调用 `AVAudioPlayerNode.play()`,否则在无音频设备的
+    /// headless/CI 进程中 play() 会抛 ObjC NSException "player did not see an IO
+    /// cycle"(Swift 无法 catch,致进程崩溃)。由 `ensureEngineRunning()` 设置。
+    /// 取代旧的 `_canPlay` 进程参数嗅探——这是基于运行时状态的正确判断。
+    private var ioCycleReady = false
 
     var onCompletion: (@MainActor () -> Void)?
 
@@ -66,23 +61,31 @@ final class LocalAudioEngine: PlayerEngine {
         engine.connect(eq, to: engine.mainMixerNode, format: nil)
     }
 
-    /// 确保 engine 已 prepare + start(避免 "player did not see an IO cycle" 崩溃)。
-    /// `prepare()` 预分配渲染资源,使 `start()` 后 IO 周期立即可用。
-    /// start 后短暂等待让渲染线程进入 IO 周期,避免 play() 抛 ObjC NSException。
+    /// 确保 engine 已 prepare + start,并等待渲染线程进入 IO 周期。
+    ///
+    /// `engine.start()` 返回成功并不保证渲染线程已开始拉取样本——在 headless/CLI
+    /// 进程中,若主线程不泵 RunLoop,渲染线程的 IO proc 永不触发,`play()` 便会抛
+    /// "player did not see an IO cycle"。这里用 `RunLoop.main.run(until:)` 自旋
+    /// 直到 `mainMixerNode.lastRenderTime` 非 nil(IO 周期已建立的可靠信号),
+    /// 超时则置 `ioCycleReady = false`,调用方据此跳过 `play()`(不崩溃)。
     @discardableResult
     private func ensureEngineRunning() -> Bool {
-        guard !engine.isRunning else { return true }
-        engine.prepare()
-        do { try engine.start() }
-        catch { return false }
-        // 给渲染线程一点时间进入 IO 周期(避免 "player did not see an IO cycle")
-        Thread.sleep(forTimeInterval: 0.05)
-        return true
+        if engine.isRunning && ioCycleReady { return true }
+        if !engine.isRunning {
+            engine.prepare()
+            do { try engine.start() }
+            catch { ioCycleReady = false; return false }
+        }
+        let deadline = Date(timeIntervalSinceNow: 0.3)
+        while engine.mainMixerNode.lastRenderTime == nil, Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.005))
+        }
+        ioCycleReady = (engine.mainMixerNode.lastRenderTime != nil)
+        return ioCycleReady
     }
 
     /// 检查 engine 是否有有效的音频输出(outputFormat 非零 sampleRate)。
-    /// 无输出设备时调用 `AVAudioPlayerNode.play()` 会抛 ObjC NSException
-    /// ("player did not see an IO cycle"),Swift 无法 catch,导致进程崩溃。
+    /// 与 `ioCycleReady` 共同作为 `play()` 的双重运行时门禁。
     private var hasAudioOutput: Bool {
         engine.mainMixerNode.outputFormat(forBus: 0).sampleRate > 0
     }
@@ -132,7 +135,7 @@ final class LocalAudioEngine: PlayerEngine {
             next.scheduleFile(file, at: nil) { }
             activePlayer.stop()
             next.volume = effectiveVolume()
-            if _canPlay && hasAudioOutput { next.play() }
+            if ioCycleReady && hasAudioOutput { next.play() }
             activePlayer = next
 
             // 后台预扫描整曲波形峰值,存入 WaveformCache(命中则跳过)
@@ -187,7 +190,7 @@ final class LocalAudioEngine: PlayerEngine {
             next.scheduleFile(file, at: nil) { }
             ensureEngineRunning()
             next.volume = effectiveVolume()
-            if _canPlay && hasAudioOutput { next.play() }
+            if ioCycleReady && hasAudioOutput { next.play() }
             activePlayer = next
         }
 
@@ -227,7 +230,7 @@ final class LocalAudioEngine: PlayerEngine {
         next.scheduleFile(file, at: nil) { }
         ensureEngineRunning()
         next.volume = 0
-        if _canPlay && hasAudioOutput { next.play() }
+        if ioCycleReady && hasAudioOutput { next.play() }
 
         let crossfade = UserDefaults.standard.double(forKey: PrefKey.crossfadeSeconds)
         let steps = Int(crossfade / 0.02)  // 20ms per step
@@ -301,7 +304,7 @@ final class LocalAudioEngine: PlayerEngine {
 
     func play() {
         ensureEngineRunning()
-        if _canPlay && hasAudioOutput { activePlayer.play() }
+        if ioCycleReady && hasAudioOutput { activePlayer.play() }
         state.isPlaying = true
         startPosTimer()
     }
@@ -326,7 +329,7 @@ final class LocalAudioEngine: PlayerEngine {
             let count = AVAudioFrameCount(min(remaining, AVAudioFramePosition(UInt32.max)))
             activePlayer.scheduleSegment(file, startingFrame: frame, frameCount: count, at: nil) { }
             ensureEngineRunning()
-            if state.isPlaying && _canPlay && hasAudioOutput { activePlayer.play() }
+            if state.isPlaying && ioCycleReady && hasAudioOutput { activePlayer.play() }
             state.position = time
         }
     }
