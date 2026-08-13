@@ -30,7 +30,7 @@ struct RootView: View {
             } else {
                 switch section {
                 case .home:
-                    LibraryView(selection: $section, selectedAlbum: $selectedAlbum)
+                    HomeView(selection: $section, selectedAlbum: $selectedAlbum)
                 case .new:
                     NewView()
                 case .search:

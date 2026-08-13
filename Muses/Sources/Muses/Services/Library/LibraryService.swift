@@ -541,4 +541,15 @@ final class LibraryService {
         return ((try? ctx.fetch(FetchDescriptor<Album>(
             predicate: #Predicate { $0.id == id })).first)?.pinned) ?? false
     }
+
+    /// 获取最近播放的专辑(有 lastPlayedAt 的曲目所属专辑)。
+    func mostRecentlyPlayedAlbum() -> Album? {
+        let ctx = ModelContext(modelContainer)
+        let desc = FetchDescriptor<Track>(
+            predicate: #Predicate { $0.lastPlayedAt != nil },
+            sortBy: [SortDescriptor(\.lastPlayedAt, order: .reverse)]
+        )
+        guard let track = try? ctx.fetch(desc).first else { return nil }
+        return track.album
+    }
 }
