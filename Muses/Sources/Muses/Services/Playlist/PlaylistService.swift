@@ -128,6 +128,29 @@ final class PlaylistService {
         try? playlist.modelContext?.save()
     }
 
+    // MARK: - 钉选
+
+    /// 切换歌单钉选状态。
+    func togglePin(_ playlist: Playlist) {
+        let ctx = ModelContext(modelContainer)
+        let id = playlist.id
+        guard let p = try? ctx.fetch(FetchDescriptor<Playlist>(
+            predicate: #Predicate { $0.id == id }
+        )).first else { return }
+        p.pinned.toggle()
+        try? ctx.save()
+    }
+
+    /// 获取已钉选歌单(按名称排序)。
+    func pinnedPlaylists() -> [Playlist] {
+        let ctx = ModelContext(modelContainer)
+        let desc = FetchDescriptor<Playlist>(
+            predicate: #Predicate { $0.pinned == true },
+            sortBy: [SortDescriptor(\.name)]
+        )
+        return (try? ctx.fetch(desc)) ?? []
+    }
+
     // MARK: - M3U 导入/导出
 
     /// 从 M3U/M3U8 文件导入曲目到歌单。

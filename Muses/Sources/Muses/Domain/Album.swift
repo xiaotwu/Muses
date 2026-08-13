@@ -10,6 +10,7 @@ final class Album {
     var artworkUrl: String?
     var artworkHash: String?
     var isVarious: Bool
+    var pinned: Bool
 
     @Relationship(deleteRule: .nullify, inverse: \Track.album)
     var tracks: [Track]
@@ -18,10 +19,12 @@ final class Album {
     var artistRef: Artist?
 
     init(id: UUID = UUID(), title: String, albumArtist: String, year: Int? = nil,
-         artworkUrl: String? = nil, artworkHash: String? = nil, isVarious: Bool = false) {
+         artworkUrl: String? = nil, artworkHash: String? = nil, isVarious: Bool = false,
+         pinned: Bool = false) {
         self.id = id; self.title = title; self.albumArtist = albumArtist
         self.year = year; self.artworkUrl = artworkUrl
         self.artworkHash = artworkHash; self.isVarious = isVarious
+        self.pinned = pinned
         self.tracks = []
     }
 }

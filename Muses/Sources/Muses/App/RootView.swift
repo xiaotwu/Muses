@@ -11,10 +11,14 @@ struct RootView: View {
     @State private var showNowPlaying = false
     @State private var showQueue = false
     @State private var showSearch = false
+    @State private var showSettings = false
+    @State private var showAbout = false
 
     var body: some View {
         NavigationSplitView {
-            SidebarView(selection: $section)
+            SidebarView(selection: $section,
+                        showSettings: $showSettings,
+                        showAbout: $showAbout)
         } detail: {
             if let album = selectedAlbum {
                 AlbumDetailView(album: album, selection: $selectedAlbum)
@@ -25,28 +29,41 @@ struct RootView: View {
                 PlaylistDetailView(playlist: playlist, selectedPlaylist: $selectedPlaylist)
             } else {
                 switch section {
-                case .home, .albums:
+                case .home:
+                    LibraryView(selection: $section, selectedAlbum: $selectedAlbum)
+                case .new:
+                    NewView()
+                case .search:
+                    // Search 触发 GlobalSearchView overlay
+                    EmptyView()
+                        .onAppear { showSearch = true; section = .home }
+                case .pins:
+                    PinsView(selection: $section, selectedAlbum: $selectedAlbum,
+                             selectedPlaylist: $selectedPlaylist)
+                case .recently:
+                    RecentlyView(selection: $section, selectedAlbum: $selectedAlbum)
+                case .albums:
                     LibraryView(selection: $section, selectedAlbum: $selectedAlbum)
                 case .artists:
                     ArtistsView(selectedArtist: $selectedArtist)
                 case .songs:
                     SongsListView()
-                case .liked:
-                    LikedView()
+                case .youtubeMusic:
+                    YouTubeMusicView()
                 case .playlists:
                     PlaylistsView(selectedPlaylist: $selectedPlaylist)
-                case .youtubeImports:
-                    YouTubeImportsView()
-                case .youtubeSearch:
-                    YouTubeSearchView()
-                case .settings:
-                    SettingsView()
                 }
             }
         }
         .sheet(isPresented: $showImport) {
             ImportSheet()
                 .environment(library)
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsSheet()
+        }
+        .sheet(isPresented: $showAbout) {
+            AboutSheet()
         }
         .background(BrandColors.background)
         .overlay(alignment: .bottom) {
@@ -98,6 +115,11 @@ struct RootView: View {
                 selectedAlbum = album
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .musesSelectPlaylist)) { note in
+            if let playlist = note.object as? Playlist {
+                selectedPlaylist = playlist
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button { showImport = true } label: { Image(systemName: "plus") }
@@ -106,7 +128,12 @@ struct RootView: View {
     }
 }
 
-enum SidebarSection: Hashable { case home, albums, artists, songs, liked, playlists, youtubeImports, youtubeSearch, settings }
+enum SidebarSection: String, Hashable, CaseIterable {
+    case search, home, new
+    case pins, recently, artists, albums, songs  // Library subsections
+    case youtubeMusic
+    case playlists
+}
 
 extension Notification.Name {
     static let musesToggleQueue = Notification.Name("muses.toggleQueue")

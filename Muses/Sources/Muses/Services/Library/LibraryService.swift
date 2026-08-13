@@ -31,6 +31,8 @@ final class LibraryService {
     var likedRevision: Int = 0
     /// Bumped on every `updateTrack` so views observing LibraryService re-render.
     var metadataRevision: Int = 0
+    /// Bumped on every pin/unpin so views re-render.
+    var pinRevision: Int = 0
 
     init(modelContainer: ModelContainer, metadata: MetadataService) {
         self.modelContainer = modelContainer
@@ -508,5 +510,35 @@ final class LibraryService {
         return fetched.tracks.sorted { (a, b) in
             (a.discNo ?? 0, a.trackNo ?? 0) < (b.discNo ?? 0, b.trackNo ?? 0)
         }
+    }
+
+    // MARK: - 钉选
+
+    /// 切换专辑钉选状态(fresh context re-fetch + mutate + save)。
+    func togglePin(_ album: Album) {
+        let ctx = ModelContext(modelContainer)
+        let id = album.id
+        guard let a = try? ctx.fetch(FetchDescriptor<Album>(
+            predicate: #Predicate { $0.id == id })).first else { return }
+        a.pinned.toggle()
+        try? ctx.save()
+        pinRevision += 1
+    }
+
+    /// 获取已钉选专辑(按标题排序)。
+    func pinnedAlbums() -> [Album] {
+        let ctx = ModelContext(modelContainer)
+        let desc = FetchDescriptor<Album>(
+            predicate: #Predicate { $0.pinned == true },
+            sortBy: [SortDescriptor(\.title)])
+        return (try? ctx.fetch(desc)) ?? []
+    }
+
+    /// 判断专辑是否已钉选。
+    func isPinned(_ album: Album) -> Bool {
+        let ctx = ModelContext(modelContainer)
+        let id = album.id
+        return ((try? ctx.fetch(FetchDescriptor<Album>(
+            predicate: #Predicate { $0.id == id })).first)?.pinned) ?? false
     }
 }
