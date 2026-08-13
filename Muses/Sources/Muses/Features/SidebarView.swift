@@ -41,12 +41,8 @@ struct SidebarView: View {
                         .tag(SidebarSection.albums)
                     Label(tr("Songs", "歌曲"), systemImage: "music.note")
                         .tag(SidebarSection.songs)
-                }
-
-                // YouTube Music
-                Section(tr("YouTube Music", "YouTube Music")) {
-                    Label(tr("YouTube Music", "YouTube Music"), systemImage: "play.rectangle")
-                        .tag(SidebarSection.youtubeMusic)
+                    Label(tr("YouTube Imports", "YouTube 导入"), systemImage: "play.rectangle")
+                        .tag(SidebarSection.youtubeImports)
                 }
 
                 // Playlists(内联)
@@ -68,7 +64,6 @@ struct SidebarView: View {
             profileControl
         }
         .frame(width: 232)
-        .background(.ultraThinMaterial)
         .onAppear { refreshPlaylists() }
         .onReceive(NotificationCenter.default.publisher(for: .musesPlaylistsChanged)) { _ in
             refreshPlaylists()
@@ -95,18 +90,18 @@ struct SidebarView: View {
         .padding(.bottom, 8)
     }
 
-    /// 从 bundle 加载 logo.png。
+    /// 从 bundle 加载 logo.png(优先 main bundle,回退 module bundle)。
     private var logoImage: some View {
         Group {
-            if let url = Bundle.main.url(forResource: "logo", withExtension: "png"),
-               let nsImage = NSImage(contentsOf: url) {
+            let url = Bundle.main.url(forResource: "logo", withExtension: "png")
+                ?? Bundle.module.url(forResource: "logo", withExtension: "png")
+            if let url, let nsImage = NSImage(contentsOf: url) {
                 Image(nsImage: nsImage)
                     .resizable()
                     .scaledToFill()
             } else {
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(LinearGradient(colors: [BrandColors.magenta, BrandColors.cyan],
-                                         startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .fill(BrandColors.magenta)
                     .overlay(Text("M").font(.system(size: 14, weight: .bold))
                         .foregroundStyle(BrandColors.textPrimary))
             }
@@ -171,6 +166,7 @@ struct ProfilePopover: View {
             popoverItem(icon: "info.circle", title: tr("About", "关于")) {
                 isPresented = false
                 showAbout = true
+                showSettings = true
             }
         }
         .padding(4)

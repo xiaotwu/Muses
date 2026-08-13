@@ -106,14 +106,22 @@ struct YouTubeImportCard: View {
         VStack(alignment: .leading, spacing: 0) {
             // 头部:封面 + 信息 + 操作
             HStack(spacing: 14) {
-                // 封面
-                artworkView
-                    .frame(width: 80, height: 80)
-                    .cornerRadius(8)
+                // 封面 — 点击进入专辑详情
+                Button {
+                    NotificationCenter.default.post(name: .musesNavigateYouTubeImport, object: imp)
+                } label: {
+                    artworkView
+                        .frame(width: 80, height: 80)
+                        .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(imp.title).font(.headline).foregroundStyle(BrandColors.textPrimary)
                         .lineLimit(1)
+                        .onTapGesture {
+                            NotificationCenter.default.post(name: .musesNavigateYouTubeImport, object: imp)
+                        }
                     HStack(spacing: 8) {
                         Text(imp.channel).font(.caption).foregroundStyle(BrandColors.textSecondary)
                         Text("·").foregroundStyle(BrandColors.textSecondary)

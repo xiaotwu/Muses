@@ -271,9 +271,10 @@ final class YouTubeStreamEngine: PlayerEngine {
         if let cached = cache.get(videoId: videoId) {
             return cached
         }
+        let quality = UserDefaults.standard.string(forKey: PrefKey.ytAudioQuality) ?? "bestaudio"
         do {
             let url = try await bridge.resolveStreamURL(
-                videoId: videoId, quality: "bestaudio", timeout: 30)
+                videoId: videoId, quality: quality, timeout: 30)
             cache.set(videoId: videoId, url: url)
             return url
         } catch {
@@ -281,7 +282,7 @@ final class YouTubeStreamEngine: PlayerEngine {
             cache.invalidate(videoId: videoId)
             do {
                 let url = try await bridge.resolveStreamURL(
-                    videoId: videoId, quality: "bestaudio", timeout: 30)
+                    videoId: videoId, quality: quality, timeout: 30)
                 cache.set(videoId: videoId, url: url)
                 return url
             } catch {

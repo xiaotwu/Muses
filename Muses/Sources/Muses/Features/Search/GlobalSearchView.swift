@@ -10,6 +10,17 @@ struct GlobalSearchView: View {
     @Environment(LibraryService.self) private var library
     @Environment(YouTubeImportService.self) private var importService
     @FocusState private var searchFieldFocused: Bool
+    @State private var searchTab: SearchTab = .library
+
+    enum SearchTab: String, CaseIterable {
+        case library, youtubeMusic
+        var label: String {
+            switch self {
+            case .library:     return tr("Library", "资料库")
+            case .youtubeMusic: return tr("YouTube Music", "YouTube Music")
+            }
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -55,64 +66,25 @@ struct GlobalSearchView: View {
             }
             .padding(16)
 
+            // 搜索来源切换:Library / YouTube Music
+            Picker("", selection: $searchTab) {
+                ForEach(SearchTab.allCases, id: \.self) { tab in
+                    Text(tab.label).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+
             Divider().background(BrandColors.hairline)
 
             // 结果
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    if !search.trackResults.isEmpty {
-                        section(title: tr("Songs", "歌曲"), count: search.trackResults.count) {
-                            ForEach(search.trackResults.prefix(8), id: \.id) { track in
-                                GlobalSearchTrackRow(track: track) {
-                                    play(track, from: search.trackResults)
-                                }
-                            }
-                        }
-                    }
-                    if !search.artistResults.isEmpty {
-                        section(title: tr("Artists", "艺术家"), count: search.artistResults.count) {
-                            ForEach(search.artistResults.prefix(5), id: \.id) { artist in
-                                GlobalSearchArtistRow(artist: artist) {
-                                    navigateToArtist(artist)
-                                }
-                            }
-                        }
-                    }
-                    if !search.albumResults.isEmpty {
-                        section(title: tr("Albums", "专辑"), count: search.albumResults.count) {
-                            ForEach(search.albumResults.prefix(6), id: \.id) { album in
-                                GlobalSearchAlbumRow(album: album) {
-                                    navigateToAlbum(album)
-                                }
-                            }
-                        }
-                    }
-                    if !search.youtubeResults.isEmpty {
-                        section(title: "YouTube", count: search.youtubeResults.count) {
-                            ForEach(search.youtubeResults.prefix(8), id: \.id) { entry in
-                                GlobalSearchYouTubeRow(entry: entry) {
-                                    Task { await playYouTube(entry) }
-                                }
-                            }
-                        }
-                    }
-
-                    if search.query.trimmingCharacters(in: .whitespaces).isEmpty {
-                        Text(tr("Type to search your library and YouTube", "输入关键词搜索本地资料库和 YouTube"))
-                            .font(.callout)
-                            .foregroundStyle(BrandColors.textSecondary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, 60)
-                    } else if search.trackResults.isEmpty
-                                && search.albumResults.isEmpty
-                                && search.artistResults.isEmpty
-                                && search.youtubeResults.isEmpty
-                                && !search.isSearchingYouTube {
-                        Text(tr("No results", "无搜索结果"))
-                            .font(.callout)
-                            .foregroundStyle(BrandColors.textSecondary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, 60)
+                    if searchTab == .library {
+                        libraryResults
+                    } else {
+                        youtubeResults
                     }
                 }
                 .padding(16)
@@ -131,6 +103,88 @@ struct GlobalSearchView: View {
                 Spacer()
             }
             content()
+        }
+    }
+
+    // MARK: - Result panes
+
+    @ViewBuilder
+    private var libraryResults: some View {
+        if !search.trackResults.isEmpty {
+            section(title: tr("Songs", "歌曲"), count: search.trackResults.count) {
+                ForEach(search.trackResults.prefix(8), id: \.id) { track in
+                    GlobalSearchTrackRow(track: track) {
+                        play(track, from: search.trackResults)
+                    }
+                }
+            }
+        }
+        if !search.artistResults.isEmpty {
+            section(title: tr("Artists", "艺术家"), count: search.artistResults.count) {
+                ForEach(search.artistResults.prefix(5), id: \.id) { artist in
+                    GlobalSearchArtistRow(artist: artist) {
+                        navigateToArtist(artist)
+                    }
+                }
+            }
+        }
+        if !search.albumResults.isEmpty {
+            section(title: tr("Albums", "专辑"), count: search.albumResults.count) {
+                ForEach(search.albumResults.prefix(6), id: \.id) { album in
+                    GlobalSearchAlbumRow(album: album) {
+                        navigateToAlbum(album)
+                    }
+                }
+            }
+        }
+        if search.query.trimmingCharacters(in: .whitespaces).isEmpty {
+            Text(tr("Type to search your library", "输入关键词搜索资料库"))
+                .font(.callout)
+                .foregroundStyle(BrandColors.textSecondary)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 60)
+        } else if search.trackResults.isEmpty
+                    && search.albumResults.isEmpty
+                    && search.artistResults.isEmpty {
+            Text(tr("No results", "无搜索结果"))
+                .font(.callout)
+                .foregroundStyle(BrandColors.textSecondary)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 60)
+        }
+    }
+
+    @ViewBuilder
+    private var youtubeResults: some View {
+        if !search.youtubeResults.isEmpty {
+            section(title: "YouTube", count: search.youtubeResults.count) {
+                ForEach(search.youtubeResults.prefix(8), id: \.id) { entry in
+                    GlobalSearchYouTubeRow(entry: entry) {
+                        Task { await playYouTube(entry) }
+                    }
+                }
+            }
+        } else if search.isSearchingYouTube {
+            VStack(spacing: 12) {
+                ProgressView()
+                Text(tr("Searching YouTube Music…", "正在搜索 YouTube Music…"))
+                    .font(.callout)
+                    .foregroundStyle(BrandColors.textSecondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 60)
+        } else if search.query.trimmingCharacters(in: .whitespaces).isEmpty {
+            Text(tr("Type to search YouTube Music", "输入关键词搜索 YouTube Music"))
+                .font(.callout)
+                .foregroundStyle(BrandColors.textSecondary)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 60)
+        } else {
+            Text(tr("No results", "无搜索结果"))
+                .font(.callout)
+                .foregroundStyle(BrandColors.textSecondary)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 60)
         }
     }
 

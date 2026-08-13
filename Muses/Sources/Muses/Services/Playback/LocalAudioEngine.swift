@@ -39,6 +39,17 @@ final class LocalAudioEngine: PlayerEngine {
     internal var _activePlayerVolume: Float { activePlayer.volume }
     internal var _inactivePlayerVolume: Float { inactivePlayer.volume }
     internal var _activeIsPlayerA: Bool { activePlayer === playerA }
+    /// 测试注入:设为 false 跳过实际 `play()` 调用(避免 macOS 26.5 命令行
+    /// 进程中 AVAudioPlayerNode.play() 抛 ObjC NSException "player did not see
+    /// an IO cycle" 导致进程崩溃;Swift 无法 catch NSException)。
+    /// 在 swift-testing / XCTest 环境中自动设为 false。
+    internal var _canPlay: Bool = {
+        let args = ProcessInfo.processInfo.arguments
+        let isTest = args.contains("--testing-library")
+            || args.contains(where: { $0.contains("xctest") })
+            || NSClassFromString("XCTestCase") != nil
+        return !isTest
+    }()
 
     var onCompletion: (@MainActor () -> Void)?
 
@@ -53,6 +64,27 @@ final class LocalAudioEngine: PlayerEngine {
         engine.connect(playerB, to: preMixer, format: nil)
         engine.connect(preMixer, to: eq, format: nil)
         engine.connect(eq, to: engine.mainMixerNode, format: nil)
+    }
+
+    /// 确保 engine 已 prepare + start(避免 "player did not see an IO cycle" 崩溃)。
+    /// `prepare()` 预分配渲染资源,使 `start()` 后 IO 周期立即可用。
+    /// start 后短暂等待让渲染线程进入 IO 周期,避免 play() 抛 ObjC NSException。
+    @discardableResult
+    private func ensureEngineRunning() -> Bool {
+        guard !engine.isRunning else { return true }
+        engine.prepare()
+        do { try engine.start() }
+        catch { return false }
+        // 给渲染线程一点时间进入 IO 周期(避免 "player did not see an IO cycle")
+        Thread.sleep(forTimeInterval: 0.05)
+        return true
+    }
+
+    /// 检查 engine 是否有有效的音频输出(outputFormat 非零 sampleRate)。
+    /// 无输出设备时调用 `AVAudioPlayerNode.play()` 会抛 ObjC NSException
+    /// ("player did not see an IO cycle"),Swift 无法 catch,导致进程崩溃。
+    private var hasAudioOutput: Bool {
+        engine.mainMixerNode.outputFormat(forBus: 0).sampleRate > 0
     }
 
     func load(_ track: TrackSnapshot) async throws {
@@ -87,8 +119,7 @@ final class LocalAudioEngine: PlayerEngine {
             state.error = nil
 
             if !engine.isRunning {
-                do { try engine.start() }
-                catch {
+                if !ensureEngineRunning() {
                     state.error = .engineStartFailed
                     throw PlayerError.engineStartFailed
                 }
@@ -101,7 +132,7 @@ final class LocalAudioEngine: PlayerEngine {
             next.scheduleFile(file, at: nil) { }
             activePlayer.stop()
             next.volume = effectiveVolume()
-            next.play()
+            if _canPlay && hasAudioOutput { next.play() }
             activePlayer = next
 
             // 后台预扫描整曲波形峰值,存入 WaveformCache(命中则跳过)
@@ -154,9 +185,9 @@ final class LocalAudioEngine: PlayerEngine {
             activePlayer.stop()
             let next = inactivePlayer
             next.scheduleFile(file, at: nil) { }
-            if !engine.isRunning { try? engine.start() }
+            ensureEngineRunning()
             next.volume = effectiveVolume()
-            next.play()
+            if _canPlay && hasAudioOutput { next.play() }
             activePlayer = next
         }
 
@@ -194,9 +225,9 @@ final class LocalAudioEngine: PlayerEngine {
         scheduleGen += 1
         let next = inactivePlayer
         next.scheduleFile(file, at: nil) { }
-        if !engine.isRunning { try? engine.start() }
+        ensureEngineRunning()
         next.volume = 0
-        next.play()
+        if _canPlay && hasAudioOutput { next.play() }
 
         let crossfade = UserDefaults.standard.double(forKey: PrefKey.crossfadeSeconds)
         let steps = Int(crossfade / 0.02)  // 20ms per step
@@ -269,8 +300,8 @@ final class LocalAudioEngine: PlayerEngine {
     }
 
     func play() {
-        if !engine.isRunning { try? engine.start() }
-        activePlayer.play()
+        ensureEngineRunning()
+        if _canPlay && hasAudioOutput { activePlayer.play() }
         state.isPlaying = true
         startPosTimer()
     }
@@ -294,8 +325,8 @@ final class LocalAudioEngine: PlayerEngine {
         if remaining > 0 {
             let count = AVAudioFrameCount(min(remaining, AVAudioFramePosition(UInt32.max)))
             activePlayer.scheduleSegment(file, startingFrame: frame, frameCount: count, at: nil) { }
-            if !engine.isRunning { try? engine.start() }
-            if state.isPlaying { activePlayer.play() }
+            ensureEngineRunning()
+            if state.isPlaying && _canPlay && hasAudioOutput { activePlayer.play() }
             state.position = time
         }
     }

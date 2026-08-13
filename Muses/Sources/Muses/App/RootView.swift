@@ -7,12 +7,14 @@ struct RootView: View {
     @State private var selectedAlbum: Album?
     @State private var selectedPlaylist: Playlist?
     @State private var selectedArtist: Artist?
+    @State private var selectedYouTubeImport: YouTubeImport?
     @State private var showImport = false
     @State private var showNowPlaying = false
     @State private var showQueue = false
     @State private var showSearch = false
     @State private var showSettings = false
     @State private var showAbout = false
+    @AppStorage(PrefKey.language) private var language = "system"
 
     var body: some View {
         NavigationSplitView {
@@ -28,12 +30,14 @@ struct RootView: View {
                                      selectedAlbum: $selectedAlbum)
                 } else if let playlist = selectedPlaylist {
                     PlaylistDetailView(playlist: playlist, selectedPlaylist: $selectedPlaylist)
+                } else if let ytImport = selectedYouTubeImport {
+                    YouTubeAlbumDetailView(youTubeImport: ytImport)
                 } else {
                     switch section {
                     case .home:
                         HomeView(selection: $section, selectedAlbum: $selectedAlbum)
                     case .new:
-                        NewView()
+                        NewView(selectedAlbum: $selectedAlbum)
                     case .search:
                         // Search 触发 GlobalSearchView overlay
                         EmptyView()
@@ -49,31 +53,26 @@ struct RootView: View {
                         ArtistsView(selectedArtist: $selectedArtist)
                     case .songs:
                         SongsListView()
-                    case .youtubeMusic:
-                        YouTubeMusicView()
+                    case .youtubeImports:
+                        YouTubeImportsView(embedded: true)
                     case .playlists:
                         PlaylistsView(selectedPlaylist: $selectedPlaylist)
                     }
                 }
             }
-            .padding(.bottom, 96)
+            .safeAreaInset(edge: .bottom, spacing: 8) {
+                PlayerBar(onArtworkTap: { showNowPlaying = true },
+                          onQueueTap: { showQueue = true })
+                    .padding(.horizontal, 8)
+            }
+            .background(BrandColors.background)
         }
         .sheet(isPresented: $showImport) {
             ImportSheet()
                 .environment(library)
         }
-        .sheet(isPresented: $showSettings) {
-            SettingsSheet()
-        }
-        .sheet(isPresented: $showAbout) {
-            AboutSheet()
-        }
-        .background(BrandColors.background)
-        .overlay(alignment: .bottom) {
-            PlayerBar(onArtworkTap: { showNowPlaying = true },
-                      onQueueTap: { showQueue = true })
-                .padding(.horizontal, 12)
-                .padding(.bottom, 12)
+        .sheet(isPresented: $showSettings, onDismiss: { showAbout = false }) {
+            SettingsSheet(initialCategory: showAbout ? .about : nil)
         }
         .overlay(alignment: .trailing) {
             if showQueue {
@@ -125,24 +124,35 @@ struct RootView: View {
                 selectedPlaylist = playlist
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .musesNavigateYouTubeImport)) { note in
+            if let ytImport = note.object as? YouTubeImport {
+                selectedYouTubeImport = ytImport
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .musesCloseYouTubeAlbum)) { _ in
+            selectedYouTubeImport = nil
+        }
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button { showImport = true } label: { Image(systemName: "plus") }
             }
         }
+        .id(language)
     }
 }
 
 enum SidebarSection: String, Hashable, CaseIterable {
     case search, home, new
     case pins, recently, artists, albums, songs  // Library subsections
-    case youtubeMusic
+    case youtubeImports
     case playlists
 }
 
 extension Notification.Name {
     static let musesToggleQueue = Notification.Name("muses.toggleQueue")
     static let musesFocusSearch = Notification.Name("muses.focusSearch")
+    static let musesNavigateYouTubeImport = Notification.Name("muses.navigateYouTubeImport")
+    static let musesCloseYouTubeAlbum = Notification.Name("muses.closeYouTubeAlbum")
 }
 
 enum BrandColors {
@@ -165,7 +175,7 @@ enum BrandColors {
     )
     /// 卡片/表面色:略高于纯黑,用于卡片背景。
     static let surface = dynamic(
-        rgb(0.08, 0.08, 0.10),
+        rgb(0.15, 0.15, 0.17),
         rgb(0.92, 0.92, 0.94)
     )
     /// 纯黑白主题:副颜色为白色(深色)或黑色(浅色)。
@@ -186,7 +196,7 @@ enum BrandColors {
         rgb(0.09, 0.09, 0.10)
     )
     static let textSecondary = dynamic(
-        rgb(0.53, 0.53, 0.57),
+        rgb(0.65, 0.65, 0.68),
         rgb(0.45, 0.45, 0.48)
     )
 

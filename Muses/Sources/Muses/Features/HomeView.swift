@@ -1,13 +1,20 @@
 import SwiftUI
 import AppKit
+import SwiftData
 
-/// 首页:Hero 动态封面 + 最近添加 + 钉选 + 全部专辑。
+/// 首页:Hero 动态封面 + 最近添加 + 钉选 + YouTube 热门搜索 + 已导入歌单 + 全部专辑。
 struct HomeView: View {
     @Binding var selection: SidebarSection
     @Binding var selectedAlbum: Album?
     @Environment(LibraryService.self) private var library
     @Environment(PlaybackService.self) private var playback
+    @Environment(YouTubeSearchService.self) private var ytSearch
+    @Environment(YouTubeImportService.self) private var importService
+    @Query(sort: \YouTubeImport.importedAt, order: .reverse) private var ytImports: [YouTubeImport]
     @State private var heroGradient: [Color] = [BrandColors.background, BrandColors.surface]
+    @State private var ytTrending: [YTDlpBridge.YTDlpPlaylistEntry] = []
+    @State private var trendingLoading = false
+    @State private var trendingError: String?
 
     private var albums: [Album] { library.allAlbums() }
 
@@ -52,6 +59,14 @@ struct HomeView: View {
                     )
                 }
 
+                // YouTube 热门搜索
+                youtubeTrendingSection
+
+                // 已导入的 YouTube 歌单
+                if !ytImports.isEmpty {
+                    youtubeImportsSection
+                }
+
                 // 全部专辑
                 if !albums.isEmpty {
                     allAlbumsSection
@@ -66,7 +81,10 @@ struct HomeView: View {
                 .ignoresSafeArea()
                 .animation(.easeInOut(duration: 0.4), value: heroAlbum?.id)
         )
-        .onAppear { updateGradient() }
+        .onAppear {
+            updateGradient()
+            loadTrending()
+        }
         .onChange(of: heroAlbum?.id) { _, _ in updateGradient() }
     }
 
@@ -161,6 +179,59 @@ struct HomeView: View {
         }
     }
 
+    // MARK: - YouTube 热门搜索
+
+    @ViewBuilder
+    private var youtubeTrendingSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(tr("YouTube Trending", "YouTube 热门"))
+                .font(.title2).fontWeight(.bold)
+                .foregroundStyle(BrandColors.textPrimary)
+                .padding(.horizontal, 24)
+
+            if trendingLoading {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 40)
+            } else if let err = trendingError {
+                Text(err).font(.caption).foregroundStyle(BrandColors.textSecondary)
+                    .frame(maxWidth: .infinity).padding(.vertical, 20)
+            } else if !ytTrending.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 16) {
+                        ForEach(ytTrending.prefix(10), id: \.id) { entry in
+                            YouTubeTrendingCard(entry: entry) {
+                                Task { await playYouTube(entry) }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                }
+            }
+        }
+    }
+
+    // MARK: - 已导入的 YouTube 歌单
+
+    @ViewBuilder
+    private var youtubeImportsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(tr("Imported Playlists", "已导入歌单"))
+                .font(.title2).fontWeight(.bold)
+                .foregroundStyle(BrandColors.textPrimary)
+                .padding(.horizontal, 24)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 16) {
+                    ForEach(ytImports.prefix(10), id: \.id) { imp in
+                        YouTubeImportCardSmall(imp: imp)
+                    }
+                }
+                .padding(.horizontal, 24)
+            }
+        }
+    }
+
     // MARK: - 全部专辑
 
     private var allAlbumsSection: some View {
@@ -197,5 +268,115 @@ struct HomeView: View {
         let snaps = tracks.map { TrackSnapshot(from: $0) }
         guard let first = snaps.first else { return }
         playback.playTrack(first, context: snaps, from: .album)
+    }
+
+    // MARK: - YouTube 辅助
+
+    private func loadTrending() {
+        guard ytTrending.isEmpty && !trendingLoading else { return }
+        trendingLoading = true
+        trendingError = nil
+        Task {
+            do {
+                let results = try await ytSearch.search(query: "热门音乐 trending music 2024", limit: 12)
+                ytTrending = results
+            } catch {
+                trendingError = tr("Failed to load YouTube trending", "加载 YouTube 热门失败")
+            }
+            trendingLoading = false
+        }
+    }
+
+    private func playYouTube(_ entry: YTDlpBridge.YTDlpPlaylistEntry) async {
+        do {
+            let snap = try await ytSearch.importAsTrack(entry: entry)
+            playback.playTrack(snap, context: [snap], from: .search)
+        } catch {
+            // 静默
+        }
+    }
+}
+
+/// YouTube 热门单曲卡片:缩略图 + 标题 + 频道。
+struct YouTubeTrendingCard: View {
+    let entry: YTDlpBridge.YTDlpPlaylistEntry
+    let onPlay: () -> Void
+
+    var body: some View {
+        Button(action: onPlay) {
+            VStack(alignment: .leading, spacing: 6) {
+                AsyncImage(url: URL(string: "https://i.ytimg.com/vi/\(entry.id)/hqdefault.jpg")) { phase in
+                    if let img = phase.image { img.resizable().scaledToFill() }
+                    else {
+                        Rectangle().fill(BrandColors.surface)
+                            .overlay(Image(systemName: "music.note").font(.title))
+                    }
+                }
+                .frame(width: 160, height: 90)
+                .clipped().cornerRadius(8)
+
+                Text(entry.title).font(.caption).lineLimit(1)
+                    .foregroundStyle(BrandColors.textPrimary)
+                Text(entry.uploader ?? "YouTube").font(.caption2).lineLimit(1)
+                    .foregroundStyle(BrandColors.textSecondary)
+            }
+            .frame(width: 160)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// 已导入 YouTube 歌单的迷你卡片:封面 + 标题 + 频道。
+struct YouTubeImportCardSmall: View {
+    let imp: YouTubeImport
+
+    private var items: [YouTubeImportItem] {
+        (imp.items ?? []).sorted { $0.order < $1.order }
+    }
+
+    var body: some View {
+        Button {
+            NotificationCenter.default.post(name: .musesNavigateYouTubeImport, object: imp)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                Group {
+                    if let urlStr = imp.artworkUrl, let url = URL(string: urlStr) {
+                        AsyncImage(url: url) { phase in
+                            if let img = phase.image { img.resizable().scaledToFill() }
+                            else { thumbnailFallback }
+                        }
+                    } else {
+                        thumbnailFallback
+                    }
+                }
+                .frame(width: 140, height: 140)
+                .clipped().cornerRadius(8)
+
+                Text(imp.title).font(.caption).lineLimit(1)
+                    .foregroundStyle(BrandColors.textPrimary)
+                Text(imp.channel).font(.caption2).lineLimit(1)
+                    .foregroundStyle(BrandColors.textSecondary)
+            }
+            .frame(width: 140)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var thumbnailFallback: some View {
+        Group {
+            if let first = items.first {
+                AsyncImage(url: URL(string: "https://i.ytimg.com/vi/\(first.youTubeId)/hqdefault.jpg")) { phase in
+                    if let img = phase.image { img.resizable().scaledToFill() }
+                    else { placeholder }
+                }
+            } else {
+                placeholder
+            }
+        }
+    }
+    private var placeholder: some View {
+        RoundedRectangle(cornerRadius: 8).fill(BrandColors.surface)
+            .overlay(Image(systemName: "music.note.list")
+                .font(.title).foregroundStyle(BrandColors.textSecondary.opacity(0.5)))
     }
 }

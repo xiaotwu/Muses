@@ -8,8 +8,9 @@ struct AboutView: View {
                 HStack(spacing: 16) {
                     // Logo(从 bundle 加载,回退到白色圆角占位)
                     Group {
-                        if let url = Bundle.main.url(forResource: "logo", withExtension: "png"),
-                           let nsImage = NSImage(contentsOf: url) {
+                        let url = Bundle.main.url(forResource: "logo", withExtension: "png")
+                            ?? Bundle.module.url(forResource: "logo", withExtension: "png")
+                        if let url, let nsImage = NSImage(contentsOf: url) {
                             Image(nsImage: nsImage)
                                 .resizable()
                                 .scaledToFill()

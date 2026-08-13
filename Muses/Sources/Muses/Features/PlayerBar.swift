@@ -10,16 +10,16 @@ struct PlayerBar: View {
     var onQueueTap: () -> Void = {}
 
     var body: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 12) {
             leadingBlock
             centerBlock
             trailingBlock
         }
-        .padding(.horizontal, 16)
-        .frame(height: 72)
+        .padding(.horizontal, 12)
+        .frame(height: 64)
         .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .shadow(color: .black.opacity(0.3), radius: 12, x: 0, y: 4)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .shadow(color: .black.opacity(0.25), radius: 8, x: 0, y: 2)
     }
 
     private var leadingBlock: some View {

@@ -1,27 +1,32 @@
 import SwiftUI
 
-/// 音质设置: 本地/YouTube 音质偏好(占位, 阶段 3+ 实装)。
+/// 音质设置: 本地音质 + YouTube 音质, 分别独立存储。
 struct AudioQualitySettingsView: View {
-    @AppStorage(PrefKey.audioQuality) private var audioQuality: String = "native"
+    @AppStorage(PrefKey.localAudioQuality) private var localQuality: String = "native"
+    @AppStorage(PrefKey.ytAudioQuality) private var ytQuality: String = "bestaudio"
 
     var body: some View {
-        Section(tr("Audio Quality", "音质")) {
-            Picker(tr("Local Audio Quality", "本地音质"), selection: $audioQuality) {
-                Text(tr("Native", "原始(Native)")).tag("native")
-                Text(tr("Exclusive Mode", "独占模式(Exclusive)")).tag("exclusive")
+        Section(tr("Local Audio Quality", "本地音质")) {
+            Picker(tr("Local Audio Quality", "本地音质"), selection: $localQuality) {
+                Text(tr("Native", "原始 (Native)")).tag("native")
+                Text(tr("Exclusive Mode", "独占模式 (Exclusive)")).tag("exclusive")
             }
             .pickerStyle(.radioGroup)
-            Text(tr("Exclusive mode will be implemented in stage 4 via CoreAudio HAL. Currently only Native mode is active.", "独占模式将在阶段 4 通过 CoreAudio HAL 实装, 当前仅原始模式生效。"))
+            Text(tr("Exclusive mode uses CoreAudio HAL for bit-perfect output.",
+                    "独占模式使用 CoreAudio HAL 实现位完美输出。"))
                 .font(.caption).foregroundStyle(BrandColors.textSecondary)
+        }
 
-            Divider().padding(.vertical, 4)
-
-            Picker(tr("YouTube Audio Quality", "YouTube 音质"), selection: $audioQuality) {
-                Text(tr("Best (bestaudio)", "最高(bestaudio)")).tag("bestaudio")
-                Text(tr("Data Saver (128k)", "省流(128k)")).tag("128k")
+        Section(tr("YouTube Music Audio Quality", "YouTube Music 音质")) {
+            Picker(tr("YouTube Audio Quality", "YouTube 音质"), selection: $ytQuality) {
+                Text(tr("Best (bestaudio)", "最高 (bestaudio)")).tag("bestaudio")
+                Text(tr("High (256k)", "高音质 (256k)")).tag("256k")
+                Text(tr("Medium (128k)", "中等 (128k)")).tag("128k")
+                Text(tr("Data Saver (64k)", "省流 (64k)")).tag("64k")
             }
             .pickerStyle(.radioGroup)
-            Text(tr("YouTube audio quality preference affects yt-dlp download format selection; implemented in stage 3.", "YouTube 音质偏好将影响 yt-dlp 下载格式选择, 阶段 3 实装。"))
+            Text(tr("Affects yt-dlp download format selection for YouTube content.",
+                    "影响 YouTube 内容的 yt-dlp 下载格式选择。"))
                 .font(.caption).foregroundStyle(BrandColors.textSecondary)
         }
     }

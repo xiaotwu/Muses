@@ -75,7 +75,7 @@ fi
 # 6) 拷贝资源 + Info.plist + entitlements。
 echo "[4/6] 拷贝 Resources / Info.plist"
 RES_DIR="Muses/Sources/Muses/Resources"
-for f in appcast.xml yt-dlp yt-dlp-LICENSE AppIcon.icns; do
+for f in appcast.xml yt-dlp yt-dlp-LICENSE AppIcon.icns logo.png; do
     [[ -f "$RES_DIR/$f" ]] && cp "$RES_DIR/$f" "$CONTENTS/Resources/"
 done
 cp "$RES_DIR/Info.plist" "$CONTENTS/Info.plist"

@@ -1,0 +1,275 @@
+import SwiftUI
+import AppKit
+
+/// YouTube 歌单(专辑)的现代详情视图:大封面 + 标题 + 频道 + 曲目列表。
+///
+/// 镜像 `AlbumDetailView` 的布局风格,数据来自 `YouTubeImport`(已导入的 YT 歌单)。
+/// 通过 `.musesNavigateYouTubeImport` 通知从侧边栏导入卡片或搜索结果打开。
+struct YouTubeAlbumDetailView: View {
+    let youTubeImport: YouTubeImport
+    @Environment(PlaybackService.self) private var playback
+    @Environment(YouTubeImportService.self) private var importService
+    @State private var gradient: [Color] = [BrandColors.background, BrandColors.surface]
+    @State private var syncing = false
+
+    private var items: [YouTubeImportItem] {
+        (youTubeImport.items ?? []).sorted { $0.order < $1.order }
+    }
+    private var localAdditions: [Track] {
+        youTubeImport.localAdditions ?? []
+    }
+
+    /// 合并播放上下文:YT 条目对应的 Track + 本地附加(按顺序)。
+    private var allSnaps: [TrackSnapshot] {
+        let yt = items.compactMap { $0.track }.map { TrackSnapshot(from: $0) }
+        let local = localAdditions.map { TrackSnapshot(from: $0) }
+        return yt + local
+    }
+
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: gradient, startPoint: .top, endPoint: .center)
+                .ignoresSafeArea()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    header
+                    trackList
+                }
+                .padding(24)
+                .padding(.bottom, 100)
+            }
+        }
+        .navigationTitle("")
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    NotificationCenter.default.post(name: .musesCloseYouTubeAlbum, object: nil)
+                } label: { Image(systemName: "chevron.backward") }
+            }
+        }
+        .onAppear { extractGradient() }
+    }
+
+    // MARK: - Header
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 24) {
+            artwork
+                .frame(width: 240, height: 240)
+                .shadow(radius: 20)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(tr("PLAYLIST", "歌单"))
+                    .font(.caption).fontWeight(.bold)
+                    .foregroundStyle(BrandColors.textSecondary)
+                    .tracking(1.5)
+
+                Text(youTubeImport.title)
+                    .font(.largeTitle).fontWeight(.bold)
+                    .foregroundStyle(BrandColors.textPrimary)
+                    .lineLimit(2)
+
+                Text(metadataLine)
+                    .font(.subheadline)
+                    .foregroundStyle(BrandColors.textSecondary)
+
+                HStack(spacing: 12) {
+                    Button { playAll() } label: {
+                        Label(tr("Play", "播放"), systemImage: "play.fill")
+                            .padding(.horizontal, 16).padding(.vertical, 8)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(BrandColors.magenta)
+                    .disabled(allSnaps.isEmpty)
+
+                    Button {
+                        if let url = URL(string: youTubeImport.url) { NSWorkspace.shared.open(url) }
+                    } label: {
+                        Label(tr("Open in YT", "在 YT 中打开"), systemImage: "arrow.up.right.square")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        Task {
+                            syncing = true
+                            _ = try? await importService.resync(importId: youTubeImport.id)
+                            syncing = false
+                        }
+                    } label: {
+                        if syncing {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Label(tr("Resync", "重新同步"), systemImage: "arrow.clockwise")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(syncing)
+                }
+                .padding(.top, 4)
+            }
+            Spacer()
+        }
+    }
+
+    /// 元数据:频道 • 曲目数 • 总时长。
+    private var metadataLine: String {
+        let count = allSnaps.count
+        var parts: [String] = [youTubeImport.channel]
+        parts.append("\(count) \(count == 1 ? tr("song", "首") : tr("songs", "首"))")
+        let totalMs = items.reduce(0) { $0 + $1.durationMs }
+        if totalMs > 0 {
+            let totalSec = totalMs / 1000
+            parts.append(formatDuration(Double(totalSec)))
+        }
+        return parts.joined(separator: " • ")
+    }
+
+    // MARK: - Artwork
+
+    private var artwork: some View {
+        Group {
+            if let urlStr = youTubeImport.artworkUrl, let url = URL(string: urlStr) {
+                AsyncImage(url: url) { phase in
+                    if let img = phase.image { img.resizable().scaledToFill() }
+                    else { thumbnailFallback }
+                }
+            } else {
+                thumbnailFallback
+            }
+        }
+        .clipped().cornerRadius(12)
+    }
+
+    /// 用首条 YT 视频缩略图作为封面回退。
+    private var thumbnailFallback: some View {
+        Group {
+            if let first = items.first {
+                AsyncImage(url: URL(string: "https://i.ytimg.com/vi/\(first.youTubeId)/hqdefault.jpg")) { phase in
+                    if let img = phase.image { img.resizable().scaledToFill() }
+                    else { placeholder }
+                }
+            } else {
+                placeholder
+            }
+        }
+    }
+    private var placeholder: some View {
+        RoundedRectangle(cornerRadius: 12).fill(BrandColors.surface)
+            .overlay(Image(systemName: "music.note.list")
+                .font(.largeTitle).foregroundStyle(BrandColors.textSecondary.opacity(0.5)))
+    }
+
+    // MARK: - Track list
+
+    private var trackList: some View {
+        VStack(spacing: 0) {
+            // YT 条目
+            ForEach(items, id: \.id) { item in
+                YouTubeAlbumTrackRow(
+                    index: item.order + 1,
+                    title: item.title,
+                    artist: item.artist,
+                    durationMs: item.durationMs,
+                    isLocal: false,
+                    onPlay: { playItem(item) }
+                )
+                .padding(.vertical, 6)
+            }
+            // 本地附加
+            ForEach(Array(localAdditions.enumerated()), id: \.element.id) { idx, track in
+                YouTubeAlbumTrackRow(
+                    index: items.count + idx + 1,
+                    title: track.title,
+                    artist: track.artist,
+                    durationMs: Int(track.durationSeconds * 1000),
+                    isLocal: true,
+                    onPlay: {
+                        let snap = TrackSnapshot(from: track)
+                        playback.playTrack(snap, context: allSnaps, from: .import)
+                    }
+                )
+                .padding(.vertical, 6)
+            }
+        }
+    }
+
+    private func playItem(_ item: YouTubeImportItem) {
+        guard let t = item.track else { return }
+        let snap = TrackSnapshot(from: t)
+        let ctx = allSnaps
+        guard let target = ctx.first(where: { $0.id == snap.id }) ?? ctx.first else { return }
+        playback.playTrack(target, context: ctx, from: .import)
+    }
+
+    private func playAll() {
+        guard let first = allSnaps.first else { return }
+        playback.playTrack(first, context: allSnaps, from: .import)
+    }
+
+    // MARK: - Gradient
+
+    private func extractGradient() {
+        // 从封面 URL 提取主色调(异步加载后用 NSImage)
+        let urlStr = youTubeImport.artworkUrl
+            ?? (items.first.map { "https://i.ytimg.com/vi/\($0.youTubeId)/hqdefault.jpg" })
+        guard let urlStr, let url = URL(string: urlStr) else { return }
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            guard let data, let img = NSImage(data: data) else { return }
+            let colors = AlbumArtworkExtractor.dominantColors(img, count: 4)
+            Task { @MainActor in
+                gradient = colors.map { Color(nsColor: $0) } + [BrandColors.background]
+            }
+        }.resume()
+    }
+
+    private func formatDuration(_ s: Double) -> String {
+        let mins = Int(s) / 60
+        let secs = Int(s) % 60
+        if mins >= 60 {
+            return String(format: "%d:%02d:%02d", mins / 60, mins % 60, secs)
+        }
+        return String(format: "%d:%02d", mins, secs)
+    }
+}
+
+/// YouTube 专辑详情中的曲目行:序号 + 标题 + 艺术家 + 时长 + 播放按钮。
+struct YouTubeAlbumTrackRow: View {
+    let index: Int
+    let title: String
+    let artist: String
+    let durationMs: Int
+    let isLocal: Bool
+    let onPlay: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text("\(index)").foregroundStyle(BrandColors.textSecondary)
+                .frame(width: 28, alignment: .trailing)
+            VStack(alignment: .leading) {
+                HStack(spacing: 6) {
+                    Text(title).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
+                    if isLocal {
+                        Text(tr("Local", "本地")).font(.caption2)
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(BrandColors.green.opacity(0.2))
+                            .foregroundStyle(BrandColors.green).cornerRadius(4)
+                    }
+                }
+                Text(artist).font(.caption).foregroundStyle(BrandColors.textSecondary).lineLimit(1)
+            }
+            Spacer()
+            if durationMs > 0 {
+                Text(formatMs(durationMs)).font(.caption).foregroundStyle(BrandColors.textSecondary)
+            }
+            Button(action: onPlay) {
+                Image(systemName: "play.fill").foregroundStyle(BrandColors.magenta)
+            }
+            .buttonStyle(.plain)
+            .help(tr("Play", "播放"))
+        }
+    }
+
+    private func formatMs(_ ms: Int) -> String {
+        let s = ms / 1000
+        return String(format: "%d:%02d", s / 60, s % 60)
+    }
+}

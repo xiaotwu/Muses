@@ -21,6 +21,19 @@ enum AppTheme: String, CaseIterable, Codable {
     }
 }
 
+/// 应用语言。`system` 跟随系统语言;`en`/`zh` 强制覆盖。
+enum AppLanguage: String, CaseIterable, Codable {
+    case system, en, zh
+
+    var displayName: String {
+        switch self {
+        case .system: return tr("System", "跟随系统")
+        case .en:     return "English"
+        case .zh:     return "中文"
+        }
+    }
+}
+
 /// yt-dlp cookie 来源(@AppStorage 字符串)。
 enum YTCookieSource: String, CaseIterable, Codable {
     case none      // 不使用 cookie
@@ -54,4 +67,7 @@ enum PrefKey {
     static let crossfadeSeconds = "muses.playback.crossfadeSeconds"
     static let replayGainEnabled = "muses.playback.replayGainEnabled"
     static let gpuAcceleration = "muses.gpuAcceleration"
+    static let language = "muses.language"
+    static let localAudioQuality = "muses.audio.localQuality"
+    static let ytAudioQuality = "muses.yt.quality"
 }

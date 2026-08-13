@@ -261,6 +261,3 @@ struct LikedView: View {
     }
 }
 
-struct SettingsPlaceholderView: View {
-    var body: some View { Text(tr("Settings", "设置")).frame(maxWidth: .infinity, maxHeight: .infinity) }
-}

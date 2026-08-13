@@ -89,7 +89,9 @@ final class YTDlpBridge {
     /// 质量名 -> yt-dlp `-f` 格式选择器。
     private static let qualityMap: [String: String] = [
         "bestaudio": "bestaudio[ext*=m4a]/bestaudio/best",
-        "128k": "ba[abr<=128]"
+        "256k": "ba[abr<=256]/bestaudio[abr<=256]",
+        "128k": "ba[abr<=128]",
+        "64k": "ba[abr<=64]"
     ]
 
     init(binaryPath: String? = nil) {

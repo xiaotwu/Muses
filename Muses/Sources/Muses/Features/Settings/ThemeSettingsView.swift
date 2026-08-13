@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 主题设置: Now Playing 模式切换(封面/唱片) + 应用主题(阶段 2 仅 dark 生效)。
+/// 主题设置: Now Playing 模式切换(封面/唱片) + 应用主题(深色/浅色/跟随系统)。
 struct ThemeSettingsView: View {
     @AppStorage(PrefKey.nowPlayingMode) private var modeRaw: String = NowPlayingMode.cover.rawValue
     @AppStorage(PrefKey.theme) private var themeRaw: String = AppTheme.dark.rawValue
@@ -38,7 +38,7 @@ struct ThemeSettingsView: View {
                     Text(tr("Match System", "跟随系统")).tag(AppTheme.system.rawValue)
                 }
                 .pickerStyle(.radioGroup)
-                Text(tr("Stage 2 supports only the Dark theme; Light / Match System will be implemented in stage 4.", "阶段 2 仅支持深色主题; 浅色/跟随系统将在阶段 4 实现。"))
+                Text(tr("Theme switches between dark (pure black) and light (white accent) color schemes. Match System follows the OS appearance.", "主题在深色(纯黑)与浅色(白色强调)间切换;跟随系统按系统外观自动适配。"))
                     .font(.caption)
                     .foregroundStyle(BrandColors.textSecondary)
             }
