@@ -13,20 +13,24 @@ struct YouTubeImportsView: View {
     @State private var showImportSheet = false
     @State private var importing = false
     @State private var error: String?
+    /// 嵌入到 YouTubeMusicView 时为 true:隐藏重复的大标题与 navigationTitle。
+    var embedded: Bool = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                // 标题栏
+                // 标题栏(嵌入时仅显示导入按钮,不重复标题)
                 HStack {
-                    Text("YouTube Imports")
-                        .font(.largeTitle).fontWeight(.bold)
-                        .foregroundStyle(BrandColors.textPrimary)
+                    if !embedded {
+                        Text(tr("YouTube Imports", "YouTube 导入"))
+                            .font(.largeTitle).fontWeight(.bold)
+                            .foregroundStyle(BrandColors.textPrimary)
+                    }
                     Spacer()
                     Button {
                         showImportSheet = true
                     } label: {
-                        Label("导入 YouTube 歌单", systemImage: "plus")
+                        Label(tr("Import YouTube Playlist", "导入 YouTube 歌单"), systemImage: "plus")
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(BrandColors.magenta)
@@ -62,7 +66,7 @@ struct YouTubeImportsView: View {
             }
             .padding(.vertical, 24)
         }
-        .navigationTitle("YouTube Imports")
+        .modifier(ConditionalNavTitle(title: tr("YouTube Imports", "YouTube 导入"), enabled: !embedded))
         .background(BrandColors.background)
         .sheet(isPresented: $showImportSheet) {
             YouTubeImportSheet { url in
@@ -373,5 +377,14 @@ struct LocalTrackPickerSheet: View {
             .padding(16)
         }
         .frame(width: 420, height: 480)
+    }
+}
+
+/// 仅在 `enabled` 时应用 `.navigationTitle`,嵌入到合并视图时跳过。
+private struct ConditionalNavTitle: ViewModifier {
+    let title: String
+    let enabled: Bool
+    func body(content: Content) -> some View {
+        if enabled { content.navigationTitle(title) } else { content }
     }
 }

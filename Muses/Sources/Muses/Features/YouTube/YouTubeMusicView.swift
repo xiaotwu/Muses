@@ -41,7 +41,7 @@ struct YouTubeMusicView: View {
             case .search:
                 YouTubeSearchView()
             case .imports:
-                YouTubeImportsView()
+                YouTubeImportsView(embedded: true)
             }
         }
         .background(BrandColors.background)
