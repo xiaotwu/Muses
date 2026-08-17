@@ -1,6 +1,5 @@
 import SwiftUI
 import SwiftData
-import Sparkle
 
 @main
 struct MusesApp: App {
@@ -15,11 +14,13 @@ struct MusesApp: App {
     let lyricsService: LyricsService
     let recommendationService: RecommendationService
     let ytDlpBridge: YTDlpBridge
+    let updateService: UpdateService
     private let nowPlayingManager: NowPlayingManager
     private let spotlightIndexer: SpotlightIndexer
-    private let updaterController: SPUStandardUpdaterController
 
     init() {
+        // 品牌字标字体:尽早注册,使首屏 "Muses" wordmark 即用 MonteCarlo。
+        FontLoader.registerMonteCarlo()
         let container = try! makeModelContainer()
         self.modelContainer = container
         let meta = MetadataService(artworkCache: .default)
@@ -34,7 +35,8 @@ struct MusesApp: App {
         queue.restore()
         self.playbackService = PlaybackService(localEngine: localEngine,
                                                  youtubeEngine: youtubeEngine,
-                                                 queue: queue)
+                                                 queue: queue,
+                                                 library: library)
         self.importService = YouTubeImportService(bridge: ytdlpBridge,
                                                   modelContainer: container)
         self.searchService = YouTubeSearchService(bridge: ytdlpBridge,
@@ -55,17 +57,15 @@ struct MusesApp: App {
         // 启动后异步索引到 Spotlight
         Task { @MainActor in indexer.indexAll() }
 
-        // Sparkle 自动更新。SUFeedURL / SUPublicEDKey 需在 .app 的 Info.plist 注入
-        // (见 Resources/appcast.xml 注释)。SPM executable 无自定义 Info.plist,
-        // 故仅在主 bundle 配置了 SUFeedURL 时才 startUpdater,避免 Sparkle 弹出
-        // "misconfigured" 警告窗;开发/测试构建静默 no-op。
-        let controller = SPUStandardUpdaterController(
-            startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil
-        )
-        if Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil {
-            controller.startUpdater()
+        // GitHub Release 更新检查(替换原 Sparkle 自动更新)。
+        // 偏好 `checkForUpdates` 控制是否自动检查;24h 内不重复检查。
+        let updater = UpdateService()
+        self.updateService = updater
+        Task { @MainActor in
+            // 启动 3s 后再检查,避免与首屏加载/索引抢资源。
+            try? await Task.sleep(for: .milliseconds(3000))
+            await updater.checkIfDue()
         }
-        self.updaterController = controller
     }
 
     var body: some Scene {
@@ -82,7 +82,7 @@ struct MusesApp: App {
                     .environment(lyricsService)
                     .environment(recommendationService)
                     .environment(\.ytDlpBridge, ytDlpBridge)
-                    .environment(\.updater, updaterController.updater)
+                    .environment(updateService)
                     .modelContainer(modelContainer)
                     .onOpenURL { url in
                         // deep link: muses://play?trackId=<id> — Spotlight / 外部唤起播放

@@ -53,12 +53,12 @@ struct PackagingTests {
         #expect(plist["LSMinimumSystemVersion"] as? String == "14.0")
         #expect(plist["CFBundleIconFile"] as? String == "AppIcon")
 
-        // Sparkle 键。
-        #expect(plist["SUFeedURL"] as? String != nil)
-        #expect(plist["SUEnableAutomaticUpdates"] as? Bool == true)
-        #expect(plist["SUAutomaticallyUpdate"] as? Bool == false)
-        // SUPublicEDKey 存在(发布前由 sign-update.sh 注入,初始可空)。
-        #expect(plist["SUPublicEDKey"] != nil)
+        // Phase 14 起 Sparkle 已移除:Info.plist 不应再含任何 SU* 键。
+        #expect(plist["SUFeedURL"] == nil, "SUFeedURL 应已移除")
+        #expect(plist["SUPublicEDKey"] == nil, "SUPublicEDKey 应已移除")
+        #expect(plist["SUEnableAutomaticUpdates"] == nil, "SUEnableAutomaticUpdates 应已移除")
+        #expect(plist["SUAutomaticallyUpdate"] == nil, "SUAutomaticallyUpdate 应已移除")
+        #expect(plist["SUScheduledCheckInterval"] == nil, "SUScheduledCheckInterval 应已移除")
     }
 
     /// entitlements 模板可解析。
@@ -145,16 +145,16 @@ struct PackagingTests {
         #expect(perm & 0o100 != 0, "sign-update.sh 缺少可执行位")
     }
 
-    /// Sparkle CLI 工具(若 .build/artifacts 存在)应在预期路径。
-    @Test("Sparkle CLI 工具若存在则在预期路径")
-    func sparkleCLIPresentIfArtifactsExist() {
-        let binDir = ".build/artifacts/sparkle/Sparkle/bin"
-        guard FileManager.default.fileExists(atPath: binDir) else { return }
-        for tool in ["sign_update", "generate_keys", "generate_appcast"] {
-            let p = "\(binDir)/\(tool)"
-            #expect(FileManager.default.isExecutableFile(atPath: p),
-                    "\(tool) 缺失或不可执行")
-        }
+    /// Phase 14 起 Sparkle 已移除:更新改由 `UpdateService` 调 GitHub Releases API。
+    /// 这里冒烟确认 UpdateService 可实例化、版本号取自 bundle、semver 比较正确。
+    @Test("UpdateService 实例化 + semver 比较(替代 Sparkle CLI 检查)")
+    @MainActor
+    func updateServiceSemver() {
+        let svc = UpdateService()
+        #expect(!svc.currentVersion.isEmpty)
+        // hasUpdate 在无 latestVersion 时为 false(尚未检查)
+        let fresh = UpdateService()
+        #expect(!fresh.hasUpdate)
     }
 
     @Test("notarize.sh 语法通过 bash -n 且可执行")

@@ -1,9 +1,8 @@
 import SwiftUI
-import Sparkle
 
 /// 设置类别枚举。
 enum SettingsCategory: String, Hashable, CaseIterable {
-    case general, playback, audioQuality, library, appearance, youtube, lyrics, about
+    case general, playback, audioQuality, library, appearance, youtube, lyrics, updates, about
 
     var label: String {
         switch self {
@@ -14,6 +13,7 @@ enum SettingsCategory: String, Hashable, CaseIterable {
         case .appearance:   return tr("Appearance", "外观")
         case .youtube:      return tr("YouTube", "YouTube")
         case .lyrics:       return tr("Lyrics", "歌词")
+        case .updates:      return tr("Updates", "更新")
         case .about:        return tr("About", "关于")
         }
     }
@@ -27,6 +27,7 @@ enum SettingsCategory: String, Hashable, CaseIterable {
         case .appearance:   return "paintbrush"
         case .youtube:      return "play.rectangle"
         case .lyrics:       return "text.alignleft"
+        case .updates:      return "arrow.triangle.2.circlepath"
         case .about:        return "info.circle"
         }
     }
@@ -84,6 +85,8 @@ struct SettingsSheet: View {
                         YouTubeSettingsView()
                     case .lyrics:
                         LyricsSettingsView()
+                    case .updates:
+                        UpdatesSettingsView()
                     case .about:
                         AboutSettingsView()
                     }
@@ -100,15 +103,9 @@ struct SettingsSheet: View {
     }
 }
 
-/// 关于设置页: logo + 版本 + GitHub 链接 + 更新检查 + 合规声明。
+/// 关于设置页: logo + 版本 + GitHub 链接 + 合规声明。
+/// 更新检查已移至独立的 "更新" 设置类别(`UpdatesSettingsView`)。
 struct AboutSettingsView: View {
-    @AppStorage(PrefKey.checkForUpdates) private var checkAutomatically: Bool = true
-    @Environment(\.updater) private var updater
-
-    private var isConfigured: Bool {
-        Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil
-    }
-
     private var appVersion: String {
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -138,7 +135,7 @@ struct AboutSettingsView: View {
                         }
                     }
                     VStack(alignment: .leading) {
-                        Text("Muses").font(.title2).fontWeight(.bold)
+                        Text("Muses").font(BrandFont.muses(30))
                             .foregroundStyle(BrandColors.textPrimary)
                         Text("\(tr("Version", "版本")) \(appVersion)")
                             .font(.caption).foregroundStyle(BrandColors.textSecondary)
@@ -158,46 +155,19 @@ struct AboutSettingsView: View {
 
                 Divider()
 
-                // 更新设置
-                Toggle(tr("Check for Updates Automatically", "自动检查更新"), isOn: $checkAutomatically)
-                    .disabled(updater == nil)
-                    .onChange(of: checkAutomatically) {
-                        updater?.automaticallyChecksForUpdates = checkAutomatically
-                    }
-                Button {
-                    updater?.checkForUpdates()
-                } label: {
-                    Label(tr("Check for Updates Now", "立即检查更新"), systemImage: "arrow.triangle.2.circlepath")
-                }
-                .buttonStyle(.bordered)
-                .disabled(updater == nil)
-                if isConfigured {
-                    Text(tr("Updates via Sparkle with EdDSA-signed appcast.",
-                            "通过 Sparkle 更新, 使用 EdDSA 签名 appcast 验证。"))
-                        .font(.caption).foregroundStyle(BrandColors.textSecondary)
-                } else {
-                    Text(tr("Automatic updates pending configuration.",
-                            "自动更新待配置。"))
-                        .font(.caption).foregroundStyle(BrandColors.textSecondary)
+                Section(tr("Disclaimer", "合规声明")) {
+                    Text(tr("This software is for personal use only, not distributed on the App Store. YouTube content is subject to YouTube's Terms of Service; downloading must comply with applicable local laws.",
+                            "本软件仅供个人使用, 不在 App Store 分发。YouTube 内容受 YouTube 服务条款约束, 下载行为需遵守当地法律法规。"))
+                        .font(.caption)
+                        .foregroundStyle(BrandColors.textSecondary)
+                        .lineSpacing(3)
+                    Text(tr("Tech stack: Swift + SwiftUI + AVAudioEngine + SwiftData + yt-dlp",
+                            "技术栈: Swift + SwiftUI + AVAudioEngine + SwiftData + yt-dlp"))
+                        .font(.caption2)
+                        .foregroundStyle(BrandColors.textSecondary.opacity(0.7))
                 }
             }
             .padding(.vertical, 8)
-
-            Section(tr("Disclaimer", "合规声明")) {
-                Text(tr("This software is for personal use only, not distributed on the App Store. YouTube content is subject to YouTube's Terms of Service; downloading must comply with applicable local laws.",
-                        "本软件仅供个人使用, 不在 App Store 分发。YouTube 内容受 YouTube 服务条款约束, 下载行为需遵守当地法律法规。"))
-                    .font(.caption)
-                    .foregroundStyle(BrandColors.textSecondary)
-                    .lineSpacing(3)
-                Text(tr("Tech stack: Swift + SwiftUI + AVAudioEngine + SwiftData + yt-dlp",
-                        "技术栈: Swift + SwiftUI + AVAudioEngine + SwiftData + yt-dlp"))
-                    .font(.caption2)
-                    .foregroundStyle(BrandColors.textSecondary.opacity(0.7))
-            }
-        }
-        .onAppear {
-            updater?.automaticallyChecksForUpdates = checkAutomatically
-            updater?.updateCheckInterval = 86_400
         }
     }
 }

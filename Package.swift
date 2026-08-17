@@ -7,15 +7,11 @@ let package = Package(
     products: [
         .executable(name: "Muses", targets: ["Muses"]),
     ],
-    dependencies: [
-        .package(url: "https://github.com/sparkle-project/Sparkle.git", from: "2.6.0"),
-    ],
+    dependencies: [],
     targets: [
         .executableTarget(
             name: "Muses",
-            dependencies: [
-                .product(name: "Sparkle", package: "Sparkle"),
-            ],
+            dependencies: [],
             path: "Muses/Sources/Muses",
             resources: [
                 .copy("Resources"),

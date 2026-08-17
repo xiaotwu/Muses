@@ -33,6 +33,8 @@ final class LibraryService {
     var metadataRevision: Int = 0
     /// Bumped on every pin/unpin so views re-render.
     var pinRevision: Int = 0
+    /// Bumped on every `recordPlay` so Home "Recently Played" 等视图刷新。
+    var playRevision: Int = 0
 
     init(modelContainer: ModelContainer, metadata: MetadataService) {
         self.modelContainer = modelContainer
@@ -501,6 +503,14 @@ final class LibraryService {
             predicate: #Predicate { $0.id == id })).first)?.liked) ?? false
     }
 
+    /// 按 id 取回完整 `Track` 模型(fresh context)。用于 PlayerBar 菜单解析
+    /// 当前曲目的 `album` / `artistRef`,以便跳转到专辑/艺术家详情。
+    func track(by id: UUID) -> Track? {
+        let ctx = ModelContext(modelContainer)
+        return try? ctx.fetch(FetchDescriptor<Track>(
+            predicate: #Predicate { $0.id == id })).first
+    }
+
     /// 批量查询已喜欢曲目 id 集合:一次 fetch 替代 N 次 `isLiked(id:)` 调用,
     /// 避免每行渲染都新建 ModelContext。视图在 `.onAppear` /
     /// `.onChange(of: likedRevision)` 时构造一次,行内用 `contains` O(1) 查询。
@@ -582,5 +592,53 @@ final class LibraryService {
         )
         guard let track = try? ctx.fetch(desc).first else { return nil }
         return track.album
+    }
+
+    /// 记录一次播放:`lastPlayedAt = now`,`playCount += 1`,并 bump `playRevision`。
+    /// 供 `PlaybackService` 在曲目开始播放时调用。写入失败仅记录日志,不抛出
+    /// (播放不应因历史记录失败而中断)。
+    func recordPlay(trackId: UUID) {
+        let ctx = ModelContext(modelContainer)
+        let desc = FetchDescriptor<Track>(
+            predicate: #Predicate { $0.id == trackId }
+        )
+        guard let track = try? ctx.fetch(desc).first else {
+            AppLog.for("LibraryService").warning("recordPlay: track \(trackId) 未找到")
+            return
+        }
+        track.lastPlayedAt = Date()
+        track.playCount += 1
+        do { try ctx.save() } catch {
+            AppLog.for("LibraryService").warning("recordPlay 保存失败:\(error.localizedDescription)")
+        }
+        playRevision += 1
+    }
+
+    /// 最近播放的曲目快照(本地 + YouTube),按 `lastPlayedAt` 倒序。供 Home "Recently Played" 用。
+    /// 复用 `TrackSnapshot`(可直接传给 `playback.playTrack`)。`limit` 截断条数。
+    func recentlyPlayedTracks(limit: Int = 20) -> [TrackSnapshot] {
+        let ctx = ModelContext(modelContainer)
+        let desc = FetchDescriptor<Track>(
+            predicate: #Predicate { $0.lastPlayedAt != nil },
+            sortBy: [SortDescriptor(\.lastPlayedAt, order: .reverse)]
+        )
+        guard let tracks = try? ctx.fetch(desc) else { return [] }
+        return tracks.prefix(limit).map { TrackSnapshot(from: $0) }
+    }
+
+    /// 播放量最高的艺术家名(按 `playCount` 汇总),供 "Top Picks for you" 查询种子用。
+    /// 无播放记录时返回 nil。
+    func topArtistName() -> String? {
+        let ctx = ModelContext(modelContainer)
+        let desc = FetchDescriptor<Track>(
+            predicate: #Predicate { $0.playCount > 0 }
+        )
+        guard let tracks = try? ctx.fetch(desc), !tracks.isEmpty else { return nil }
+        var counts: [String: Int] = [:]
+        for t in tracks {
+            let name = t.albumArtist ?? t.artist
+            counts[name, default: 0] += t.playCount
+        }
+        return counts.max(by: { $0.value < $1.value })?.key
     }
 }

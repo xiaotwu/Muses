@@ -15,14 +15,18 @@ final class PlaybackService {
     /// 频谱处理器缓存:跨引擎切换时需在新引擎上重新安装。
     private var spectrumHandler: ((SpectrumFrame) -> Void)?
     let queue: QueueService
+    /// 资料库服务:用于记录播放历史(`recordPlay`)。测试可不传(nil 时跳过记录)。
+    weak var library: LibraryService?
     private(set) var volume: Float = 0.8
     private var completionObserver: Task<Void, Never>?
     private var lastCompletedTrackId: UUID?
 
-    init(localEngine: any PlayerEngine, youtubeEngine: any PlayerEngine, queue: QueueService) {
+    init(localEngine: any PlayerEngine, youtubeEngine: any PlayerEngine,
+         queue: QueueService, library: LibraryService? = nil) {
         self.localEngine = localEngine
         self.youtubeEngine = youtubeEngine
         self.queue = queue
+        self.library = library
         // 本地是主播放模式,默认指向 localEngine。
         self.currentEngine = localEngine
         localEngine.setVolume(volume)
@@ -159,6 +163,8 @@ final class PlaybackService {
         do {
             try await targetEngine.load(track)
             targetEngine.play()
+            // 记录播放历史(本地 + YouTube):曲目已开始播放。
+            library?.recordPlay(trackId: track.id)
             // 预加载下一首(本地无缝播放的前置条件)
             prepareNext()
         } catch {

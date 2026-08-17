@@ -82,8 +82,7 @@ struct SidebarView: View {
                 .frame(width: 28, height: 28)
                 .cornerRadius(6)
             Text("Muses")
-                .font(.headline)
-                .fontWeight(.bold)
+                .font(BrandFont.muses(24))
                 .foregroundStyle(BrandColors.textPrimary)
             Spacer()
         }

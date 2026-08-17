@@ -3,13 +3,13 @@ import Foundation
 import SwiftData
 @testable import Muses
 
-/// 阶段 3 端到端冒烟:YouTube 导入 → 双引擎调度 → 歌词(LRCLIB)→ Spotlight deep link
-/// → Sparkle appcast 解析。把跨层的 Phase 3 能力串成一条路径,确保各任务实现彼此咬合。
+/// 阶段 3 端到端冒烟:YouTube 导入 → 双引擎调度 → 歌词(LRCLIB)→ Spotlight deep link。
+/// (Phase 14 起 Sparkle appcast 已移除,更新检查改由 `UpdateService` GitHub API 完成。)
 @MainActor
 @Suite("Phase3Smoke")
 struct Phase3SmokeTests {
 
-    @Test("Phase 3 端到端:导入 → 播放调度 → 歌词 → deep link → appcast")
+    @Test("Phase 3 端到端:导入 → 播放调度 → 歌词 → deep link")
     func endToEnd() async throws {
         let container = try makeModelContainer(inMemory: true)
 
@@ -102,10 +102,5 @@ struct Phase3SmokeTests {
         try await Task.sleep(for: .milliseconds(120))
         #expect(localMock.loadCallCount == 1)
         #expect(localMock.lastLoadedTrack?.title == "Local Smoke")
-
-        // ── 5. Sparkle appcast 模板可解析 ───────────────────────────────
-        let appcastURL = try #require(MusesResources.appcastURL)
-        let parser = XMLParser(data: try Data(contentsOf: appcastURL))
-        #expect(parser.parse(), "appcast.xml 解析失败")
     }
 }

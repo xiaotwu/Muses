@@ -25,7 +25,7 @@ struct AboutView: View {
                         }
                     }
                     VStack(alignment: .leading) {
-                        Text("Muses").font(.title2).fontWeight(.bold)
+                        Text("Muses").font(BrandFont.muses(30))
                             .foregroundStyle(BrandColors.textPrimary)
                         Text("\(tr("Version", "版本")) \(appVersion)")
                             .font(.caption)

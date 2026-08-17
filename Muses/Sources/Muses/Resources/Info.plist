@@ -26,17 +26,5 @@
 	<string>AppIcon</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
-	<!-- Sparkle 自动更新。SUFeedURL 占位;真实地址发布时由 sign-update.sh / 手工填入。 -->
-	<key>SUFeedURL</key>
-	<string>https://muses.example/appcast.xml</string>
-	<!-- SUPublicEDKey 由 sign-update.sh 在生成 EdDSA 密钥后注入。 -->
-	<key>SUPublicEDKey</key>
-	<string></string>
-	<key>SUEnableAutomaticUpdates</key>
-	<true/>
-	<key>SUAutomaticallyUpdate</key>
-	<false/>
-	<key>SUScheduledCheckInterval</key>
-	<integer>86400</integer>
 </dict>
 </plist>

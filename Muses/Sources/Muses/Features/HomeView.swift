@@ -20,6 +20,8 @@ struct HomeView: View {
     @State private var recentlyAdded: [Album] = []
     @State private var pinnedAlbumsCache: [Album] = []
     @State private var heroAlbum: Album? = nil
+    /// 最近播放的曲目快照(本地 + YouTube),供 "Recently Played" 区。
+    @State private var recentlyPlayed: [TrackSnapshot] = []
 
     /// Hero 专辑:优先选最近播放的,否则最近添加的,否则第一个。
     /// 现在读取缓存的 `heroAlbum`,由 `refreshLibrarySnapshot()` 维护。
@@ -31,6 +33,14 @@ struct HomeView: View {
                 if let hero = heroAlbum {
                     heroSection(hero)
                 }
+
+                // Recently Played(本地 + YouTube,来源播放历史)
+                if !recentlyPlayed.isEmpty {
+                    recentlyPlayedSection
+                }
+
+                // Top Picks for you(来源 YouTube Music)
+                topPicksSection
 
                 // 最近添加
                 if !recentlyAdded.isEmpty {
@@ -47,9 +57,6 @@ struct HomeView: View {
                         albums: pinnedAlbumsCache
                     )
                 }
-
-                // YouTube 热门搜索
-                youtubeTrendingSection
 
                 // 已导入的 YouTube 歌单
                 if !ytImports.isEmpty {
@@ -79,9 +86,10 @@ struct HomeView: View {
         .onChange(of: library.metadataRevision) { _, _ in refreshLibrarySnapshot() }
         .onChange(of: library.pinRevision) { _, _ in refreshLibrarySnapshot() }
         .onChange(of: library.likedRevision) { _, _ in refreshLibrarySnapshot() }
+        .onChange(of: library.playRevision) { _, _ in refreshRecentlyPlayed() }
     }
 
-    /// 一次性刷新资料库快照(专辑 / 最近添加 / 钉选 / Hero),
+    /// 一次性刷新资料库快照(专辑 / 最近添加 / 钉选 / Hero / 最近播放),
     /// 避免每次渲染都 fetch + O(albums×tracks) 排序。
     private func refreshLibrarySnapshot() {
         let allAlbums = library.allAlbums()
@@ -93,6 +101,12 @@ struct HomeView: View {
         }.prefix(20).map { $0 }
         pinnedAlbumsCache = library.pinnedAlbums()
         heroAlbum = library.mostRecentlyPlayedAlbum() ?? allAlbums.first
+        refreshRecentlyPlayed()
+    }
+
+    /// 刷新 "Recently Played"(本地 + YouTube 播放历史)。
+    private func refreshRecentlyPlayed() {
+        recentlyPlayed = library.recentlyPlayedTracks(limit: 20)
     }
 
     // MARK: - Hero
@@ -186,15 +200,42 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - YouTube 热门搜索
+    // MARK: - Recently Played(本地 + YouTube 播放历史)
 
     @ViewBuilder
-    private var youtubeTrendingSection: some View {
+    private var recentlyPlayedSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(tr("YouTube Trending", "YouTube 热门"))
+            Text(tr("Recently Played", "最近播放"))
                 .font(.title2).fontWeight(.bold)
                 .foregroundStyle(BrandColors.textPrimary)
                 .padding(.horizontal, 24)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 16) {
+                    ForEach(recentlyPlayed, id: \.id) { snap in
+                        RecentTrackCard(snap: snap) {
+                            playback.playTrack(snap, context: [snap], from: .recently)
+                        }
+                    }
+                }
+                .padding(.horizontal, 24)
+            }
+        }
+    }
+
+    // MARK: - Top Picks for you(来源 YouTube Music)
+
+    @ViewBuilder
+    private var topPicksSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(tr("Top Picks for you", "为你推荐"))
+                    .font(.title2).fontWeight(.bold)
+                    .foregroundStyle(BrandColors.textPrimary)
+                Text(tr("YouTube Music", "YouTube 音乐"))
+                    .font(.caption).foregroundStyle(BrandColors.textSecondary)
+            }
+            .padding(.horizontal, 24)
 
             if trendingLoading {
                 ProgressView()
@@ -283,12 +324,19 @@ struct HomeView: View {
         guard ytTrending.isEmpty && !trendingLoading else { return }
         trendingLoading = true
         trendingError = nil
+        // 查询种子:若用户有播放记录,用最常听的艺术家做个性化种子;否则用热门音乐。
+        let seed: String
+        if let artist = library.topArtistName() {
+            seed = "\(artist) top songs"
+        } else {
+            seed = "trending music 2026"
+        }
         Task {
             do {
-                let results = try await ytSearch.search(query: "热门音乐 trending music 2024", limit: 12)
+                let results = try await ytSearch.search(query: seed, limit: 12)
                 ytTrending = results
             } catch {
-                trendingError = tr("Failed to load YouTube trending", "加载 YouTube 热门失败")
+                trendingError = tr("Failed to load Top Picks", "加载为你推荐失败")
             }
             trendingLoading = false
         }
@@ -301,6 +349,55 @@ struct HomeView: View {
         } catch {
             // 静默
         }
+    }
+}
+
+/// 最近播放的曲目卡片:方形封面 + 标题 + 艺术家(本地用 artworkHash,YouTube 用缩略图)。
+struct RecentTrackCard: View {
+    let snap: TrackSnapshot
+    let onPlay: () -> Void
+
+    var body: some View {
+        Button(action: onPlay) {
+            VStack(alignment: .leading, spacing: 6) {
+                artwork
+                    .frame(width: 120, height: 120)
+                    .clipped().cornerRadius(8)
+                Text(snap.title).font(.caption).lineLimit(1)
+                    .foregroundStyle(BrandColors.textPrimary)
+                Text(snap.artist).font(.caption2).lineLimit(1)
+                    .foregroundStyle(BrandColors.textSecondary)
+            }
+            .frame(width: 120)
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var artwork: some View {
+        if let hash = snap.artworkHash,
+           let path = ArtworkCache.default.path(forHash: hash) {
+            Image(nsImage: NSImage(byReferencing: path)).resizable().scaledToFill()
+        } else if let vid = snap.youTubeId,
+                  let url = URL(string: "https://i.ytimg.com/vi/\(vid)/hqdefault.jpg") {
+            AsyncImage(url: url) { phase in
+                if let img = phase.image { img.resizable().scaledToFill() }
+                else { placeholder }
+            }
+        } else if let urlStr = snap.artworkUrl, let url = URL(string: urlStr) {
+            AsyncImage(url: url) { phase in
+                if let img = phase.image { img.resizable().scaledToFill() }
+                else { placeholder }
+            }
+        } else {
+            placeholder
+        }
+    }
+
+    private var placeholder: some View {
+        RoundedRectangle(cornerRadius: 8).fill(BrandColors.surface)
+            .overlay(Image(systemName: "music.note").font(.title)
+                .foregroundStyle(BrandColors.textSecondary.opacity(0.5)))
     }
 }
 

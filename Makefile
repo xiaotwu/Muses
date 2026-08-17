@@ -3,8 +3,8 @@
 # 用法:
 #   make test        跑全量测试(--no-parallel,SpectrumTap 需串行)
 #   make build       swift build(Debug)
-#   make app         ad-hoc 签名的 dev .app(立即跑,Sparkle no-op)
-#   make release     端到端:签名 + EdDSA appcast + 公证 + DMG
+#   make app         ad-hoc 签名的 dev .app(立即跑,更新检查走 GitHub API)
+#   make release     端到端:签名 + zip + 公证 + DMG
 #                    需导出 MUSES_SIGN_IDENTITY / MUSES_NOTARY_PROFILE 等
 #   make icon        生成 AppIcon.icns
 #   make dmg         仅打 DMG(假设 build/Muses.app 已存在)
@@ -34,7 +34,8 @@ build:
 app: $(SCRIPTS)/build-app.sh
 	./$(SCRIPTS)/build-app.sh --identity "$(MUSES_SIGN_IDENTITY)"
 
-# 端到端发布:build-app → sign-update → notarize → make-dmg
+# 端到端发布:build-app → sign-update(打 zip)→ notarize → make-dmg
+# zip 上传到 GitHub Release 后,UpdateService 自动发现新版本(releases/latest)。
 # 需在调用前 export:
 #   MUSES_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
 #   MUSES_NOTARY_PROFILE="muses"   (xcrun notarytool keychain profile)
