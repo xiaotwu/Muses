@@ -87,7 +87,8 @@ struct RootView: View {
         }
         .overlay {
             if showNowPlaying {
-                NowPlayingView(isPresented: $showNowPlaying)
+                NowPlayingView(isPresented: $showNowPlaying,
+                               onShowQueue: { showQueue = true })
                     .transition(.opacity)
             }
         }

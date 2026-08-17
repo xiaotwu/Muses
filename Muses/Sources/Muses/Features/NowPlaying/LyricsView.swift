@@ -24,23 +24,27 @@ struct LyricsView: View {
     }
 
     /// 歌词列表:TimelineView 按动画刷新,高亮当前行并滚动对齐。
+    /// Apple Music 风格:当前行加大加粗(magenta),邻行随距离渐隐,文本居中。
     private func lyricsList(_ lines: [LyricLine]) -> some View {
         TimelineView(.animation(minimumInterval: 0.1, paused: false)) { timeline in
             let position = playback.state.position
             let idx = Self.currentLineIndex(in: lines, at: position)
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 8) {
+                    LazyVStack(spacing: 10) {
                         ForEach(Array(lines.enumerated()), id: \.element.id) { i, line in
+                            let distance = abs((idx ?? 0) - i)
                             Text(line.text)
-                                .font(i == idx ? .title3 : .body)
+                                .font(i == idx ? .title2 : .body)
                                 .fontWeight(i == idx ? .bold : .regular)
                                 .foregroundStyle(i == idx ? BrandColors.magenta : BrandColors.textSecondary)
+                                .opacity(i == idx ? 1.0 : (idx == nil ? 1.0 : max(0.35, 1.0 - Double(distance) * 0.16)))
+                                .multilineTextAlignment(.center)
                                 .id(line.id)
                                 .animation(.easeInOut(duration: 0.2), value: idx)
                         }
                     }
-                    .padding(.vertical, 20)
+                    .padding(.vertical, 24)
                     .frame(maxWidth: .infinity)
                 }
                 .onChange(of: idx) { _, newIdx in
@@ -53,7 +57,7 @@ struct LyricsView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 16)
+        .padding(.vertical, 8)
     }
 
     /// 无歌词占位(沿用阶段 2 文案)。

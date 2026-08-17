@@ -1,8 +1,9 @@
 import SwiftUI
 import AppKit
 
-/// 全屏 Now Playing 视图: 渐变背景(从封面主色派生) + 模式切换 + 频谱/波形/进度/歌词占位 + 手势。
-/// 由 RootView 通过 .fullScreenCover 呈现。
+/// 全屏 Now Playing 视图(Apple Music 风格双栏):
+/// 左栏 = 封面 + 元信息 + 传输控件 + 进度条 + 频谱;右栏 = 歌词 + 即将播放。
+/// 由 RootView 通过 `.overlay` 呈现(`showNowPlaying`)。窄窗(<960pt)回退为单栏。
 struct NowPlayingView: View {
     @Binding var isPresented: Bool
     @Environment(PlaybackService.self) private var playback
@@ -11,27 +12,32 @@ struct NowPlayingView: View {
     @State private var gradient: [Color] = [BrandColors.background, BrandColors.surface]
     @State private var seeking = false
     @State private var seekValue: Double = 0
-    @State private var dragStartX: Double = 0
+    @State private var showLyrics = true
+
+    var onShowQueue: () -> Void = {}
 
     private var mode: NowPlayingMode { NowPlayingMode(rawValue: modeRaw) ?? .cover }
 
     var body: some View {
         ZStack {
-            // 渐变背景 + 深色罩
             LinearGradient(colors: gradient, startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
                 .overlay(BrandColors.scrim.ignoresSafeArea())
 
-            VStack(spacing: 0) {
-                topBar
-                Spacer(minLength: 12)
-                centerContent
-                Spacer(minLength: 16)
-                bottomPanel
+            GeometryReader { geo in
+                let twoColumn = geo.size.width >= 960
+                VStack(spacing: 0) {
+                    topBar
+                        .padding(.horizontal, 48).padding(.top, 12)
+                    if twoColumn {
+                        twoColumnLayout
+                            .padding(.horizontal, 48).padding(.bottom, 32).padding(.top, 12)
+                    } else {
+                        singleColumnLayout
+                            .padding(.horizontal, 24).padding(.bottom, 32).padding(.top, 12)
+                    }
+                }
             }
-            .padding(.horizontal, 48)
-            .padding(.top, 12)
-            .padding(.bottom, 32)
         }
         .focusable()
         .onKeyPress(.space) {
@@ -47,7 +53,7 @@ struct NowPlayingView: View {
     // MARK: - 顶部工具栏
 
     private var topBar: some View {
-        HStack {
+        HStack(spacing: 16) {
             Button { isPresented = false } label: {
                 Image(systemName: "chevron.down").font(.title3)
             }
@@ -64,102 +70,179 @@ struct NowPlayingView: View {
 
             Spacer()
 
-            // 音量控制
+            // 封面模式切换(cover / vinyl)
+            Button {
+                modeRaw = (mode == .cover ? NowPlayingMode.vinyl : NowPlayingMode.cover).rawValue
+            } label: {
+                Image(systemName: mode == .cover ? "square.stack.fill" : "opticaldisc")
+                    .font(.body)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(BrandColors.textSecondary)
+            .help(mode == .cover ? tr("Cover", "封面") : tr("Vinyl", "唱片"))
+
+            // 歌词栏显隐
+            Button { showLyrics.toggle() } label: {
+                Image(systemName: "quote.bubble").font(.body)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(showLyrics ? BrandColors.magenta : BrandColors.textSecondary)
+            .help(tr("Lyrics", "歌词"))
+
+            // 音量
             HStack(spacing: 6) {
                 Image(systemName: playback.volume > 0 ? "speaker.wave.2" : "speaker.slash")
                     .font(.caption).foregroundStyle(BrandColors.textSecondary)
                 Slider(value: Binding(
                     get: { Double(playback.volume) },
                     set: { playback.setVolume(Float($0)) }), in: 0...1)
-                    .frame(width: 80).tint(BrandColors.cyan)
+                    .frame(width: 80).tint(BrandColors.magenta)
             }
-
-            Button { playback.toggle() } label: {
-                Image(systemName: playback.state.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.title3)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(BrandColors.textPrimary)
         }
     }
 
-    // MARK: - 中间: 按模式切换
+    // MARK: - 双栏布局
+
+    private var twoColumnLayout: some View {
+        HStack(alignment: .center, spacing: 40) {
+            leftColumn
+                .frame(maxWidth: .infinity)
+            if showLyrics {
+                rightColumn
+                    .frame(width: 360)
+            }
+        }
+    }
+
+    // MARK: - 单栏布局(窄窗回退)
+
+    private var singleColumnLayout: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                leftColumn
+                if showLyrics { rightColumn }
+            }
+        }
+    }
+
+    // MARK: - 左栏:封面 + 元信息 + 传输 + 进度 + 频谱
+
+    private var leftColumn: some View {
+        VStack(spacing: 20) {
+            centerContent
+
+            metadataBlock
+
+            transportControls
+
+            scrubber
+
+            SpectrumView()
+                .frame(height: 48)
+        }
+        .frame(maxWidth: 520)
+    }
 
     @ViewBuilder
     private var centerContent: some View {
+        let source = ArtworkSource.resolve(for: playback.state.track)
         switch mode {
         case .cover:
-            CoverArtModeView(artworkHash: playback.state.track?.artworkHash)
+            CoverArtModeView(source: source)
         case .vinyl:
-            VinylModeView(artworkHash: playback.state.track?.artworkHash)
+            VinylModeView(source: source)
         }
     }
 
-    // MARK: - 底部: 频谱 + 元信息 + 进度 + 波形 + 歌词
-
-    private var bottomPanel: some View {
-        VStack(spacing: 16) {
-            SpectrumView()
-
-            // 标题 / Artist·Album / 音质徽标
-            VStack(spacing: 4) {
-                Text(playback.state.track?.title ?? "—")
-                    .font(.title2).fontWeight(.semibold)
-                    .foregroundStyle(BrandColors.textPrimary)
+    private var metadataBlock: some View {
+        VStack(spacing: 4) {
+            Text(playback.state.track?.title ?? "—")
+                .font(.title2).fontWeight(.semibold)
+                .foregroundStyle(BrandColors.textPrimary)
+                .lineLimit(1)
+            if let artist = playback.state.track?.artist {
+                Text(artist)
+                    .font(.subheadline)
+                    .foregroundStyle(BrandColors.textSecondary)
                     .lineLimit(1)
-                if let artist = playback.state.track?.artist {
-                    Text(artist)
-                        .font(.subheadline)
-                        .foregroundStyle(BrandColors.textSecondary)
-                        .lineLimit(1)
-                }
-                if let album = playback.state.track?.albumTitle {
-                    Text(album)
-                        .font(.caption)
-                        .foregroundStyle(BrandColors.textSecondary.opacity(0.7))
-                        .lineLimit(1)
-                }
-                qualityBadge
             }
-
-            // 进度条(复用 seek Slider 逻辑)
-            HStack(spacing: 8) {
-                Text(format(playback.state.position))
-                    .font(.caption2).monospacedDigit()
-                    .foregroundStyle(BrandColors.textSecondary)
-                Slider(value: Binding(
-                    get: { seeking ? seekValue : playback.state.position },
-                    set: { v in seeking = true; seekValue = v }),
-                    in: 0...max(playback.state.duration, 1),
-                    onEditingChanged: { end in
-                        if end { playback.seek(to: seekValue); seeking = false }
-                    }
-                )
-                .tint(BrandColors.magenta)
-                Text(format(playback.state.duration))
-                    .font(.caption2).monospacedDigit()
-                    .foregroundStyle(BrandColors.textSecondary)
+            if let album = playback.state.track?.albumTitle {
+                Text(album)
+                    .font(.caption)
+                    .foregroundStyle(BrandColors.textSecondary.opacity(0.7))
+                    .lineLimit(1)
             }
-
-            WaveformView()
-
-            LyricsView()
+            qualityBadge
         }
-        // 水平拖拽 seek 手势(基于起始位置 + 偏移量)
-        .gesture(
-            DragGesture(minimumDistance: 20)
-                .onChanged { v in
-                    if !seeking {
-                        seeking = true
-                        dragStartX = playback.state.position
-                    }
-                    let delta = Double(v.translation.width) / 200.0   // 200pt = 1 秒
-                    seekValue = max(0, min(playback.state.duration, dragStartX + delta))
+        .frame(maxWidth: 480)
+    }
+
+    /// Apple Music 顺序:shuffle / prev / play / next / repeat。
+    private var transportControls: some View {
+        HStack(spacing: 28) {
+            Button { playback.queue.toggleShuffle() } label: {
+                Image(systemName: "shuffle").font(.title3)
+            }
+            .foregroundStyle(playback.queue.shuffle ? BrandColors.magenta : BrandColors.textSecondary)
+            .help(playback.queue.shuffle ? tr("Shuffle: On", "随机:开") : tr("Shuffle: Off", "随机:关"))
+
+            Button { playback.previous() } label: {
+                Image(systemName: "backward.fill").font(.title)
+            }
+            .foregroundStyle(BrandColors.textPrimary)
+
+            Button { playback.toggle() } label: {
+                Image(systemName: playback.state.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 30))
+            }
+            .foregroundStyle(BrandColors.magenta)
+
+            Button { playback.next() } label: {
+                Image(systemName: "forward.fill").font(.title)
+            }
+            .foregroundStyle(BrandColors.textPrimary)
+
+            Button { cycleRepeat() } label: {
+                Image(systemName: playback.queue.repeatMode == .one ? "repeat.1" : "repeat")
+                    .font(.title3)
+            }
+            .foregroundStyle(playback.queue.repeatMode == .off
+                             ? BrandColors.textSecondary : BrandColors.magenta)
+            .help(repeatHelp)
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: 480)
+    }
+
+    private var scrubber: some View {
+        HStack(spacing: 8) {
+            Text(format(playback.state.position))
+                .font(.caption2).monospacedDigit()
+                .foregroundStyle(BrandColors.textSecondary)
+            Slider(value: Binding(
+                get: { seeking ? seekValue : playback.state.position },
+                set: { v in seeking = true; seekValue = v }),
+                in: 0...max(playback.state.duration, 1),
+                onEditingChanged: { end in
+                    if end { playback.seek(to: seekValue); seeking = false }
                 }
-                .onEnded { _ in
-                    if seeking { playback.seek(to: seekValue); seeking = false }
-                }
-        )
+            )
+            .tint(BrandColors.magenta)
+            Text(format(playback.state.duration))
+                .font(.caption2).monospacedDigit()
+                .foregroundStyle(BrandColors.textSecondary)
+        }
+        .frame(maxWidth: 480)
+    }
+
+    // MARK: - 右栏:歌词 + 即将播放
+
+    private var rightColumn: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            LyricsView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            UpNextPreview(onShowQueue: onShowQueue)
+        }
     }
 
     // MARK: - 音质徽标
@@ -187,15 +270,54 @@ struct NowPlayingView: View {
             .cornerRadius(4)
     }
 
-    // MARK: - 渐变提取
+    // MARK: - 传输辅助
+
+    private func cycleRepeat() {
+        let next: RepeatMode
+        switch playback.queue.repeatMode {
+        case .off:  next = .all
+        case .all:  next = .one
+        case .one:  next = .off
+        }
+        playback.queue.setRepeat(next)
+    }
+
+    private var repeatHelp: String {
+        switch playback.queue.repeatMode {
+        case .off: tr("Repeat: Off", "循环:关")
+        case .all: tr("Repeat: All", "循环:全部")
+        case .one: tr("Repeat: One", "循环:单曲")
+        }
+    }
+
+    // MARK: - 渐变提取(本地 + YouTube 缩略图)
 
     private func extractGradient() {
-        guard let h = playback.state.track?.artworkHash,
-              let p = ArtworkCache.default.path(forHash: h),
-              let img = NSImage(contentsOf: p) else {
+        let source = ArtworkSource.resolve(for: playback.state.track)
+        switch source {
+        case .cached(let img):
+            applyGradient(from: img)
+        case .remote(let url):
+            // 缩略图在后台解码 + 提色,避免阻塞主线程。
+            Task.detached(priority: .utility) {
+                guard let data = try? Data(contentsOf: url),
+                      let img = NSImage(data: data) else {
+                    await MainActor.run {
+                        gradient = [BrandColors.background, BrandColors.surface]
+                    }
+                    return
+                }
+                let colors = AlbumArtworkExtractor.dominantColors(img, count: 3)
+                await MainActor.run {
+                    gradient = colors.map { Color(nsColor: $0) } + [BrandColors.background]
+                }
+            }
+        case .placeholder:
             gradient = [BrandColors.background, BrandColors.surface]
-            return
         }
+    }
+
+    private func applyGradient(from img: NSImage) {
         let colors = AlbumArtworkExtractor.dominantColors(img, count: 3)
         gradient = colors.map { Color(nsColor: $0) } + [BrandColors.background]
     }

@@ -4,7 +4,7 @@ import AppKit
 /// 唱片旋转模式: 圆形封面 + 中心唱片孔, 播放时以 33⅓ rpm 旋转, 暂停时停。
 /// Reduce Motion 下静止不转。
 struct VinylModeView: View {
-    let artworkHash: String?
+    let source: ArtworkSource
     @Environment(PlaybackService.self) private var playback
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var angle: Double = 0
@@ -70,14 +70,7 @@ struct VinylModeView: View {
 
     @ViewBuilder
     private var artwork: some View {
-        if let h = artworkHash, let p = ArtworkCache.default.path(forHash: h) {
-            Image(nsImage: NSImage(byReferencing: p))
-                .resizable()
-                .scaledToFill()
-        } else {
-            Rectangle().fill(BrandColors.surface)
-                .overlay(Image(systemName: "music.note").font(.system(size: 60)))
-        }
+        ArtworkView(source: source, cornerRadius: 0, glyphSize: 60)
     }
 
     /// 基于 TimelineView 的 date 累积旋转角度; 暂停或 Reduce Motion 时不增。
