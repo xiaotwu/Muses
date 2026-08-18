@@ -11,7 +11,7 @@ import Foundation
 @MainActor
 final class YTDlpBridge {
 
-    enum YTDlpError: LocalizedError, Equatable {
+    enum YTDlpError: LocalizedError, Equatable, Sendable {
         /// yt-dlp 二进制在磁盘上未找到。
         case notFound
         /// 子进程非零退出;关联退出码与(裁剪过的)stderr。
@@ -90,6 +90,9 @@ final class YTDlpBridge {
     /// 注入 nil 可禁用缓存(测试用);默认 `.default`。
     private let searchCache: YTDlpSearchCache?
 
+    /// 后台子进程执行器(脱离主线程 + 并发限流)。注入便于测试。
+    private let runner: YTDlpRunner
+
     /// 质量名 -> yt-dlp `-f` 格式选择器。
     private static let qualityMap: [String: String] = [
         "bestaudio": "bestaudio[ext*=m4a]/bestaudio/best",
@@ -98,9 +101,12 @@ final class YTDlpBridge {
         "64k": "ba[abr<=64]"
     ]
 
-    init(binaryPath: String? = nil, searchCache: YTDlpSearchCache? = .default) {
+    init(binaryPath: String? = nil,
+         searchCache: YTDlpSearchCache? = .default,
+         runner: YTDlpRunner = YTDlpRunner()) {
         self.binaryPath = binaryPath
         self.searchCache = searchCache
+        self.runner = runner
     }
 
     // MARK: - Cookie / 登录
@@ -369,70 +375,29 @@ final class YTDlpBridge {
 
     /// 真正执行子进程的内部实现。`executablePath` 直接使用,不再经过 `resolveBinary`
     /// (避免 `resolveBinary` 中的 `which` 子进程再次进入本函数造成递归)。
+    ///
+    /// 子进程的全部阻塞操作由 `YTDlpRunner` 在后台 `Task.detached` 中完成,主线程
+    /// 仅在 `await` 处挂起并释放,不再 20ms 轮询 `process.isRunning`。并发数量由
+    /// runner 内的信号量限流(默认 2)。
     private func runInternal(executablePath: String,
                              args: [String],
                              timeout: TimeInterval) async throws
         -> (stdout: String, stderr: String) {
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = args
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        let outHandle = stdoutPipe.fileHandleForReading
-        let errHandle = stderrPipe.fileHandleForReading
-
-        // 并发读取两个管道,避免大输出阻塞子进程。
-        let outTask = Task.detached(priority: .utility) { () -> Data in
-            outHandle.readDataToEndOfFile()
-        }
-        let errTask = Task.detached(priority: .utility) { () -> Data in
-            errHandle.readDataToEndOfFile()
-        }
-
         do {
-            try process.run()
+            return try await runner.run(
+                executablePath: executablePath, args: args, timeout: timeout)
+        } catch let e as YTDlpError {
+            switch e {
+            case .timeout: log.error("yt-dlp 超时(\(timeout)s),已终止")
+            case .exitCode(let code, let stderr): log.error("yt-dlp 退出码 \(code):\(stderr)")
+            case .notFound: log.error("yt-dlp 启动失败:\(executablePath)")
+            case .parseFailed: break
+            }
+            throw e
         } catch {
-            _ = await outTask.value
-            _ = await errTask.value
-            log.error("启动子进程失败:\(executablePath) \(error)")
-            throw YTDlpError.notFound
+            log.error("yt-dlp 运行未知错误:\(error)")
+            throw error
         }
-
-        // 赛跑:进程结束 vs 超时。短轮询(20ms)检查 process.isRunning,
-        // 直到进程自然退出或超过 deadline。
-        let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning && Date() < deadline {
-            try? await Task.sleep(nanoseconds: 20_000_000) // 20ms
-        }
-
-        if process.isRunning {
-            // 超时:终止子进程,清理读取任务。
-            process.terminate()
-            // process.terminate() 是异步的,等一小会儿让管道读到 EOF。
-            try? await Task.sleep(nanoseconds: 50_000_000)
-            _ = await outTask.value
-            _ = await errTask.value
-            log.error("yt-dlp 超时(\(timeout)s),已终止")
-            throw YTDlpError.timeout
-        }
-
-        let status = process.terminationStatus
-        let outData = await outTask.value
-        let errData = await errTask.value
-        let stdout = String(data: outData, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let stderr = String(data: errData, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if status != 0 {
-            log.error("yt-dlp 退出码 \(status):\(stderr)")
-            throw YTDlpError.exitCode(Int(status), stderr)
-        }
-        return (stdout, stderr)
     }
 }
 

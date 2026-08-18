@@ -71,10 +71,17 @@ final class HomeDiscoveryService {
     }
 
     /// 强制重新刷新(下拉刷新 / 设置变更后)。
+    /// 走异步输入构建(P1b:把全表 reduce 移出主线程);`load()` 仍用同步 `buildInput()`
+    /// 保留缓存命中的同步上屏契约。
     func reload() {
         guard isEnabled else { return }
-        let input = buildInput()
-        refresh(input: input)
+        refreshTask?.cancel()
+        isRefreshing = true
+        refreshTask = Task { [weak self] in
+            guard let self else { return }
+            let input = await self.buildInputAsync()
+            self.refresh(input: input)
+        }
     }
 
     // MARK: - Internals
@@ -175,6 +182,29 @@ final class HomeDiscoveryService {
 
     private func likedArtistNames(limit: Int) -> [String] {
         library.likedTracks().map(\.artist).deduplicated(limit: limit)
+    }
+
+    /// 异步版输入构建:在后台 `Task.detached` 聚合发现信号(单次 fetch 派生),
+    /// 把全表 reduce 移出主线程。供 `reload()` 使用;`load()` 用同步 `buildInput()`
+    /// 保留缓存命中的同步上屏契约。
+    private func buildInputAsync() async -> HomeDiscoveryInput {
+        let now = Date()
+        let hour = Calendar.current.component(.hour, from: now)
+        let band: ListeningContext.TimeBand = {
+            switch hour {
+            case 5..<12:  return .morning
+            case 12..<18: return .afternoon
+            case 18..<22: return .evening
+            default:       return .lateNight
+            }
+        }()
+        let signals = await library.discoverySignalsAsync(limit: 5)
+        return HomeDiscoveryInput(
+            topArtistNames: signals.topArtistNames,
+            recentlyPlayedArtistNames: signals.recentlyPlayedArtistNames,
+            likedArtistNames: signals.likedArtistNames,
+            timeBand: band,
+            hour: hour)
     }
 }
 
