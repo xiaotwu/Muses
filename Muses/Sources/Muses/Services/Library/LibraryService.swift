@@ -652,4 +652,65 @@ final class LibraryService {
         }
         return counts.max(by: { $0.value < $1.value })?.key
     }
+
+    // MARK: - 后台标量聚合(P1b:把全表 reduce 移出主线程)
+
+    /// Home 发现输入的标量信号(Sendable,可安全从后台 actor 返回,避免 `@Model` 跨 context)。
+    struct DiscoverySignals: Sendable {
+        let topArtistNames: [String]
+        let recentlyPlayedArtistNames: [String]
+        let likedArtistNames: [String]
+    }
+
+    /// 在后台 `Task.detached` 中一次性聚合发现信号(单次 fetch 派生三组艺人名),
+    /// 把 `allTracks()` 的 reduce 从主线程移出。仅返回标量 `[String]`,无 `@Model` 跨 actor。
+    ///
+    /// 用于 `HomeDiscoveryService.reload()`(强制刷新路径);`load()` 仍走同步缓存优先,
+    /// 以保留缓存命中的同步上屏契约(见 `PhaseD3HomeDiscoveryTests.serviceCacheFirstFresh`)。
+    func discoverySignalsAsync(limit: Int = 5) async -> DiscoverySignals {
+        await Task.detached(priority: .utility) { [modelContainer] in
+            let ctx = ModelContext(modelContainer)
+            let tracks = (try? ctx.fetch(FetchDescriptor<Track>())) ?? []
+
+            // top:按 playCount 汇总 artist,降序取前 limit。
+            var topCounts: [String: Int] = [:]
+            for t in tracks where t.playCount > 0 {
+                topCounts[t.artist, default: 0] += t.playCount
+            }
+            let top = topCounts.sorted { $0.value > $1.value }
+                .prefix(limit).map(\.key)
+
+            // recent:有 lastPlayedAt 的曲目按时间倒序,去重保序取前 limit。
+            let recent = tracks
+                .compactMap { t -> (String, Date)? in
+                    guard let last = t.lastPlayedAt else { return nil }
+                    return (t.artist, last)
+                }
+                .sorted { $0.1 > $1.1 }
+                .reduce(into: [String]()) { acc, pair in
+                    let key = pair.0.lowercased()
+                    if !acc.contains(where: { $0.lowercased() == key }) {
+                        acc.append(pair.0)
+                    }
+                }
+                .prefix(limit).map { $0 }
+
+            // liked:liked 曲目按 addedAt 倒序,去重保序取前 limit(与 `likedTracks()` 排序一致)。
+            let liked = tracks
+                .filter { $0.liked }
+                .sorted { $0.addedAt > $1.addedAt }
+                .reduce(into: [String]()) { acc, t in
+                    let key = t.artist.lowercased()
+                    if !acc.contains(where: { $0.lowercased() == key }) {
+                        acc.append(t.artist)
+                    }
+                }
+                .prefix(limit).map { $0 }
+
+            return DiscoverySignals(
+                topArtistNames: top,
+                recentlyPlayedArtistNames: recent,
+                likedArtistNames: liked)
+        }.value
+    }
 }
