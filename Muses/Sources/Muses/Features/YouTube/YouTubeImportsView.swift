@@ -278,6 +278,7 @@ struct YouTubeImportCard: View {
 struct YouTubeImportItemRow: View {
     let item: YouTubeImportItem
     @Environment(PlaybackService.self) private var playback
+    @Environment(InboxService.self) private var inbox
 
     var body: some View {
         HStack(spacing: 10) {
@@ -304,6 +305,13 @@ struct YouTubeImportItemRow: View {
                 }
             } label: { Image(systemName: "text.badge.plus") }
             .buttonStyle(.plain).foregroundStyle(BrandColors.textSecondary)
+            Button {
+                if let t = item.track {
+                    inbox.add(TrackSnapshot(from: t), source: .youTubeImport)
+                }
+            } label: { Image(systemName: "tray.and.arrow.down") }
+            .buttonStyle(.plain).foregroundStyle(BrandColors.textSecondary)
+            .help(tr("Save to Inbox", "保存到收件箱"))
         }
         .padding(.horizontal, 12).padding(.vertical, 6)
     }

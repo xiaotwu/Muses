@@ -163,6 +163,7 @@ struct SongRow: View {
     var onPlayNext: () -> Void = {}
     @Environment(LibraryService.self) private var library
     @Environment(PlaylistService.self) private var playlistService
+    @Environment(InboxService.self) private var inbox
     @State private var showEditTrack = false
 
     var body: some View {
@@ -198,6 +199,7 @@ struct SongRow: View {
             Button(tr("Play", "播放")) { onPlay() }
             Button(tr("Play Next", "下一首播放")) { onPlayNext() }
             Button(tr("Add to Queue", "加入队列")) { onAddToQueue() }
+            Button(tr("Add to Inbox", "加入收件箱")) { inbox.add(TrackSnapshot(from: track)) }
             Divider()
             Button(liked ? tr("Unlike", "取消收藏") : tr("Like", "收藏")) { library.toggleLike(track) }
             if !playlists.isEmpty {

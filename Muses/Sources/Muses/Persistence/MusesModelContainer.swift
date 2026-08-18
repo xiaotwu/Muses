@@ -7,7 +7,8 @@ enum MusesSchema {
                 YouTubeImport.self, YouTubeImportItem.self,
                 Playlist.self, PlaylistItem.self,
                 ListeningEvent.self,
-                ListeningSession.self])
+                ListeningSession.self,
+                InboxItem.self])
     }
 }
 

@@ -47,6 +47,8 @@ struct SidebarView: View {
                         .tag(SidebarSection.youtubeImports)
                     Label(tr("History", "历史记录"), systemImage: "clock.arrow.circlepath")
                         .tag(SidebarSection.history)
+                    Label(tr("Inbox", "收件箱"), systemImage: "tray")
+                        .tag(SidebarSection.inbox)
                 }
 
                 // Playlists(内联)

@@ -7,6 +7,7 @@ struct PlayerBar: View {
     @Environment(PlaybackService.self) private var playback
     @Environment(LibraryService.self) private var library
     @Environment(PlaylistService.self) private var playlistService
+    @Environment(InboxService.self) private var inbox
     @State private var seeking = false
     @State private var seekValue: Double = 0
     var onArtworkTap: () -> Void = {}
@@ -88,6 +89,12 @@ struct PlayerBar: View {
                 }
             } label: {
                 Label(tr("Add to Playlist…", "添加到歌单…"), systemImage: "text.badge.plus")
+            }
+
+            Button {
+                if let snap = playback.state.track { inbox.add(snap) }
+            } label: {
+                Label(tr("Add to Inbox", "加入收件箱"), systemImage: "tray.and.arrow.down")
             }
 
             Divider()

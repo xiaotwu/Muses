@@ -19,6 +19,7 @@ struct MusesApp: App {
     let runtimeCapabilities: RuntimeCapabilities
     let historyService: HistoryService
     let sessionService: SessionService
+    let inboxService: InboxService
     private let nowPlayingManager: NowPlayingManager
     private let spotlightIndexer: SpotlightIndexer
 
@@ -66,6 +67,11 @@ struct MusesApp: App {
                                              eventBus: playbackService.eventBus,
                                              playback: playbackService,
                                              queue: queue)
+        // 收件箱(Phase 20):订阅事件总线(.trackStarted→listening),维护 InboxItem 行;
+        // 启动时把到期 snooze 还原为 unheard。功能开关 ffInbox 默认关 → add 为 no-op。
+        self.inboxService = InboxService(modelContainer: container,
+                                         eventBus: playbackService.eventBus)
+        inboxService.restoreDueSnoozes()
         let indexer = SpotlightIndexer(modelContainer: container)
         self.spotlightIndexer = indexer
         // 启动后异步索引到 Spotlight
@@ -125,6 +131,7 @@ struct MusesApp: App {
                     .environment(runtimeCapabilities)
                     .environment(historyService)
                     .environment(sessionService)
+                    .environment(inboxService)
                     .modelContainer(modelContainer)
                     .onOpenURL { url in
                         // deep link: muses://play?trackId=<id> — Spotlight / 外部唤起播放
