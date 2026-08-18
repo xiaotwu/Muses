@@ -113,6 +113,8 @@ enum PrefKey {
     static let ffTray                = "muses.ff.tray"
     static let ffDesktopLyrics      = "muses.ff.desktopLyrics"
     static let ffGlobalHotkeys      = "muses.ff.globalHotkeys"
+    /// 全局热键绑定(JSON 编码的 [action: HotkeyShortcut])。
+    static let globalHotkeys        = "muses.globalHotkeys.bindings"
     /// 上下文监听:记录前台应用 bundle id(隐私敏感,默认关闭)。
     static let contextTrackActiveApp = "muses.context.trackActiveApp"
 }

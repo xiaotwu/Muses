@@ -181,6 +181,11 @@ extension Notification.Name {
     static let musesFocusSearch = Notification.Name("muses.focusSearch")
     static let musesNavigateYouTubeImport = Notification.Name("muses.navigateYouTubeImport")
     static let musesCloseYouTubeAlbum = Notification.Name("muses.closeYouTubeAlbum")
+    // Phase 24 — 桌面集成通知。
+    static let musesOpenMiniPlayer = Notification.Name("muses.openMiniPlayer")
+    static let musesToggleDesktopLyrics = Notification.Name("muses.toggleDesktopLyrics")
+    static let musesDesktopFlagsChanged = Notification.Name("muses.desktopFlagsChanged")
+    static let musesToggleFocusMode = Notification.Name("muses.toggleFocusMode")
 }
 
 enum BrandColors {
