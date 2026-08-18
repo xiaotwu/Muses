@@ -19,6 +19,8 @@ final class Track {
     var artworkUrl: String?
     var localArtworkHash: String?
     var lyrics: String?
+    /// 手动逐曲歌词偏移(毫秒;Phase 22 §10.8)。正值→歌词显示更晚。nil=无手动偏移。
+    var lyricsOffsetMs: Int?
     var replayGain: Double?
     var sampleRate: Int?
     var bitDepth: Int?

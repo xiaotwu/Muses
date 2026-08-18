@@ -9,6 +9,8 @@ struct NowPlayingView: View {
     @Environment(PlaybackService.self) private var playback
 
     @AppStorage(PrefKey.nowPlayingMode) private var modeRaw: String = NowPlayingMode.cover.rawValue
+    /// Phase 22 §10.8:歌词呈现模式 inline/lyricsOnly/minimal。
+    @AppStorage(PrefKey.nowPlayingLyricsMode) private var lyricsModeRaw: String = NowPlayingLyricsMode.inline.rawValue
     @State private var gradient: [Color] = [BrandColors.background, BrandColors.surface]
     @State private var seeking = false
     @State private var seekValue: Double = 0
@@ -17,6 +19,9 @@ struct NowPlayingView: View {
     var onShowQueue: () -> Void = {}
 
     private var mode: NowPlayingMode { NowPlayingMode(rawValue: modeRaw) ?? .cover }
+    private var lyricsMode: NowPlayingLyricsMode { NowPlayingLyricsMode(rawValue: lyricsModeRaw) ?? .inline }
+    /// 歌词全屏呈现(lyricsOnly/minimal)时,左栏封面/控件让位。
+    private var lyricsFullscreen: Bool { showLyrics && lyricsMode != .inline }
 
     var body: some View {
         ZStack {
@@ -89,6 +94,22 @@ struct NowPlayingView: View {
             .foregroundStyle(showLyrics ? BrandColors.magenta : BrandColors.textSecondary)
             .help(tr("Lyrics", "歌词"))
 
+            // 歌词呈现模式(Phase 22):inline → lyricsOnly → minimal → inline
+            Button {
+                lyricsModeRaw = lyricsMode.next.rawValue
+            } label: {
+                Image(systemName: lyricsMode.iconName).font(.body)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(lyricsFullscreen ? BrandColors.magenta : BrandColors.textSecondary)
+            .disabled(!showLyrics)
+            .help(tr("Lyrics mode", "歌词模式"))
+
+            // 偏移微调(Phase 22 §10.8):仅全屏歌词模式显示。
+            if lyricsFullscreen {
+                LyricsOffsetStepper()
+            }
+
             // 音量
             HStack(spacing: 6) {
                 Image(systemName: playback.volume > 0 ? "speaker.wave.2" : "speaker.slash")
@@ -104,12 +125,20 @@ struct NowPlayingView: View {
     // MARK: - 双栏布局
 
     private var twoColumnLayout: some View {
-        HStack(alignment: .center, spacing: 40) {
-            leftColumn
-                .frame(maxWidth: .infinity)
-            if showLyrics {
-                rightColumn
-                    .frame(width: 360)
+        Group {
+            if lyricsFullscreen {
+                // 全屏歌词模式:歌词占主区,左栏封面/控件隐藏(传输控件仍可达 via 顶部/键盘)。
+                LyricsFullscreenView(mode: lyricsMode)
+                    .frame(maxWidth: .infinity)
+            } else {
+                HStack(alignment: .center, spacing: 40) {
+                    leftColumn
+                        .frame(maxWidth: .infinity)
+                    if showLyrics {
+                        rightColumn
+                            .frame(width: 360)
+                    }
+                }
             }
         }
     }
