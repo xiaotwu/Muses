@@ -25,6 +25,8 @@ struct MusesApp: App {
     let notesService: NotesService
     let focusService: FocusService
     let audioDeviceService: AudioDeviceService
+    // Phase D3 — Home 动态发现:provider 抽象 + cache-first + per-section failure。
+    let homeDiscoveryService: HomeDiscoveryService
     // Phase 24 — 原生桌面集成:全局热键 / 菜单栏托盘 / 桌面歌词 / 迷你播放器。
     let globalHotkeyService: GlobalHotkeyService
     let trayController: TrayController
@@ -115,6 +117,19 @@ struct MusesApp: App {
         self.spotlightIndexer = indexer
         // 启动后异步索引到 Spotlight
         Task { @MainActor in indexer.indexAll() }
+
+        // Phase D3 — Home 动态发现服务:默认 provider 基于 yt-dlp 主题化 ytsearch,
+        // 经 searchService.search 闭包注入(闭包内调用 @MainActor YTDlpBridge)。
+        // ffDiscovery 默认关 → load() no-op,HomeView 回退现有行为。
+        // 注:struct init 中 escaping 闭包不可捕获未完全初始化的 self,故用本地绑定。
+        let ytSearchSvc = searchService
+        let discoveryProvider = YTDlpDiscoveryProvider { query, limit in
+            try await ytSearchSvc.search(query: query, limit: limit)
+        }
+        self.homeDiscoveryService = HomeDiscoveryService(
+            provider: discoveryProvider,
+            library: library,
+            historyService: historyService)
 
         // GitHub Release 更新检查(替换原 Sparkle 自动更新)。
         // 偏好 `checkForUpdates` 控制是否自动检查;24h 内不重复检查。
@@ -275,6 +290,7 @@ struct MusesApp: App {
                     .environment(notesService)
                     .environment(focusService)
                     .environment(audioDeviceService)
+                    .environment(homeDiscoveryService)
                     .modelContainer(modelContainer)
                     .background(MiniPlayerOpener())
                     .onOpenURL { url in
