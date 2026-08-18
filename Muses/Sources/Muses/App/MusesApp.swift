@@ -27,6 +27,8 @@ struct MusesApp: App {
     let audioDeviceService: AudioDeviceService
     // Phase D3 — Home 动态发现:provider 抽象 + cache-first + per-section failure。
     let homeDiscoveryService: HomeDiscoveryService
+    // Phase D5 — New 情境化推荐:History/Context/Sessions/Focus/Inbox/Library 确定性打分。
+    let situationalRecommendationService: SituationalRecommendationService
     // Phase 24 — 原生桌面集成:全局热键 / 菜单栏托盘 / 桌面歌词 / 迷你播放器。
     let globalHotkeyService: GlobalHotkeyService
     let trayController: TrayController
@@ -130,6 +132,15 @@ struct MusesApp: App {
             provider: discoveryProvider,
             library: library,
             historyService: historyService)
+        // Phase D5 — New 情境化推荐(只读 History/Context/Focus/Inbox/Library + 已导入 YouTube)。
+        // ffSituationalNew 默认关 → compute() 返回空,NewView 回退 RecommendationService。
+        self.situationalRecommendationService = SituationalRecommendationService(
+            library: library,
+            historyService: historyService,
+            contextService: contextService,
+            focusService: focusService,
+            inboxService: inboxService,
+            modelContainer: container)
 
         // GitHub Release 更新检查(替换原 Sparkle 自动更新)。
         // 偏好 `checkForUpdates` 控制是否自动检查;24h 内不重复检查。
@@ -291,6 +302,7 @@ struct MusesApp: App {
                     .environment(focusService)
                     .environment(audioDeviceService)
                     .environment(homeDiscoveryService)
+                    .environment(situationalRecommendationService)
                     .modelContainer(modelContainer)
                     .background(MiniPlayerOpener())
                     .onOpenURL { url in
