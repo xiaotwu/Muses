@@ -113,6 +113,8 @@ enum PrefKey {
     static let ffTray                = "muses.ff.tray"
     static let ffDesktopLyrics      = "muses.ff.desktopLyrics"
     static let ffGlobalHotkeys      = "muses.ff.globalHotkeys"
+    /// 本地音乐硬化(Phase 27,可选):移动/重命名后用前 64KB 内容指纹重新关联 Track 行。
+    static let ffLocalHardening     = "muses.ff.localHardening"
     /// 全局热键绑定(JSON 编码的 [action: HotkeyShortcut])。
     static let globalHotkeys        = "muses.globalHotkeys.bindings"
     /// 音频输出:优先设备名(Phase 26 Audio Nerd Mode)。

@@ -37,6 +37,9 @@ final class Track {
     var playCount: Int
     var liked: Bool
     var fileModificationDate: Date?
+    /// 前 64KB 内容指纹(SHA-256),用于移动/重命名后重新关联既有 Track 行(Phase 27,可选)。
+    /// 仅在 `ffLocalHardening` 开启时计算;nil = 未启用或读取失败。绝不用于内容校验完整性。
+    var partialContentHash: String?
 
     var album: Album?
 
@@ -56,7 +59,8 @@ final class Track {
          sampleRate: Int? = nil, bitDepth: Int? = nil, codec: String? = nil, isLossless: Bool = false,
          metadataStatus: MetadataStatus = .embedded, availability: TrackAvailability = .available,
          addedAt: Date = .init(), lastPlayedAt: Date? = nil, playCount: Int = 0, liked: Bool = false,
-         fileModificationDate: Date? = nil, bitRate: Int? = nil, channels: Int? = nil) {
+         fileModificationDate: Date? = nil, bitRate: Int? = nil, channels: Int? = nil,
+         partialContentHash: String? = nil) {
         self.id = id; self.sourceRaw = source.rawValue
         self.title = title; self.artist = artist
         self.albumTitle = albumTitle; self.albumArtist = albumArtist
@@ -72,6 +76,7 @@ final class Track {
         self.addedAt = addedAt; self.lastPlayedAt = lastPlayedAt
         self.playCount = playCount; self.liked = liked
         self.fileModificationDate = fileModificationDate
+        self.partialContentHash = partialContentHash
     }
 
     var source: TrackSource { TrackSource(rawValue: sourceRaw) ?? .local }
