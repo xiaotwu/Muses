@@ -10,6 +10,7 @@ struct HomeView: View {
     @Environment(PlaybackService.self) private var playback
     @Environment(YouTubeSearchService.self) private var ytSearch
     @Environment(YouTubeImportService.self) private var importService
+    @Environment(FocusService.self) private var focus
     @Query(sort: \YouTubeImport.importedAt, order: .reverse) private var ytImports: [YouTubeImport]
     @State private var heroGradient: [Color] = [BrandColors.background, BrandColors.surface]
     @State private var ytTrending: [YTDlpBridge.YTDlpPlaylistEntry] = []
@@ -39,8 +40,10 @@ struct HomeView: View {
                     recentlyPlayedSection
                 }
 
-                // Top Picks for you(来源 YouTube Music)
-                topPicksSection
+                // Top Picks for you(来源 YouTube Music)—— 专注模式开启时抑制发现表面(Final Spec §10.9)。
+                if !focus.isActive {
+                    topPicksSection
+                }
 
                 // 最近添加
                 if !recentlyAdded.isEmpty {

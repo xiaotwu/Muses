@@ -10,6 +10,7 @@ struct NewView: View {
     @Binding var selectedAlbum: Album?
     @Environment(RecommendationService.self) private var recommendation
     @Environment(LibraryService.self) private var library
+    @Environment(FocusService.self) private var focus
     /// nil = 尚未计算完成(显示占位);非 nil = 已计算。
     @State private var recs: RecommendationService.Recommendations? = nil
     @State private var computeTask: Task<Void, Never>?
@@ -24,7 +25,16 @@ struct NewView: View {
                     .padding(.horizontal, 24)
                     .padding(.top, 20)
 
-                if let r = recs, r.hasContent {
+                if focus.isActive {
+                    // 专注模式:抑制发现表面(Final Spec §10.9),展示专注提示而非推荐。
+                    EmptyStateView(
+                        icon: "brain.head.profile",
+                        title: tr("Focusing", "专注中"),
+                        subtitle: tr("Recommendations are hidden while you focus. End Focus Mode to see picks.",
+                                       "专注时隐藏推荐。结束专注模式以查看推荐。")
+                    )
+                    .padding(.top, 60)
+                } else if let r = recs, r.hasContent {
                     if !r.becauseYouListened.isEmpty {
                         recSection(
                             title: tr("Because You Listened", "因为你听过"),

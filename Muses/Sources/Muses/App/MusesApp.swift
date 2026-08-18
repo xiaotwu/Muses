@@ -23,6 +23,7 @@ struct MusesApp: App {
     let sessionService: SessionService
     let inboxService: InboxService
     let notesService: NotesService
+    let focusService: FocusService
     // Phase 24 — 原生桌面集成:全局热键 / 菜单栏托盘 / 桌面歌词 / 迷你播放器。
     let globalHotkeyService: GlobalHotkeyService
     let trayController: TrayController
@@ -86,6 +87,12 @@ struct MusesApp: App {
                                              eventBus: playbackService.eventBus,
                                              playback: playbackService,
                                              queue: queue)
+        // 专注模式(Phase 25 §10.9):订阅无关,持运行态;关联回当前 ListeningSession(只读)。
+        // ffFocusMode 默认关 → start 为 no-op,isActive 保持 false,不抑制发现表面。
+        self.focusService = FocusService(modelContainer: container,
+                                         eventBus: playbackService.eventBus,
+                                         playback: playbackService,
+                                         sessionService: sessionService)
         // 收件箱(Phase 20):订阅事件总线(.trackStarted→listening),维护 InboxItem 行;
         // 启动时把到期 snooze 还原为 unheard。功能开关 ffInbox 默认关 → add 为 no-op。
         self.inboxService = InboxService(modelContainer: container,
@@ -261,6 +268,7 @@ struct MusesApp: App {
                     .environment(sessionService)
                     .environment(inboxService)
                     .environment(notesService)
+                    .environment(focusService)
                     .modelContainer(modelContainer)
                     .background(MiniPlayerOpener())
                     .onOpenURL { url in
@@ -287,6 +295,7 @@ struct MusesApp: App {
                 MiniPlayerView()
                     .environment(libraryService)
                     .environment(playbackService)
+                    .environment(focusService)
                     .modelContainer(modelContainer)
             }
         }
@@ -347,6 +356,15 @@ struct MusesApp: App {
                 }
                 if sleepTimer.isActive {
                     Text("\(tr("Sleep Timer", "睡眠定时器")):\(sleepTimer.remainingFormatted)")
+                }
+
+                // 专注模式(Phase 25):弹 FocusView 面板(经通知,由 RootView 呈现 sheet)。
+                Divider()
+                Button(tr("Focus Mode", "专注模式")) {
+                    NotificationCenter.default.post(name: .musesToggleFocusMode, object: nil)
+                }
+                if focusService.isActive {
+                    Text("\(tr("Focus", "专注")):\(focusService.remainingFormatted)")
                 }
             }
         }
