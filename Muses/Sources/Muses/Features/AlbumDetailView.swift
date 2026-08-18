@@ -6,9 +6,11 @@ struct AlbumDetailView: View {
     @Binding var selection: Album?
     @Environment(PlaybackService.self) private var playback
     @Environment(LibraryService.self) private var library
+    @Environment(NotesService.self) private var notes
     @State private var gradient: [Color] = [BrandColors.background, BrandColors.surface]
     /// 批量已喜欢 id 集合,避免每行 `TrackRow` 单独 fetch。
     @State private var likedSet: Set<UUID> = []
+    @State private var showAlbumNotes = false
 
     var body: some View {
         ZStack {
@@ -31,6 +33,9 @@ struct AlbumDetailView: View {
         }
         .onAppear { extractGradient(); refreshLikedSet() }
         .onChange(of: library.likedRevision) { _, _ in refreshLikedSet() }
+        .sheet(isPresented: $showAlbumNotes) {
+            AlbumNotesSheet(album: album)
+        }
     }
 
     private func refreshLikedSet() {
@@ -74,6 +79,14 @@ struct AlbumDetailView: View {
                     }
                     .buttonStyle(.bordered)
                     .help(pinned ? tr("Unpin", "取消钉选") : tr("Pin", "钉选"))
+
+                    // 专辑笔记(Phase 21 §10.7)
+                    let hasNote = notes.note(forAlbum: album.id) != nil
+                    Button { showAlbumNotes = true } label: {
+                        Image(systemName: hasNote ? "note.text" : "note.text.badge.plus")
+                    }
+                    .buttonStyle(.bordered)
+                    .help(tr("Album Note", "专辑笔记"))
                 }
                 .padding(.top, 4)
             }
@@ -155,7 +168,9 @@ struct TrackRow: View {
     /// 父视图批量查询的已喜欢 id 集合;为 nil 时回退到单次 `isLiked(id:)`。
     var likedIDs: Set<UUID>? = nil
     @Environment(LibraryService.self) private var library
+    @Environment(NotesService.self) private var notes
     @State private var showEditTrack = false
+    @State private var showTrackNotes = false
     var body: some View {
         let _ = library.likedRevision
         let _ = library.metadataRevision
@@ -186,9 +201,13 @@ struct TrackRow: View {
         }
         .contextMenu {
             Button(tr("Edit Info", "编辑信息")) { showEditTrack = true }
+            Button(tr("Notes & Bookmarks…", "笔记与书签…")) { showTrackNotes = true }
         }
         .sheet(isPresented: $showEditTrack) {
             EditTrackSheet(track: track)
+        }
+        .sheet(isPresented: $showTrackNotes) {
+            TrackNotesSheet(track: track)
         }
     }
     private func formatDuration(_ s: Double) -> String {

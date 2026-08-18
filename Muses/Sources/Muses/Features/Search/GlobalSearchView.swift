@@ -137,6 +137,15 @@ struct GlobalSearchView: View {
                 }
             }
         }
+        if !search.noteResults.isEmpty {
+            section(title: tr("Notes", "笔记"), count: search.noteResults.count) {
+                ForEach(search.noteResults.prefix(8)) { hit in
+                    GlobalSearchNoteRow(hit: hit) {
+                        openNote(hit)
+                    }
+                }
+            }
+        }
         if search.query.trimmingCharacters(in: .whitespaces).isEmpty {
             Text(tr("Type to search your library", "输入关键词搜索资料库"))
                 .font(.callout)
@@ -145,7 +154,8 @@ struct GlobalSearchView: View {
                 .padding(.top, 60)
         } else if search.trackResults.isEmpty
                     && search.albumResults.isEmpty
-                    && search.artistResults.isEmpty {
+                    && search.artistResults.isEmpty
+                    && search.noteResults.isEmpty {
             Text(tr("No results", "无搜索结果"))
                 .font(.callout)
                 .foregroundStyle(BrandColors.textSecondary)
@@ -210,6 +220,18 @@ struct GlobalSearchView: View {
     private func navigateToAlbum(_ album: Album) {
         NotificationCenter.default.post(name: .musesNavigateAlbum, object: album)
         close()
+    }
+
+    /// 笔记搜索命中:曲目笔记→播放该曲目并关闭;专辑笔记→跳转到该专辑并关闭。
+    private func openNote(_ hit: NotesService.NoteSearchHit) {
+        switch hit.kind {
+        case .trackNote:
+            guard let track = library.track(by: hit.ownerId) else { close(); return }
+            play(track, from: [track])
+        case .albumNote:
+            guard let album = library.allAlbums().first(where: { $0.id == hit.ownerId }) else { close(); return }
+            navigateToAlbum(album)
+        }
     }
 
     private func playYouTube(_ entry: YTDlpBridge.YTDlpPlaylistEntry) async {
@@ -337,4 +359,33 @@ private struct GlobalSearchYouTubeRow: View {
 extension Notification.Name {
     static let musesNavigateArtist = Notification.Name("muses.navigateArtist")
     static let musesNavigateAlbum = Notification.Name("muses.navigateAlbum")
+}
+
+/// 笔记搜索命中行(Phase 21 §10.7):图标区分曲目/专辑笔记,显示 owner 标题 + 内容片段。
+private struct GlobalSearchNoteRow: View {
+    let hit: NotesService.NoteSearchHit
+    let onTap: () -> Void
+    var body: some View {
+        Button(action: onTap) {
+            HStack(alignment: .top, spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 4).fill(BrandColors.surface)
+                        .frame(width: 32, height: 32)
+                    Image(systemName: hit.kind == .trackNote ? "music.note.list" : "square.stack")
+                        .font(.caption).foregroundStyle(BrandColors.magenta)
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(hit.ownerTitle).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
+                        .font(.callout)
+                    Text(hit.snippet).font(.caption).foregroundStyle(BrandColors.textSecondary)
+                        .lineLimit(2)
+                }
+                Spacer()
+                Image(systemName: hit.kind == .trackNote ? "play.circle" : "chevron.right")
+                    .foregroundStyle(BrandColors.textSecondary).font(.caption)
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(.vertical, 2)
+    }
 }
