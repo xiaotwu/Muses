@@ -7,7 +7,7 @@ import SwiftData
 /// 验证 importPlaylist / resync 通过 oEmbed API 获取真实标题/频道/封面,
 /// 以及 oEmbed 失败时回退到占位值。
 @MainActor
-@Suite("YouTubeImportMetadata")
+@Suite("YouTubeImportMetadata", .serialized)
 struct YouTubeImportMetadataTests {
 
     // MARK: - oEmbed 成功
@@ -21,8 +21,8 @@ struct YouTubeImportMetadataTests {
                 id: "v1", title: "Song A", uploader: "Some Channel", duration: 200),
         ]
 
-        StubURLProtocol.reset()
-        let stub = StubURLProtocol()
+        YouTubeImportMetadataStub.reset()
+        let stub = YouTubeImportMetadataStub()
         // oEmbed 请求:host 含 "youtube.com" 且 path 含 "/oembed"
         stub.respond(forHostContaining: "youtube.com") { req in
             if req.url?.path.contains("/oembed") == true {
@@ -35,7 +35,7 @@ struct YouTubeImportMetadataTests {
             // 其他请求(artwork 下载等)→ 404,不阻塞
             return StubResponse(statusCode: 404, body: Data())
         }
-        let session = URLSession(configuration: StubURLProtocol.makeConfig(stub))
+        let session = URLSession(configuration: YouTubeImportMetadataStub.makeConfig())
         let artworkCache = ArtworkCache(
             directory: FileManager.default.temporaryDirectory
                 .appending(path: "muses-oembed-\(UUID().uuidString)"))
@@ -68,13 +68,13 @@ struct YouTubeImportMetadataTests {
                 id: "v1", title: "Song A", uploader: "Fallback Channel", duration: 200),
         ]
 
-        StubURLProtocol.reset()
-        let stub = StubURLProtocol()
+        YouTubeImportMetadataStub.reset()
+        let stub = YouTubeImportMetadataStub()
         // 所有请求返回 404(oEmbed + artwork 都失败)
         stub.respond(forHostContaining: "") { _ in
             StubResponse(statusCode: 404, body: Data())
         }
-        let session = URLSession(configuration: StubURLProtocol.makeConfig(stub))
+        let session = URLSession(configuration: YouTubeImportMetadataStub.makeConfig())
         let artworkCache = ArtworkCache(
             directory: FileManager.default.temporaryDirectory
                 .appending(path: "muses-oembed-fallback-\(UUID().uuidString)"))
@@ -93,4 +93,12 @@ struct YouTubeImportMetadataTests {
         // 回退封面:首条视频 hqdefault。
         #expect(imp.artworkUrl == "https://i.ytimg.com/vi/v1/hqdefault.jpg")
     }
+}
+final class YouTubeImportMetadataStub: StubURLProtocolBase, @unchecked Sendable {
+    nonisolated(unsafe) private static var _rules: [StubRule] = []
+    private static let _lock = NSLock()
+    override class var rules: [StubRule] {
+        get { _rules } set { _rules = newValue }
+    }
+    override class var lock: NSLock { _lock }
 }

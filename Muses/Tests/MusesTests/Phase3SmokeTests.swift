@@ -6,7 +6,7 @@ import SwiftData
 /// 阶段 3 端到端冒烟:YouTube 导入 → 双引擎调度 → 歌词(LRCLIB)→ Spotlight deep link。
 /// (Phase 14 起 Sparkle appcast 已移除,更新检查改由 `UpdateService` GitHub API 完成。)
 @MainActor
-@Suite("Phase3Smoke")
+@Suite("Phase3Smoke", .serialized)
 struct Phase3SmokeTests {
 
     @Test("Phase 3 端到端:导入 → 播放调度 → 歌词 → deep link")
@@ -20,15 +20,15 @@ struct Phase3SmokeTests {
                 id: "smoke1", title: "Smoke Song", uploader: "Smoke Chan", duration: 200.0),
         ]
         // catch-all 404:artwork 下载快速失败,不写缓存(MockImportBridge 已隔离 yt-dlp)。
-        StubURLProtocol.reset()
-        let artStub = StubURLProtocol()
+        Phase3Stub.reset()
+        let artStub = Phase3Stub()
         artStub.respond(forHostContaining: "") { _ in
             StubResponse(statusCode: 404, body: Data())
         }
         let artworkCache = ArtworkCache(
             directory: FileManager.default.temporaryDirectory
                 .appending(path: "muses-phase3-smoke-\(UUID().uuidString)"))
-        let session = URLSession(configuration: StubURLProtocol.makeConfig(artStub))
+        let session = URLSession(configuration: Phase3Stub.makeConfig())
         let importService = YouTubeImportService(
             bridge: bridge, modelContainer: container,
             artworkCache: artworkCache, session: session
@@ -60,14 +60,14 @@ struct Phase3SmokeTests {
         #expect(localMock.loadCallCount == 0)
 
         // ── 3. 歌词:LRCLIB stub 返回同步歌词 ──────────────────────────
-        StubURLProtocol.reset()
-        let lrcStub = StubURLProtocol()
+        Phase3Stub.reset()
+        let lrcStub = Phase3Stub()
         lrcStub.respond(forHostEndingWith: "lrclib.net") { _ in
             StubResponse(
                 statusCode: 200,
                 body: Data(#"{"plainLyrics":"words","syncedLyrics":"[00:01.00] smoke line"}"#.utf8))
         }
-        let lrcSession = URLSession(configuration: StubURLProtocol.makeConfig(lrcStub))
+        let lrcSession = URLSession(configuration: Phase3Stub.makeConfig())
         let lyrics = LyricsService(session: lrcSession)
         let lyricsTrack = TrackSnapshot(
             id: UUID(), title: "Smoke Song", artist: "Smoke Chan", albumTitle: nil,
@@ -103,4 +103,13 @@ struct Phase3SmokeTests {
         #expect(localMock.loadCallCount == 1)
         #expect(localMock.lastLoadedTrack?.title == "Local Smoke")
     }
+}
+
+final class Phase3Stub: StubURLProtocolBase, @unchecked Sendable {
+    nonisolated(unsafe) private static var _rules: [StubRule] = []
+    private static let _lock = NSLock()
+    override class var rules: [StubRule] {
+        get { _rules } set { _rules = newValue }
+    }
+    override class var lock: NSLock { _lock }
 }
