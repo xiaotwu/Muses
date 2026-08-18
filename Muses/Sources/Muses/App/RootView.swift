@@ -15,6 +15,7 @@ struct RootView: View {
     @State private var showSearch = false
     @State private var showSettings = false
     @State private var showAbout = false
+    @State private var showFocus = false
     /// 由 Profile 弹出菜单设置,用于直接跳转到指定 Settings 分类(如 YouTube 登录)。
     @State private var initialSettingsCategory: SettingsCategory? = nil
     @AppStorage(PrefKey.language) private var language = "system"
@@ -157,6 +158,12 @@ struct RootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .musesCloseYouTubeAlbum)) { _ in
             selectedYouTubeImport = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .musesToggleFocusMode)) { _ in
+            showFocus.toggle()
+        }
+        .sheet(isPresented: $showFocus) {
+            FocusView()
         }
         .toolbar {
             ToolbarItem(placement: .navigation) {

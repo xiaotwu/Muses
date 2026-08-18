@@ -37,6 +37,8 @@ final class SessionService {
 
     /// 当前 active 会话 id(内存镜像,避免每次事件都查库)。nil = 无进行中会话。
     private var activeSessionId: UUID?
+    /// 只读访问当前进行中会话 id(Phase 25 FocusService 用以关联 FocusSession.listeningSessionId)。
+    var currentSessionId: UUID? { activeSessionId }
     /// 睡眠前的播放状态,供唤醒时判断是否需恢复播放。
     private var wasPlayingBeforeSleep = false
 
