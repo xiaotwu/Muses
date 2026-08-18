@@ -66,7 +66,7 @@ final class GlobalSearchService {
         }
     }
 
-    private func performSearch(query: String) async {
+    func performSearch(query: String) async {
         // 本地搜索 — 即时
         let tracks = library.allTracks(search: query)
         let albums = library.allAlbums().filter {

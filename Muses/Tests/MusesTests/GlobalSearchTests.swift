@@ -39,9 +39,9 @@ struct GlobalSearchTests {
 
         let search = GlobalSearchService(library: library, youTubeSearch: nil, debounceMs: 10)
 
+        // 直接驱动搜索,不依赖 debounce 的墙钟调度(消除全量跑测时的 timing flake)。
         search.query = "Daft"
-        // 等待 debounce + 搜索完成
-        try? await Task.sleep(nanoseconds: 50_000_000)
+        await search.performSearch(query: "Daft")
 
         #expect(search.trackResults.count == 2)  // 2 tracks by Daft Punk
         #expect(search.albumResults.count == 2)  // 2 albums
@@ -59,11 +59,11 @@ struct GlobalSearchTests {
         let search = GlobalSearchService(library: library, youTubeSearch: nil, debounceMs: 10)
 
         search.query = "Daft"
-        try? await Task.sleep(nanoseconds: 50_000_000)
+        await search.performSearch(query: "Daft")
         #expect(!search.trackResults.isEmpty)
 
+        // 空查询在 `scheduleSearch` 同步清空结果(didSet 即时执行),无需 debounce。
         search.query = ""
-        try? await Task.sleep(nanoseconds: 50_000_000)
         #expect(search.trackResults.isEmpty)
         #expect(search.albumResults.isEmpty)
         #expect(search.artistResults.isEmpty)
@@ -79,9 +79,10 @@ struct GlobalSearchTests {
 
         let search = GlobalSearchService(library: library, youTubeSearch: nil, debounceMs: 10)
         search.query = "Daft"
-        try? await Task.sleep(nanoseconds: 50_000_000)
+        await search.performSearch(query: "Daft")
         #expect(!search.trackResults.isEmpty)
 
+        // reset() 同步清空,不涉及 debounce。
         search.reset()
         #expect(search.query.isEmpty)
         #expect(search.trackResults.isEmpty)
