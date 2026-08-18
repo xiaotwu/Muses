@@ -63,6 +63,8 @@ struct RootView: View {
                         PlaylistsView(selectedPlaylist: $selectedPlaylist)
                     case .history:
                         HistoryView()
+                    case .inbox:
+                        InboxView()
                     }
                 }
             }
@@ -171,6 +173,7 @@ enum SidebarSection: String, Hashable, CaseIterable {
     case youtubeImports
     case playlists
     case history  // Phase 17: Smart Listening History
+    case inbox    // Phase 20: Music Inbox
 }
 
 extension Notification.Name {
