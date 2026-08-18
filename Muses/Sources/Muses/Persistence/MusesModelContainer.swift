@@ -1,17 +1,12 @@
 import Foundation
 import SwiftData
 
+/// Current versioned schema. See `MusesSchemaVersioning.swift` for the rationale:
+/// declared as `1.0.0` so existing on-disk stores (also stamped `1.0.0`) match
+/// exactly and open with no migration stage.
 enum MusesSchema {
     static var v1: Schema {
-        Schema([Track.self, Album.self, Artist.self, ScanRoot.self, QueueState.self, EQPreset.self,
-                YouTubeImport.self, YouTubeImportItem.self,
-                Playlist.self, PlaylistItem.self,
-                ListeningEvent.self,
-                ListeningSession.self,
-                InboxItem.self,
-                TrackNote.self, TrackBookmark.self, AlbumNote.self,
-                AutomationRule.self,
-                FocusSession.self])
+        Schema(versionedSchema: MusesSchemaV1.self)
     }
 }
 
@@ -25,7 +20,12 @@ func makeModelContainer(inMemory: Bool = false, storeURL: URL? = nil) throws -> 
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         config = ModelConfiguration(url: url)
     }
-    return try ModelContainer(for: MusesSchema.v1, configurations: config)
+    // Versioned schema + explicit plan: existing stores match V1 (`1.0.0`) and
+    // skip migration; only a V0 fixture triggers the lightweight V0→V1 stage.
+    // The corrupt-store fallback below preserves user data on any failure.
+    return try ModelContainer(for: MusesSchema.v1,
+                              migrationPlan: MusesMigrationPlan.self,
+                              configurations: config)
 }
 
 /// on-disk 数据库默认路径: `~/Library/Application Support/Muses/muses.sqlite`。
