@@ -24,6 +24,7 @@ struct MusesApp: App {
     let inboxService: InboxService
     let notesService: NotesService
     let focusService: FocusService
+    let audioDeviceService: AudioDeviceService
     // Phase 24 — 原生桌面集成:全局热键 / 菜单栏托盘 / 桌面歌词 / 迷你播放器。
     let globalHotkeyService: GlobalHotkeyService
     let trayController: TrayController
@@ -93,6 +94,10 @@ struct MusesApp: App {
                                          eventBus: playbackService.eventBus,
                                          playback: playbackService,
                                          sessionService: sessionService)
+        // 音频输出设备(Phase 26 §10.10):Core Audio 枚举/切换(best-effort),2s 轮询检测默认变更。
+        let audioDevices = AudioDeviceService(eventBus: playbackService.eventBus)
+        self.audioDeviceService = audioDevices
+        Task { @MainActor in audioDevices.startPolling() }
         // 收件箱(Phase 20):订阅事件总线(.trackStarted→listening),维护 InboxItem 行;
         // 启动时把到期 snooze 还原为 unheard。功能开关 ffInbox 默认关 → add 为 no-op。
         self.inboxService = InboxService(modelContainer: container,
@@ -269,6 +274,7 @@ struct MusesApp: App {
                     .environment(inboxService)
                     .environment(notesService)
                     .environment(focusService)
+                    .environment(audioDeviceService)
                     .modelContainer(modelContainer)
                     .background(MiniPlayerOpener())
                     .onOpenURL { url in
@@ -296,6 +302,7 @@ struct MusesApp: App {
                     .environment(libraryService)
                     .environment(playbackService)
                     .environment(focusService)
+                    .environment(audioDeviceService)
                     .modelContainer(modelContainer)
             }
         }
@@ -365,6 +372,12 @@ struct MusesApp: App {
                 }
                 if focusService.isActive {
                     Text("\(tr("Focus", "专注")):\(focusService.remainingFormatted)")
+                }
+
+                // 音频信息(Phase 26 Audio Nerd Mode):弹 AudioInfoPanel(经通知 → RootView sheet)。
+                Divider()
+                Button(tr("Audio Info", "音频信息")) {
+                    NotificationCenter.default.post(name: .musesToggleAudioInfo, object: nil)
                 }
             }
         }

@@ -4,6 +4,7 @@ import SwiftUI
 struct AudioQualitySettingsView: View {
     @AppStorage(PrefKey.localAudioQuality) private var localQuality: String = "native"
     @AppStorage(PrefKey.ytAudioQuality) private var ytQuality: String = "bestaudio"
+    @AppStorage(PrefKey.ffAudioNerd) private var audioNerd = false
 
     var body: some View {
         Section(tr("Local Audio Quality", "本地音质")) {
@@ -27,6 +28,13 @@ struct AudioQualitySettingsView: View {
             .pickerStyle(.radioGroup)
             Text(tr("Affects yt-dlp download format selection for YouTube content.",
                     "影响 YouTube 内容的 yt-dlp 下载格式选择。"))
+                .font(.caption).foregroundStyle(BrandColors.textSecondary)
+        }
+
+        Section(tr("Audio Nerd Mode", "音频极客模式")) {
+            Toggle(tr("Show Audio Info Panel", "显示音频信息面板"), isOn: $audioNerd)
+            Text(tr("Reveal codec/bitrate/sample rate/bit depth/channels/output device/EQ + spectrum. Unknown fields are never fabricated.",
+                    "展示编码/比特率/采样率/位深/声道/输出设备/EQ + 频谱。未知字段绝不伪造。"))
                 .font(.caption).foregroundStyle(BrandColors.textSecondary)
         }
     }

@@ -115,6 +115,8 @@ enum PrefKey {
     static let ffGlobalHotkeys      = "muses.ff.globalHotkeys"
     /// 全局热键绑定(JSON 编码的 [action: HotkeyShortcut])。
     static let globalHotkeys        = "muses.globalHotkeys.bindings"
+    /// 音频输出:优先设备名(Phase 26 Audio Nerd Mode)。
+    static let audioPreferredOutputDevice = "muses.audio.preferredOutputDevice"
     /// 上下文监听:记录前台应用 bundle id(隐私敏感,默认关闭)。
     static let contextTrackActiveApp = "muses.context.trackActiveApp"
 }
