@@ -12,6 +12,9 @@ final class QueueService {
     var repeatMode: RepeatMode = .off
     var shuffle: Bool = false
     private var originalOrder: [QueueItem] = []
+    /// 崩溃恢复用:上次 checkpoint 的播放曲目/位置。Phase 18 由 PlaybackService checkpoint 写入。
+    var currentTrackId: UUID?
+    var lastPositionMs: Double?
 
     /// 由 `MusesApp` 在容器创建后注入,使 `persist()`/`restore()` 可访问 SwiftData。
     var modelContext: ModelContext?
@@ -152,7 +155,8 @@ final class QueueService {
         } else {
             row = QueueState(itemsJSON: itemsJSON, currentIndex: currentIndex,
                              upNextJSON: upNextJSON, historyJSON: historyJSON,
-                             repeatModeRaw: repeatMode.rawValue, shuffle: shuffle)
+                             repeatModeRaw: repeatMode.rawValue, shuffle: shuffle,
+                             currentTrackId: currentTrackId, lastPositionMs: lastPositionMs)
             ctx.insert(row)
             try? ctx.save()
             return
@@ -163,6 +167,8 @@ final class QueueService {
         row.historyJSON = historyJSON
         row.repeatModeRaw = repeatMode.rawValue
         row.shuffle = shuffle
+        row.currentTrackId = currentTrackId
+        row.lastPositionMs = lastPositionMs
         row.savedAt = .init()
         try? ctx.save()
     }
@@ -179,6 +185,8 @@ final class QueueService {
         currentIndex = row.currentIndex
         if let m = RepeatMode(rawValue: row.repeatModeRaw) { repeatMode = m }
         shuffle = row.shuffle
+        currentTrackId = row.currentTrackId
+        lastPositionMs = row.lastPositionMs
         originalOrder = items
     }
 }

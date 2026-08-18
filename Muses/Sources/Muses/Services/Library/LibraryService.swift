@@ -323,6 +323,7 @@ final class LibraryService {
             existing.year = meta.year; existing.genre = meta.genre
             existing.sampleRate = meta.sampleRate; existing.bitDepth = meta.bitDepth
             existing.codec = meta.codec; existing.isLossless = meta.isLossless
+            existing.bitRate = meta.bitRate; existing.channels = meta.channels
             existing.replayGain = meta.replayGain
             existing.localArtworkHash = artworkHash ?? existing.localArtworkHash
             existing.availabilityRaw = TrackAvailability.available.rawValue
@@ -344,7 +345,8 @@ final class LibraryService {
             localArtworkHash: artworkHash, lyrics: nil, replayGain: meta.replayGain,
             sampleRate: meta.sampleRate, bitDepth: meta.bitDepth,
             codec: meta.codec, isLossless: meta.isLossless,
-            metadataStatus: .complete, availability: .available
+            metadataStatus: .complete, availability: .available,
+            bitRate: meta.bitRate, channels: meta.channels
         )
         track.fileModificationDate = fileMtime
         ctx.insert(track)

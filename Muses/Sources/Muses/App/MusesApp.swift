@@ -15,13 +15,15 @@ struct MusesApp: App {
     let recommendationService: RecommendationService
     let ytDlpBridge: YTDlpBridge
     let updateService: UpdateService
+    let commandRegistry: CommandRegistry
+    let runtimeCapabilities: RuntimeCapabilities
     private let nowPlayingManager: NowPlayingManager
     private let spotlightIndexer: SpotlightIndexer
 
     init() {
         // 品牌字标字体:尽早注册,使首屏 "Muses" wordmark 即用 MonteCarlo。
         FontLoader.registerMonteCarlo()
-        let container = try! makeModelContainer()
+        let container = makeModelContainerWithFallback()
         self.modelContainer = container
         let meta = MetadataService(artworkCache: .default)
         let library = LibraryService(modelContainer: container, metadata: meta)
@@ -66,6 +68,30 @@ struct MusesApp: App {
             try? await Task.sleep(for: .milliseconds(3000))
             await updater.checkIfDue()
         }
+
+        // 命令注册表:集中已有命令处理,使菜单快捷键与 Phase 24 全局热键共用同一处理。
+        let registry = CommandRegistry()
+        registry.register(CommandRegistry.togglePlayback) { [weak playbackService] in
+            playbackService?.toggle()
+        }
+        registry.register(CommandRegistry.next) { [weak playbackService] in
+            playbackService?.next()
+        }
+        registry.register(CommandRegistry.previous) { [weak playbackService] in
+            playbackService?.previous()
+        }
+        registry.register(CommandRegistry.likeCurrent) { [weak playbackService, weak library] in
+            guard let id = playbackService?.state.track?.id else { return }
+            library?.toggleLike(id: id)
+        }
+        registry.register(CommandRegistry.toggleQueue) {
+            NotificationCenter.default.post(name: .musesToggleQueue, object: nil)
+        }
+        registry.register(CommandRegistry.focusSearch) {
+            NotificationCenter.default.post(name: .musesFocusSearch, object: nil)
+        }
+        self.commandRegistry = registry
+        self.runtimeCapabilities = RuntimeCapabilities()
     }
 
     var body: some Scene {
@@ -83,6 +109,8 @@ struct MusesApp: App {
                     .environment(recommendationService)
                     .environment(\.ytDlpBridge, ytDlpBridge)
                     .environment(updateService)
+                    .environment(commandRegistry)
+                    .environment(runtimeCapabilities)
                     .modelContainer(modelContainer)
                     .onOpenURL { url in
                         // deep link: muses://play?trackId=<id> — Spotlight / 外部唤起播放
@@ -109,40 +137,38 @@ struct MusesApp: App {
                     NSApp.orderFrontStandardAboutPanel(nil)
                 }
             }
-            // 播放控制快捷键
+            // 播放控制快捷键(经 CommandRegistry 集中处理,Phase 24 全局热键复用)
             CommandGroup(after: .toolbar) {
                 Divider()
                 Button(tr("Play/Pause", "播放/暂停")) {
-                    playbackService.toggle()
+                    commandRegistry.execute(CommandRegistry.togglePlayback)
                 }
                 .keyboardShortcut("p", modifiers: .command)
 
                 Button(tr("Previous", "上一首")) {
-                    playbackService.previous()
+                    commandRegistry.execute(CommandRegistry.previous)
                 }
                 .keyboardShortcut(.leftArrow, modifiers: .command)
 
                 Button(tr("Next", "下一首")) {
-                    playbackService.next()
+                    commandRegistry.execute(CommandRegistry.next)
                 }
                 .keyboardShortcut(.rightArrow, modifiers: .command)
 
                 Divider()
 
                 Button(tr("Like Current Song", "收藏当前歌曲")) {
-                    if let id = playbackService.state.track?.id {
-                        libraryService.toggleLike(id: id)
-                    }
+                    commandRegistry.execute(CommandRegistry.likeCurrent)
                 }
                 .keyboardShortcut("l", modifiers: .command)
 
                 Button(tr("Toggle Queue", "切换队列")) {
-                    NotificationCenter.default.post(name: .musesToggleQueue, object: nil)
+                    commandRegistry.execute(CommandRegistry.toggleQueue)
                 }
                 .keyboardShortcut("k", modifiers: .command)
 
                 Button(tr("Search", "搜索")) {
-                    NotificationCenter.default.post(name: .musesFocusSearch, object: nil)
+                    commandRegistry.execute(CommandRegistry.focusSearch)
                 }
                 .keyboardShortcut("f", modifiers: .command)
 

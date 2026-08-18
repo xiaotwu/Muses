@@ -23,6 +23,10 @@ final class Track {
     var sampleRate: Int?
     var bitDepth: Int?
     var codec: String?
+    /// 估算比特率(bits/s),来自 AVAssetTrack.estimatedDataRate。压缩格式才有意义。
+    var bitRate: Int?
+    /// 声道数,来自 AudioStreamBasicDescription.mChannelsPerFrame。
+    var channels: Int?
     var isLossless: Bool
     var metadataStatusRaw: String   // MetadataStatus.rawValue
     var availabilityRaw: String     // TrackAvailability.rawValue
@@ -50,7 +54,7 @@ final class Track {
          sampleRate: Int? = nil, bitDepth: Int? = nil, codec: String? = nil, isLossless: Bool = false,
          metadataStatus: MetadataStatus = .embedded, availability: TrackAvailability = .available,
          addedAt: Date = .init(), lastPlayedAt: Date? = nil, playCount: Int = 0, liked: Bool = false,
-         fileModificationDate: Date? = nil) {
+         fileModificationDate: Date? = nil, bitRate: Int? = nil, channels: Int? = nil) {
         self.id = id; self.sourceRaw = source.rawValue
         self.title = title; self.artist = artist
         self.albumTitle = albumTitle; self.albumArtist = albumArtist
@@ -60,6 +64,7 @@ final class Track {
         self.localArtworkHash = localArtworkHash; self.lyrics = lyrics
         self.replayGain = replayGain; self.sampleRate = sampleRate
         self.bitDepth = bitDepth; self.codec = codec; self.isLossless = isLossless
+        self.bitRate = bitRate; self.channels = channels
         self.metadataStatusRaw = metadataStatus.rawValue
         self.availabilityRaw = availability.rawValue
         self.addedAt = addedAt; self.lastPlayedAt = lastPlayedAt

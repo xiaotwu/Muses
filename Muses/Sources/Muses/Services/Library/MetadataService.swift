@@ -13,6 +13,8 @@ struct EmbeddedMetadata: Sendable {
     var genre: String?
     var sampleRate: Int?
     var bitDepth: Int?
+    var bitRate: Int?
+    var channels: Int?
     var codec: String?
     var isLossless: Bool
     var artworkData: Data?
@@ -29,7 +31,8 @@ final class MetadataService: Sendable {
         var meta = EmbeddedMetadata(
             title: nil, artist: nil, albumTitle: nil, albumArtist: nil,
             durationMs: 0, trackNo: nil, discNo: nil, year: nil, genre: nil,
-            sampleRate: nil, bitDepth: nil, codec: nil, isLossless: false,
+            sampleRate: nil, bitDepth: nil, bitRate: nil, channels: nil,
+            codec: nil, isLossless: false,
             artworkData: nil, replayGain: nil)
 
         do {
@@ -46,7 +49,17 @@ final class MetadataService: Sendable {
                     meta.isLossless = (codec == "alac" || codec == "flac")
                     meta.sampleRate = Int(basic.mSampleRate)
                     meta.bitDepth = Int(basic.mBitsPerChannel)
+                    meta.channels = Int(basic.mChannelsPerFrame)
                     break
+                }
+            }
+
+            // 估算比特率(bits/s):AVAssetTrack.estimatedDataRate 为 bits/s。
+            // 压缩格式(aac/mp3/opus)有意义;无损(pcm/alac/flac)可据此算采样率×位深×声道。
+            if let audioTrack = tracks.first {
+                let dataRate = try? await audioTrack.load(.estimatedDataRate)
+                if let dr = dataRate, dr > 0 {
+                    meta.bitRate = Int(dr)
                 }
             }
 
