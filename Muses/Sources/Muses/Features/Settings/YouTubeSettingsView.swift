@@ -13,12 +13,14 @@ extension EnvironmentValues {
     }
 }
 
-/// YouTube / yt-dlp 设置:二进制路径(只读)、版本检查、登录/cookie。
+/// YouTube / yt-dlp 设置:OAuth 账户连接、二进制路径(只读)、版本检查、cookie 来源。
 ///
-/// cookie 来源支持浏览器(Safari/Chrome/Firefox)或 cookie 文件,
-/// 让 yt-dlp 访问登录态内容(年龄限制/私有歌单等)。
+/// P2: 新增 Google OAuth 2.0 账户连接(凭证/令牌存 Keychain,最小只读 scope),
+/// 用于 Home 个性化信号;cookie 来源继续服务于 yt-dlp 播放登录态内容。
 struct YouTubeSettingsView: View {
     @Environment(\.ytDlpBridge) private var bridge
+    // P2 — 真实 Google OAuth 账户(凭证/令牌存 Keychain,最小只读 scope)。
+    @Environment(YouTubeAccountService.self) private var account
 
     @AppStorage(PrefKey.ytCookieSource) private var cookieSourceRaw: String = YTCookieSource.none.rawValue
     @AppStorage(PrefKey.ytCookiePath) private var cookiePath: String = ""
@@ -27,12 +29,120 @@ struct YouTubeSettingsView: View {
     @State private var versionString: String?
     @State private var checkingVersion = false
     @State private var showFilePicker = false
+    // OAuth 凭证编辑(本地草稿,保存时写入 Keychain)。
+    @State private var oauthClientID = ""
+    @State private var oauthClientSecret = ""
+    @State private var oauthRedirectURI = ""
+    @State private var oauthSaveError: String?
 
     private var cookieSource: YTCookieSource {
         YTCookieSource(rawValue: cookieSourceRaw) ?? .none
     }
 
+    /// OAuth 凭证草稿是否可保存(三项非空)。
+    private var oauthConfigDraftValid: Bool {
+        !oauthClientID.isEmpty && !oauthClientSecret.isEmpty && !oauthRedirectURI.isEmpty
+    }
+
+    private var oAuthHelpText: String {
+        tr("Create an OAuth 2.0 Client (Desktop type) in Google Cloud Console with the YouTube Data API v3 enabled. Use a custom redirect URI scheme (e.g. muses:/oauth). Credentials and tokens are stored in macOS Keychain; Muses uses the minimum read-only scope and never sends credentials to any server but Google's.",
+           "在 Google Cloud Console 创建 OAuth 2.0 桌面客户端并启用 YouTube Data API v3。重定向 URI 用自定义 scheme(如 muses:/oauth)。凭证与令牌存于 macOS 钥匙串;Muses 仅使用最小只读 scope,凭证只发送至 Google。")
+    }
+
+    /// 从 Keychain 读取已存凭证填充草稿(便于查看/修改)。
+    private func loadOAuthDraft() {
+        guard let cfg = account.loadConfig() else { return }
+        oauthClientID = cfg.clientID
+        oauthClientSecret = cfg.clientSecret
+        oauthRedirectURI = cfg.redirectURI
+        oauthSaveError = nil
+    }
+
+    /// 保存 OAuth 凭证到 Keychain(不在此处发起连接;用户点 Connect…)。
+    private func saveOAuthConfig() {
+        oauthSaveError = nil
+        let cfg = GoogleOAuthConfig(
+            clientID: oauthClientID,
+            clientSecret: oauthClientSecret,
+            redirectURI: oauthRedirectURI,
+            scopes: GoogleOAuthConfig.defaultScopes)
+        do {
+            try account.saveConfig(cfg)
+        } catch {
+            oauthSaveError = error.localizedDescription
+        }
+    }
+
     var body: some View {
+        // P2 — YouTube 账户(Google OAuth 2.0 PKCE):用于 Home 个性化信号,
+        // 凭证与令牌存 macOS Keychain,最小只读 scope,永不阻断播放。
+        Section(tr("YouTube Account (OAuth)", "YouTube 账户(OAuth)")) {
+            HStack {
+                Text(tr("Status", "状态")).foregroundStyle(BrandColors.textSecondary)
+                Spacer()
+                if account.isConnecting {
+                    ProgressView().controlSize(.small)
+                } else if account.isConnected {
+                    Label(tr("Connected", "已连接"), systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(BrandColors.textPrimary)
+                        .font(.callout)
+                } else {
+                    Text(tr("Not connected", "未连接"))
+                        .foregroundStyle(BrandColors.textSecondary)
+                        .font(.callout)
+                }
+            }
+            if let title = account.account?.channel?.title, !title.isEmpty {
+                row(tr("Channel", "频道"), value: title)
+            }
+            if let err = account.lastError {
+                Text(err).font(.caption).foregroundStyle(.red)
+            }
+
+            TextField(tr("Client ID", "Client ID"), text: $oauthClientID)
+                .textFieldStyle(.roundedBorder)
+            SecureField(tr("Client Secret", "Client Secret"), text: $oauthClientSecret)
+                .textFieldStyle(.roundedBorder)
+            TextField(tr("Redirect URI", "重定向 URI"), text: $oauthRedirectURI)
+                .textFieldStyle(.roundedBorder)
+            if let err = oauthSaveError {
+                Text(err).font(.caption).foregroundStyle(.red)
+            }
+
+            HStack {
+                Button {
+                    saveOAuthConfig()
+                } label: {
+                    Label(tr("Save Credentials", "保存凭证"), systemImage: "key.fill")
+                }
+                .buttonStyle(.bordered)
+                .tint(BrandColors.cyan)
+                .disabled(!oauthConfigDraftValid)
+
+                if account.isConnected {
+                    Button(role: .destructive) {
+                        account.disconnect()
+                    } label: {
+                        Label(tr("Disconnect", "断开连接"), systemImage: "person.badge.minus")
+                    }
+                    .buttonStyle(.bordered)
+                } else {
+                    Button {
+                        Task { await account.connect() }
+                    } label: {
+                        Label(tr("Connect…", "连接…"), systemImage: "person.badge.key")
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(BrandColors.cyan)
+                    .disabled(account.loadConfig() == nil)
+                }
+            }
+
+            Text(oAuthHelpText)
+                .font(.caption)
+                .foregroundStyle(BrandColors.textSecondary)
+        }
+
         Section(tr("YouTube / yt-dlp", "YouTube / yt-dlp")) {
             row(tr("yt-dlp Path", "yt-dlp 路径"), value: binaryPath ?? tr("Not found (will use yt-dlp from PATH or bundled binary)", "未找到(将用 PATH 中的 yt-dlp 或随包二进制)"))
 
@@ -58,7 +168,7 @@ struct YouTubeSettingsView: View {
             .disabled(bridge == nil || checkingVersion)
         }
 
-        Section(tr("Sign-in / Cookies", "登录 / Cookie")) {
+        Section(tr("Browser Cookie Source (yt-dlp)", "浏览器 Cookie 来源(yt-dlp)")) {
             Picker(tr("Cookie Source", "Cookie 来源"), selection: $cookieSourceRaw) {
                 ForEach(YTCookieSource.allCases, id: \.rawValue) { src in
                     Text(src.displayName).tag(src.rawValue)
@@ -88,6 +198,7 @@ struct YouTubeSettingsView: View {
         }
         .task {
             if let bridge { binaryPath = await bridge.locateBinary() }
+            loadOAuthDraft()
         }
         .fileImporter(
             isPresented: $showFilePicker,
