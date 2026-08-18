@@ -16,6 +16,7 @@ struct RootView: View {
     @State private var showSettings = false
     @State private var showAbout = false
     @State private var showFocus = false
+    @State private var showAudioInfo = false
     /// 由 Profile 弹出菜单设置,用于直接跳转到指定 Settings 分类(如 YouTube 登录)。
     @State private var initialSettingsCategory: SettingsCategory? = nil
     @AppStorage(PrefKey.language) private var language = "system"
@@ -165,6 +166,12 @@ struct RootView: View {
         .sheet(isPresented: $showFocus) {
             FocusView()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .musesToggleAudioInfo)) { _ in
+            showAudioInfo.toggle()
+        }
+        .sheet(isPresented: $showAudioInfo) {
+            AudioInfoPanel()
+        }
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button { showImport = true } label: { Image(systemName: "plus") }
@@ -193,6 +200,8 @@ extension Notification.Name {
     static let musesToggleDesktopLyrics = Notification.Name("muses.toggleDesktopLyrics")
     static let musesDesktopFlagsChanged = Notification.Name("muses.desktopFlagsChanged")
     static let musesToggleFocusMode = Notification.Name("muses.toggleFocusMode")
+    // Phase 26 — 音频信息面板。
+    static let musesToggleAudioInfo = Notification.Name("muses.toggleAudioInfo")
 }
 
 enum BrandColors {
