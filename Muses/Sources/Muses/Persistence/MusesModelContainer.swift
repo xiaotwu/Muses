@@ -9,7 +9,8 @@ enum MusesSchema {
                 ListeningEvent.self,
                 ListeningSession.self,
                 InboxItem.self,
-                TrackNote.self, TrackBookmark.self, AlbumNote.self])
+                TrackNote.self, TrackBookmark.self, AlbumNote.self,
+                AutomationRule.self])
     }
 }
 
