@@ -34,6 +34,12 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 32) {
+                // Phase D4 — Apple Music 风格大标题(~30pt)。保留既有信息架构与行为。
+                Text(tr("Home", "首页"))
+                    .font(.system(size: 30, weight: .heavy))
+                    .foregroundStyle(BrandColors.textPrimary)
+                    .padding(.horizontal, 24)
+
                 // Hero
                 if let hero = heroAlbum {
                     heroSection(hero)
@@ -189,40 +195,20 @@ struct HomeView: View {
         .onTapGesture { selectedAlbum = album }
     }
 
-    // MARK: - 横向滚动区
+    // MARK: - 横向滚动区(Phase D4:复用 SectionHeader + ResponsiveCarousel + DiscoveryCard)
 
     private func horizontalSection(title: String, albums: [Album]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.title2).fontWeight(.bold)
-                .foregroundStyle(BrandColors.textPrimary)
-                .padding(.horizontal, 24)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
-                    ForEach(albums, id: \.id) { album in
-                        VStack(alignment: .leading, spacing: 6) {
-                            let art = album.artworkHash.flatMap { ArtworkCache.default.path(forHash: $0) }
-                                .map { NSImage(byReferencing: $0) }
-                            if let img = art {
-                                Image(nsImage: img).resizable().scaledToFill()
-                                    .frame(width: 140, height: 140)
-                                    .clipped().cornerRadius(8)
-                            } else {
-                                RoundedRectangle(cornerRadius: 8).fill(BrandColors.surface)
-                                    .frame(width: 140, height: 140)
-                                    .overlay(Image(systemName: "music.note").font(.title))
-                            }
-                            Text(album.title).font(.caption).lineLimit(1)
-                                .foregroundStyle(BrandColors.textPrimary)
-                            Text(album.albumArtist).font(.caption2).lineLimit(1)
-                                .foregroundStyle(BrandColors.textSecondary)
-                        }
-                        .frame(width: 140)
-                        .onTapGesture { selectedAlbum = album }
-                    }
+            SectionHeader(title: title)
+            ResponsiveCarousel(cardSize: 150) {
+                ForEach(albums, id: \.id) { album in
+                    DiscoveryCard(
+                        title: album.title,
+                        subtitle: album.albumArtist,
+                        artworkPath: album.artworkHash.flatMap { ArtworkCache.default.path(forHash: $0) },
+                        size: 150, aspect: .square,
+                        onTap: { selectedAlbum = album })
                 }
-                .padding(.horizontal, 24)
             }
         }
     }
@@ -232,20 +218,13 @@ struct HomeView: View {
     @ViewBuilder
     private var recentlyPlayedSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(tr("Recently Played", "最近播放"))
-                .font(.title2).fontWeight(.bold)
-                .foregroundStyle(BrandColors.textPrimary)
-                .padding(.horizontal, 24)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
-                    ForEach(recentlyPlayed, id: \.id) { snap in
-                        RecentTrackCard(snap: snap) {
-                            playback.playTrack(snap, context: [snap], from: .recently)
-                        }
+            SectionHeader(title: tr("Recently Played", "最近播放"))
+            ResponsiveCarousel(cardSize: 130) {
+                ForEach(recentlyPlayed, id: \.id) { snap in
+                    RecentTrackCard(snap: snap) {
+                        playback.playTrack(snap, context: [snap], from: .recently)
                     }
                 }
-                .padding(.horizontal, 24)
             }
         }
     }
@@ -255,32 +234,24 @@ struct HomeView: View {
     @ViewBuilder
     private var topPicksSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(tr("Top Picks for you", "为你推荐"))
-                    .font(.title2).fontWeight(.bold)
-                    .foregroundStyle(BrandColors.textPrimary)
-                Text(tr("YouTube Music", "YouTube 音乐"))
-                    .font(.caption).foregroundStyle(BrandColors.textSecondary)
-            }
-            .padding(.horizontal, 24)
+            SectionHeader(title: tr("Top Picks for you", "为你推荐"),
+                          subtitle: tr("YouTube Music", "YouTube 音乐"))
 
             if trendingLoading {
-                ProgressView()
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 40)
+                // Phase D4:骨架替代居中 spinner(§15)。
+                ResponsiveCarousel(cardSize: 160) {
+                    ForEach(0..<5, id: \.self) { _ in SkeletonCard(size: 160, aspect: .wide169) }
+                }
             } else if let err = trendingError {
                 Text(err).font(.caption).foregroundStyle(BrandColors.textSecondary)
                     .frame(maxWidth: .infinity).padding(.vertical, 20)
             } else if !ytTrending.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 16) {
-                        ForEach(ytTrending.prefix(10), id: \.id) { entry in
-                            YouTubeTrendingCard(entry: entry) {
-                                Task { await playYouTube(entry) }
-                            }
+                ResponsiveCarousel(cardSize: 160) {
+                    ForEach(ytTrending.prefix(10), id: \.id) { entry in
+                        YouTubeTrendingCard(entry: entry) {
+                            Task { await playYouTube(entry) }
                         }
                     }
-                    .padding(.horizontal, 24)
                 }
             }
         }
@@ -291,18 +262,11 @@ struct HomeView: View {
     @ViewBuilder
     private var youtubeImportsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(tr("Imported Playlists", "已导入歌单"))
-                .font(.title2).fontWeight(.bold)
-                .foregroundStyle(BrandColors.textPrimary)
-                .padding(.horizontal, 24)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
-                    ForEach(ytImports.prefix(10), id: \.id) { imp in
-                        YouTubeImportCardSmall(imp: imp)
-                    }
+            SectionHeader(title: tr("Imported Playlists", "已导入歌单"))
+            ResponsiveCarousel(cardSize: 150) {
+                ForEach(ytImports.prefix(10), id: \.id) { imp in
+                    YouTubeImportCardSmall(imp: imp)
                 }
-                .padding(.horizontal, 24)
             }
         }
     }
@@ -323,29 +287,14 @@ struct HomeView: View {
     @ViewBuilder
     private func discoverySection(_ section: HomeSection) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(section.title)
-                    .font(.title2).fontWeight(.bold)
-                    .foregroundStyle(BrandColors.textPrimary)
-                if let sub = section.subtitle {
-                    Text(sub)
-                        .font(.caption).foregroundStyle(BrandColors.textSecondary)
-                }
-            }
-            .padding(.horizontal, 24)
+            SectionHeader(title: section.title, subtitle: section.subtitle)
 
             switch section.status {
             case .loading:
                 // 无缓存冷启:骨架占位(不使用居中 spinner,§15)。
-                HStack(spacing: 16) {
-                    ForEach(0..<4, id: \.self) { _ in
-                        RoundedRectangle(cornerRadius: 8).fill(BrandColors.surface)
-                            .frame(width: 160, height: 90)
-                            .overlay(Image(systemName: "music.note").font(.title)
-                                .foregroundStyle(BrandColors.textSecondary.opacity(0.3)))
-                    }
+                ResponsiveCarousel(cardSize: 160) {
+                    ForEach(0..<5, id: \.self) { _ in SkeletonCard(size: 160, aspect: .wide169) }
                 }
-                .padding(.horizontal, 24)
             case .failed(let msg):
                 Text(msg ?? tr("Couldn’t load this section", "无法加载该区段"))
                     .font(.caption).foregroundStyle(BrandColors.textSecondary)
@@ -355,17 +304,14 @@ struct HomeView: View {
                     // 已加载但无结果:不显示空占位,静默折叠。
                     EmptyView()
                 } else {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 16) {
-                            ForEach(section.items) { item in
-                                if case .youTube(let card) = item {
-                                    HomeDiscoveryCardView(card: card) {
-                                        Task { await playYouTubeCard(card) }
-                                    }
+                    ResponsiveCarousel(cardSize: 160) {
+                        ForEach(section.items) { item in
+                            if case .youTube(let card) = item {
+                                HomeDiscoveryCardView(card: card) {
+                                    Task { await playYouTubeCard(card) }
                                 }
                             }
                         }
-                        .padding(.horizontal, 24)
                     }
                 }
             }
@@ -389,10 +335,7 @@ struct HomeView: View {
 
     private var allAlbumsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(tr("All Albums", "全部专辑"))
-                .font(.title2).fontWeight(.bold)
-                .foregroundStyle(BrandColors.textPrimary)
-                .padding(.horizontal, 24)
+            SectionHeader(title: tr("All Albums", "全部专辑"))
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 5),
                       spacing: 20) {
