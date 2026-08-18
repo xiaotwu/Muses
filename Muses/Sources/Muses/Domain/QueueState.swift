@@ -13,6 +13,10 @@ final class QueueState {
     var repeatModeRaw: String
     var shuffle: Bool
     var savedAt: Date
+    /// 崩溃恢复:退出/崩溃时正在播放的曲目 id(Phase 18 会话恢复使用)。nil = 无记录。
+    var currentTrackId: UUID?
+    /// 崩溃恢复:上次 checkpoint 的播放位置(秒)。nil = 无记录。
+    var lastPositionMs: Double?
 
     /// 单例持久化行使用的固定 UUID。
     static let sharedID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
@@ -24,7 +28,9 @@ final class QueueState {
          historyJSON: String,
          repeatModeRaw: String,
          shuffle: Bool,
-         savedAt: Date = .init()) {
+         savedAt: Date = .init(),
+         currentTrackId: UUID? = nil,
+         lastPositionMs: Double? = nil) {
         self.id = id
         self.itemsJSON = itemsJSON
         self.currentIndex = currentIndex
@@ -33,5 +39,7 @@ final class QueueState {
         self.repeatModeRaw = repeatModeRaw
         self.shuffle = shuffle
         self.savedAt = savedAt
+        self.currentTrackId = currentTrackId
+        self.lastPositionMs = lastPositionMs
     }
 }

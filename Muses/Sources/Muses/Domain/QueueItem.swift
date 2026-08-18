@@ -6,14 +6,39 @@ struct QueueItem: Identifiable, Equatable, Sendable, Codable {
     let source: TrackSource
     let queuedAt: Date
     let fromContext: QueueSource
+    /// 锁定项:不被自动推荐/广播替换移除(手动移除仍允许)。默认 false。
+    var locked: Bool
+    /// 所属队列分组 id(Phase 19 QueueGroup)。nil = 未分组。
+    var groupId: UUID?
+    /// 优先级:数值越大越靠前(Phase 19 插入模式)。nil = 无优先级。
+    var priority: Int?
 
     init(id: UUID = UUID(), track: TrackSnapshot, source: TrackSource,
-         queuedAt: Date = .init(), fromContext: QueueSource = .songs) {
+         queuedAt: Date = .init(), fromContext: QueueSource = .songs,
+         locked: Bool = false, groupId: UUID? = nil, priority: Int? = nil) {
         self.id = id; self.track = track; self.source = source
         self.queuedAt = queuedAt; self.fromContext = fromContext
+        self.locked = locked; self.groupId = groupId; self.priority = priority
     }
 
     static func == (lhs: QueueItem, rhs: QueueItem) -> Bool { lhs.id == rhs.id }
+
+    // Backward-compat decoder: locked/groupId/priority default for old QueueState
+    // JSON that predates the fields (encode(to:) stays synthesized).
+    private enum CodingKeys: String, CodingKey {
+        case id, track, source, queuedAt, fromContext, locked, groupId, priority
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        track = try c.decode(TrackSnapshot.self, forKey: .track)
+        source = try c.decode(TrackSource.self, forKey: .source)
+        queuedAt = try c.decode(Date.self, forKey: .queuedAt)
+        fromContext = try c.decode(QueueSource.self, forKey: .fromContext)
+        locked = try c.decodeIfPresent(Bool.self, forKey: .locked) ?? false
+        groupId = try c.decodeIfPresent(UUID.self, forKey: .groupId)
+        priority = try c.decodeIfPresent(Int.self, forKey: .priority)
+    }
 }
 
 /// 轻量只读快照,避免 UI 直接持有 SwiftData @Model 在队列中跨线程传递。
@@ -29,6 +54,8 @@ struct TrackSnapshot: Identifiable, Equatable, Sendable, Codable {
     let artworkUrl: String?
     let sampleRate: Int?
     let bitDepth: Int?
+    let bitRate: Int?
+    let channels: Int?
     let codec: String?
     let isLossless: Bool
     let liked: Bool
@@ -42,6 +69,7 @@ struct TrackSnapshot: Identifiable, Equatable, Sendable, Codable {
         self.filePath = track.filePath; self.youTubeId = track.youTubeId
         self.artworkHash = track.localArtworkHash; self.artworkUrl = track.artworkUrl
         self.sampleRate = track.sampleRate; self.bitDepth = track.bitDepth
+        self.bitRate = track.bitRate; self.channels = track.channels
         self.codec = track.codec; self.isLossless = track.isLossless
         self.liked = track.liked
         self.lyrics = track.lyrics
@@ -52,24 +80,26 @@ struct TrackSnapshot: Identifiable, Equatable, Sendable, Codable {
          durationSeconds: Double, filePath: String?, youTubeId: String?,
          artworkHash: String?, artworkUrl: String?,
          sampleRate: Int?, bitDepth: Int?, codec: String?, isLossless: Bool,
-         liked: Bool = false, lyrics: String? = nil, replayGain: Double? = nil) {
+         liked: Bool = false, lyrics: String? = nil, replayGain: Double? = nil,
+         bitRate: Int? = nil, channels: Int? = nil) {
         self.id = id; self.title = title; self.artist = artist
         self.albumTitle = albumTitle; self.durationSeconds = durationSeconds
         self.filePath = filePath; self.youTubeId = youTubeId
         self.artworkHash = artworkHash; self.artworkUrl = artworkUrl
         self.sampleRate = sampleRate; self.bitDepth = bitDepth
+        self.bitRate = bitRate; self.channels = channels
         self.codec = codec; self.isLossless = isLossless
         self.liked = liked
         self.lyrics = lyrics
         self.replayGain = replayGain
     }
 
-    // Custom decoder: `liked` defaults to false for backward compat with old
-    // QueueState JSON that predates the field (encode(to:) stays synthesized).
+    // Custom decoder: `liked`/`bitRate`/`channels` default for backward compat with
+    // old QueueState JSON that predates the fields (encode(to:) stays synthesized).
     private enum CodingKeys: String, CodingKey {
         case id, title, artist, albumTitle, durationSeconds, filePath, youTubeId
         case artworkHash, artworkUrl, sampleRate, bitDepth, codec, isLossless, liked
-        case lyrics, replayGain
+        case lyrics, replayGain, bitRate, channels
     }
 
     init(from decoder: Decoder) throws {
@@ -85,6 +115,8 @@ struct TrackSnapshot: Identifiable, Equatable, Sendable, Codable {
         artworkUrl = try c.decodeIfPresent(String.self, forKey: .artworkUrl)
         sampleRate = try c.decodeIfPresent(Int.self, forKey: .sampleRate)
         bitDepth = try c.decodeIfPresent(Int.self, forKey: .bitDepth)
+        bitRate = try c.decodeIfPresent(Int.self, forKey: .bitRate)
+        channels = try c.decodeIfPresent(Int.self, forKey: .channels)
         codec = try c.decodeIfPresent(String.self, forKey: .codec)
         isLossless = try c.decode(Bool.self, forKey: .isLossless)
         liked = try c.decodeIfPresent(Bool.self, forKey: .liked) ?? false

@@ -72,4 +72,22 @@ enum PrefKey {
     static let language = "muses.language"
     static let localAudioQuality = "muses.audio.localQuality"
     static let ytAudioQuality = "muses.yt.quality"
+
+    // MARK: - Feature flags (Phase 16+ 产品升级开关;默认 false = 现有行为 + 按需开启)
+    static let ffSmartHistory       = "muses.ff.smartHistory"
+    static let ffSessions           = "muses.ff.sessions"
+    static let ffAdvancedQueue      = "muses.ff.advancedQueue"
+    static let ffInbox              = "muses.ff.inbox"
+    static let ffNotes              = "muses.ff.notes"
+    static let ffAdvancedLyrics     = "muses.ff.advancedLyrics"
+    static let ffFocusMode          = "muses.ff.focusMode"
+    static let ffAudioNerd          = "muses.ff.audioNerd"
+    static let ffContext             = "muses.ff.context"
+    static let ffAutomation         = "muses.ff.automation"
+    static let ffMiniPlayer         = "muses.ff.miniPlayer"
+    static let ffTray                = "muses.ff.tray"
+    static let ffDesktopLyrics      = "muses.ff.desktopLyrics"
+    static let ffGlobalHotkeys      = "muses.ff.globalHotkeys"
+    /// 上下文监听:记录前台应用 bundle id(隐私敏感,默认关闭)。
+    static let contextTrackActiveApp = "muses.context.trackActiveApp"
 }

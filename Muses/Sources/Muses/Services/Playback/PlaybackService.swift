@@ -17,6 +17,9 @@ final class PlaybackService {
     let queue: QueueService
     /// 资料库服务:用于记录播放历史(`recordPlay`)。测试可不传(nil 时跳过记录)。
     weak var library: LibraryService?
+    /// 跨特性播放事件总线(Phase 16 起:History/Session/Context/Inbox/Focus 订阅)。
+    /// 由 PlaybackService 持有单例;外部经 `eventBus.subscribe` 注册。
+    let eventBus = PlaybackEventBus()
     private(set) var volume: Float = 0.8
     private var completionObserver: Task<Void, Never>?
     private var lastCompletedTrackId: UUID?
@@ -155,6 +158,8 @@ final class PlaybackService {
             if let handler = spectrumHandler {
                 targetEngine.installSpectrumTap(handler)
             }
+            // 通知订阅者播放源在 local / youtube 间切换。
+            eventBus.post(.playbackSourceChanged(source: track.youTubeId != nil ? .youtube : .local))
         }
 
         // 预设 track 以便 UI 即时反馈(计算 state 委托到 targetEngine.state)。
@@ -165,6 +170,8 @@ final class PlaybackService {
             targetEngine.play()
             // 记录播放历史(本地 + YouTube):曲目已开始播放。
             library?.recordPlay(trackId: track.id)
+            // 通知订阅者:新曲目已开始(Phase 17 History/Session 据此记录 ListeningEvent)。
+            eventBus.post(.trackStarted(track))
             // 预加载下一首(本地无缝播放的前置条件)
             prepareNext()
         } catch {
