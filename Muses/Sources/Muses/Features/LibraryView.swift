@@ -164,7 +164,9 @@ struct SongRow: View {
     @Environment(LibraryService.self) private var library
     @Environment(PlaylistService.self) private var playlistService
     @Environment(InboxService.self) private var inbox
+    @Environment(NotesService.self) private var notes
     @State private var showEditTrack = false
+    @State private var showTrackNotes = false
 
     var body: some View {
         // 访问 likedRevision / metadataRevision 注册 @Observable 依赖,使 toggleLike / 编辑信息 后即时刷新。
@@ -212,9 +214,13 @@ struct SongRow: View {
             }
             Divider()
             Button(tr("Edit Info", "编辑信息")) { showEditTrack = true }
+            Button(tr("Notes & Bookmarks…", "笔记与书签…")) { showTrackNotes = true }
         }
         .sheet(isPresented: $showEditTrack) {
             EditTrackSheet(track: track)
+        }
+        .sheet(isPresented: $showTrackNotes) {
+            TrackNotesSheet(track: track)
         }
     }
 

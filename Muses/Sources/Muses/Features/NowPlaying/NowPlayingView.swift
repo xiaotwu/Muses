@@ -242,6 +242,10 @@ struct NowPlayingView: View {
             LyricsView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             UpNextPreview(onShowQueue: onShowQueue)
+            // 曲目书签(Phase 21 §10.7):仅当当前曲目有书签时渲染,点击跳转。
+            if let tid = playback.state.track?.id {
+                BookmarksView(trackId: tid)
+            }
         }
     }
 

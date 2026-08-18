@@ -20,6 +20,7 @@ struct MusesApp: App {
     let historyService: HistoryService
     let sessionService: SessionService
     let inboxService: InboxService
+    let notesService: NotesService
     private let nowPlayingManager: NowPlayingManager
     private let spotlightIndexer: SpotlightIndexer
 
@@ -48,8 +49,11 @@ struct MusesApp: App {
                                                   modelContainer: container)
         self.playlistService = PlaylistService(modelContainer: container)
         self.sleepTimer = SleepTimerService(playbackService: playbackService)
+        // 笔记 & 书签(Phase 21):TrackNote/TrackBookmark/AlbumNote 读写入口;
+        // 无事件总线订阅(笔记不与播放事件耦合),ffNotes 关 → 写入 no-op。
+        self.notesService = NotesService(modelContainer: container)
         self.globalSearchService = GlobalSearchService(
-            library: library, youTubeSearch: searchService)
+            library: library, youTubeSearch: searchService, notes: notesService)
         self.lyricsService = LyricsService(modelContainer: container)
         self.recommendationService = RecommendationService(library: library)
         let enricher = MetadataEnricherService(modelContainer: container)
@@ -132,6 +136,7 @@ struct MusesApp: App {
                     .environment(historyService)
                     .environment(sessionService)
                     .environment(inboxService)
+                    .environment(notesService)
                     .modelContainer(modelContainer)
                     .onOpenURL { url in
                         // deep link: muses://play?trackId=<id> — Spotlight / 外部唤起播放

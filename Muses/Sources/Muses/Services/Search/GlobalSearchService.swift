@@ -11,19 +11,23 @@ final class GlobalSearchService {
     private(set) var trackResults: [Track] = []
     private(set) var albumResults: [Album] = []
     private(set) var artistResults: [Artist] = []
+    private(set) var noteResults: [NotesService.NoteSearchHit] = []
     private(set) var youtubeResults: [YTDlpBridge.YTDlpPlaylistEntry] = []
     private(set) var isSearchingYouTube = false
 
     private let library: LibraryService
     let youTubeSearch: YouTubeSearchService?
+    private let notes: NotesService?
     private var searchTask: Task<Void, Never>?
     private let debounceMs: UInt64
 
     init(library: LibraryService,
          youTubeSearch: YouTubeSearchService? = nil,
+         notes: NotesService? = nil,
          debounceMs: UInt64 = 250) {
         self.library = library
         self.youTubeSearch = youTubeSearch
+        self.notes = notes
         self.debounceMs = debounceMs
     }
 
@@ -33,6 +37,7 @@ final class GlobalSearchService {
         trackResults = []
         albumResults = []
         artistResults = []
+        noteResults = []
         youtubeResults = []
         isSearchingYouTube = false
         searchTask?.cancel()
@@ -48,6 +53,7 @@ final class GlobalSearchService {
             trackResults = []
             albumResults = []
             artistResults = []
+            noteResults = []
             youtubeResults = []
             isSearchingYouTube = false
             return
@@ -73,6 +79,10 @@ final class GlobalSearchService {
         trackResults = tracks
         albumResults = albums
         artistResults = artists
+        // 笔记搜索(Phase 21):ffNotes 关时 searchNotes 仍可读已存数据;为空则不显示该区段。
+        if let notes {
+            noteResults = notes.searchNotes(query: query)
+        }
 
         // YouTube 搜索 — 异步
         guard let youTubeSearch else { return }

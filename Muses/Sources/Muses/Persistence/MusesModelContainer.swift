@@ -8,7 +8,8 @@ enum MusesSchema {
                 Playlist.self, PlaylistItem.self,
                 ListeningEvent.self,
                 ListeningSession.self,
-                InboxItem.self])
+                InboxItem.self,
+                TrackNote.self, TrackBookmark.self, AlbumNote.self])
     }
 }
 
