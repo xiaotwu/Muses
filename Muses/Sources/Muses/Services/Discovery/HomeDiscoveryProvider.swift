@@ -23,6 +23,28 @@ struct HomeDiscoveryInput: Sendable, Equatable {
             && lhs.timeBand == rhs.timeBand
             && lhs.hour == rhs.hour
     }
+
+    /// 融合 YouTube 账号个性化信号(后台 refresh 路径):把账号点赞/订阅的艺术家名
+    /// 并入本地种子(去重保序,限 5),作为发现查询的额外种子。`timeBand`/`hour` 不变。
+    func enriched(with signals: PersonalizationSignals) -> HomeDiscoveryInput {
+        func merge(_ local: [String], _ extra: [String]) -> [String] {
+            var seen = Set<String>()
+            var out: [String] = []
+            for name in local + extra {
+                let key = name.lowercased()
+                guard !key.isEmpty, seen.insert(key).inserted else { continue }
+                out.append(name)
+                if out.count >= 5 { break }
+            }
+            return out
+        }
+        return HomeDiscoveryInput(
+            topArtistNames: merge(topArtistNames, signals.likedArtistNames),
+            recentlyPlayedArtistNames: recentlyPlayedArtistNames,
+            likedArtistNames: merge(likedArtistNames, signals.subscribedChannelNames),
+            timeBand: timeBand,
+            hour: hour)
+    }
 }
 
 /// Home 发现提供者协议(§3)。

@@ -21,18 +21,23 @@ final class HomeDiscoveryService {
     private let library: LibraryService
     private let historyService: HistoryService?
     private let enabledProvider: () -> Bool
+    /// YouTube 账号个性化信号(可选,P2 OAuth 接入后注入)。仅在后台 `refresh` 路径读取,
+    /// 把账号点赞/订阅的艺术家名融合进发现种子;nil/未连接 → 无影响,发现回退本地信号。
+    private let youTubeSignals: @Sendable () async -> PersonalizationSignals?
     private var refreshTask: Task<Void, Never>?
 
     init(provider: HomeDiscoveryProvider,
          cache: HomeFeedCache = .default,
          library: LibraryService,
          historyService: HistoryService? = nil,
-         enabledProvider: @escaping () -> Bool = { UserDefaults.standard.bool(forKey: PrefKey.ffDiscovery) }) {
+         enabledProvider: @escaping () -> Bool = { UserDefaults.standard.bool(forKey: PrefKey.ffDiscovery) },
+         youTubeSignals: @escaping @Sendable () async -> PersonalizationSignals? = { nil }) {
         self.provider = provider
         self.cache = cache
         self.library = library
         self.historyService = historyService
         self.enabledProvider = enabledProvider
+        self.youTubeSignals = youTubeSignals
     }
 
     var isEnabled: Bool { enabledProvider() }
@@ -91,13 +96,23 @@ final class HomeDiscoveryService {
         isRefreshing = true
         refreshTask = Task { [weak self] in
             guard let self else { return }
-            let result = await self.provider.sections(for: input)
+            // P2:融合 YouTube 账号个性化信号(后台路径,不影响同步缓存契约)。
+            let enriched = await self.enrichedInput(input)
+            let result = await self.provider.sections(for: enriched)
             guard !Task.isCancelled else { return }
             self.sections = result
+            // 缓存仍以原始 input 为键(同步 load() 用同一 input 查缓存)。
             self.cache.set(result, for: input)
             self.isRefreshing = false
             PerfTrace.event("home.discovery.refreshed")
         }
+    }
+
+    /// 把 YouTube 账号信号(点赞/订阅的艺术家名)融合进 `input` 的种子列表。
+    /// 仅在后台 refresh 调用;`youTubeSignals` 返回 nil → 原样返回。
+    private func enrichedInput(_ input: HomeDiscoveryInput) async -> HomeDiscoveryInput {
+        guard let signals = await youTubeSignals() else { return input }
+        return input.enriched(with: signals)
     }
 
     /// loading 占位:用 input 派生的区段标题预填(标题来自 provider 逻辑,视图不硬编码)。

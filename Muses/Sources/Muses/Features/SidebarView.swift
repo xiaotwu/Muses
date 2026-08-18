@@ -12,7 +12,9 @@ struct SidebarView: View {
     @State private var playlists: [Playlist] = []
     @Query(sort: \YouTubeImport.importedAt, order: .reverse) private var ytImports: [YouTubeImport]
     @State private var showProfilePopover = false
-    /// YouTube 登录态:反映 cookie 来源设置,用于 Profile 副标题与头像着色。
+    /// P2 — YouTube 账户(真实 Google OAuth):驱动 Profile 标题/连接态/头像着色。
+    @Environment(YouTubeAccountService.self) private var youTubeAccount
+    /// cookie 来源(yt-dlp 播放用),仅当 OAuth 未连接时作为登录态回退显示。
     @AppStorage(PrefKey.ytCookieSource) private var cookieSourceRaw = YTCookieSource.none.rawValue
 
     var body: some View {
@@ -132,17 +134,17 @@ struct SidebarView: View {
         }
     }
 
-    /// 底部用户控件:点击弹出 Your YouTube / Sign-in / Settings / About。
+    /// 底部用户控件:点击弹出 You / Connect / Settings / About。
     private var profileControl: some View {
         HStack(spacing: 10) {
             profileAvatar
                 .frame(width: 28, height: 28)
             VStack(alignment: .leading, spacing: 1) {
-                Text(tr("Your YouTube", "你的 YouTube"))
+                Text(tr("You", "你"))
                     .font(.callout)
                     .foregroundStyle(BrandColors.textPrimary)
                     .lineLimit(1)
-                Text(youTubeSignInSubtitle)
+                Text(youTubeStatusSubtitle)
                     .font(.caption2)
                     .foregroundStyle(BrandColors.textSecondary)
                     .lineLimit(1)
@@ -164,23 +166,33 @@ struct SidebarView: View {
         }
     }
 
-    /// 灰色人形头像(默认未登录态);已登录时使用主色高亮,直观反映登录状态。
+    /// 灰色人形头像(默认未登录态);已连接 YouTube(OAuth)或已设 cookie 时使用主色高亮。
     private var profileAvatar: some View {
         Image(systemName: "person.circle.fill")
             .resizable()
             .scaledToFit()
             .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(isSignedInToYouTube
+            .foregroundStyle(isYouTubeConnected
                 ? BrandColors.textPrimary
                 : BrandColors.textSecondary)
     }
 
-    private var isSignedInToYouTube: Bool {
-        YTCookieSource(rawValue: cookieSourceRaw) ?? .none != .none
+    /// 已连接:OAuth 账户连接,或 yt-dlp cookie 来源已设(回退)。
+    private var isYouTubeConnected: Bool {
+        youTubeAccount.isConnected
+            || (YTCookieSource(rawValue: cookieSourceRaw) ?? .none) != .none
     }
 
-    private var youTubeSignInSubtitle: String {
-        isSignedInToYouTube ? tr("Signed in", "已登录") : tr("Not signed in", "未登录")
+    /// Profile 副标题:优先 OAuth 账户标题;否则回退 cookie 来源登录态。
+    private var youTubeStatusSubtitle: String {
+        if youTubeAccount.isConnected {
+            if let title = youTubeAccount.account?.channel?.title, !title.isEmpty {
+                return title
+            }
+            return tr("Connected", "已连接")
+        }
+        let cookieOn = (YTCookieSource(rawValue: cookieSourceRaw) ?? .none) != .none
+        return cookieOn ? tr("Cookie sign-in", "Cookie 登录") : tr("Not connected", "未连接")
     }
 
     private func refreshPlaylists() {
@@ -188,27 +200,42 @@ struct SidebarView: View {
     }
 }
 
-/// 用户 Profile 弹出菜单:Your YouTube / Sign-in / Settings / About。
+/// 用户 Profile 弹出菜单:You / Connect to YouTube / Settings / About。
 struct ProfilePopover: View {
     @Binding var showSettings: Bool
     @Binding var showAbout: Bool
     @Binding var initialSettingsCategory: SettingsCategory?
     @Binding var isPresented: Bool
+    @Environment(YouTubeAccountService.self) private var youTubeAccount
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             popoverItem(icon: "play.rectangle",
-                        title: tr("Your YouTube", "你的 YouTube")) {
+                        title: tr("You", "你")) {
                 if let url = URL(string: "https://music.youtube.com") {
                     NSWorkspace.shared.open(url)
                 }
                 isPresented = false
             }
-            popoverItem(icon: "person.badge.key",
-                        title: tr("YouTube Sign-in…", "YouTube 登录…")) {
-                isPresented = false
-                initialSettingsCategory = .youtube
-                showSettings = true
+            // P2 — 真实 Google OAuth 连接(非 cookie 跳转)。已配置凭证 → 浏览器授权;
+            // 未配置 → 跳转设置页填入 Google Cloud OAuth Client ID/Secret/Redirect URI。
+            if youTubeAccount.isConnected {
+                popoverItem(icon: "person.badge.minus",
+                            title: tr("Disconnect from YouTube…", "断开 YouTube 连接…")) {
+                    isPresented = false
+                    youTubeAccount.disconnect()
+                }
+            } else {
+                popoverItem(icon: "person.badge.key",
+                            title: tr("Connect to YouTube…", "连接到 YouTube…")) {
+                    isPresented = false
+                    if youTubeAccount.loadConfig() == nil {
+                        initialSettingsCategory = .youtube
+                        showSettings = true
+                    } else {
+                        Task { await youTubeAccount.connect() }
+                    }
+                }
             }
             popoverItem(icon: "gearshape", title: tr("Settings", "设置")) {
                 isPresented = false

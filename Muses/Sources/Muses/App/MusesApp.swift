@@ -29,6 +29,9 @@ struct MusesApp: App {
     let homeDiscoveryService: HomeDiscoveryService
     // Phase D5 — New 情境化推荐:History/Context/Sessions/Focus/Inbox/Library 确定性打分。
     let situationalRecommendationService: SituationalRecommendationService
+    // P2 — YouTube 账户(真实 Google OAuth 2.0 PKCE + Data API):用于 Home 个性化信号
+    // (订阅频道/喜欢的视频→艺术家名),凭证与令牌存 Keychain,最小只读 scope,永不阻断播放。
+    let youTubeAccountService: YouTubeAccountService
     // Phase 24 — 原生桌面集成:全局热键 / 菜单栏托盘 / 桌面歌词 / 迷你播放器。
     let globalHotkeyService: GlobalHotkeyService
     let trayController: TrayController
@@ -128,10 +131,19 @@ struct MusesApp: App {
         let discoveryProvider = YTDlpDiscoveryProvider { query, limit in
             try await ytSearchSvc.search(query: query, limit: limit)
         }
+        // P2 — YouTube 账户服务:Google OAuth 2.0 PKCE + YouTube Data API v3。
+        // 凭证(Client ID/Secret/Redirect URI)与令牌均存 macOS Keychain;
+        // 最小只读 scope(youtube.readonly);OAuth 仅用于个性化信号,永不阻断播放。
+        // 用户需在设置中填入自己的 Google Cloud OAuth 凭证(产品不内置)。
+        let youTubeAccount = YouTubeAccountService()
+        self.youTubeAccountService = youTubeAccount
         self.homeDiscoveryService = HomeDiscoveryService(
             provider: discoveryProvider,
             library: library,
-            historyService: historyService)
+            historyService: historyService,
+            youTubeSignals: { [weak youTubeAccount] in
+                await youTubeAccount?.signals()
+            })
         // Phase D5 — New 情境化推荐(只读 History/Context/Focus/Inbox/Library + 已导入 YouTube)。
         // ffSituationalNew 默认关 → compute() 返回空,NewView 回退 RecommendationService。
         self.situationalRecommendationService = SituationalRecommendationService(
@@ -303,6 +315,7 @@ struct MusesApp: App {
                     .environment(audioDeviceService)
                     .environment(homeDiscoveryService)
                     .environment(situationalRecommendationService)
+                    .environment(youTubeAccountService)
                     .modelContainer(modelContainer)
                     .background(MiniPlayerOpener())
                     .onOpenURL { url in
