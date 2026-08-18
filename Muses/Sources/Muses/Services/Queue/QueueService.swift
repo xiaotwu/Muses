@@ -189,4 +189,22 @@ final class QueueService {
         lastPositionMs = row.lastPositionMs
         originalOrder = items
     }
+
+    // MARK: - 崩溃恢复槽位(Phase 18 Listening Sessions)
+
+    /// 把崩溃恢复槽(`currentTrackId` + `lastPositionMs`,毫秒)写入并持久化。
+    /// 由 `SessionService` 在 checkpoint(周期 10s / pause / seek / 退出 / 唤醒)时调用,
+    /// 作为单一写入入口,避免多处置写。复用既有 `persist()` 单行 upsert 路径。
+    func checkpointPosition(currentTrackId: UUID?, lastPositionMs: Double?) {
+        self.currentTrackId = currentTrackId
+        self.lastPositionMs = lastPositionMs
+        persist()
+    }
+
+    /// 清空崩溃恢复槽(用户在启动恢复对话框选择「重新开始」时调用),使下次启动不自动恢复。
+    func clearCrashRecoverySlots() {
+        self.currentTrackId = nil
+        self.lastPositionMs = nil
+        persist()
+    }
 }

@@ -3,6 +3,7 @@ import SwiftUI
 struct RootView: View {
     @Environment(LibraryService.self) private var library
     @Environment(PlaylistService.self) private var playlistService
+    @Environment(SessionService.self) private var sessions
     @State private var section: SidebarSection = .home
     @State private var selectedAlbum: Album?
     @State private var selectedPlaylist: Playlist?
@@ -110,6 +111,20 @@ struct RootView: View {
         .onAppear {
             DispatchQueue.main.async {
                 NSApp.windows.first?.setFrameAutosaveName("MusesMainWindow")
+            }
+        }
+        // Phase 18:启动恢复对话框——绝不静默替换用户队列,必须显式「继续 / 重新开始」。
+        .alert(tr("Continue previous session?", "继续上次的收听会话?"),
+               isPresented: Binding(
+                get: { sessions.pendingRestore != nil },
+                set: { if !$0 { sessions.clearPendingRestore() } })) {
+            Button(tr("Continue", "继续")) { sessions.continuePendingSession() }
+            Button(tr("Start Fresh", "重新开始"), role: .destructive) {
+                sessions.discardPendingSession()
+            }
+        } message: {
+            if let offer = sessions.pendingRestore {
+                Text(offer.displayText)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .musesToggleQueue)) { _ in

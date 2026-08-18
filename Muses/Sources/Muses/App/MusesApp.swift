@@ -18,6 +18,7 @@ struct MusesApp: App {
     let commandRegistry: CommandRegistry
     let runtimeCapabilities: RuntimeCapabilities
     let historyService: HistoryService
+    let sessionService: SessionService
     private let nowPlayingManager: NowPlayingManager
     private let spotlightIndexer: SpotlightIndexer
 
@@ -58,6 +59,13 @@ struct MusesApp: App {
         // 收听历史(Phase 17):订阅 playbackService.eventBus,按事件落库 ListeningEvent。
         self.historyService = HistoryService(modelContainer: container,
                                              eventBus: playbackService.eventBus)
+        // 收听会话 + 崩溃恢复(Phase 18):订阅事件总线,维护 ListeningSession 行 +
+        // 周期 checkpoint 到 QueueState 崩溃恢复槽;构造时检测可恢复会话供 RootView 弹对话框。
+        // 须在 queue.restore() 之后构造(已在上方执行),以读取恢复的 currentTrackId/位置。
+        self.sessionService = SessionService(modelContainer: container,
+                                             eventBus: playbackService.eventBus,
+                                             playback: playbackService,
+                                             queue: queue)
         let indexer = SpotlightIndexer(modelContainer: container)
         self.spotlightIndexer = indexer
         // 启动后异步索引到 Spotlight
@@ -116,6 +124,7 @@ struct MusesApp: App {
                     .environment(commandRegistry)
                     .environment(runtimeCapabilities)
                     .environment(historyService)
+                    .environment(sessionService)
                     .modelContainer(modelContainer)
                     .onOpenURL { url in
                         // deep link: muses://play?trackId=<id> — Spotlight / 外部唤起播放

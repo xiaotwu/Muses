@@ -15,7 +15,8 @@ final class QueueState {
     var savedAt: Date
     /// 崩溃恢复:退出/崩溃时正在播放的曲目 id(Phase 18 会话恢复使用)。nil = 无记录。
     var currentTrackId: UUID?
-    /// 崩溃恢复:上次 checkpoint 的播放位置(秒)。nil = 无记录。
+    /// 崩溃恢复:上次 checkpoint 的播放位置(毫秒)。nil = 无记录。
+    /// (字段名为 Ms,事件总线 `trackSeeked(toMs:)` 亦为毫秒;恢复时 `seek(to:)` 需 ÷1000。)
     var lastPositionMs: Double?
 
     /// 单例持久化行使用的固定 UUID。

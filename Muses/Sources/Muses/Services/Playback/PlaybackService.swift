@@ -23,6 +23,9 @@ final class PlaybackService {
     private(set) var volume: Float = 0.8
     private var completionObserver: Task<Void, Never>?
     private var lastCompletedTrackId: UUID?
+    /// Phase 18 会话恢复:load 后要 seek 到的毫秒位(由 `resumeCurrent(atMs:)` 设置,
+    /// 在 `load(_:)` 末尾一次性消费)。nil = 从 0 开始(正常播放路径)。
+    private var pendingResumeMs: Double?
 
     init(localEngine: any PlayerEngine, youtubeEngine: any PlayerEngine,
          queue: QueueService, library: LibraryService? = nil) {
@@ -190,6 +193,15 @@ final class PlaybackService {
         await load(item.track)
     }
 
+    /// Phase 18 会话恢复:加载队列当前曲目并 seek 到 `atMs`(毫秒)。
+    /// 由 `SessionService.continuePendingSession` 在用户选择「继续上次会话」时调用。
+    /// 实际 seek 在 `load(_:)` 末尾按 `pendingResumeMs` 消费(并 clamp 到 duration-2s,
+    /// 对应 Final Spec §10.5 的 `min(currentPositionMs, duration-2s)`)。
+    func resumeCurrent(atMs ms: Double?) {
+        pendingResumeMs = ms
+        Task { await loadCurrent() }
+    }
+
     private func load(_ track: TrackSnapshot) async {
         // 按 youTubeId 分发:有 id 走 YouTube,否则走本地。
         let targetEngine: any PlayerEngine = track.youTubeId != nil ? youtubeEngine : localEngine
@@ -220,6 +232,16 @@ final class PlaybackService {
             eventBus.post(.trackStarted(track))
             // 预加载下一首(本地无缝播放的前置条件)
             prepareNext()
+            // Phase 18 会话恢复:若 `resumeCurrent(atMs:)` 预置了恢复位,在此消费。
+            // clamp 到 duration-2s(末尾留 2s 余量,避免落到完成检测阈值触发误推进)。
+            if let resumeMs = pendingResumeMs {
+                pendingResumeMs = nil
+                let targetSec = resumeMs / 1000.0
+                let clamped = state.duration > 0
+                    ? min(targetSec, max(0, state.duration - 2.0))
+                    : targetSec
+                if clamped > 0 { seek(to: clamped) }
+            }
         } catch {
             // 引擎已在 load 中设置了 state.error(本地用 .decodingFailed,
             // YouTube 用 .sourceUnavailable);此处只负责停播,不覆盖错误。
