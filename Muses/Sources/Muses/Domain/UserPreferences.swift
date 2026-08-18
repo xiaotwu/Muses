@@ -7,6 +7,29 @@ enum NowPlayingMode: String, CaseIterable, Codable {
     case vinyl   // 唱片旋转
 }
 
+/// Now Playing 歌词呈现模式(Phase 22 §10.8):inline=右栏内联;lyricsOnly=全屏歌词;minimal=单行。
+enum NowPlayingLyricsMode: String, CaseIterable, Codable {
+    case inline      // 右栏内联(默认,既有布局)
+    case lyricsOnly  // 全屏歌词(封面/控件让位,歌词居中大字)
+    case minimal     // 极简单行(仅当前一行,居中超大)
+
+    var next: NowPlayingLyricsMode {
+        switch self {
+        case .inline:     return .lyricsOnly
+        case .lyricsOnly: return .minimal
+        case .minimal:    return .inline
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .inline:     return "text.alignleft"
+        case .lyricsOnly: return "rectangle.expand.vertical"
+        case .minimal:    return "textformat.size.smaller"
+        }
+    }
+}
+
 /// 应用主题。`system` 跟随系统外观;`dark`/`light` 强制覆盖。
 enum AppTheme: String, CaseIterable, Codable {
     case dark, light, system
@@ -56,6 +79,8 @@ enum YTCookieSource: String, CaseIterable, Codable {
 /// @AppStorage 键常量集中管理。
 enum PrefKey {
     static let nowPlayingMode = "muses.nowPlayingMode"
+    /// Now Playing 歌词呈现模式(Phase 22):inline/lyricsOnly/minimal。
+    static let nowPlayingLyricsMode = "muses.nowPlaying.lyricsMode"
     static let theme = "muses.theme"
     static let eqActivePresetId = "muses.eq.activePresetId"
     static let lyricsSource = "muses.lyrics.source"
