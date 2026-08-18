@@ -9,11 +9,16 @@ import SwiftUI
 struct NewView: View {
     @Binding var selectedAlbum: Album?
     @Environment(RecommendationService.self) private var recommendation
+    @Environment(SituationalRecommendationService.self) private var situational
     @Environment(LibraryService.self) private var library
+    @Environment(PlaybackService.self) private var playback
     @Environment(FocusService.self) private var focus
     /// nil = 尚未计算完成(显示占位);非 nil = 已计算。
     @State private var recs: RecommendationService.Recommendations? = nil
     @State private var computeTask: Task<Void, Never>?
+    // Phase D5 — 情境化推荐区段(ffSituationalNew 开启时使用)。
+    @State private var situationalSections: [SituationalSection] = []
+    @State private var situationalTask: Task<Void, Never>?
 
     var body: some View {
         ScrollView {
@@ -25,7 +30,117 @@ struct NewView: View {
                     .padding(.horizontal, 24)
                     .padding(.top, 20)
 
-                if focus.isActive {
+                if situational.isEnabled {
+                    situationalBody
+                } else {
+                    legacyBody
+                }
+            }
+            .padding(.bottom, 100)
+        }
+        .background(BrandColors.background)
+        .onAppear { scheduleCompute() }
+        .onDisappear {
+            computeTask?.cancel()
+            situationalTask?.cancel()
+        }
+        .onChange(of: library.likedRevision) { _, _ in scheduleCompute() }
+        .onChange(of: library.metadataRevision) { _, _ in scheduleCompute() }
+        .onChange(of: library.playRevision) { _, _ in scheduleCompute() }
+    }
+
+    // MARK: - Phase D5:情境化推荐
+
+    @ViewBuilder
+    private var situationalBody: some View {
+        if situationalSections.isEmpty {
+            // 计算中或无足够信号:轻量占位(无 spinner,§15)。
+            EmptyStateView(
+                icon: "sparkles",
+                title: tr("Finding picks for this moment…", "正在为此刻挑选…"),
+                subtitle: tr("Play and let Muses learn your context to get situational picks.",
+                               "播放并让 Muses 了解你的情境以获得推荐。")
+            )
+            .padding(.top, 60)
+        } else {
+            ForEach(situationalSections) { section in
+                situationalSection(section)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func situationalSection(_ section: SituationalSection) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(section.title)
+                    .font(.title2).fontWeight(.bold)
+                    .foregroundStyle(BrandColors.textPrimary)
+                if let sub = section.subtitle {
+                    Text(sub)
+                        .font(.subheadline)
+                        .foregroundStyle(BrandColors.textSecondary)
+                }
+            }
+            .padding(.horizontal, 24)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 16) {
+                    ForEach(section.items, id: \.id) { snap in
+                        situationalTrackCard(snap)
+                    }
+                }
+                .padding(.horizontal, 24)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func situationalTrackCard(_ snap: TrackSnapshot) -> some View {
+        Button {
+            playback.playTrack(snap, context: [snap], from: .songs)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                Group {
+                    if let hash = snap.artworkHash,
+                       let path = ArtworkCache.default.path(forHash: hash) {
+                        Image(nsImage: NSImage(byReferencing: path)).resizable().scaledToFill()
+                    } else if let vid = snap.youTubeId,
+                              let url = URL(string: "https://i.ytimg.com/vi/\(vid)/hqdefault.jpg") {
+                        CachedAsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: {
+                            RoundedRectangle(cornerRadius: 8).fill(BrandColors.surface)
+                                .overlay(Image(systemName: "music.note").font(.title))
+                        }
+                    } else if let urlStr = snap.artworkUrl, let url = URL(string: urlStr) {
+                        CachedAsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: {
+                            RoundedRectangle(cornerRadius: 8).fill(BrandColors.surface)
+                                .overlay(Image(systemName: "music.note").font(.title))
+                        }
+                    } else {
+                        RoundedRectangle(cornerRadius: 8).fill(BrandColors.surface)
+                            .overlay(Image(systemName: "music.note").font(.title)
+                                .foregroundStyle(BrandColors.textSecondary.opacity(0.5)))
+                    }
+                }
+                .frame(width: 140, height: 140)
+                .clipped().cornerRadius(8)
+
+                Text(snap.title).font(.caption).lineLimit(1)
+                    .foregroundStyle(BrandColors.textPrimary)
+                Text(snap.artist).font(.caption2).lineLimit(1)
+                    .foregroundStyle(BrandColors.textSecondary)
+            }
+            .frame(width: 140)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(snap.title) — \(snap.artist)")
+    }
+
+    // MARK: - Legacy(RecommendationService,ffSituationalNew 关闭时)
+
+    @ViewBuilder
+    private var legacyBody: some View {
+        if focus.isActive {
                     // 专注模式:抑制发现表面(Final Spec §10.9),展示专注提示而非推荐。
                     EmptyStateView(
                         icon: "brain.head.profile",
@@ -76,18 +191,11 @@ struct NewView: View {
                     )
                     .padding(.top, 60)
                 }
-            }
-            .padding(.bottom, 100)
-        }
-        .background(BrandColors.background)
-        .onAppear { scheduleCompute() }
-        .onDisappear { computeTask?.cancel() }
-        .onChange(of: library.likedRevision) { _, _ in scheduleCompute() }
-        .onChange(of: library.metadataRevision) { _, _ in scheduleCompute() }
     }
 
     /// 异步触发推荐计算(后台离线计算,完成后回主线程赋值)。
     /// 重复调用会取消上一个进行中的任务,避免排队。
+    /// Phase D5:ffSituationalNew 开启时,并行计算情境化推荐。
     private func scheduleCompute() {
         computeTask?.cancel()
         let service = recommendation
@@ -95,6 +203,17 @@ struct NewView: View {
             let result = await service.compute()
             guard !Task.isCancelled else { return }
             recs = result
+        }
+        if situational.isEnabled {
+            situationalTask?.cancel()
+            let svc = situational
+            situationalTask = Task { @MainActor in
+                let sections = await svc.compute()
+                guard !Task.isCancelled else { return }
+                situationalSections = sections
+            }
+        } else {
+            situationalSections = []
         }
     }
 
