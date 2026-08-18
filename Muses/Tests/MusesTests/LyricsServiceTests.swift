@@ -3,7 +3,7 @@ import Foundation
 @testable import Muses
 
 @MainActor
-@Suite("LyricsService")
+@Suite("LyricsService", .serialized)
 struct LyricsServiceTests {
 
     // MARK: - 1. LRCLIB fetch via stub URLProtocol
@@ -16,13 +16,13 @@ struct LyricsServiceTests {
           "syncedLyrics": "[00:01.00] hello\\n[00:03.50] world"
         }
         """
-        StubURLProtocol.reset()
-        let stub = StubURLProtocol()
+        LyricsStub.reset()
+        let stub = LyricsStub()
         stub.respond(forHostEndingWith: "lrclib.net") { _ in
             StubResponse(statusCode: 200, body: Data(cannedJSON.utf8))
         }
 
-        let session = URLSession(configuration: StubURLProtocol.makeConfig(stub))
+        let session = URLSession(configuration: LyricsStub.makeConfig())
         let service = LyricsService(session: session)
 
         let track = TrackSnapshot(
@@ -130,12 +130,12 @@ struct LyricsServiceTests {
         }
 
         // LRCLIB 不应被命中:注册 404 stub 以防意外网络调用。
-        StubURLProtocol.reset()
-        let stub = StubURLProtocol()
+        LyricsStub.reset()
+        let stub = LyricsStub()
         stub.respond(forHostEndingWith: "lrclib.net") { _ in
             StubResponse(statusCode: 404, body: Data())
         }
-        let session = URLSession(configuration: StubURLProtocol.makeConfig(stub))
+        let session = URLSession(configuration: LyricsStub.makeConfig())
 
         let service = LyricsService(session: session)
         let track = TrackSnapshot(
@@ -173,8 +173,8 @@ struct LyricsServiceTests {
         {"message":{"header":{"status_code":200},"body":{"subtitle":{"subtitle_body":"[00:01.00] hello\\n[00:03.50] world"}}}}
         """
 
-        StubURLProtocol.reset()
-        let stub = StubURLProtocol()
+        LyricsStub.reset()
+        let stub = LyricsStub()
         // Musixmatch 三个端点共用 host,按 path 分发 canned 响应。
         stub.respond(forHostContaining: "musixmatch") { req in
             let path = req.url?.path ?? ""
@@ -191,7 +191,7 @@ struct LyricsServiceTests {
             StubResponse(statusCode: 404, body: Data())
         }
 
-        let session = URLSession(configuration: StubURLProtocol.makeConfig(stub))
+        let session = URLSession(configuration: LyricsStub.makeConfig())
         let service = LyricsService(session: session)
 
         let original = UserDefaults.standard.string(forKey: PrefKey.lyricsSource)
@@ -228,8 +228,8 @@ struct LyricsServiceTests {
         {"plainLyrics":null,"syncedLyrics":"[00:02.00] fallback"}
         """
 
-        StubURLProtocol.reset()
-        let stub = StubURLProtocol()
+        LyricsStub.reset()
+        let stub = LyricsStub()
         stub.respond(forHostContaining: "musixmatch") { req in
             let path = req.url?.path ?? ""
             if path.contains("track.search") {
@@ -241,7 +241,7 @@ struct LyricsServiceTests {
             StubResponse(statusCode: 200, body: Data(lrclibJSON.utf8))
         }
 
-        let session = URLSession(configuration: StubURLProtocol.makeConfig(stub))
+        let session = URLSession(configuration: LyricsStub.makeConfig())
         let service = LyricsService(session: session)
 
         let original = UserDefaults.standard.string(forKey: PrefKey.lyricsSource)
@@ -265,4 +265,12 @@ struct LyricsServiceTests {
         #expect(result.source == LyricsSource.lrclib)
         #expect(result.syncedLyrics?.contains("[00:02.00] fallback") == true)
     }
+}
+final class LyricsStub: StubURLProtocolBase, @unchecked Sendable {
+    nonisolated(unsafe) private static var _rules: [StubRule] = []
+    private static let _lock = NSLock()
+    override class var rules: [StubRule] {
+        get { _rules } set { _rules = newValue }
+    }
+    override class var lock: NSLock { _lock }
 }

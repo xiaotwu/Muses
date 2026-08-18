@@ -4,7 +4,7 @@ import SwiftData
 @testable import Muses
 
 @MainActor
-@Suite("MetadataEnricherService")
+@Suite("MetadataEnricherService", .serialized)
 struct MetadataEnricherServiceTests {
 
     // MARK: - iTunes search upgrades artwork and backfills metadata
@@ -57,8 +57,8 @@ struct MetadataEnricherServiceTests {
         ]
         let pngData = Data(pngBytes)
 
-        StubURLProtocol.reset()
-        let stub = StubURLProtocol()
+        MetadataEnrichStub.reset()
+        let stub = MetadataEnrichStub()
         stub.respond(forHostEndingWith: "itunes.apple.com") { _ in
             StubResponse(statusCode: 200, body: Data(itunesJSON.utf8))
         }
@@ -74,7 +74,7 @@ struct MetadataEnricherServiceTests {
             StubResponse(statusCode: 404, body: Data())
         }
 
-        let session = URLSession(configuration: StubURLProtocol.makeConfig(stub))
+        let session = URLSession(configuration: MetadataEnrichStub.makeConfig())
         let artworkCache = ArtworkCache(directory: FileManager.default.temporaryDirectory
             .appending(path: "muses-enrich-test-\(UUID().uuidString)"))
         let enricher = MetadataEnricherService(
@@ -129,8 +129,8 @@ struct MetadataEnricherServiceTests {
         // Empty iTunes results.
         let itunesJSON = #"{"results": []}"#
 
-        StubURLProtocol.reset()
-        let stub = StubURLProtocol()
+        MetadataEnrichStub.reset()
+        let stub = MetadataEnrichStub()
         stub.respond(forHostContaining: "itunes.apple.com") { _ in
             StubResponse(statusCode: 200, body: Data(itunesJSON.utf8))
         }
@@ -140,7 +140,7 @@ struct MetadataEnricherServiceTests {
             StubResponse(statusCode: 200, body: Data(mbJSON.utf8))
         }
 
-        let session = URLSession(configuration: StubURLProtocol.makeConfig(stub))
+        let session = URLSession(configuration: MetadataEnrichStub.makeConfig())
         let artworkCache = ArtworkCache(directory: FileManager.default.temporaryDirectory
             .appending(path: "muses-enrich-missing-\(UUID().uuidString)"))
         let enricher = MetadataEnricherService(
@@ -191,111 +191,13 @@ struct MetadataEnricherServiceTests {
     }
 }
 
-// MARK: - URLProtocol stub infrastructure
+// MARK: - Per-suite URLProtocol stub (isolated rule store for this suite)
 
-/// A canned response returned by `StubURLProtocol`.
-struct StubResponse {
-    let statusCode: Int
-    let body: Data
-    let headers: [String: String]
-    init(statusCode: Int, body: Data, headers: [String: String] = [:]) {
-        self.statusCode = statusCode
-        self.body = body
-        self.headers = headers
+final class MetadataEnrichStub: StubURLProtocolBase, @unchecked Sendable {
+    nonisolated(unsafe) private static var _rules: [StubRule] = []
+    private static let _lock = NSLock()
+    override class var rules: [StubRule] {
+        get { _rules } set { _rules = newValue }
     }
-}
-
-/// A `URLProtocol` subclass that returns canned responses without touching
-/// the network. Match rules are registered in registration order; the first
-/// matching rule wins.
-final class StubURLProtocol: URLProtocol, @unchecked Sendable {
-    /// A match predicate + response builder pair.
-    private struct Rule {
-        let matches: (URL) -> Bool
-        let respond: (URLRequest) -> StubResponse
-    }
-
-    // Access is serialized through `lock`; declared `nonisolated(unsafe)` to
-    // satisfy Swift 6's global-mutable-state checker since the lock provides
-    // external synchronization.
-    private nonisolated(unsafe) static var rules: [Rule] = []
-    private static let lock = NSLock()
-
-    /// Clear all registered rules. Call at the start of each test to avoid
-    /// cross-test rule leakage (rules are static and persist otherwise).
-    static func reset() {
-        lock.lock(); defer { lock.unlock() }
-        rules.removeAll()
-    }
-
-    // MARK: - Registration (call before creating the URLSession)
-
-    /// Match by host suffix (e.g. "itunes.apple.com").
-    func respond(forHostEndingWith hostSuffix: String,
-                 builder: @escaping (URLRequest) -> StubResponse) {
-        Self.lock.lock(); defer { Self.lock.unlock() }
-        Self.rules.append(Rule(
-            matches: { $0.host?.hasSuffix(hostSuffix) == true },
-            respond: builder))
-    }
-
-    /// Match by host substring (e.g. "mzstatic").
-    func respond(forHostContaining substring: String,
-                 builder: @escaping (URLRequest) -> StubResponse) {
-        Self.lock.lock(); defer { Self.lock.unlock() }
-        Self.rules.append(Rule(
-            matches: { $0.host?.contains(substring) == true },
-            respond: builder))
-    }
-
-    /// Build a URLSessionConfiguration that intercepts all requests via
-    /// this stub. Must be called *after* all `respond(...)` registrations.
-    static func makeConfig(_ stub: StubURLProtocol) -> URLSessionConfiguration {
-        // Force-unwrap is safe: `init(protocolClass:)` returns nil only for
-        // non-URLProtocol classes, and StubURLProtocol is a URLProtocol.
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [StubURLProtocol.self]
-        return config
-    }
-
-    // MARK: - URLProtocol overrides
-
-    override class func canInit(with request: URLRequest) -> Bool {
-        // Intercept every request that has a matching rule; leave others to
-        // the real network (none in tests, but avoids surprising deadlocks).
-        guard let url = request.url else { return false }
-        lock.lock(); defer { lock.unlock() }
-        return rules.contains { $0.matches(url) }
-    }
-
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
-        request
-    }
-
-    override func startLoading() {
-        guard let url = request.url else {
-            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
-            return
-        }
-        Self.lock.lock()
-        let rule = Self.rules.first { $0.matches(url) }
-        Self.lock.unlock()
-        guard let rule = rule else {
-            client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
-            return
-        }
-        let stub = rule.respond(request)
-        let response = HTTPURLResponse(
-            url: url,
-            statusCode: stub.statusCode,
-            httpVersion: "HTTP/1.1",
-            headerFields: stub.headers)!
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: stub.body)
-        client?.urlProtocolDidFinishLoading(self)
-    }
-
-    override func stopLoading() {
-        // No-op: all work completes synchronously in startLoading.
-    }
+    override class var lock: NSLock { _lock }
 }

@@ -4,7 +4,7 @@ import SwiftData
 @testable import Muses
 
 @MainActor
-@Suite("YouTubeImportService")
+@Suite("YouTubeImportService", .serialized)
 struct YouTubeImportServiceTests {
 
     // MARK: - 1. importPlaylist 创建 import + items + tracks
@@ -294,13 +294,13 @@ struct YouTubeImportServiceTests {
     /// 网络请求会快速失败,因此 artwork 下载不阻塞,也不会写入磁盘)的服务。
     private func makeService(bridge: MockImportBridge,
                             container: ModelContainer) -> YouTubeImportService {
-        StubURLProtocol.reset()
-        let stub = StubURLProtocol()
+        YouTubeImportServiceStub.reset()
+        let stub = YouTubeImportServiceStub()
         // 对所有请求返回 404 —— 这样 artwork 下载会非 2xx 失败,不写入缓存。
         stub.respond(forHostContaining: "") { _ in
             StubResponse(statusCode: 404, body: Data())
         }
-        let session = URLSession(configuration: StubURLProtocol.makeConfig(stub))
+        let session = URLSession(configuration: YouTubeImportServiceStub.makeConfig())
         let artworkCache = ArtworkCache(
             directory: FileManager.default.temporaryDirectory
                 .appending(path: "muses-yt-import-\(UUID().uuidString)"))
@@ -337,4 +337,12 @@ final class MockImportBridge: YTDlpBridgeProtocol {
     }
 
     func version() async -> String? { "mock" }
+}
+final class YouTubeImportServiceStub: StubURLProtocolBase, @unchecked Sendable {
+    nonisolated(unsafe) private static var _rules: [StubRule] = []
+    private static let _lock = NSLock()
+    override class var rules: [StubRule] {
+        get { _rules } set { _rules = newValue }
+    }
+    override class var lock: NSLock { _lock }
 }

@@ -4,7 +4,7 @@ import SwiftData
 @testable import Muses
 
 @MainActor
-@Suite("ArtistEnrichment")
+@Suite("ArtistEnrichment", .serialized)
 struct ArtistEnrichmentTests {
 
     @Test("enrichArtist 写回 itunesArtistId/primaryGenre/artworkHash")
@@ -44,8 +44,8 @@ struct ArtistEnrichmentTests {
         ]
         let pngData = Data(pngBytes)
 
-        StubURLProtocol.reset()
-        let stub = StubURLProtocol()
+        ArtistEnrichStub.reset()
+        let stub = ArtistEnrichStub()
         stub.respond(forHostEndingWith: "itunes.apple.com") { _ in
             StubResponse(statusCode: 200, body: Data(itunesJSON.utf8))
         }
@@ -53,7 +53,7 @@ struct ArtistEnrichmentTests {
             StubResponse(statusCode: 200, body: pngData)
         }
 
-        let session = URLSession(configuration: StubURLProtocol.makeConfig(stub))
+        let session = URLSession(configuration: ArtistEnrichStub.makeConfig())
         let artworkCache = ArtworkCache(directory: FileManager.default.temporaryDirectory
             .appending(path: "muses-artist-enrich-\(UUID().uuidString)"))
         let enricher = MetadataEnricherService(
@@ -89,13 +89,13 @@ struct ArtistEnrichmentTests {
         try ctx.save()
         let artistId = artist.id
 
-        StubURLProtocol.reset()
-        let stub = StubURLProtocol()
+        ArtistEnrichStub.reset()
+        let stub = ArtistEnrichStub()
         stub.respond(forHostEndingWith: "itunes.apple.com") { _ in
             StubResponse(statusCode: 200, body: Data(#"{"results": []}"#.utf8))
         }
 
-        let session = URLSession(configuration: StubURLProtocol.makeConfig(stub))
+        let session = URLSession(configuration: ArtistEnrichStub.makeConfig())
         let artworkCache = ArtworkCache(directory: FileManager.default.temporaryDirectory
             .appending(path: "muses-artist-empty-\(UUID().uuidString)"))
         let enricher = MetadataEnricherService(
@@ -125,4 +125,12 @@ struct ArtistEnrichmentTests {
         #expect(mb.absoluteString.contains("musicbrainz.org/ws/2/artist/"))
         #expect(mb.absoluteString.contains("fmt=json"))
     }
+}
+final class ArtistEnrichStub: StubURLProtocolBase, @unchecked Sendable {
+    nonisolated(unsafe) private static var _rules: [StubRule] = []
+    private static let _lock = NSLock()
+    override class var rules: [StubRule] {
+        get { _rules } set { _rules = newValue }
+    }
+    override class var lock: NSLock { _lock }
 }
