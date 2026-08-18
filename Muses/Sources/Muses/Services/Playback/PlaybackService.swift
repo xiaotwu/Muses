@@ -161,11 +161,14 @@ final class PlaybackService {
 
     func next() {
         // 用户主动切下一首:先记当前曲目的位移(skip/stop)。
-        postDisplacementForCurrent()
-        guard let item = queue.next() else {
+        // 位移启发式同时决定 queue history 标签:听不足阈值 → .skipped,否则 .played。
+        let isSkip = currentDisplacementIsSkip()
+        postDisplacementForCurrent(isSkip: isSkip)
+        let historyTag: QueueHistoryState = isSkip ? .skipped : .played
+        guard let item = queue.next(as: historyTag) else {
             // .all 边界: 第一次返回 nil, 再调一次即可回到首项
             if queue.repeatMode == .all {
-                if let item2 = queue.next() {
+                if let item2 = queue.next(as: historyTag) {
                     Task { await load(item2.track) }
                 } else {
                     state.isPlaying = false
@@ -252,12 +255,20 @@ final class PlaybackService {
     /// 用户主动切歌(下一首/上一首/直接选曲)时,为当前曲目发出位移事件。
     /// 按收听时长判定:`< min(30s, 20% 时长)` → `.trackSkipped`,否则 `.trackStopped`
     /// (充分收听但非自然结束)。时长未知时阈值退化为 30s。仅发出事件,不改变播放行为。
-    private func postDisplacementForCurrent() {
-        guard let track = state.track else { return }
+    /// `isSkip` 传入时直接采用(避免重复计算);nil 时内部计算。
+    private func currentDisplacementIsSkip() -> Bool {
+        guard state.track != nil else { return false }
         let listenedMs = max(0, state.position) * 1000.0
-        let durMs = track.durationSeconds * 1000.0
+        let durMs = (state.track?.durationSeconds ?? 0) * 1000.0
         let threshold = durMs > 0 ? min(30_000.0, 0.2 * durMs) : 30_000.0
-        if listenedMs < threshold {
+        return listenedMs < threshold
+    }
+
+    private func postDisplacementForCurrent(isSkip: Bool? = nil) {
+        guard let track = state.track else { return }
+        let skip = isSkip ?? currentDisplacementIsSkip()
+        let listenedMs = max(0, state.position) * 1000.0
+        if skip {
             eventBus.post(.trackSkipped(track, listenedMs: listenedMs))
         } else {
             eventBus.post(.trackStopped(track, listenedMs: listenedMs))

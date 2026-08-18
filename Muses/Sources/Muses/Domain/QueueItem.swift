@@ -12,21 +12,26 @@ struct QueueItem: Identifiable, Equatable, Sendable, Codable {
     var groupId: UUID?
     /// 优先级:数值越大越靠前(Phase 19 插入模式)。nil = 无优先级。
     var priority: Int?
+    /// 历史状态标签(Phase 19)。仅在条目进入 `history` 时赋值;在 items/upNext 中恒为 nil。
+    /// 旧 QueueState JSON 不含该键时解码为 nil(按 `.played` 兜底)。
+    var historyState: QueueHistoryState?
 
     init(id: UUID = UUID(), track: TrackSnapshot, source: TrackSource,
          queuedAt: Date = .init(), fromContext: QueueSource = .songs,
-         locked: Bool = false, groupId: UUID? = nil, priority: Int? = nil) {
+         locked: Bool = false, groupId: UUID? = nil, priority: Int? = nil,
+         historyState: QueueHistoryState? = nil) {
         self.id = id; self.track = track; self.source = source
         self.queuedAt = queuedAt; self.fromContext = fromContext
         self.locked = locked; self.groupId = groupId; self.priority = priority
+        self.historyState = historyState
     }
 
     static func == (lhs: QueueItem, rhs: QueueItem) -> Bool { lhs.id == rhs.id }
 
-    // Backward-compat decoder: locked/groupId/priority default for old QueueState
-    // JSON that predates the fields (encode(to:) stays synthesized).
+    // Backward-compat decoder: locked/groupId/priority/historyState default for old
+    // QueueState JSON that predates the fields (encode(to:) stays synthesized).
     private enum CodingKeys: String, CodingKey {
-        case id, track, source, queuedAt, fromContext, locked, groupId, priority
+        case id, track, source, queuedAt, fromContext, locked, groupId, priority, historyState
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -38,6 +43,7 @@ struct QueueItem: Identifiable, Equatable, Sendable, Codable {
         locked = try c.decodeIfPresent(Bool.self, forKey: .locked) ?? false
         groupId = try c.decodeIfPresent(UUID.self, forKey: .groupId)
         priority = try c.decodeIfPresent(Int.self, forKey: .priority)
+        historyState = try c.decodeIfPresent(QueueHistoryState.self, forKey: .historyState)
     }
 }
 
