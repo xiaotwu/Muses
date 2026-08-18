@@ -329,6 +329,10 @@ final class LibraryService {
             existing.availabilityRaw = TrackAvailability.available.rawValue
             existing.metadataStatusRaw = MetadataStatus.complete.rawValue
             existing.fileModificationDate = fileMtime
+            // Phase 27:文件已变 → 重算指纹(若启用)。失败保留旧值。
+            if UserDefaults.standard.bool(forKey: PrefKey.ffLocalHardening) {
+                existing.partialContentHash = LocalHardeningService.partialHash(of: url)
+            }
             try? ctx.save()
             return
         }
@@ -349,6 +353,11 @@ final class LibraryService {
             bitRate: meta.bitRate, channels: meta.channels
         )
         track.fileModificationDate = fileMtime
+        // Phase 27(可选,ffLocalHardening 默认关闭):为新增本地 Track 记录前 64KB 内容指纹,
+        // 用于后续移动/重命名后重新关联同一行。关闭时跳过——零行为变化、零 I/O。
+        if UserDefaults.standard.bool(forKey: PrefKey.ffLocalHardening) {
+            track.partialContentHash = LocalHardeningService.partialHash(of: url)
+        }
         ctx.insert(track)
 
         // 聚合到 Album
