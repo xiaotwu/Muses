@@ -9,12 +9,18 @@ import UserNotifications
 @MainActor
 final class NowPlayingManager {
     let playback: PlaybackService
+    /// Phase 24:`likeCommand` 需要库;`changeRepeatMode/changeShuffleMode` 需要队列。
+    /// 均可选:测试或不接线时为 nil,对应远程命令不绑定(绝不伪造)。
+    private let library: LibraryService?
+    private let queue: QueueService?
     private var updateTask: Task<Void, Never>?
     private(set) var observationLifecycleStartCount = 0
     private var lastNotifiedTrackId: UUID?
 
-    init(_ playback: PlaybackService) {
+    init(_ playback: PlaybackService, library: LibraryService? = nil, queue: QueueService? = nil) {
         self.playback = playback
+        self.library = library
+        self.queue = queue
         bindCommands()
         startObserving()
     }
@@ -146,6 +152,56 @@ final class NowPlayingManager {
                 self.playback.seek(to: max(0, self.playback.state.position - 15))
             }
             return .success
+        }
+
+        // Phase 24:补齐 like / repeat / shuffle 远程命令(Final Spec §10.1)。
+        // 仅在接入 library / queue 时绑定;未接入则跳过,绝不伪造(§15)。
+        if library != nil {
+            center.likeCommand.addTarget { [weak self] _ in
+                Task { @MainActor in self?.handleLike() }
+                return .success
+            }
+        }
+        if queue != nil {
+            center.changeRepeatModeCommand.addTarget { [weak self] event in
+                guard let self,
+                      let ev = event as? MPChangeRepeatModeCommandEvent else {
+                    return .commandFailed
+                }
+                Task { @MainActor in self.handleChangeRepeat(ev.repeatType) }
+                return .success
+            }
+            center.changeShuffleModeCommand.addTarget { [weak self] event in
+                guard let self,
+                      let ev = event as? MPChangeShuffleModeCommandEvent else {
+                    return .commandFailed
+                }
+                Task { @MainActor in self.queue?.toggleShuffle() }
+                _ = ev   // 仅消费事件;shuffle 状态由队列持有
+                return .success
+            }
+        }
+    }
+
+    // MARK: - Phase 24 远程命令处理
+
+    private func handleLike() {
+        guard let library, let id = playback.state.track?.id else { return }
+        library.toggleLike(id: id)
+    }
+
+    private func handleChangeRepeat(_ type: MPRepeatType) {
+        guard let queue else { return }
+        queue.setRepeat(Self.repeatMode(from: type, current: queue.repeatMode))
+    }
+
+    /// MPRepeatType → RepeatMode:直映 off/all/one。系统不提供 `.default`,保持确定映射。
+    static func repeatMode(from type: MPRepeatType, current: RepeatMode) -> RepeatMode {
+        switch type {
+        case .off:        return .off
+        case .all:        return .all
+        case .one:        return .one
+        @unknown default: return current
         }
     }
 }

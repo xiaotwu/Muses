@@ -23,6 +23,10 @@ struct MusesApp: App {
     let sessionService: SessionService
     let inboxService: InboxService
     let notesService: NotesService
+    // Phase 24 — 原生桌面集成:全局热键 / 菜单栏托盘 / 桌面歌词 / 迷你播放器。
+    let globalHotkeyService: GlobalHotkeyService
+    let trayController: TrayController
+    let desktopLyricsController: DesktopLyricsController
     private let nowPlayingManager: NowPlayingManager
     private let spotlightIndexer: SpotlightIndexer
 
@@ -62,7 +66,7 @@ struct MusesApp: App {
         library.enricher = enricher
         library.backfillArtists()
         library.triggerArtistEnrichment()
-        self.nowPlayingManager = NowPlayingManager(playbackService)
+        self.nowPlayingManager = NowPlayingManager(playbackService, library: library, queue: queue)
         // 上下文监听(Phase 23 §10.2):opt-in(ffContext 默认关),best-effort 捕获本地时间/
         // 前台应用 bundle id(需 contextTrackActiveApp 再显式开启)/输出设备/耳机启发式。
         // 绝不记录窗口标题/URL/内容。capture() 关闭时返回 nil,HistoryService 存 nil。
@@ -133,6 +137,105 @@ struct MusesApp: App {
         }
         self.commandRegistry = registry
         self.runtimeCapabilities = RuntimeCapabilities()
+
+        // Phase 24 — 桌面集成服务构造 + 接线。
+        // 热键派发器:既有命令经 commandRegistry;桌面专属动作(volume/mini/lyrics/focus/inbox)直接调用。
+        // 注:struct init 中 escaping 闭包不可捕获 self,故用本地绑定经 capture list 弱引用。
+        let playback = playbackService
+        let lib = library
+        let inbox = inboxService
+        let lyricsSvc = lyricsService
+        GlobalHotkeyService.sharedDispatcher = { [weak registry, weak playback, weak inbox] action in
+            switch action {
+            case GlobalHotkeyService.actionPlayPause, GlobalHotkeyService.actionNext,
+                 GlobalHotkeyService.actionPrevious, GlobalHotkeyService.actionLike:
+                registry?.execute(action)
+            case GlobalHotkeyService.actionVolumeUp:
+                playback?.setVolume(min(1, (playback?.volume ?? 0.8) + 0.05))
+            case GlobalHotkeyService.actionVolumeDown:
+                playback?.setVolume(max(0, (playback?.volume ?? 0.8) - 0.05))
+            case GlobalHotkeyService.actionMute:
+                playback?.setVolume(playback?.volume ?? 0 > 0 ? 0 : 0.8)
+            case GlobalHotkeyService.actionAddToInbox:
+                if let snap = playback?.state.track { inbox?.add(snap, source: .automation) }
+            case GlobalHotkeyService.actionShowHidePlayer:
+                NSApp.activate(ignoringOtherApps: true)
+                NSApp.windows.first { $0.title.isEmpty || $0.frameAutosaveName == "MusesMainWindow" }?
+                    .makeKeyAndOrderFront(nil)
+            case GlobalHotkeyService.actionShowMiniPlayer:
+                NotificationCenter.default.post(name: .musesOpenMiniPlayer, object: nil)
+            case GlobalHotkeyService.actionShowLyrics:
+                NotificationCenter.default.post(name: .musesToggleDesktopLyrics, object: nil)
+            case GlobalHotkeyService.actionToggleFocus:
+                NotificationCenter.default.post(name: .musesToggleFocusMode, object: nil)
+            default: break
+            }
+        }
+        let hotkeys = GlobalHotkeyService(
+            enabledProvider: { UserDefaults.standard.bool(forKey: PrefKey.ffGlobalHotkeys) },
+            shortcutProvider: { GlobalHotkeyService.loadShortcuts() },
+            dispatcher: { GlobalHotkeyService.sharedDispatcher?($0) })
+        self.globalHotkeyService = hotkeys
+
+        let tray = TrayController(
+            trackProvider: { [weak playback] in playback?.state.track },
+            isPlayingProvider: { [weak playback] in playback?.state.isPlaying ?? false },
+            onPlayPause: { [weak registry] in registry?.execute(CommandRegistry.togglePlayback) },
+            onNext: { [weak registry] in registry?.execute(CommandRegistry.next) },
+            onPrevious: { [weak registry] in registry?.execute(CommandRegistry.previous) },
+            onLike: { [weak registry] in registry?.execute(CommandRegistry.likeCurrent) },
+            onAddToInbox: { [weak playback, weak inbox] in
+                if let snap = playback?.state.track { inbox?.add(snap, source: .automation) }
+            },
+            onOpenMini: { NotificationCenter.default.post(name: .musesOpenMiniPlayer, object: nil) },
+            onOpenMain: {
+                NSApp.activate(ignoringOtherApps: true)
+                NSApp.windows.first?.makeKeyAndOrderFront(nil)
+            },
+            onQuit: { NSApp.terminate(nil) })
+        self.trayController = tray
+        let desktopLyrics = DesktopLyricsController()
+        self.desktopLyricsController = desktopLyrics
+
+        // 启动时按当前开关状态初始化各桌面服务;之后由 Settings 切换通知刷新。
+        Task { @MainActor in
+            hotkeys.sync()
+            tray.setEnabled(UserDefaults.standard.bool(forKey: PrefKey.ffTray))
+            desktopLyrics.setEnabled(
+                UserDefaults.standard.bool(forKey: PrefKey.ffDesktopLyrics),
+                playback: playback, library: lib, lyrics: lyricsSvc)
+        }
+        // 托盘菜单随换歌刷新。
+        playbackService.eventBus.subscribe { [weak tray] event in
+            if case .trackStarted = event { tray?.refresh() }
+        }
+        // Settings 切换桌面开关 → 重新同步。
+        NotificationCenter.default.addObserver(forName: .musesDesktopFlagsChanged, object: nil,
+                                                queue: .main) { [weak hotkeys, weak tray,
+                                                                  weak desktopLyrics,
+                                                                  weak playback, weak lib] _ in
+            Task { @MainActor in
+                hotkeys?.sync()
+                tray?.setEnabled(UserDefaults.standard.bool(forKey: PrefKey.ffTray))
+                if let playback, let lib {
+                    desktopLyrics?.setEnabled(
+                        UserDefaults.standard.bool(forKey: PrefKey.ffDesktopLyrics),
+                        playback: playback, library: lib, lyrics: lyricsSvc)
+                }
+            }
+        }
+        NotificationCenter.default.addObserver(forName: .musesToggleDesktopLyrics, object: nil,
+                                                queue: .main) { [weak desktopLyrics,
+                                                                  weak playback, weak lib] _ in
+            Task { @MainActor in
+                let on = !UserDefaults.standard.bool(forKey: PrefKey.ffDesktopLyrics)
+                UserDefaults.standard.set(on, forKey: PrefKey.ffDesktopLyrics)
+                if let playback, let lib {
+                    desktopLyrics?.setEnabled(on, playback: playback,
+                                               library: lib, lyrics: lyricsSvc)
+                }
+            }
+        }
     }
 
     var body: some Scene {
@@ -159,6 +262,7 @@ struct MusesApp: App {
                     .environment(inboxService)
                     .environment(notesService)
                     .modelContainer(modelContainer)
+                    .background(MiniPlayerOpener())
                     .onOpenURL { url in
                         // deep link: muses://play?trackId=<id> — Spotlight / 外部唤起播放
                         guard let trackId = SpotlightIndexer.trackId(from: url) else { return }
@@ -177,6 +281,17 @@ struct MusesApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1280, height: 800)
+        // Phase 24 — 迷你播放器场景(独立 WindowGroup,按需 openWindow(id:))。共享同一 PlaybackService,无第二引擎。
+        WindowGroup("MiniPlayer", id: "mini-player") {
+            ThemeApplier {
+                MiniPlayerView()
+                    .environment(libraryService)
+                    .environment(playbackService)
+                    .modelContainer(modelContainer)
+            }
+        }
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 240, height: 380)
         .commands {
             // 替换系统 About:弹出标准 About 面板(读 Info.plist 版本)
             CommandGroup(replacing: .appInfo) {
@@ -235,5 +350,19 @@ struct MusesApp: App {
                 }
             }
         }
+    }
+}
+
+/// 监听 `.musesOpenMiniPlayer` 通知,经 `@Environment(\.openWindow)` 打开迷你播放器场景。
+/// 受 `ffMiniPlayer` 开关约束:关闭时忽略,绝不强行开窗(Final Spec §15)。
+private struct MiniPlayerOpener: View {
+    @Environment(\.openWindow) private var openWindow
+    @AppStorage(PrefKey.ffMiniPlayer) private var miniEnabled = false
+    var body: some View {
+        Color.clear.frame(width: 0, height: 0)
+            .onReceive(NotificationCenter.default.publisher(for: .musesOpenMiniPlayer)) { _ in
+                guard miniEnabled else { return }
+                openWindow(id: "mini-player")
+            }
     }
 }

@@ -2,7 +2,7 @@ import SwiftUI
 
 /// 设置类别枚举。
 enum SettingsCategory: String, Hashable, CaseIterable {
-    case general, playback, audioQuality, library, appearance, youtube, lyrics, updates, about
+    case general, playback, audioQuality, library, appearance, youtube, lyrics, desktop, updates, about
 
     var label: String {
         switch self {
@@ -13,6 +13,7 @@ enum SettingsCategory: String, Hashable, CaseIterable {
         case .appearance:   return tr("Appearance", "外观")
         case .youtube:      return tr("YouTube", "YouTube")
         case .lyrics:       return tr("Lyrics", "歌词")
+        case .desktop:      return tr("Desktop", "桌面")
         case .updates:      return tr("Updates", "更新")
         case .about:        return tr("About", "关于")
         }
@@ -27,6 +28,7 @@ enum SettingsCategory: String, Hashable, CaseIterable {
         case .appearance:   return "paintbrush"
         case .youtube:      return "play.rectangle"
         case .lyrics:       return "text.alignleft"
+        case .desktop:      return "menubar.rectangle"
         case .updates:      return "arrow.triangle.2.circlepath"
         case .about:        return "info.circle"
         }
@@ -85,6 +87,8 @@ struct SettingsSheet: View {
                         YouTubeSettingsView()
                     case .lyrics:
                         LyricsSettingsView()
+                    case .desktop:
+                        DesktopSettingsView()
                     case .updates:
                         UpdatesSettingsView()
                     case .about:
