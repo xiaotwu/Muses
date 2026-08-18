@@ -23,12 +23,12 @@ struct NewView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 32) {
-                // 页面标题
-                Text(tr("New for You", "为你推荐"))
-                    .font(.largeTitle).fontWeight(.bold)
+                // Phase D6 — Apple Music 风格大标题(~30pt),与 Home 节奏一致。
+                // 保留 "New" 名称(用户确认决定,本阶段不改名 "For You")。
+                Text(tr("New", "发现"))
+                    .font(.system(size: 30, weight: .heavy))
                     .foregroundStyle(BrandColors.textPrimary)
                     .padding(.horizontal, 24)
-                    .padding(.top, 20)
 
                 if situational.isEnabled {
                     situationalBody
@@ -49,19 +49,16 @@ struct NewView: View {
         .onChange(of: library.playRevision) { _, _ in scheduleCompute() }
     }
 
-    // MARK: - Phase D5:情境化推荐
+    // MARK: - Phase D5/D6:情境化推荐(D4 原语呈现)
 
     @ViewBuilder
     private var situationalBody: some View {
         if situationalSections.isEmpty {
-            // 计算中或无足够信号:轻量占位(无 spinner,§15)。
-            EmptyStateView(
-                icon: "sparkles",
-                title: tr("Finding picks for this moment…", "正在为此刻挑选…"),
-                subtitle: tr("Play and let Muses learn your context to get situational picks.",
-                               "播放并让 Muses 了解你的情境以获得推荐。")
-            )
-            .padding(.top, 60)
+            // 计算中或无足够信号:骨架占位(无 spinner,§15),与 Home 冷启一致。
+            VStack(alignment: .leading, spacing: 32) {
+                skeletonSection
+                skeletonSection
+            }
         } else {
             ForEach(situationalSections) { section in
                 situationalSection(section)
@@ -69,28 +66,24 @@ struct NewView: View {
         }
     }
 
+    private var skeletonSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SkeletonBlock(width: 200, height: 22)
+                .padding(.horizontal, 24)
+            ResponsiveCarousel(cardSize: 140) {
+                ForEach(0..<5, id: \.self) { _ in SkeletonCard(size: 140, aspect: .square) }
+            }
+        }
+    }
+
     @ViewBuilder
     private func situationalSection(_ section: SituationalSection) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(section.title)
-                    .font(.title2).fontWeight(.bold)
-                    .foregroundStyle(BrandColors.textPrimary)
-                if let sub = section.subtitle {
-                    Text(sub)
-                        .font(.subheadline)
-                        .foregroundStyle(BrandColors.textSecondary)
+            SectionHeader(title: section.title, subtitle: section.subtitle)
+            ResponsiveCarousel(cardSize: 140) {
+                ForEach(section.items, id: \.id) { snap in
+                    situationalTrackCard(snap)
                 }
-            }
-            .padding(.horizontal, 24)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
-                    ForEach(section.items, id: \.id) { snap in
-                        situationalTrackCard(snap)
-                    }
-                }
-                .padding(.horizontal, 24)
             }
         }
     }
@@ -217,46 +210,21 @@ struct NewView: View {
         }
     }
 
-    // MARK: - 推荐区
+    // MARK: - 推荐区(D4 原语呈现;legacy 路径)
 
     @ViewBuilder
     private func recSection(title: String, subtitle: String, albums: [Album]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.title2).fontWeight(.bold)
-                    .foregroundStyle(BrandColors.textPrimary)
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(BrandColors.textSecondary)
-            }
-            .padding(.horizontal, 24)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
-                    ForEach(albums, id: \.id) { album in
-                        VStack(alignment: .leading, spacing: 6) {
-                            let art = album.artworkHash.flatMap { ArtworkCache.default.path(forHash: $0) }
-                                .map { NSImage(byReferencing: $0) }
-                            if let img = art {
-                                Image(nsImage: img).resizable().scaledToFill()
-                                    .frame(width: 140, height: 140)
-                                    .clipped().cornerRadius(8)
-                            } else {
-                                RoundedRectangle(cornerRadius: 8).fill(BrandColors.surface)
-                                    .frame(width: 140, height: 140)
-                                    .overlay(Image(systemName: "music.note").font(.title))
-                            }
-                            Text(album.title).font(.caption).lineLimit(1)
-                                .foregroundStyle(BrandColors.textPrimary)
-                            Text(album.albumArtist).font(.caption2).lineLimit(1)
-                                .foregroundStyle(BrandColors.textSecondary)
-                        }
-                        .frame(width: 140)
-                        .onTapGesture { selectedAlbum = album }
-                    }
+            SectionHeader(title: title, subtitle: subtitle)
+            ResponsiveCarousel(cardSize: 150) {
+                ForEach(albums, id: \.id) { album in
+                    DiscoveryCard(
+                        title: album.title,
+                        subtitle: album.albumArtist,
+                        artworkPath: album.artworkHash.flatMap { ArtworkCache.default.path(forHash: $0) },
+                        size: 150, aspect: .square,
+                        onTap: { selectedAlbum = album })
                 }
-                .padding(.horizontal, 24)
             }
         }
     }
