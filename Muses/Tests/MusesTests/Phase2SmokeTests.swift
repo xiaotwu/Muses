@@ -80,7 +80,7 @@ struct Phase2SmokeTests {
 
         // 9. NowPlayingManager 更新 info
         let manager = NowPlayingManager(playback)
-        // 给 manager 足够时间响应状态变化(withObservationTracking + 250ms 轮询)
+        // 给 manager 足够时间通过唯一的 250ms 发布循环刷新状态
         try await Task.sleep(for: .milliseconds(800))
         let info = MPNowPlayingInfoCenter.default().nowPlayingInfo
         // nowPlayingInfo 是系统单例, 在测试环境中可能不写入或残留旧值;

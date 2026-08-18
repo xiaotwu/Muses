@@ -1,16 +1,16 @@
 import Foundation
 import MediaPlayer
 import AppKit
-import Observation
 import UserNotifications
 
 /// 管理 MPNowPlayingInfoCenter(锁屏/控制中心元信息)与 MPRemoteCommandCenter(媒体键)。
-/// 订阅 PlaybackService.state 变化 → 更新 nowPlayingInfo; 绑定远程命令转发回 PlaybackService。
+/// 通过单一生命周期同步 PlaybackService.state → nowPlayingInfo; 绑定远程命令转发回 PlaybackService。
 /// 可选:换歌时发本地通知(opt-in via @AppStorage PrefKey.notificationsTrackChange)。
 @MainActor
 final class NowPlayingManager {
     let playback: PlaybackService
     private var updateTask: Task<Void, Never>?
+    private(set) var observationLifecycleStartCount = 0
     private var lastNotifiedTrackId: UUID?
 
     init(_ playback: PlaybackService) {
@@ -25,31 +25,26 @@ final class NowPlayingManager {
 
     // MARK: - 状态观察
 
-    /// 用 withObservationTracking 递归追踪 state 变化(track/position/duration/isPlaying),
-    /// 任一属性变更后重新拉取并更新 nowPlayingInfo。
-    private func startObserving() {
-        updateTask = Task { [weak self] in
+    /// 启动唯一的状态发布循环。重复调用保持幂等,不创建额外 Task。
+    func startObserving() {
+        guard updateTask == nil else { return }
+        observationLifecycleStartCount += 1
+        updateTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
-                guard let self else { return }
-                withObservationTracking {
-                    _ = self.playback.state.track?.title
-                    _ = self.playback.state.position
-                    _ = self.playback.state.duration
-                    _ = self.playback.state.isPlaying
-                } onChange: {
-                    Task { @MainActor [weak self] in self?.startObserving() }
+                guard self != nil else { return }
+                self?.updateInfo()
+                do {
+                    try await Task.sleep(for: .milliseconds(250))
+                } catch {
+                    return
                 }
-                await self.updateInfo()
-                // withObservationTracking 只在追踪的属性变化时触发 onChange,
-                // 这里用短 sleep 作为 fallback 刷新间隔
-                try? await Task.sleep(for: .milliseconds(250))
             }
         }
     }
 
     // MARK: - nowPlayingInfo
 
-    private func updateInfo() async {
+    private func updateInfo() {
         var info: [String: Any] = [:]
         let state = playback.state
 

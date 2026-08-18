@@ -4,7 +4,7 @@ import MediaPlayer
 @testable import Muses
 
 @MainActor
-@Suite("NowPlayingManager")
+@Suite("NowPlayingManager", .serialized)
 struct NowPlayingManagerTests {
     @Test("manager updates nowPlayingInfo title after load")
     func updatesInfoAfterLoad() async throws {
@@ -48,5 +48,30 @@ struct NowPlayingManagerTests {
         try await Task.sleep(for: .milliseconds(100))
         _ = manager
         // 断言能构造且不崩溃即可(nowPlayingInfo 是系统单例, 跨测试可能残留)
+    }
+
+    @Test("rapid state changes keep one observation lifecycle")
+    func rapidStateChangesKeepOneObservationLifecycle() async {
+        let engine = RecordingEngine()
+        let queue = QueueService()
+        let playback = PlaybackService(localEngine: engine,
+                                        youtubeEngine: RecordingEngine(),
+                                        queue: queue)
+        let manager = NowPlayingManager(playback)
+
+        // 直接重复启动也必须幂等。
+        manager.startObserving()
+        manager.startObserving()
+        await Task.yield()
+
+        // 模拟引擎每 250ms 写入的高频状态；旧实现会在这里递归增殖 Task。
+        for tick in 1...100 {
+            engine.state.position = Double(tick) / 4
+            engine.state.duration = 235 + Double(tick)
+            engine.state.isPlaying.toggle()
+            await Task.yield()
+        }
+
+        #expect(manager.observationLifecycleStartCount == 1)
     }
 }
