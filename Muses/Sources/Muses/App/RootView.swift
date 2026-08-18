@@ -60,6 +60,8 @@ struct RootView: View {
                         YouTubeImportsView(embedded: true)
                     case .playlists:
                         PlaylistsView(selectedPlaylist: $selectedPlaylist)
+                    case .history:
+                        HistoryView()
                     }
                 }
             }
@@ -153,6 +155,7 @@ enum SidebarSection: String, Hashable, CaseIterable {
     case pins, recently, artists, albums, songs  // Library subsections
     case youtubeImports
     case playlists
+    case history  // Phase 17: Smart Listening History
 }
 
 extension Notification.Name {

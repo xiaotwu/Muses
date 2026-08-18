@@ -54,6 +54,10 @@ final class PlaybackService {
         if lastCompletedTrackId == state.track?.id { return }
         lastCompletedTrackId = state.track?.id
 
+        // 自然完成:发出 .trackCompleted(供 HistoryService 记录 completed)。
+        // 不走 next() 的位移路径,避免把自然完成误判为 skip/stop。
+        postCompletedForCurrent()
+
         // 队列耗尽(.off 且在最后一首且无插队)则停止
         if queue.repeatMode == .off,
            queue.currentIndex >= queue.items.count - 1,
@@ -69,9 +73,28 @@ final class PlaybackService {
             // 预加载下一首
             prepareNext()
         } else {
-            // 无预加载(YouTube 或无下一首):回退到 load
-            next()
+            // 无预加载(YouTube 或无下一首):回退到不记位移的推进
+            advanceWithoutDisplacement()
         }
+    }
+
+    /// 自然完成路径专用的推进:不发出 skip/stop 位移事件(完成事件已发出)。
+    /// 与用户主动 next() 共享队列推进逻辑,但绕过位移记录。
+    private func advanceWithoutDisplacement() {
+        guard let item = queue.next() else {
+            // .all 边界: 第一次返回 nil, 再调一次即可回到首项
+            if queue.repeatMode == .all {
+                if let item2 = queue.next() {
+                    Task { await load(item2.track) }
+                } else {
+                    state.isPlaying = false
+                }
+            } else {
+                state.isPlaying = false
+            }
+            return
+        }
+        Task { await load(item.track) }
     }
 
     /// 预加载队列中的下一首到当前引擎(本地曲目的无缝前置条件)。
@@ -87,13 +110,32 @@ final class PlaybackService {
     }
 
     func playTrack(_ track: TrackSnapshot, context: [TrackSnapshot], from: QueueSource) {
+        // 直接选曲:若当前有曲目在播,先记位移(用户切换走了旧曲目)。
+        postDisplacementForCurrent()
         queue.play(track, context: context, from: from)
         Task { await loadCurrent() }
     }
 
-    func toggle() { currentEngine?.toggle() }
-    func pause() { currentEngine?.pause() }
-    func seek(to time: Double) { currentEngine?.seek(to: time) }
+    func toggle() {
+        let wasPlaying = state.isPlaying
+        currentEngine?.toggle()
+        guard let track = state.track else { return }
+        if wasPlaying {
+            eventBus.post(.trackPaused(track))
+        } else {
+            eventBus.post(.trackResumed(track))
+        }
+    }
+    func pause() {
+        currentEngine?.pause()
+        if let track = state.track { eventBus.post(.trackPaused(track)) }
+    }
+    func seek(to time: Double) {
+        currentEngine?.seek(to: time)
+        if let track = state.track {
+            eventBus.post(.trackSeeked(trackId: track.id, toMs: time * 1000.0))
+        }
+    }
     func setVolume(_ v: Float) {
         volume = max(0, min(1, v))
         // 两个引擎都设置,保证切换引擎后音量一致。
@@ -115,6 +157,8 @@ final class PlaybackService {
     }
 
     func next() {
+        // 用户主动切下一首:先记当前曲目的位移(skip/stop)。
+        postDisplacementForCurrent()
         guard let item = queue.next() else {
             // .all 边界: 第一次返回 nil, 再调一次即可回到首项
             if queue.repeatMode == .all {
@@ -133,6 +177,8 @@ final class PlaybackService {
     }
 
     func previous() {
+        // 用户主动切上一首:先记当前曲目的位移。
+        postDisplacementForCurrent()
         guard let item = queue.previous() else { return }
         // 若返回的就是当前正在播放的曲目(已在首位/历史空), 跳过 reload 避免抖动
         if item.track.id == state.track?.id { return }
@@ -181,6 +227,29 @@ final class PlaybackService {
         }
     }
 
+    /// 用户主动切歌(下一首/上一首/直接选曲)时,为当前曲目发出位移事件。
+    /// 按收听时长判定:`< min(30s, 20% 时长)` → `.trackSkipped`,否则 `.trackStopped`
+    /// (充分收听但非自然结束)。时长未知时阈值退化为 30s。仅发出事件,不改变播放行为。
+    private func postDisplacementForCurrent() {
+        guard let track = state.track else { return }
+        let listenedMs = max(0, state.position) * 1000.0
+        let durMs = track.durationSeconds * 1000.0
+        let threshold = durMs > 0 ? min(30_000.0, 0.2 * durMs) : 30_000.0
+        if listenedMs < threshold {
+            eventBus.post(.trackSkipped(track, listenedMs: listenedMs))
+        } else {
+            eventBus.post(.trackStopped(track, listenedMs: listenedMs))
+        }
+    }
+
+    /// 自然完成(引擎完成回调 / 轮询发现 position 抵达 duration):发出 `.trackCompleted`,
+    /// listenedMs 记为整曲时长。时长未知时记 0。
+    private func postCompletedForCurrent() {
+        guard let track = state.track else { return }
+        let listenedMs = track.durationSeconds * 1000.0
+        eventBus.post(.trackCompleted(track, listenedMs: max(0, listenedMs)))
+    }
+
     private func observeCompletion() {
         completionObserver = Task { [weak self] in
             while !Task.isCancelled {
@@ -190,16 +259,18 @@ final class PlaybackService {
                 guard !self.state.isPlaying else { continue }
                 // 已播完(position 抵达 duration)且引擎已停
                 if self.state.position >= self.state.duration - 0.05 {
-                    // 同一曲目的完成只推进一次, 避免轮询重复触发
+                    // 同一曲物的完成只推进一次, 避免轮询重复触发
                     if self.lastCompletedTrackId == self.state.track?.id { continue }
                     self.lastCompletedTrackId = self.state.track?.id
+                    // 自然完成:发出 .trackCompleted;用不记位移的推进,避免误判为 skip/stop。
+                    self.postCompletedForCurrent()
                     // 队列耗尽(.off 且在最后一首且无插队)则停止
                     if self.queue.repeatMode == .off,
                        self.queue.currentIndex >= self.queue.items.count - 1,
                        self.queue.upNext.isEmpty {
                         self.state.isPlaying = false
                     } else {
-                        self.next()
+                        self.advanceWithoutDisplacement()
                     }
                 }
             }

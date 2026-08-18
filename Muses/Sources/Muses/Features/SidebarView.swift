@@ -45,6 +45,8 @@ struct SidebarView: View {
                         .tag(SidebarSection.songs)
                     Label(tr("YouTube Imports", "YouTube 导入"), systemImage: "play.rectangle")
                         .tag(SidebarSection.youtubeImports)
+                    Label(tr("History", "历史记录"), systemImage: "clock.arrow.circlepath")
+                        .tag(SidebarSection.history)
                 }
 
                 // Playlists(内联)

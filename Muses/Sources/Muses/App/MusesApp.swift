@@ -17,6 +17,7 @@ struct MusesApp: App {
     let updateService: UpdateService
     let commandRegistry: CommandRegistry
     let runtimeCapabilities: RuntimeCapabilities
+    let historyService: HistoryService
     private let nowPlayingManager: NowPlayingManager
     private let spotlightIndexer: SpotlightIndexer
 
@@ -54,6 +55,9 @@ struct MusesApp: App {
         library.backfillArtists()
         library.triggerArtistEnrichment()
         self.nowPlayingManager = NowPlayingManager(playbackService)
+        // 收听历史(Phase 17):订阅 playbackService.eventBus,按事件落库 ListeningEvent。
+        self.historyService = HistoryService(modelContainer: container,
+                                             eventBus: playbackService.eventBus)
         let indexer = SpotlightIndexer(modelContainer: container)
         self.spotlightIndexer = indexer
         // 启动后异步索引到 Spotlight
@@ -111,6 +115,7 @@ struct MusesApp: App {
                     .environment(updateService)
                     .environment(commandRegistry)
                     .environment(runtimeCapabilities)
+                    .environment(historyService)
                     .modelContainer(modelContainer)
                     .onOpenURL { url in
                         // deep link: muses://play?trackId=<id> — Spotlight / 外部唤起播放
