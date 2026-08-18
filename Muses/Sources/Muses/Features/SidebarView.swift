@@ -10,6 +10,7 @@ struct SidebarView: View {
     @Binding var initialSettingsCategory: SettingsCategory?
     @Environment(PlaylistService.self) private var playlistService
     @State private var playlists: [Playlist] = []
+    @Query(sort: \YouTubeImport.importedAt, order: .reverse) private var ytImports: [YouTubeImport]
     @State private var showProfilePopover = false
     /// YouTube 登录态:反映 cookie 来源设置,用于 Profile 副标题与头像着色。
     @AppStorage(PrefKey.ytCookieSource) private var cookieSourceRaw = YTCookieSource.none.rawValue
@@ -43,23 +44,16 @@ struct SidebarView: View {
                         .tag(SidebarSection.albums)
                     Label(tr("Songs", "歌曲"), systemImage: "music.note")
                         .tag(SidebarSection.songs)
-                    Label(tr("YouTube Imports", "YouTube 导入"), systemImage: "play.rectangle")
-                        .tag(SidebarSection.youtubeImports)
                     Label(tr("History", "历史记录"), systemImage: "clock.arrow.circlepath")
                         .tag(SidebarSection.history)
                     Label(tr("Inbox", "收件箱"), systemImage: "tray")
                         .tag(SidebarSection.inbox)
                 }
 
-                // Playlists(内联)
+                // Playlists(内联,合并本地歌单与 YouTube 导入歌单)
                 Section(tr("Playlists", "歌单")) {
-                    ForEach(playlists, id: \.id) { playlist in
-                        Label(playlist.name, systemImage: "music.note.list")
-                            .tag(SidebarSection.playlists)
-                            .onTapGesture {
-                                NotificationCenter.default.post(
-                                    name: .musesSelectPlaylist, object: playlist)
-                            }
+                    ForEach(mergedItems) { item in
+                        PlaylistSidebarRow(item: item) { handlePlaylistTap(item) }
                     }
                 }
             }
@@ -76,6 +70,31 @@ struct SidebarView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .musesSelectPlaylist)) { note in
             selection = .playlists
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .musesNavigateYouTubeImport)) { _ in
+            // YouTube 歌单与本地歌单共享侧边栏「Playlists」分组,选中时高亮该分组。
+            selection = .playlists
+        }
+    }
+
+    /// 合并本地歌单与 YouTube 导入歌单(钉选置顶,其余按时间倒序)。
+    private var mergedItems: [SidebarPlaylistItem] {
+        PlaylistSidebarAdapter.merged(local: playlists, youTube: ytImports)
+    }
+
+    /// 侧边栏歌单行点击路由:本地 → `.musesSelectPlaylist`;YouTube → `.musesNavigateYouTubeImport`。
+    private func handlePlaylistTap(_ item: SidebarPlaylistItem) {
+        switch item.origin {
+        case .local:
+            if let pid = item.playlistId,
+               let playlist = playlists.first(where: { $0.id == pid }) {
+                NotificationCenter.default.post(name: .musesSelectPlaylist, object: playlist)
+            }
+        case .youtube:
+            if let yid = item.youTubeImportId,
+               let imp = ytImports.first(where: { $0.id == yid }) {
+                NotificationCenter.default.post(name: .musesNavigateYouTubeImport, object: imp)
+            }
         }
     }
 

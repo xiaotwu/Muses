@@ -10,6 +10,7 @@ struct RootView: View {
     @State private var selectedArtist: Artist?
     @State private var selectedYouTubeImport: YouTubeImport?
     @State private var showImport = false
+    @State private var showYouTubeLink = false
     @State private var showNowPlaying = false
     @State private var showQueue = false
     @State private var showSearch = false
@@ -59,8 +60,6 @@ struct RootView: View {
                         ArtistsView(selectedArtist: $selectedArtist)
                     case .songs:
                         SongsListView()
-                    case .youtubeImports:
-                        YouTubeImportsView(embedded: true)
                     case .playlists:
                         PlaylistsView(selectedPlaylist: $selectedPlaylist)
                     case .history:
@@ -80,6 +79,9 @@ struct RootView: View {
         .sheet(isPresented: $showImport) {
             ImportSheet()
                 .environment(library)
+        }
+        .sheet(isPresented: $showYouTubeLink) {
+            AddYouTubeLinkSheet()
         }
         .sheet(isPresented: $showSettings, onDismiss: {
             showAbout = false
@@ -174,7 +176,7 @@ struct RootView: View {
         }
         .toolbar {
             ToolbarItem(placement: .navigation) {
-                Button { showImport = true } label: { Image(systemName: "plus") }
+                AddMusicMenu(showLocalFolder: $showImport, showYouTubeLink: $showYouTubeLink)
             }
         }
         .id(language)
@@ -184,7 +186,6 @@ struct RootView: View {
 enum SidebarSection: String, Hashable, CaseIterable {
     case search, home, new
     case pins, recently, artists, albums, songs  // Library subsections
-    case youtubeImports
     case playlists
     case history  // Phase 17: Smart Listening History
     case inbox    // Phase 20: Music Inbox
