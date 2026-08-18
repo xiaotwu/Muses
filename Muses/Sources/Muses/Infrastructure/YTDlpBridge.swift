@@ -86,6 +86,10 @@ final class YTDlpBridge {
     /// 解析后的二进制路径缓存(只解析一次)。
     private var resolvedBinary: String?
 
+    /// `ytsearch` 结果缓存(spec §21):新鲜命中直接复用,避免重复 spawn yt-dlp。
+    /// 注入 nil 可禁用缓存(测试用);默认 `.default`。
+    private let searchCache: YTDlpSearchCache?
+
     /// 质量名 -> yt-dlp `-f` 格式选择器。
     private static let qualityMap: [String: String] = [
         "bestaudio": "bestaudio[ext*=m4a]/bestaudio/best",
@@ -94,8 +98,9 @@ final class YTDlpBridge {
         "64k": "ba[abr<=64]"
     ]
 
-    init(binaryPath: String? = nil) {
+    init(binaryPath: String? = nil, searchCache: YTDlpSearchCache? = .default) {
         self.binaryPath = binaryPath
+        self.searchCache = searchCache
     }
 
     // MARK: - Cookie / 登录
@@ -279,6 +284,12 @@ final class YTDlpBridge {
     func searchYouTube(query: String,
                        limit: Int = 10,
                        timeout: TimeInterval = 30) async throws -> [YTDlpPlaylistEntry] {
+        // 新鲜命中:直接复用,跳过 yt-dlp spawn(spec §21)。
+        if let cache = searchCache, cache.isFresh(query: query, limit: limit),
+           let cached = cache.get(query: query, limit: limit) {
+            log.info("searchYouTube 缓存命中(新鲜):\(query)")
+            return cached.value
+        }
         let bin = try await resolveBinary()
         var args = cookieArgs()
         // ytsearch 语法:yt-dlp "ytsearch10:query" --flat-playlist --dump-json
@@ -304,6 +315,8 @@ final class YTDlpBridge {
                 throw YTDlpError.parseFailed("搜索结果第 \(idx) 行 JSON 解析失败:\(error)")
             }
         }
+        // 写入缓存(成功 spawn 后)。
+        searchCache?.set(query: query, limit: limit, entries: entries)
         return entries
     }
 

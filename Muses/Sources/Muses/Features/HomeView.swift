@@ -23,6 +23,9 @@ struct HomeView: View {
     @State private var heroAlbum: Album? = nil
     /// 最近播放的曲目快照(本地 + YouTube),供 "Recently Played" 区。
     @State private var recentlyPlayed: [TrackSnapshot] = []
+    /// 在途任务句柄(用于 disappear 取消,spec §23)。
+    @State private var trendingTask: Task<Void, Never>?
+    @State private var gradientTask: Task<Void, Never>?
 
     /// Hero 专辑:优先选最近播放的,否则最近添加的,否则第一个。
     /// 现在读取缓存的 `heroAlbum`,由 `refreshLibrarySnapshot()` 维护。
@@ -81,11 +84,22 @@ struct HomeView: View {
                 .animation(.easeInOut(duration: 0.4), value: heroAlbum?.id)
         )
         .onAppear {
-            refreshLibrarySnapshot()
-            updateGradient()
+            PerfTrace.event("home.appear")
+            // 将资料库快照从同步 appear 路径延迟到首帧绘制后(spec §15/§16),
+            // 让骨架/缓存内容先上屏。
+            Task { @MainActor in
+                refreshLibrarySnapshot()
+                PerfTrace.event("home.firstCachedContent")
+            }
+            updateGradientAsync()
             loadTrending()
         }
-        .onChange(of: heroAlbum?.id) { _, _ in updateGradient() }
+        .onDisappear {
+            // 页面切换取消非必要任务(spec §23)。
+            trendingTask?.cancel(); trendingTask = nil
+            gradientTask?.cancel(); gradientTask = nil
+        }
+        .onChange(of: heroAlbum?.id) { _, _ in updateGradientAsync() }
         .onChange(of: library.metadataRevision) { _, _ in refreshLibrarySnapshot() }
         .onChange(of: library.pinRevision) { _, _ in refreshLibrarySnapshot() }
         .onChange(of: library.likedRevision) { _, _ in refreshLibrarySnapshot() }
@@ -305,13 +319,23 @@ struct HomeView: View {
 
     // MARK: - 辅助
 
-    private func updateGradient() {
+    /// 异步提取 Hero 渐变:磁盘读取移出主线程,颜色提取在主线程快速完成。
+    private func updateGradientAsync() {
+        gradientTask?.cancel()
         guard let album = heroAlbum,
               let hash = album.artworkHash,
-              let path = ArtworkCache.default.path(forHash: hash),
-              let img = NSImage(contentsOf: path) else { return }
-        let colors = AlbumArtworkExtractor.dominantColors(img, count: 4)
-        heroGradient = colors.map { Color(nsColor: $0) } + [BrandColors.background]
+              let path = ArtworkCache.default.path(forHash: hash) else { return }
+        gradientTask = Task { @MainActor in
+            // 磁盘 I/O + 解码放到 detached,避免阻塞首帧。
+            let data = await Task.detached(priority: .userInitiated) {
+                try? Data(contentsOf: path)
+            }.value
+            guard !Task.isCancelled, let data, let img = NSImage(data: data) else { return }
+            let colors = AlbumArtworkExtractor.dominantColors(img, count: 4)
+            guard !Task.isCancelled else { return }
+            heroGradient = colors.map { Color(nsColor: $0) } + [BrandColors.background]
+            PerfTrace.event("home.gradientReady")
+        }
     }
 
     private func playAlbum(_ album: Album) {
@@ -324,8 +348,7 @@ struct HomeView: View {
     // MARK: - YouTube 辅助
 
     private func loadTrending() {
-        guard ytTrending.isEmpty && !trendingLoading else { return }
-        trendingLoading = true
+        trendingTask?.cancel()
         trendingError = nil
         // 查询种子:若用户有播放记录,用最常听的艺术家做个性化种子;否则用热门音乐。
         let seed: String
@@ -334,11 +357,31 @@ struct HomeView: View {
         } else {
             seed = "trending music 2026"
         }
-        Task {
+        let limit = 12
+
+        // stale-while-revalidate(spec §16/§17):先展示缓存(即使 stale)立即上屏。
+        if let cached = YTDlpSearchCache.default.get(query: seed, limit: limit) {
+            ytTrending = cached.value
+            trendingLoading = false
+            PerfTrace.event("home.firstCachedContent")
+            // 新鲜命中:跳过 yt-dlp spawn(spec §21)。
+            if YTDlpSearchCache.default.isFresh(query: seed, limit: limit) {
+                PerfTrace.event("home.firstRemoteContent")
+                return
+            }
+            // stale:保留缓存内容,后台刷新。
+        } else {
+            trendingLoading = true
+        }
+
+        trendingTask = Task {
             do {
-                let results = try await ytSearch.search(query: seed, limit: 12)
+                let results = try await ytSearch.search(query: seed, limit: limit)
+                guard !Task.isCancelled else { return }
                 ytTrending = results
+                PerfTrace.event("home.firstRemoteContent")
             } catch {
+                guard !Task.isCancelled else { return }
                 trendingError = tr("Failed to load Top Picks", "加载为你推荐失败")
             }
             trendingLoading = false
@@ -383,15 +426,9 @@ struct RecentTrackCard: View {
             Image(nsImage: NSImage(byReferencing: path)).resizable().scaledToFill()
         } else if let vid = snap.youTubeId,
                   let url = URL(string: "https://i.ytimg.com/vi/\(vid)/hqdefault.jpg") {
-            AsyncImage(url: url) { phase in
-                if let img = phase.image { img.resizable().scaledToFill() }
-                else { placeholder }
-            }
+            CachedAsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: { placeholder }
         } else if let urlStr = snap.artworkUrl, let url = URL(string: urlStr) {
-            AsyncImage(url: url) { phase in
-                if let img = phase.image { img.resizable().scaledToFill() }
-                else { placeholder }
-            }
+            CachedAsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: { placeholder }
         } else {
             placeholder
         }
@@ -412,12 +449,11 @@ struct YouTubeTrendingCard: View {
     var body: some View {
         Button(action: onPlay) {
             VStack(alignment: .leading, spacing: 6) {
-                AsyncImage(url: URL(string: "https://i.ytimg.com/vi/\(entry.id)/hqdefault.jpg")) { phase in
-                    if let img = phase.image { img.resizable().scaledToFill() }
-                    else {
-                        Rectangle().fill(BrandColors.surface)
-                            .overlay(Image(systemName: "music.note").font(.title))
-                    }
+                CachedAsyncImage(url: URL(string: "https://i.ytimg.com/vi/\(entry.id)/hqdefault.jpg")) { img in
+                    img.resizable().scaledToFill()
+                } placeholder: {
+                    Rectangle().fill(BrandColors.surface)
+                        .overlay(Image(systemName: "music.note").font(.title))
                 }
                 .frame(width: 160, height: 90)
                 .clipped().cornerRadius(8)
@@ -448,10 +484,7 @@ struct YouTubeImportCardSmall: View {
             VStack(alignment: .leading, spacing: 6) {
                 Group {
                     if let urlStr = imp.artworkUrl, let url = URL(string: urlStr) {
-                        AsyncImage(url: url) { phase in
-                            if let img = phase.image { img.resizable().scaledToFill() }
-                            else { thumbnailFallback }
-                        }
+                        CachedAsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: { thumbnailFallback }
                     } else {
                         thumbnailFallback
                     }
@@ -472,9 +505,10 @@ struct YouTubeImportCardSmall: View {
     private var thumbnailFallback: some View {
         Group {
             if let first = items.first {
-                AsyncImage(url: URL(string: "https://i.ytimg.com/vi/\(first.youTubeId)/hqdefault.jpg")) { phase in
-                    if let img = phase.image { img.resizable().scaledToFill() }
-                    else { placeholder }
+                CachedAsyncImage(url: URL(string: "https://i.ytimg.com/vi/\(first.youTubeId)/hqdefault.jpg")) { img in
+                    img.resizable().scaledToFill()
+                } placeholder: {
+                    placeholder
                 }
             } else {
                 placeholder
