@@ -9,8 +9,12 @@ struct YouTubeAlbumDetailView: View {
     let youTubeImport: YouTubeImport
     @Environment(PlaybackService.self) private var playback
     @Environment(YouTubeImportService.self) private var importService
+    @Environment(InboxService.self) private var inbox
     @State private var gradient: [Color] = [BrandColors.background, BrandColors.surface]
     @State private var syncing = false
+    @State private var showAddLocalSheet = false
+    @State private var showDeleteConfirm = false
+    @State private var pendingDelete = false
 
     private var items: [YouTubeImportItem] {
         (youTubeImport.items ?? []).sorted { $0.order < $1.order }
@@ -48,6 +52,29 @@ struct YouTubeAlbumDetailView: View {
             }
         }
         .onAppear { extractGradient() }
+        .confirmationDialog(
+            tr("Delete this YouTube playlist import?",
+               "删除此 YouTube 歌单导入?"),
+            isPresented: $showDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(tr("Delete", "删除"), role: .destructive) {
+                pendingDelete = true
+                importService.deleteImport(importId: youTubeImport.id)
+                NotificationCenter.default.post(name: .musesCloseYouTubeAlbum, object: nil)
+            }
+            Button(tr("Cancel", "取消"), role: .cancel) {}
+        } message: {
+            Text(tr("Local additions and imported tracks remain in your library unless you delete them separately.",
+                    "本地附加与已导入曲目仍保留在资料库中,除非单独删除。"))
+        }
+        .sheet(isPresented: $showAddLocalSheet) {
+            LocalTrackPickerSheet(
+                importId: youTubeImport.id,
+                existingTrackIds: Set(localAdditions.map { $0.id })
+            )
+            .environment(importService)
+        }
     }
 
     // MARK: - Header
@@ -81,6 +108,17 @@ struct YouTubeAlbumDetailView: View {
                     .tint(BrandColors.magenta)
                     .disabled(allSnaps.isEmpty)
 
+                    Button { shuffleAll() } label: {
+                        Label(tr("Shuffle", "随机播放"), systemImage: "shuffle")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(allSnaps.isEmpty)
+
+                    Button { showAddLocalSheet = true } label: {
+                        Label(tr("Add Local", "添加本地"), systemImage: "plus")
+                    }
+                    .buttonStyle(.bordered)
+
                     Button {
                         if let url = URL(string: youTubeImport.url) { NSWorkspace.shared.open(url) }
                     } label: {
@@ -103,6 +141,13 @@ struct YouTubeAlbumDetailView: View {
                     }
                     .buttonStyle(.bordered)
                     .disabled(syncing)
+
+                    Button(role: .destructive) {
+                        showDeleteConfirm = true
+                    } label: {
+                        Label(tr("Delete", "删除"), systemImage: "trash")
+                    }
+                    .buttonStyle(.bordered)
                 }
                 .padding(.top, 4)
             }
@@ -170,7 +215,13 @@ struct YouTubeAlbumDetailView: View {
                     artist: item.artist,
                     durationMs: item.durationMs,
                     isLocal: false,
-                    onPlay: { playItem(item) }
+                    onPlay: { playItem(item) },
+                    onQueue: {
+                        if let t = item.track { playback.queue.addToQueue(TrackSnapshot(from: t)) }
+                    },
+                    onInbox: {
+                        if let t = item.track { inbox.add(TrackSnapshot(from: t), source: .youTubeImport) }
+                    }
                 )
                 .padding(.vertical, 6)
             }
@@ -185,9 +236,38 @@ struct YouTubeAlbumDetailView: View {
                     onPlay: {
                         let snap = TrackSnapshot(from: track)
                         playback.playTrack(snap, context: allSnaps, from: .import)
-                    }
+                    },
+                    onQueue: { playback.queue.addToQueue(TrackSnapshot(from: track)) },
+                    onInbox: { inbox.add(TrackSnapshot(from: track), source: .youTubeImport) }
                 )
                 .padding(.vertical, 6)
+            }
+
+            // 本地附加管理区
+            if !localAdditions.isEmpty {
+                Divider().background(BrandColors.textSecondary.opacity(0.1))
+                HStack {
+                    Text(tr("Local additions (shown locally only, not synced back to YT)",
+                            "本地附加(仅本地显示,不同步回 YT)"))
+                        .font(.caption).fontWeight(.medium)
+                        .foregroundStyle(BrandColors.green)
+                    Spacer()
+                }
+                .padding(.horizontal, 4).padding(.top, 10)
+                ForEach(localAdditions, id: \.id) { track in
+                    HStack {
+                        Image(systemName: "music.note").foregroundStyle(BrandColors.green)
+                            .frame(width: 20)
+                        Text(track.title).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
+                        Spacer()
+                        Button {
+                            importService.removeLocalAddition(importId: youTubeImport.id, trackId: track.id)
+                        } label: { Image(systemName: "minus.circle") }
+                            .buttonStyle(.plain).foregroundStyle(BrandColors.textSecondary)
+                            .help(tr("Remove local addition", "移除本地附加"))
+                    }
+                    .padding(.horizontal, 4).padding(.vertical, 4)
+                }
             }
         }
     }
@@ -203,6 +283,13 @@ struct YouTubeAlbumDetailView: View {
     private func playAll() {
         guard let first = allSnaps.first else { return }
         playback.playTrack(first, context: allSnaps, from: .import)
+    }
+
+    private func shuffleAll() {
+        guard !allSnaps.isEmpty else { return }
+        let shuffled = allSnaps.shuffled()
+        guard let first = shuffled.first else { return }
+        playback.playTrack(first, context: shuffled, from: .import)
     }
 
     // MARK: - Gradient
@@ -239,6 +326,8 @@ struct YouTubeAlbumTrackRow: View {
     let durationMs: Int
     let isLocal: Bool
     let onPlay: () -> Void
+    var onQueue: (() -> Void)? = nil
+    var onInbox: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 10) {
@@ -259,6 +348,20 @@ struct YouTubeAlbumTrackRow: View {
             Spacer()
             if durationMs > 0 {
                 Text(formatMs(durationMs)).font(.caption).foregroundStyle(BrandColors.textSecondary)
+            }
+            if let onInbox {
+                Button(action: onInbox) {
+                    Image(systemName: "tray.and.arrow.down").foregroundStyle(BrandColors.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .help(tr("Save to Inbox", "保存到收件箱"))
+            }
+            if let onQueue {
+                Button(action: onQueue) {
+                    Image(systemName: "text.badge.plus").foregroundStyle(BrandColors.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .help(tr("Add to Queue", "加入播放队列"))
             }
             Button(action: onPlay) {
                 Image(systemName: "play.fill").foregroundStyle(BrandColors.magenta)

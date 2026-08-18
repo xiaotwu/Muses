@@ -163,6 +163,54 @@ final class YouTubeImportService {
         return imp.id
     }
 
+    // MARK: - Single video import
+
+    /// 导入单个 YouTube 视频为 `.youtube` Track(若同 youTubeId 已存在则返回既有)。
+    ///
+    /// 通过 YouTube oEmbed 获取标题/频道/封面(失败回退占位),创建懒 Track 并缓存封面。
+    /// - Returns: 新建或既有 Track 的 id。
+    @discardableResult
+    func importVideo(url: String) async throws -> UUID {
+        guard let videoId = extractVideoId(from: url) else {
+            throw YouTubeImportError.invalidURL
+        }
+
+        let ctx = ModelContext(modelContainer)
+
+        // 复用既有 Track(同 youTubeId)。
+        if let existing = try? ctx.fetch(FetchDescriptor<Track>(
+            predicate: #Predicate { $0.youTubeId == videoId }
+        )).first {
+            return existing.id
+        }
+
+        // oEmbed 获取元数据(失败回退)。
+        let meta = await fetchOEmbedMetadata(for: url)
+        let title = meta?.title ?? "YouTube Video"
+        let channel = meta?.channel ?? "Unknown"
+        let artworkURLString = meta?.artworkURL ?? thumbnailURL(forVideoId: videoId)
+
+        let track = Track(
+            source: .youtube,
+            title: title,
+            artist: channel,
+            durationMs: 0,
+            youTubeId: videoId,
+            artworkUrl: artworkURLString
+        )
+        ctx.insert(track)
+
+        // 缓存封面(失败不阻塞)。
+        if let url = URL(string: artworkURLString),
+           let imageData = await get(url) {
+            _ = try? artworkCache.store(imageData)
+        }
+
+        try ctx.save()
+        log.info("导入单曲 \(videoId)(\(title))")
+        return track.id
+    }
+
     // MARK: - Resync
 
     /// 重新同步指定导入:重新抓取歌单并合并条目。
@@ -385,6 +433,29 @@ final class YouTubeImportService {
         }
         // 2) 某些 youtu.be 链接把 list 放在 query;上面已覆盖。
         // 3) 无 list 参数则无法确定歌单 id。
+        return nil
+    }
+
+    /// 从 YouTube URL 解析单曲 video id。
+    /// 支持 `youtube.com/watch?v=`, `youtu.be/<id>`, `youtube.com/shorts/<id>`, `youtube.com/embed/<id>`。
+    private func extractVideoId(from url: String) -> String? {
+        guard let comps = URLComponents(string: url) else { return nil }
+        if let v = comps.queryItems?.first(where: { $0.name == "v" })?.value, !v.isEmpty {
+            return v
+        }
+        let host = (comps.host ?? "").lowercased()
+        guard host.hasSuffix("youtube.com") || host == "youtu.be" else { return nil }
+        let path = comps.path
+        if host == "youtu.be" {
+            let seg = path.split(separator: "/").filter { !$0.isEmpty }
+            return seg.first.map { String($0) }
+        }
+        let seg = path.split(separator: "/").filter { !$0.isEmpty }
+        guard let first = seg.first else { return nil }
+        let prefix = first.lowercased()
+        if prefix == "shorts" || prefix == "embed" {
+            return seg.dropFirst().first.map { String($0) }
+        }
         return nil
     }
 
