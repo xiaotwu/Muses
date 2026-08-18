@@ -18,6 +18,8 @@ struct MusesApp: App {
     let commandRegistry: CommandRegistry
     let runtimeCapabilities: RuntimeCapabilities
     let historyService: HistoryService
+    let contextService: ContextService
+    let automationService: AutomationService
     let sessionService: SessionService
     let inboxService: InboxService
     let notesService: NotesService
@@ -61,9 +63,18 @@ struct MusesApp: App {
         library.backfillArtists()
         library.triggerArtistEnrichment()
         self.nowPlayingManager = NowPlayingManager(playbackService)
+        // 上下文监听(Phase 23 §10.2):opt-in(ffContext 默认关),best-effort 捕获本地时间/
+        // 前台应用 bundle id(需 contextTrackActiveApp 再显式开启)/输出设备/耳机启发式。
+        // 绝不记录窗口标题/URL/内容。capture() 关闭时返回 nil,HistoryService 存 nil。
+        let contextService = ContextService()
+        self.contextService = contextService
         // 收听历史(Phase 17):订阅 playbackService.eventBus,按事件落库 ListeningEvent。
+        // Phase 23:注入 contextProvider 使 ListeningEvent.contextSummaryJSON 在终结时填充。
         self.historyService = HistoryService(modelContainer: container,
-                                             eventBus: playbackService.eventBus)
+                                             eventBus: playbackService.eventBus,
+                                             contextProvider: { [weak contextService] in
+            contextService?.capture()
+        })
         // 收听会话 + 崩溃恢复(Phase 18):订阅事件总线,维护 ListeningSession 行 +
         // 周期 checkpoint 到 QueueState 崩溃恢复槽;构造时检测可恢复会话供 RootView 弹对话框。
         // 须在 queue.restore() 之后构造(已在上方执行),以读取恢复的 currentTrackId/位置。
@@ -76,6 +87,14 @@ struct MusesApp: App {
         self.inboxService = InboxService(modelContainer: container,
                                          eventBus: playbackService.eventBus)
         inboxService.restoreDueSnoozes()
+        // 上下文自动化(Phase 23 §12):订阅事件总线,匹配 AutomationRule 触发器/条件/动作。
+        // ffAutomation 默认关 → handle 直接返回。动作处理器接入 library/inbox/playback。
+        self.automationService = AutomationService(
+            modelContainer: container,
+            eventBus: playbackService.eventBus,
+            contextProvider: { [weak contextService] in contextService?.capture() },
+            actionHandler: AutomationService.makeDefaultActionHandler(
+                library: library, inbox: inboxService, playback: playbackService))
         let indexer = SpotlightIndexer(modelContainer: container)
         self.spotlightIndexer = indexer
         // 启动后异步索引到 Spotlight
@@ -134,6 +153,8 @@ struct MusesApp: App {
                     .environment(commandRegistry)
                     .environment(runtimeCapabilities)
                     .environment(historyService)
+                    .environment(contextService)
+                    .environment(automationService)
                     .environment(sessionService)
                     .environment(inboxService)
                     .environment(notesService)

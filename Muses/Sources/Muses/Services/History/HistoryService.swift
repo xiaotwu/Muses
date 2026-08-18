@@ -21,6 +21,9 @@ final class HistoryService {
     private let modelContainer: ModelContainer
     private let eventBus: PlaybackEventBus
     private let enabledProvider: () -> Bool
+    /// Phase 23 §10.2:收听上下文提供者(默认 nil,即不附加上下文)。
+    /// 生产由 `MusesApp` 注入 `contextService.capture()`;关闭 ffContext 时 capture 返回 nil。
+    private let contextProvider: () -> ListeningContext?
     private var subscription: UUID?
     /// 当前进行中事件:已收到 trackStarted 但尚未被终结事件关闭。
     private var pending: PendingEvent?
@@ -34,10 +37,12 @@ final class HistoryService {
     init(modelContainer: ModelContainer, eventBus: PlaybackEventBus,
          enabledProvider: @escaping () -> Bool = {
         UserDefaults.standard.bool(forKey: PrefKey.ffSmartHistory)
-    }) {
+    },
+         contextProvider: @escaping () -> ListeningContext? = { nil }) {
         self.modelContainer = modelContainer
         self.eventBus = eventBus
         self.enabledProvider = enabledProvider
+        self.contextProvider = contextProvider
         subscribe()
     }
 
@@ -103,7 +108,8 @@ final class HistoryService {
             albumTitle: snap.albumTitle,
             source: snap.youTubeId != nil ? .youtube : .local,
             startedAt: startedAt, endedAt: Date(),
-            listenedMs: listenedMs, completionRatio: ratio, outcome: outcome
+            listenedMs: listenedMs, completionRatio: ratio, outcome: outcome,
+            contextSummaryJSON: ContextService.encode(contextProvider())
         )
         persist(event)
         if pending?.trackId == snap.id { pending = nil }
@@ -117,7 +123,8 @@ final class HistoryService {
             trackId: p.trackId, trackTitle: p.trackTitle, artist: p.artist,
             albumTitle: p.albumTitle, source: p.source,
             startedAt: p.startedAt, endedAt: Date(),
-            listenedMs: 0, completionRatio: ratio, outcome: .interrupted
+            listenedMs: 0, completionRatio: ratio, outcome: .interrupted,
+            contextSummaryJSON: ContextService.encode(contextProvider())
         )
         persist(event)
     }
@@ -209,6 +216,63 @@ final class HistoryService {
             localMs: localMs, youtubeMs: youtubeMs,
             topTracks: Array(topTracks), topArtists: Array(topArtists)
         )
+    }
+
+    // MARK: - 上下文画像(Final Spec §10.2)
+
+    /// 从 `ListeningEvent.contextSummaryJSON` 聚合本地画像:per-app / late-night / morning /
+    /// headphone / weekend。仅统计有上下文的事件;无上下文的事件跳过。
+    func contextProfiles(now: Date = Date(), limit: Int = 50_000) -> [ListeningContextProfile] {
+        let evs = events(matching: HistoryQuery(limit: limit))
+        // 解码上下文并按画像维度分桶。
+        var perApp: [String: [(ListeningEvent, ListeningContext)]] = [:]
+        var lateNight: [(ListeningEvent, ListeningContext)] = []
+        var morning: [(ListeningEvent, ListeningContext)] = []
+        var headphone: [(ListeningEvent, ListeningContext)] = []
+        var weekend: [(ListeningEvent, ListeningContext)] = []
+        for ev in evs {
+            guard let ctx = ContextService.decode(ev.contextSummaryJSON) else { continue }
+            if let bid = ctx.frontmostAppBundleId {
+                perApp[bid, default: []].append((ev, ctx))
+            }
+            switch ctx.timeBand {
+            case .lateNight: lateNight.append((ev, ctx))
+            case .morning:   morning.append((ev, ctx))
+            default: break
+            }
+            if ctx.isHeadphones == true { headphone.append((ev, ctx)) }
+            if ctx.isWeekend { weekend.append((ev, ctx)) }
+        }
+        var profiles: [ListeningContextProfile] = []
+        for (bid, items) in perApp.sorted(by: { $0.value.count > $1.value.count }) {
+            profiles.append(makeProfile(id: "app:\(bid)", label: appLabel(bid), items: items))
+        }
+        if !lateNight.isEmpty { profiles.append(makeProfile(id: "band:lateNight", label: tr("Late-night favorites", "深夜最爱"), items: lateNight)) }
+        if !morning.isEmpty { profiles.append(makeProfile(id: "band:morning", label: tr("Morning tracks", "晨间曲目"), items: morning)) }
+        if !headphone.isEmpty { profiles.append(makeProfile(id: "headphone", label: tr("Headphone favorites", "耳机最爱"), items: headphone)) }
+        if !weekend.isEmpty { profiles.append(makeProfile(id: "weekend", label: tr("Weekend albums", "周末专辑"), items: weekend)) }
+        return profiles
+    }
+
+    /// 生成单个画像:聚合 playCount + top 5 曲目(按播放数倒序)。
+    private func makeProfile(id: String, label: String, items: [(ListeningEvent, ListeningContext)]) -> ListeningContextProfile {
+        var plays: [UUID: (title: String, artist: String, plays: Int)] = [:]
+        for (ev, _) in items {
+            var t = plays[ev.trackId] ?? (ev.trackTitle, ev.artist, 0)
+            t.plays += 1
+            plays[ev.trackId] = t
+        }
+        let top = plays.sorted { $0.value.plays > $1.value.plays }
+            .prefix(5)
+            .map { ListeningContextProfile.ContextProfileTrack(id: $0.key, title: $0.value.title, artist: $0.value.artist, plays: $0.value.plays) }
+        return ListeningContextProfile(id: id, label: label, playCount: items.count, topTracks: Array(top))
+    }
+
+    /// 前台应用展示名:取 bundle id 最后一段作为友好名(不联网解析,避免隐私/性能负担)。
+    private func appLabel(_ bundleId: String) -> String {
+        let segments = bundleId.split(separator: ".")
+        let last = segments.last.map(String.init) ?? bundleId
+        return tr("Most played while \(last)", "使用 \(last) 时最爱")
     }
 }
 
