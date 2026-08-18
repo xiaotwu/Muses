@@ -11,6 +11,7 @@ struct HomeView: View {
     @Environment(YouTubeSearchService.self) private var ytSearch
     @Environment(YouTubeImportService.self) private var importService
     @Environment(FocusService.self) private var focus
+    @Environment(HomeDiscoveryService.self) private var homeDiscovery
     @Query(sort: \YouTubeImport.importedAt, order: .reverse) private var ytImports: [YouTubeImport]
     @State private var heroGradient: [Color] = [BrandColors.background, BrandColors.surface]
     @State private var ytTrending: [YTDlpBridge.YTDlpPlaylistEntry] = []
@@ -44,8 +45,14 @@ struct HomeView: View {
                 }
 
                 // Top Picks for you(来源 YouTube Music)—— 专注模式开启时抑制发现表面(Final Spec §10.9)。
+                // Phase D3:ffDiscovery 开启时,改为渲染来自 HomeDiscoveryService 的动态区段
+                // (标题/内容由 provider 产出,cache-first + per-section failure);关闭时保持现有行为。
                 if !focus.isActive {
-                    topPicksSection
+                    if homeDiscovery.isEnabled {
+                        discoveryFeedSection
+                    } else {
+                        topPicksSection
+                    }
                 }
 
                 // 最近添加
@@ -64,8 +71,8 @@ struct HomeView: View {
                     )
                 }
 
-                // 已导入的 YouTube 歌单
-                if !ytImports.isEmpty {
+                // 已导入的 YouTube 歌单(ffDiscovery 关时在此呈现;开时由发现流托管)。
+                if !homeDiscovery.isEnabled, !ytImports.isEmpty {
                     youtubeImportsSection
                 }
 
@@ -93,11 +100,14 @@ struct HomeView: View {
             }
             updateGradientAsync()
             loadTrending()
+            // Phase D3:动态发现流 cache-first 加载(仅 ffDiscovery 开启时生效)。
+            homeDiscovery.load()
         }
         .onDisappear {
             // 页面切换取消非必要任务(spec §23)。
             trendingTask?.cancel(); trendingTask = nil
             gradientTask?.cancel(); gradientTask = nil
+            homeDiscovery.cancel()
         }
         .onChange(of: heroAlbum?.id) { _, _ in updateGradientAsync() }
         .onChange(of: library.metadataRevision) { _, _ in refreshLibrarySnapshot() }
@@ -297,6 +307,84 @@ struct HomeView: View {
         }
     }
 
+    // MARK: - Phase D3:动态发现流
+
+    /// 渲染 `HomeDiscoveryService.sections`:每 section 独立状态(cache-first + per-section failure)。
+    /// 标题/副标题来自 provider,视图不硬编码 YouTube Music 区段名。
+    @ViewBuilder
+    private var discoveryFeedSection: some View {
+        VStack(alignment: .leading, spacing: 32) {
+            ForEach(homeDiscovery.sections) { section in
+                discoverySection(section)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func discoverySection(_ section: HomeSection) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(section.title)
+                    .font(.title2).fontWeight(.bold)
+                    .foregroundStyle(BrandColors.textPrimary)
+                if let sub = section.subtitle {
+                    Text(sub)
+                        .font(.caption).foregroundStyle(BrandColors.textSecondary)
+                }
+            }
+            .padding(.horizontal, 24)
+
+            switch section.status {
+            case .loading:
+                // 无缓存冷启:骨架占位(不使用居中 spinner,§15)。
+                HStack(spacing: 16) {
+                    ForEach(0..<4, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 8).fill(BrandColors.surface)
+                            .frame(width: 160, height: 90)
+                            .overlay(Image(systemName: "music.note").font(.title)
+                                .foregroundStyle(BrandColors.textSecondary.opacity(0.3)))
+                    }
+                }
+                .padding(.horizontal, 24)
+            case .failed(let msg):
+                Text(msg ?? tr("Couldn’t load this section", "无法加载该区段"))
+                    .font(.caption).foregroundStyle(BrandColors.textSecondary)
+                    .frame(maxWidth: .infinity).padding(.vertical, 20)
+            case .loaded, .idle:
+                if section.items.isEmpty {
+                    // 已加载但无结果:不显示空占位,静默折叠。
+                    EmptyView()
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 16) {
+                            ForEach(section.items) { item in
+                                if case .youTube(let card) = item {
+                                    HomeDiscoveryCardView(card: card) {
+                                        Task { await playYouTubeCard(card) }
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 24)
+                    }
+                }
+            }
+        }
+    }
+
+    private func playYouTubeCard(_ card: YouTubeDiscoveryCard) async {
+        // 复用 ytSearch.importAsTrack 路径:把卡片转成 entry 形态再导入播放。
+        let entry = YTDlpBridge.YTDlpPlaylistEntry(
+            id: card.id, title: card.title,
+            uploader: card.uploader, duration: card.duration)
+        do {
+            let snap = try await ytSearch.importAsTrack(entry: entry)
+            playback.playTrack(snap, context: [snap], from: .search)
+        } catch {
+            // 静默:发现流播放失败不弹错(与现有 playYouTube 行为一致)。
+        }
+    }
+
     // MARK: - 全部专辑
 
     private var allAlbumsSection: some View {
@@ -466,6 +554,36 @@ struct YouTubeTrendingCard: View {
             .frame(width: 160)
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Phase D3 — Home 发现流 YouTube 卡片:缩略图 + 标题 + 频道(16:9)。
+struct HomeDiscoveryCardView: View {
+    let card: YouTubeDiscoveryCard
+    let onPlay: () -> Void
+
+    var body: some View {
+        Button(action: onPlay) {
+            VStack(alignment: .leading, spacing: 6) {
+                CachedAsyncImage(
+                    url: card.thumbnailURL.flatMap(URL.init(string:))) { img in
+                    img.resizable().scaledToFill()
+                } placeholder: {
+                    Rectangle().fill(BrandColors.surface)
+                        .overlay(Image(systemName: "music.note").font(.title))
+                }
+                .frame(width: 160, height: 90)
+                .clipped().cornerRadius(8)
+
+                Text(card.title).font(.caption).lineLimit(1)
+                    .foregroundStyle(BrandColors.textPrimary)
+                Text(card.uploader ?? "YouTube").font(.caption2).lineLimit(1)
+                    .foregroundStyle(BrandColors.textSecondary)
+            }
+            .frame(width: 160)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(card.title) — \(card.uploader ?? "YouTube")")
     }
 }
 

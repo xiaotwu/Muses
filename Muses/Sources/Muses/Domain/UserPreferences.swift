@@ -115,6 +115,10 @@ enum PrefKey {
     static let ffGlobalHotkeys      = "muses.ff.globalHotkeys"
     /// 本地音乐硬化(Phase 27,可选):移动/重命名后用前 64KB 内容指纹重新关联 Track 行。
     static let ffLocalHardening     = "muses.ff.localHardening"
+    /// Home 动态发现(Phase D3):Home 远程发现区段由 provider 产出,cache-first + per-section failure。
+    static let ffDiscovery          = "muses.ff.discovery"
+    /// New 情境化推荐(Phase D5):基于 History/Context/Sessions/Focus 的确定性打分。
+    static let ffSituationalNew     = "muses.ff.situationalNew"
     /// 全局热键绑定(JSON 编码的 [action: HotkeyShortcut])。
     static let globalHotkeys        = "muses.globalHotkeys.bindings"
     /// 音频输出:优先设备名(Phase 26 Audio Nerd Mode)。
