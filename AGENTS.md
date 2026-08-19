@@ -88,6 +88,8 @@ Visual presentation may evolve substantially, but behavior, information architec
 - Now Playing is the primary expressive surface. It may make deeper use of artwork, environmental color, visual depth, Liquid Glass, lyrics, spectrum, vinyl, motion, and playback metadata.
 - Do not make every surface compete visually with Now Playing.
 - Preserve legibility and functional control contrast over artwork-derived backgrounds in light, dark, and high-contrast appearances.
+- Home / New rails may use larger artwork, hover Play, and now-playing identity. They must stay calmer than Now Playing.
+- Album, artist, and playlist detail may use environmental color and a playing-row. They are artwork environments, not a second Now Playing.
 
 ## Liquid Glass Direction
 
@@ -124,11 +126,21 @@ Artwork is a first-class part of the product identity.
 
 Motion should communicate hierarchy, navigation, continuity, playback state, expansion/collapse, or spatial relationships.
 
-- Prefer continuity between related surfaces, such as artwork-to-detail or PlayerBar-to-Now-Playing expansion, over unrelated transitions.
-- A future centralized motion system may coordinate artwork continuity, glass morphing, queue presentation, contextual controls, and hover response.
-- Avoid continuous decorative movement that competes with music, lyrics, spectrum, or artwork.
+A centralized motion/continuity system may coordinate:
+
+- Artwork continuity (PlayerBar ↔ Now Playing matched geometry).
+- Glass morphing on **chrome only** (PlayerBar, Search, Queue, compact controls).
+- Queue presentation.
+- Contextual controls and hover Play.
+
+Rules:
+
+- Prefer continuity between related surfaces over unrelated transitions.
+- Hover is 120–180ms ease, a few points of lift, no bounce, no idle motion on browsing surfaces.
+- Playback-position, spectrum, and vinyl **may** animate. List rows and chrome **must not** sample those clocks.
+- Do not glass-morph browsing cards.
 - Do not add animation to high-frequency state without evaluating frame pacing, CPU, energy, and accessibility impact.
-- Respect Reduce Motion in every new animation path, including custom Metal/AppKit rendering.
+- Respect Reduce Motion in every new animation path, including custom Metal/AppKit rendering. Reduce Motion fallback is instant swap or opacity.
 
 ## Native macOS Interaction
 
