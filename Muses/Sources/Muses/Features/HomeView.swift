@@ -497,9 +497,9 @@ struct YouTubeTrendingCard: View {
                 .frame(width: 160, height: 90)
                 .clipped().cornerRadius(8)
 
-                Text(entry.title).font(.caption).lineLimit(1)
+                Text(entry.title).font(.subheadline).lineLimit(1)
                     .foregroundStyle(BrandColors.textPrimary)
-                Text(entry.uploader ?? "YouTube").font(.caption2).lineLimit(1)
+                Text(entry.uploader ?? "YouTube").font(.caption).lineLimit(1)
                     .foregroundStyle(BrandColors.textSecondary)
             }
             .frame(width: 160)
@@ -526,9 +526,9 @@ struct HomeDiscoveryCardView: View {
                 .frame(width: 160, height: 90)
                 .clipped().cornerRadius(8)
 
-                Text(card.title).font(.caption).lineLimit(1)
+                Text(card.title).font(.subheadline).lineLimit(1)
                     .foregroundStyle(BrandColors.textPrimary)
-                Text(card.uploader ?? "YouTube").font(.caption2).lineLimit(1)
+                Text(card.uploader ?? "YouTube").font(.caption).lineLimit(1)
                     .foregroundStyle(BrandColors.textSecondary)
             }
             .frame(width: 160)

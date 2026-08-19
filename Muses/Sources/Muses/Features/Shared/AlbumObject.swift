@@ -28,11 +28,11 @@ struct AlbumObjectView: View {
             VStack(alignment: .leading, spacing: 8) {
                 artworkStack
                 Text(title)
-                    .font(size >= 200 ? .subheadline : .caption)
+                    .font(size >= 160 ? .subheadline : .caption)
                     .foregroundStyle(BrandColors.textPrimary)
                     .lineLimit(1)
                 Text(subtitle)
-                    .font(.caption2)
+                    .font(size >= 160 ? .caption : .caption2)
                     .foregroundStyle(BrandColors.textSecondary)
                     .lineLimit(1)
             }
