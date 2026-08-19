@@ -29,6 +29,47 @@ final class ImageLoader {
         memory.object(forKey: url.absoluteString as NSString)
     }
 
+    func cacheKey(url: URL, targetSize: CGFloat) -> String {
+        "\(url.absoluteString)#\(Int(targetSize.rounded()))"
+    }
+
+    func cachedImage(for url: URL, targetSize: CGFloat) -> NSImage? {
+        memory.object(forKey: cacheKey(url: url, targetSize: targetSize) as NSString)
+    }
+
+    /// 本地文件有界解码;不走 `URLSession`。同 key 合并,返回的 `Task` 可被取消。
+    func loadLocal(url: URL, targetSize: CGFloat) -> Task<NSImage?, Never> {
+        let key = cacheKey(url: url, targetSize: targetSize)
+        if let hit = memory.object(forKey: key as NSString) {
+            return Task { hit }
+        }
+        if let existing = inFlight[key] { return existing }
+        let task = Task<NSImage?, Never> { [self] in
+            defer { Task { @MainActor in self.inFlight[key] = nil } }
+            let img = await Task.detached(priority: .userInitiated) { () -> NSImage? in
+                guard let src = NSImage(contentsOf: url) else { return nil }
+                let scale: CGFloat = 2
+                let px = max(targetSize * scale, 1)
+                let newSize = NSSize(width: px, height: px)
+                let dest = NSImage(size: newSize)
+                dest.lockFocus()
+                src.draw(in: NSRect(origin: .zero, size: newSize),
+                         from: NSRect(origin: .zero, size: src.size),
+                         operation: .copy, fraction: 1)
+                dest.unlockFocus()
+                return dest
+            }.value
+            if let img {
+                await MainActor.run {
+                    self.memory.setObject(img, forKey: key as NSString, cost: Int(targetSize * targetSize * 4))
+                }
+            }
+            return img
+        }
+        inFlight[key] = task
+        return task
+    }
+
     /// 异步加载;请求合并 + 内存缓存。返回的 `Task` 可被取消。
     func load(_ url: URL) -> Task<NSImage?, Never> {
         let key = url.absoluteString as NSString
