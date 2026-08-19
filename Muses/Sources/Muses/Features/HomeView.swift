@@ -222,7 +222,7 @@ struct HomeView: View {
             ResponsiveCarousel(cardSize: 130) {
                 ForEach(recentlyPlayed, id: \.id) { snap in
                     RecentTrackCard(snap: snap) {
-                        playback.playTrack(snap, context: [snap], from: .recently)
+                        playback.playTrack(snap, context: recentlyPlayed, from: .recently)
                     }
                 }
             }
