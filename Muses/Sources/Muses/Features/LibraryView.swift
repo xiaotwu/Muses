@@ -138,13 +138,13 @@ struct SongsListView: View {
                         durationLabel: songDuration(track.durationSeconds),
                         artwork: ArtworkSource.localHash(track.localArtworkHash ?? track.album?.artworkHash),
                         isSelected: selectedSongID == track.id,
+                        playsOnDoubleClick: true,
                         isLossless: track.isLossless,
                         isLiked: likedSet.contains(track.id),
                         onToggleLike: { library.toggleLike(track) },
                         onSelect: { selectedSongID = track.id },
                         onPlay: { play(track, from: tracks) }
                     )
-                    .onTapGesture(count: 2) { play(track, from: tracks) }
                     .trackContextMenu(snapshot: TrackSnapshot(from: track),
                                       track: track,
                                       playlists: allPlaylists,

@@ -11,6 +11,8 @@ struct SongObjectView: View {
     var isNowPlaying: Bool = false
     var showsHoverPlay: Bool = false
     var showsPlayButton: Bool = false
+    /// When true, double-click calls `onPlay` on this same view (Songs list). Default false.
+    var playsOnDoubleClick: Bool = false
     var isLossless: Bool = false
     var showLocalBadge: Bool = false
     var isLiked: Bool? = nil
@@ -155,8 +157,28 @@ struct SongObjectView: View {
         .background(isSelected ? BrandColors.surface : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .contentShape(Rectangle())
-        .onTapGesture(perform: onSelect)
+        .modifier(SongRowTapModifier(
+            onSelect: onSelect,
+            onDoubleClick: playsOnDoubleClick ? onPlay : nil
+        ))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(title) — \(artist)")
+    }
+}
+
+/// Single-tap and optional double-tap on the same view. A parent `count: 2`
+/// loses to this view's exclusive single-tap on macOS.
+private struct SongRowTapModifier: ViewModifier {
+    let onSelect: () -> Void
+    var onDoubleClick: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        if let onDoubleClick {
+            content
+                .onTapGesture(count: 2, perform: onDoubleClick)
+                .onTapGesture(count: 1, perform: onSelect)
+        } else {
+            content.onTapGesture(perform: onSelect)
+        }
     }
 }
