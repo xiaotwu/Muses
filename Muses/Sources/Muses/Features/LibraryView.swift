@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 import SwiftData
 
 struct LibraryView: View {
@@ -7,8 +6,11 @@ struct LibraryView: View {
     @Binding var selectedAlbum: Album?
     @Binding var selectedBrowsableAlbum: BrowsableAlbum?
     @Environment(LibraryService.self) private var library
+    @Environment(PlaybackService.self) private var playback
     @Environment(MetadataEnrichmentService.self) private var enrichment
     @State private var projection = BrowseProjection.empty
+    @State private var playingAlbumID: UUID?
+    @State private var playingArtistID: UUID?
 
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: 16), count: 5)
@@ -21,16 +23,31 @@ struct LibraryView: View {
                 ProgressView(value: Double(progress.scanned), total: Double(progress.total))
                     .padding()
             }
+            let _ = library.pinRevision
             let albums = library.allAlbums()
             let derivedAlbums = projection.albums.filter { !$0.isLocal }
             if albums.isEmpty && derivedAlbums.isEmpty && progress.total == 0 {
                 EmptyStateView(icon: "square.stack", title: tr("Library is empty", "资料库为空"),
-                               subtitle: tr("Open Search (⌘K) and tap + to import a music folder, or drag files into the window", "打开搜索(⌘K)点击 + 导入音乐文件夹,或拖拽文件到窗口"))
+                               subtitle: tr("Open Search (⌘F) and tap + to import a music folder, or drag files into the window", "打开搜索(⌘F)点击 + 导入音乐文件夹,或拖拽文件到窗口"))
             } else {
                 LazyVGrid(columns: columns, spacing: 20) {
                     ForEach(albums, id: \.id) { album in
-                        AlbumCard(album: album)
-                            .onTapGesture { selectedAlbum = album }
+                        AlbumObjectView(
+                            title: album.title,
+                            subtitle: album.albumArtist,
+                            artwork: ArtworkSource.localHash(album.artworkHash),
+                            size: MusicObjectMetrics.albumGrid,
+                            role: .browse,
+                            isNowPlaying: album.id == playingAlbumID,
+                            showsHoverPlay: true,
+                            onSelect: { selectedAlbum = album },
+                            onPlay: { playAlbum(album) }
+                        )
+                        .contextMenu {
+                            Button(library.isPinned(album) ? tr("Unpin", "取消钉选") : tr("Pin", "钉选")) {
+                                library.togglePin(album)
+                            }
+                        }
                     }
                 }
                 .padding(20)
@@ -45,8 +62,13 @@ struct LibraryView: View {
                     .padding(.horizontal, 20)
                     LazyVGrid(columns: columns, spacing: 20) {
                         ForEach(derivedAlbums) { browsable in
-                            BrowsableAlbumCard(browsable: browsable)
-                                .onTapGesture { selectedBrowsableAlbum = browsable }
+                            BrowsableAlbumCard(
+                                browsable: browsable,
+                                isNowPlaying: browsable.localAlbumID == playingAlbumID,
+                                showsHoverPlay: true,
+                                onSelect: { selectedBrowsableAlbum = browsable },
+                                onPlay: { playBrowsable(browsable) }
+                            )
                         }
                     }
                     .padding(20)
@@ -56,6 +78,8 @@ struct LibraryView: View {
         .navigationTitle(tr("Albums", "专辑"))
         .background(BrandColors.background)
         .task { await loadProjection() }
+        .onAppear { refreshPlayingCollection() }
+        .onChange(of: playback.state.track?.id) { _, _ in refreshPlayingCollection() }
         .onChange(of: enrichment.enrichmentRevision) { _, _ in
             Task { await loadProjection() }
         }
@@ -67,46 +91,36 @@ struct LibraryView: View {
         await enrichment.enrichDerived()
         projection = await enrichment.projection()
     }
-}
 
-struct AlbumCard: View {
-    let album: Album
-    @Environment(LibraryService.self) private var library
-    var body: some View {
-        let _ = library.pinRevision
-        let pinned = library.isPinned(album)
-        VStack(alignment: .leading, spacing: 8) {
-            let art = album.artworkHash.flatMap { ArtworkCache.default.path(forHash: $0) }
-                .map { NSImage(byReferencing: $0) }
-            if let img = art {
-                Image(nsImage: img).resizable().scaledToFill()
-                    .frame(width: 200, height: 200).clipped().cornerRadius(8)
-            } else {
-                RoundedRectangle(cornerRadius: 8).fill(BrandColors.surface)
-                    .frame(width: 200, height: 200).overlay(Image(systemName: "music.note"))
-            }
-            Text(album.title).font(.subheadline).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
-            Text(album.albumArtist).font(.caption).foregroundStyle(BrandColors.textSecondary).lineLimit(1)
-        }
-        .contextMenu {
-            Button(pinned ? tr("Unpin", "取消钉选") : tr("Pin", "钉选")) {
-                library.togglePin(album)
-            }
-        }
+    private func refreshPlayingCollection() {
+        let id = playback.state.track?.id
+        playingAlbumID = id.flatMap { library.track(by: $0)?.album?.id }
+        playingArtistID = id.flatMap { library.track(by: $0)?.artistRef?.id }
+    }
+
+    private func playAlbum(_ album: Album) {
+        let snaps = library.tracks(in: album).map { TrackSnapshot(from: $0) }
+        guard let first = snaps.first else { return }
+        playback.playTrack(first, context: snaps, from: .album)
+    }
+
+    private func playBrowsable(_ browsable: BrowsableAlbum) {
+        guard let first = browsable.trackSnapshots.first else { return }
+        playback.playTrack(first, context: browsable.trackSnapshots, from: .album)
     }
 }
 
 struct SongsListView: View {
     @Environment(LibraryService.self) private var library
     @Environment(PlaybackService.self) private var playback
-    @Environment(PlaylistService.self) private var playlistService
     @Query(sort: \Playlist.name) private var allPlaylists: [Playlist]
     @State private var searchText = ""
     @State private var debouncedSearch = ""
     @State private var searchTask: Task<Void, Never>?
     @State private var sortKey: SortKey = .title
+    @State private var selectedSongID: UUID?
     /// 批量已喜欢 id 集合:在 `.onAppear` / `likedRevision` 变化时一次性 fetch,
-    /// 避免每行 `SongRow` 各自新建 ModelContext 查询。
+    /// 避免每行各自新建 ModelContext 查询。
     @State private var likedSet: Set<UUID> = []
 
     private enum SortKey: String, CaseIterable, Identifiable {
@@ -120,22 +134,44 @@ struct SongsListView: View {
     }
 
     var body: some View {
+        let _ = library.likedRevision
+        let _ = library.metadataRevision
         let tracks = sortedTracks(library.allTracks(search: debouncedSearch.isEmpty ? nil : debouncedSearch))
         Group {
             if tracks.isEmpty {
                 EmptyStateView(
                     icon: "music.note",
                     title: searchText.isEmpty ? tr("No songs in library", "资料库中没有歌曲") : tr("No search results", "无搜索结果"),
-                    subtitle: searchText.isEmpty ? tr("Open Search (⌘K) and tap + to import a music folder", "打开搜索(⌘K)点击 + 导入音乐文件夹") : nil)
+                    subtitle: searchText.isEmpty ? tr("Open Search (⌘F) and tap + to import a music folder", "打开搜索(⌘F)点击 + 导入音乐文件夹") : nil)
             } else {
-                List(tracks, id: \.id) { track in
-                    SongRow(track: track,
-                            playlists: allPlaylists,
-                            likedIDs: likedSet,
-                            onPlay: { play(track, from: tracks) },
-                            onAddToQueue: { playback.queue.addToQueue(TrackSnapshot(from: track)) },
-                            onPlayNext: { playback.queue.playNext(TrackSnapshot(from: track)) })
-                        .tag(track.id)
+                List(tracks, id: \.id, selection: $selectedSongID) { track in
+                    SongObjectView(
+                        title: track.title,
+                        artist: track.artist,
+                        albumTitle: track.albumTitle ?? "",
+                        durationLabel: songDuration(track.durationSeconds),
+                        artwork: ArtworkSource.localHash(track.localArtworkHash ?? track.album?.artworkHash),
+                        isSelected: selectedSongID == track.id,
+                        nowPlayingID: track.id,
+                        showsHoverPlay: true,
+                        playsOnDoubleClick: true,
+                        isLossless: track.isLossless,
+                        isLiked: likedSet.contains(track.id),
+                        onToggleLike: { library.toggleLike(track) },
+                        onSelect: { selectedSongID = track.id },
+                        onPlay: { play(track, from: tracks) }
+                    )
+                    .trackContextMenu(snapshot: TrackSnapshot(from: track),
+                                      track: track,
+                                      playlists: allPlaylists,
+                                      onPlay: { play(track, from: tracks) })
+                    .tag(track.id)
+                }
+                .onKeyPress(.return) {
+                    guard let id = selectedSongID,
+                          let track = tracks.first(where: { $0.id == id }) else { return .ignored }
+                    play(track, from: tracks)
+                    return .handled
                 }
             }
         }
@@ -184,102 +220,14 @@ struct SongsListView: View {
     }
 }
 
-/// 增强歌曲行:封面缩略图 + 标题 + 艺术家 + 专辑 + Hi-Res + 心心 + 时长 + 上下文菜单。
-struct SongRow: View {
-    let track: Track
-    var playlists: [Playlist] = []
-    /// 父视图批量查询的已喜欢 id 集合;为 nil 时回退到单次 `isLiked(id:)`。
-    var likedIDs: Set<UUID>? = nil
-    var onPlay: () -> Void = {}
-    var onAddToQueue: () -> Void = {}
-    var onPlayNext: () -> Void = {}
-    @Environment(LibraryService.self) private var library
-    @Environment(PlaylistService.self) private var playlistService
-    @Environment(InboxService.self) private var inbox
-    @Environment(NotesService.self) private var notes
-    @State private var showEditTrack = false
-    @State private var showTrackNotes = false
-
-    var body: some View {
-        // 访问 likedRevision / metadataRevision 注册 @Observable 依赖,使 toggleLike / 编辑信息 后即时刷新。
-        let _ = library.likedRevision
-        let _ = library.metadataRevision
-        let liked = likedIDs?.contains(track.id) ?? library.isLiked(id: track.id)
-        HStack(spacing: 10) {
-            artwork.frame(width: 40, height: 40).cornerRadius(4)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(track.title).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
-                Text(track.artist).font(.caption).foregroundStyle(BrandColors.textSecondary).lineLimit(1)
-            }
-            Spacer()
-            Text(track.albumTitle ?? "").font(.caption)
-                .foregroundStyle(BrandColors.textSecondary).lineLimit(1).frame(width: 160, alignment: .leading)
-            if track.isLossless {
-                Text("Hi-Res").font(.caption2).padding(.horizontal, 5).padding(.vertical, 2)
-                    .background(BrandColors.green.opacity(0.2))
-                    .foregroundStyle(BrandColors.green).cornerRadius(4)
-            }
-            Button { library.toggleLike(track) } label: {
-                Image(systemName: liked ? "heart.fill" : "heart").font(.caption)
-            }
-            .foregroundStyle(liked ? BrandColors.magenta : BrandColors.textSecondary)
-            .buttonStyle(.plain)
-            Text(formatDuration(track.durationSeconds)).foregroundStyle(BrandColors.textSecondary)
-                .frame(width: 44, alignment: .trailing)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2) { onPlay() }
-        .contextMenu {
-            Button(tr("Play", "播放")) { onPlay() }
-            Button(tr("Play Next", "下一首播放")) { onPlayNext() }
-            Button(tr("Add to Queue", "加入队列")) { onAddToQueue() }
-            Button(tr("Add to Inbox", "加入收件箱")) { inbox.add(TrackSnapshot(from: track)) }
-            Divider()
-            Button(liked ? tr("Unlike", "取消收藏") : tr("Like", "收藏")) { library.toggleLike(track) }
-            if !playlists.isEmpty {
-                Divider()
-                Menu(tr("Add to Playlist", "添加到歌单")) {
-                    ForEach(playlists, id: \.id) { pl in
-                        Button(pl.name) { playlistService.addTrack(pl, track: track) }
-                    }
-                }
-            }
-            Divider()
-            Button(tr("Edit Info", "编辑信息")) { showEditTrack = true }
-            Button(tr("Notes & Bookmarks…", "笔记与书签…")) { showTrackNotes = true }
-        }
-        .sheet(isPresented: $showEditTrack) {
-            EditTrackSheet(track: track)
-        }
-        .sheet(isPresented: $showTrackNotes) {
-            TrackNotesSheet(track: track)
-        }
-    }
-
-    private var artwork: some View {
-        Group {
-            let hash = track.localArtworkHash ?? track.album?.artworkHash
-            if let h = hash, let p = ArtworkCache.default.path(forHash: h) {
-                Image(nsImage: NSImage(byReferencing: p)).resizable().scaledToFill()
-            } else {
-                RoundedRectangle(cornerRadius: 4).fill(BrandColors.surface)
-                    .overlay(Image(systemName: "music.note").font(.title3))
-            }
-        }
-        .clipped()
-    }
-
-    private func formatDuration(_ s: Double) -> String {
-        String(format: "%d:%02d", Int(s) / 60, Int(s) % 60)
-    }
-}
-
 struct LikedView: View {
     @Environment(LibraryService.self) private var library
     @Environment(PlaybackService.self) private var playback
     @Query(filter: #Predicate<Track> { $0.liked == true },
            sort: \Track.addedAt, order: .reverse)
     private var tracks: [Track]
+    @Query(sort: \Playlist.name) private var allPlaylists: [Playlist]
+    @State private var selectedSongID: UUID?
     var body: some View {
         if tracks.isEmpty {
             EmptyStateView(icon: "heart", title: tr("No liked songs yet", "还没有收藏的歌曲"),
@@ -288,9 +236,25 @@ struct LikedView: View {
         } else {
             List {
                 ForEach(tracks, id: \.id) { track in
-                    TrackRow(track: track, showHeart: true)
-                        .onTapGesture { play(track) }
-                        .padding(.vertical, 4)
+                    SongObjectView(
+                        title: track.title,
+                        artist: track.artist,
+                        durationLabel: songDuration(track.durationSeconds),
+                        artwork: ArtworkSource.localHash(track.localArtworkHash ?? track.album?.artworkHash),
+                        isSelected: selectedSongID == track.id,
+                        nowPlayingID: track.id,
+                        showsHoverPlay: true,
+                        isLossless: track.isLossless,
+                        isLiked: true,
+                        onToggleLike: { library.toggleLike(track) },
+                        onSelect: { selectedSongID = track.id; play(track) },
+                        onPlay: { play(track) }
+                    )
+                    .trackContextMenu(snapshot: TrackSnapshot(from: track),
+                                      track: track,
+                                      playlists: allPlaylists,
+                                      onPlay: { play(track) })
+                    .padding(.vertical, 4)
                 }
             }
             .navigationTitle(tr("Liked", "我喜欢"))
@@ -314,5 +278,9 @@ struct LikedView: View {
         guard let first = tracks.first else { return }
         play(first)
     }
+}
+
+private func songDuration(_ s: Double) -> String {
+    String(format: "%d:%02d", Int(s) / 60, Int(s) % 60)
 }
 

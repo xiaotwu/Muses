@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 
 /// 全局搜索面板:中心浮层 + scrim,分 section 显示本地歌曲/专辑/艺术家 + YouTube 结果。
 /// 克隆 QueueDrawerView 的 scrim+panel 模式,但居中而非 trailing。
@@ -39,6 +38,7 @@ struct GlobalSearchView: View {
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(BrandColors.hairline, lineWidth: 1))
                 .transition(.opacity.combined(with: .scale(scale: 0.96)))
         }
+        .onExitCommand { close() }
         .animation(.easeInOut(duration: 0.2), value: isPresented)
         .onAppear { searchFieldFocused = true }
     }
@@ -56,6 +56,11 @@ struct GlobalSearchView: View {
                 .textFieldStyle(.plain)
                 .focused($searchFieldFocused)
                 .onSubmit { /* debounce 自动触发 */ }
+                .onExitCommand { close() }
+                .onKeyPress(.escape) {
+                    close()
+                    return .handled
+                }
 
                 if search.isSearchingYouTube {
                     ProgressView().controlSize(.small)
@@ -258,15 +263,12 @@ private struct GlobalSearchTrackRow: View {
     var body: some View {
         Button(action: onPlay) {
             HStack(spacing: 10) {
-                let hash = track.localArtworkHash ?? track.album?.artworkHash
-                if let h = hash, let p = ArtworkCache.default.path(forHash: h) {
-                    Image(nsImage: NSImage(byReferencing: p)).resizable().scaledToFill()
-                        .frame(width: 32, height: 32).cornerRadius(4).clipped()
-                } else {
-                    RoundedRectangle(cornerRadius: 4).fill(BrandColors.surface)
-                        .frame(width: 32, height: 32)
-                        .overlay(Image(systemName: "music.note").font(.caption))
-                }
+                ArtworkView(
+                    source: ArtworkSource.localHash(track.localArtworkHash ?? track.album?.artworkHash),
+                    cornerRadius: 4,
+                    glyphSize: 16,
+                    targetSize: 40
+                )
                 VStack(alignment: .leading, spacing: 1) {
                     Text(track.title).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
                     Text(track.artist).font(.caption).foregroundStyle(BrandColors.textSecondary).lineLimit(1)
@@ -287,16 +289,12 @@ private struct GlobalSearchArtistRow: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 10) {
-                ZStack {
-                    Circle().fill(BrandColors.surface).frame(width: 32, height: 32)
-                    if let h = artist.artworkHash, let p = ArtworkCache.default.path(forHash: h) {
-                        Image(nsImage: NSImage(byReferencing: p)).resizable().scaledToFill()
-                            .frame(width: 32, height: 32).clipShape(Circle())
-                    } else {
-                        Image(systemName: "person.2.fill").font(.caption)
-                            .foregroundStyle(BrandColors.textSecondary)
-                    }
-                }
+                ArtworkView(
+                    source: ArtworkSource.localHash(artist.artworkHash),
+                    glyphSize: 16,
+                    clipCircle: true,
+                    targetSize: 40
+                )
                 Text(artist.name).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
                 Spacer()
             }
@@ -312,14 +310,12 @@ private struct GlobalSearchAlbumRow: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 10) {
-                if let h = album.artworkHash, let p = ArtworkCache.default.path(forHash: h) {
-                    Image(nsImage: NSImage(byReferencing: p)).resizable().scaledToFill()
-                        .frame(width: 32, height: 32).cornerRadius(4).clipped()
-                } else {
-                    RoundedRectangle(cornerRadius: 4).fill(BrandColors.surface)
-                        .frame(width: 32, height: 32)
-                        .overlay(Image(systemName: "music.note").font(.caption))
-                }
+                ArtworkView(
+                    source: ArtworkSource.localHash(album.artworkHash),
+                    cornerRadius: 4,
+                    glyphSize: 16,
+                    targetSize: 40
+                )
                 VStack(alignment: .leading, spacing: 1) {
                     Text(album.title).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
                     Text(album.albumArtist).font(.caption).foregroundStyle(BrandColors.textSecondary).lineLimit(1)

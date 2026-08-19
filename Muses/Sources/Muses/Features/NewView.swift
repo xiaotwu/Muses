@@ -19,6 +19,8 @@ struct NewView: View {
     // Phase D5 — 情境化推荐区段(ffSituationalNew 开启时使用)。
     @State private var situationalSections: [SituationalSection] = []
     @State private var situationalTask: Task<Void, Never>?
+    @State private var playingAlbumID: UUID?
+    @State private var playingArtistID: UUID?
 
     var body: some View {
         ScrollView {
@@ -39,7 +41,7 @@ struct NewView: View {
             .padding(.bottom, 100)
         }
         .background(BrandColors.background)
-        .onAppear { scheduleCompute() }
+        .onAppear { scheduleCompute(); refreshPlayingCollection() }
         .onDisappear {
             computeTask?.cancel()
             situationalTask?.cancel()
@@ -47,6 +49,7 @@ struct NewView: View {
         .onChange(of: library.likedRevision) { _, _ in scheduleCompute() }
         .onChange(of: library.metadataRevision) { _, _ in scheduleCompute() }
         .onChange(of: library.playRevision) { _, _ in scheduleCompute() }
+        .onChange(of: playback.state.track?.id) { _, _ in refreshPlayingCollection() }
     }
 
     // MARK: - Phase D5/D6:情境化推荐(D4 原语呈现)
@@ -80,53 +83,22 @@ struct NewView: View {
     private func situationalSection(_ section: SituationalSection) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: section.title, subtitle: section.subtitle)
-            ResponsiveCarousel(cardSize: 140) {
+            ResponsiveCarousel(cardSize: MusicObjectMetrics.albumRail) {
                 ForEach(section.items, id: \.id) { snap in
-                    situationalTrackCard(snap)
+                    AlbumObjectView(
+                        title: snap.title,
+                        subtitle: snap.artist,
+                        artwork: ArtworkSource.resolve(for: snap),
+                        size: MusicObjectMetrics.albumRail,
+                        role: .play,
+                        nowPlayingID: snap.id,
+                        showsHoverPlay: true,
+                        onSelect: {},
+                        onPlay: { playback.playTrack(snap, context: section.items, from: .songs) }
+                    )
                 }
             }
         }
-    }
-
-    @ViewBuilder
-    private func situationalTrackCard(_ snap: TrackSnapshot) -> some View {
-        Button {
-            playback.playTrack(snap, context: [snap], from: .songs)
-        } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                Group {
-                    if let hash = snap.artworkHash,
-                       let path = ArtworkCache.default.path(forHash: hash) {
-                        Image(nsImage: NSImage(byReferencing: path)).resizable().scaledToFill()
-                    } else if let vid = snap.youTubeId,
-                              let url = URL(string: "https://i.ytimg.com/vi/\(vid)/hqdefault.jpg") {
-                        CachedAsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: {
-                            RoundedRectangle(cornerRadius: 8).fill(BrandColors.surface)
-                                .overlay(Image(systemName: "music.note").font(.title))
-                        }
-                    } else if let urlStr = snap.artworkUrl, let url = URL(string: urlStr) {
-                        CachedAsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: {
-                            RoundedRectangle(cornerRadius: 8).fill(BrandColors.surface)
-                                .overlay(Image(systemName: "music.note").font(.title))
-                        }
-                    } else {
-                        RoundedRectangle(cornerRadius: 8).fill(BrandColors.surface)
-                            .overlay(Image(systemName: "music.note").font(.title)
-                                .foregroundStyle(BrandColors.textSecondary.opacity(0.5)))
-                    }
-                }
-                .frame(width: 140, height: 140)
-                .clipped().cornerRadius(8)
-
-                Text(snap.title).font(.caption).lineLimit(1)
-                    .foregroundStyle(BrandColors.textPrimary)
-                Text(snap.artist).font(.caption2).lineLimit(1)
-                    .foregroundStyle(BrandColors.textSecondary)
-            }
-            .frame(width: 140)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(snap.title) — \(snap.artist)")
     }
 
     // MARK: - Legacy(RecommendationService,ffSituationalNew 关闭时)
@@ -216,16 +188,33 @@ struct NewView: View {
     private func recSection(title: String, subtitle: String, albums: [Album]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: title, subtitle: subtitle)
-            ResponsiveCarousel(cardSize: 150) {
+            ResponsiveCarousel(cardSize: MusicObjectMetrics.albumRail) {
                 ForEach(albums, id: \.id) { album in
-                    DiscoveryCard(
+                    AlbumObjectView(
                         title: album.title,
                         subtitle: album.albumArtist,
-                        artworkPath: album.artworkHash.flatMap { ArtworkCache.default.path(forHash: $0) },
-                        size: 150, aspect: .square,
-                        onTap: { selectedAlbum = album })
+                        artwork: ArtworkSource.localHash(album.artworkHash),
+                        size: MusicObjectMetrics.albumRail,
+                        role: .browse,
+                        isNowPlaying: album.id == playingAlbumID,
+                        showsHoverPlay: true,
+                        onSelect: { selectedAlbum = album },
+                        onPlay: { playAlbum(album) }
+                    )
                 }
             }
         }
+    }
+
+    private func refreshPlayingCollection() {
+        let id = playback.state.track?.id
+        playingAlbumID = id.flatMap { library.track(by: $0)?.album?.id }
+        playingArtistID = id.flatMap { library.track(by: $0)?.artistRef?.id }
+    }
+
+    private func playAlbum(_ album: Album) {
+        let snaps = library.tracks(in: album).map { TrackSnapshot(from: $0) }
+        guard let first = snaps.first else { return }
+        playback.playTrack(first, context: snaps, from: .album)
     }
 }

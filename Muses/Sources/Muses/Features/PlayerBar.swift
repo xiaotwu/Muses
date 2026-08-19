@@ -8,8 +8,11 @@ struct PlayerBar: View {
     @Environment(LibraryService.self) private var library
     @Environment(PlaylistService.self) private var playlistService
     @Environment(InboxService.self) private var inbox
+    @Environment(\.artworkWorldNamespace) private var artworkWorldNamespace
     @State private var seeking = false
     @State private var seekValue: Double = 0
+    var showNowPlaying: Bool = false
+    var skipArtworkMorph: Bool = false
     var onArtworkTap: () -> Void = {}
     var onQueueTap: () -> Void = {}
 
@@ -45,22 +48,35 @@ struct PlayerBar: View {
         }
     }
 
+    @ViewBuilder
     private var artwork: some View {
-        Group {
-            if let h = playback.state.track?.artworkHash,
-               let p = ArtworkCache.default.path(forHash: h) {
-                Image(nsImage: NSImage(byReferencing: p)).resizable().scaledToFill()
-            } else if let vid = playback.state.track?.youTubeId,
-                      let url = URL(string: "https://i.ytimg.com/vi/\(vid)/hqdefault.jpg") {
-                AsyncImage(url: url) { phase in
-                    if let img = phase.image { img.resizable().scaledToFill() }
-                    else { Rectangle().fill(BrandColors.surface) }
+        let art = ArtworkView(
+            source: ArtworkSource.resolve(for: playback.state.track),
+            cornerRadius: 6,
+            glyphSize: 20,
+            targetSize: 52
+        )
+        if let trackID = playback.state.track?.id,
+           let ns = artworkWorldNamespace,
+           !skipArtworkMorph {
+            // Keep a 52pt token with the same liveCover id while NP is open so
+            // the pair exists for morph. Hide pixels; do not drop the effect.
+            Group {
+                if showNowPlaying {
+                    Color.clear
+                } else {
+                    art
                 }
-            } else {
-                Rectangle().fill(BrandColors.surface)
             }
+            .frame(width: 52, height: 52)
+            .matchedGeometryEffect(
+                id: ArtworkContinuityID.liveCover(trackID),
+                in: ns,
+                isSource: !showNowPlaying
+            )
+        } else {
+            art
         }
-        .clipped()
     }
 
     /// "…" 溢出菜单(图三):收藏 / 添加到歌单 / 显示在专辑中 / 显示在艺术家中 /

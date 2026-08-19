@@ -73,6 +73,23 @@ struct PlaybackServiceTests {
         try await Task.sleep(for: .milliseconds(100))
         #expect(svc.state.track?.title == "a")
     }
+
+    @Test("playTrack from recently with three-item context advances to next snap")
+    func recentlyPlayedNextAdvances() async throws {
+        let wav = FileManager.default.temporaryDirectory
+            .appending(path: "muses-pb-recent-\(UUID().uuidString).wav")
+        try makeSilentWav(at: wav, seconds: 1)
+        let a = snap("a", path: wav.path)
+        let b = snap("b", path: wav.path)
+        let c = snap("c", path: wav.path)
+        let svc = makePlayback()
+        svc.playTrack(b, context: [a, b, c], from: .recently)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(svc.state.track?.title == "b")
+        svc.next()
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(svc.state.track?.title == "c")
+    }
 }
 
 /// 本测试文件专用桩 bridge:从不被调用,返回值仅为满足构造器签名。

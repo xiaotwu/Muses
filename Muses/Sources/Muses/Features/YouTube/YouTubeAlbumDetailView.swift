@@ -15,6 +15,7 @@ struct YouTubeAlbumDetailView: View {
     @State private var showAddLocalSheet = false
     @State private var showDeleteConfirm = false
     @State private var pendingDelete = false
+    @State private var selectedRowID: UUID?
 
     private var items: [YouTubeImportItem] {
         (youTubeImport.items ?? []).sorted { $0.order < $1.order }
@@ -209,12 +210,17 @@ struct YouTubeAlbumDetailView: View {
         VStack(spacing: 0) {
             // YT 条目
             ForEach(items, id: \.id) { item in
-                YouTubeAlbumTrackRow(
-                    index: item.order + 1,
+                SongObjectView(
                     title: item.title,
                     artist: item.artist,
-                    durationMs: item.durationMs,
-                    isLocal: false,
+                    durationLabel: item.durationMs > 0 ? formatMs(item.durationMs) : nil,
+                    indexLabel: "\(item.order + 1)",
+                    artwork: importItemArtwork(item),
+                    isSelected: selectedRowID == item.id,
+                    nowPlayingID: item.track?.id,
+                    showsHoverPlay: true,
+                    showsPlayButton: true,
+                    onSelect: { selectedRowID = item.id },
                     onPlay: { playItem(item) },
                     onQueue: {
                         if let t = item.track { playback.queue.addToQueue(TrackSnapshot(from: t)) }
@@ -223,16 +229,24 @@ struct YouTubeAlbumDetailView: View {
                         if let t = item.track { inbox.add(TrackSnapshot(from: t), source: .youTubeImport) }
                     }
                 )
-                .padding(.vertical, 6)
+                .trackContextMenu(snapshot: item.track.map { TrackSnapshot(from: $0) },
+                                  track: item.track,
+                                  onPlay: { playItem(item) })
             }
             // 本地附加
             ForEach(Array(localAdditions.enumerated()), id: \.element.id) { idx, track in
-                YouTubeAlbumTrackRow(
-                    index: items.count + idx + 1,
+                SongObjectView(
                     title: track.title,
                     artist: track.artist,
-                    durationMs: Int(track.durationSeconds * 1000),
-                    isLocal: true,
+                    durationLabel: formatMs(Int(track.durationSeconds * 1000)),
+                    indexLabel: "\(items.count + idx + 1)",
+                    artwork: ArtworkSource.localHash(track.localArtworkHash ?? track.album?.artworkHash),
+                    isSelected: selectedRowID == track.id,
+                    nowPlayingID: track.id,
+                    showsHoverPlay: true,
+                    showsPlayButton: true,
+                    showLocalBadge: true,
+                    onSelect: { selectedRowID = track.id },
                     onPlay: {
                         let snap = TrackSnapshot(from: track)
                         playback.playTrack(snap, context: allSnaps, from: .import)
@@ -240,7 +254,12 @@ struct YouTubeAlbumDetailView: View {
                     onQueue: { playback.queue.addToQueue(TrackSnapshot(from: track)) },
                     onInbox: { inbox.add(TrackSnapshot(from: track), source: .youTubeImport) }
                 )
-                .padding(.vertical, 6)
+                .trackContextMenu(snapshot: TrackSnapshot(from: track),
+                                  track: track,
+                                  onPlay: {
+                                      let snap = TrackSnapshot(from: track)
+                                      playback.playTrack(snap, context: allSnaps, from: .import)
+                                  })
             }
 
             // 本地附加管理区
@@ -316,63 +335,19 @@ struct YouTubeAlbumDetailView: View {
         }
         return String(format: "%d:%02d", mins, secs)
     }
-}
-
-/// YouTube 专辑详情中的曲目行:序号 + 标题 + 艺术家 + 时长 + 播放按钮。
-struct YouTubeAlbumTrackRow: View {
-    let index: Int
-    let title: String
-    let artist: String
-    let durationMs: Int
-    let isLocal: Bool
-    let onPlay: () -> Void
-    var onQueue: (() -> Void)? = nil
-    var onInbox: (() -> Void)? = nil
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Text("\(index)").foregroundStyle(BrandColors.textSecondary)
-                .frame(width: 28, alignment: .trailing)
-            VStack(alignment: .leading) {
-                HStack(spacing: 6) {
-                    Text(title).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
-                    if isLocal {
-                        Text(tr("Local", "本地")).font(.caption2)
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(BrandColors.green.opacity(0.2))
-                            .foregroundStyle(BrandColors.green).cornerRadius(4)
-                    }
-                }
-                Text(artist).font(.caption).foregroundStyle(BrandColors.textSecondary).lineLimit(1)
-            }
-            Spacer()
-            if durationMs > 0 {
-                Text(formatMs(durationMs)).font(.caption).foregroundStyle(BrandColors.textSecondary)
-            }
-            if let onInbox {
-                Button(action: onInbox) {
-                    Image(systemName: "tray.and.arrow.down").foregroundStyle(BrandColors.textSecondary)
-                }
-                .buttonStyle(.plain)
-                .help(tr("Save to Inbox", "保存到收件箱"))
-            }
-            if let onQueue {
-                Button(action: onQueue) {
-                    Image(systemName: "text.badge.plus").foregroundStyle(BrandColors.textSecondary)
-                }
-                .buttonStyle(.plain)
-                .help(tr("Add to Queue", "加入播放队列"))
-            }
-            Button(action: onPlay) {
-                Image(systemName: "play.fill").foregroundStyle(BrandColors.magenta)
-            }
-            .buttonStyle(.plain)
-            .help(tr("Play", "播放"))
-        }
-    }
 
     private func formatMs(_ ms: Int) -> String {
         let s = ms / 1000
         return String(format: "%d:%02d", s / 60, s % 60)
+    }
+
+    private func importItemArtwork(_ item: YouTubeImportItem) -> ArtworkSource {
+        if let t = item.track {
+            return ArtworkSource.resolve(for: TrackSnapshot(from: t))
+        }
+        if let url = URL(string: "https://i.ytimg.com/vi/\(item.youTubeId)/hqdefault.jpg") {
+            return .remote(url)
+        }
+        return .placeholder
     }
 }

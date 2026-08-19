@@ -4,6 +4,7 @@ import SwiftData
 /// 歌单列表页:展示所有歌单 + 新建/删除。
 struct PlaylistsView: View {
     @Environment(PlaylistService.self) private var playlistService
+    @Environment(PlaybackService.self) private var playback
     @Binding var selectedPlaylist: Playlist?
     @State private var playlists: [Playlist] = []
     @State private var showCreateSheet = false
@@ -11,19 +12,36 @@ struct PlaylistsView: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 8) {
-                if playlists.isEmpty {
-                    EmptyStateView(icon: "music.note.list", title: tr("No playlists", "暂无歌单"),
-                                   subtitle: tr("Tap + at top right to create a playlist", "点击右上角 + 创建歌单"))
-                } else {
+            if playlists.isEmpty {
+                EmptyStateView(icon: "music.note.list", title: tr("No playlists", "暂无歌单"),
+                               subtitle: tr("Tap + at top right to create a playlist", "点击右上角 + 创建歌单"))
+                    .padding(16)
+            } else {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 5),
+                          spacing: 20) {
                     ForEach(playlists, id: \.id) { playlist in
-                        PlaylistCard(playlist: playlist,
-                                     onTap: { selectedPlaylist = playlist },
-                                     onDelete: { deletePlaylist(playlist) })
+                        AlbumObjectView(
+                            title: playlist.name,
+                            subtitle: "\(playlist.items?.count ?? 0) \(tr("songs", "首"))",
+                            artwork: playlistArtwork(playlist),
+                            size: MusicObjectMetrics.albumGrid,
+                            role: .browse,
+                            showsHoverPlay: true,
+                            onSelect: { selectedPlaylist = playlist },
+                            onPlay: { playPlaylist(playlist) }
+                        )
+                        .contextMenu {
+                            Button(playlist.pinned ? tr("Unpin", "取消钉选") : tr("Pin", "钉选")) {
+                                playlistService.togglePin(playlist)
+                            }
+                            Button(tr("Delete Playlist", "删除歌单"), role: .destructive) {
+                                deletePlaylist(playlist)
+                            }
+                        }
                     }
                 }
+                .padding(16)
             }
-            .padding(16)
         }
         .background(BrandColors.background)
         .toolbar {
@@ -67,46 +85,19 @@ struct PlaylistsView: View {
         playlistService.delete(playlist)
         refresh()
     }
-}
 
-/// 单个歌单卡片。
-struct PlaylistCard: View {
-    let playlist: Playlist
-    let onTap: () -> Void
-    let onDelete: () -> Void
-    @Environment(PlaylistService.self) private var playlistService
+    private func playPlaylist(_ playlist: Playlist) {
+        let snaps = (playlist.items ?? []).sorted { $0.order < $1.order }
+            .compactMap { $0.track }
+            .map { TrackSnapshot(from: $0) }
+        guard let first = snaps.first else { return }
+        playback.playTrack(first, context: snaps, from: .playlist)
+    }
 
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 14) {
-                // 歌单封面占位
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(BrandColors.surface)
-                    .frame(width: 60, height: 60)
-                    .overlay(
-                        Image(systemName: "music.note.list")
-                            .font(.title2)
-                            .foregroundStyle(BrandColors.cyan)
-                    )
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(playlist.name).font(.headline).foregroundStyle(BrandColors.textPrimary)
-                    Text("\(playlist.items?.count ?? 0) \(tr("songs", "首"))")
-                        .font(.caption).foregroundStyle(BrandColors.textSecondary)
-                }
-
-                Spacer()
-            }
-            .padding(12)
-            .background(BrandColors.surface)
-            .cornerRadius(12)
+    private func playlistArtwork(_ playlist: Playlist) -> ArtworkSource {
+        guard let track = (playlist.items ?? []).sorted(by: { $0.order < $1.order }).first?.track else {
+            return .placeholder
         }
-        .buttonStyle(.plain)
-        .contextMenu {
-            Button(playlist.pinned ? tr("Unpin", "取消钉选") : tr("Pin", "钉选")) {
-                playlistService.togglePin(playlist)
-            }
-            Button(tr("Delete Playlist", "删除歌单"), role: .destructive, action: onDelete)
-        }
+        return ArtworkSource.resolve(for: TrackSnapshot(from: track))
     }
 }

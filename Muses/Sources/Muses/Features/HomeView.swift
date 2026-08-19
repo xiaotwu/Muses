@@ -27,6 +27,9 @@ struct HomeView: View {
     /// 在途任务句柄(用于 disappear 取消,spec §23)。
     @State private var trendingTask: Task<Void, Never>?
     @State private var gradientTask: Task<Void, Never>?
+    @State private var retryingIDs: Set<String> = []
+    @State private var playingAlbumID: UUID?
+    @State private var playingArtistID: UUID?
 
     /// Hero 专辑:优先选最近播放的,否则最近添加的,否则第一个。
     /// 现在读取缓存的 `heroAlbum`,由 `refreshLibrarySnapshot()` 维护。
@@ -98,6 +101,7 @@ struct HomeView: View {
         )
         .onAppear {
             PerfTrace.event("home.appear")
+            refreshPlayingCollection()
             // 将资料库快照从同步 appear 路径延迟到首帧绘制后(spec §15/§16),
             // 让骨架/缓存内容先上屏。
             Task { @MainActor in
@@ -120,6 +124,10 @@ struct HomeView: View {
         .onChange(of: library.pinRevision) { _, _ in refreshLibrarySnapshot() }
         .onChange(of: library.likedRevision) { _, _ in refreshLibrarySnapshot() }
         .onChange(of: library.playRevision) { _, _ in refreshRecentlyPlayed() }
+        .onChange(of: homeDiscovery.isRefreshing) { _, refreshing in
+            if !refreshing { retryingIDs.removeAll() }
+        }
+        .onChange(of: playback.state.track?.id) { _, _ in refreshPlayingCollection() }
     }
 
     /// 一次性刷新资料库快照(专辑 / 最近添加 / 钉选 / Hero / 最近播放),
@@ -145,69 +153,37 @@ struct HomeView: View {
     // MARK: - Hero
 
     private func heroSection(_ album: Album) -> some View {
-        HStack(spacing: 24) {
-            // 大封面
-            let art = album.artworkHash.flatMap { ArtworkCache.default.path(forHash: $0) }
-                .map { NSImage(byReferencing: $0) }
-            if let img = art {
-                Image(nsImage: img).resizable().scaledToFill()
-                    .frame(width: 200, height: 200)
-                    .clipped().cornerRadius(12)
-                    .shadow(radius: 20)
-            } else {
-                RoundedRectangle(cornerRadius: 12).fill(BrandColors.surface)
-                    .frame(width: 200, height: 200)
-                    .overlay(Image(systemName: "music.note").font(.largeTitle))
-                    .shadow(radius: 20)
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text(tr("FEATURED", "推荐"))
-                    .font(.caption).fontWeight(.bold)
-                    .foregroundStyle(BrandColors.textSecondary)
-                    .tracking(1.5)
-                Text(album.title)
-                    .font(.largeTitle).fontWeight(.bold)
-                    .foregroundStyle(BrandColors.textPrimary)
-                    .lineLimit(2)
-                Text(album.albumArtist)
-                    .font(.title3)
-                    .foregroundStyle(BrandColors.textSecondary)
-                if let year = album.year {
-                    Text(String(year))
-                        .font(.subheadline)
-                        .foregroundStyle(BrandColors.textSecondary)
-                }
-                Button {
-                    playAlbum(album)
-                } label: {
-                    Label(tr("Play", "播放"), systemImage: "play.fill")
-                        .padding(.horizontal, 16).padding(.vertical, 8)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(BrandColors.magenta)
-                .padding(.top, 4)
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 24)
-        .padding(.bottom, 8)
-        .onTapGesture { selectedAlbum = album }
+        HeroObjectView(
+            title: album.title,
+            subtitle: album.albumArtist,
+            metadata: album.year.map(String.init),
+            artwork: ArtworkSource.localHash(album.artworkHash),
+            gradient: heroGradient,
+            isNowPlaying: album.id == playingAlbumID,
+            showsHoverPlay: true,
+            onOpen: { selectedAlbum = album },
+            onPlay: { playAlbum(album) }
+        )
     }
 
-    // MARK: - 横向滚动区(Phase D4:复用 SectionHeader + ResponsiveCarousel + DiscoveryCard)
+    // MARK: - 横向滚动区(Phase D4:复用 SectionHeader + ResponsiveCarousel + AlbumObjectView)
 
     private func horizontalSection(title: String, albums: [Album]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: title)
-            ResponsiveCarousel(cardSize: 150) {
+            ResponsiveCarousel(cardSize: MusicObjectMetrics.albumRail) {
                 ForEach(albums, id: \.id) { album in
-                    DiscoveryCard(
+                    AlbumObjectView(
                         title: album.title,
                         subtitle: album.albumArtist,
-                        artworkPath: album.artworkHash.flatMap { ArtworkCache.default.path(forHash: $0) },
-                        size: 150, aspect: .square,
-                        onTap: { selectedAlbum = album })
+                        artwork: ArtworkSource.localHash(album.artworkHash),
+                        size: MusicObjectMetrics.albumRail,
+                        role: .browse,
+                        isNowPlaying: album.id == playingAlbumID,
+                        showsHoverPlay: true,
+                        onSelect: { selectedAlbum = album },
+                        onPlay: { playAlbum(album) }
+                    )
                 }
             }
         }
@@ -219,11 +195,19 @@ struct HomeView: View {
     private var recentlyPlayedSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: tr("Recently Played", "最近播放"))
-            ResponsiveCarousel(cardSize: 130) {
+            ResponsiveCarousel(cardSize: MusicObjectMetrics.albumRail) {
                 ForEach(recentlyPlayed, id: \.id) { snap in
-                    RecentTrackCard(snap: snap) {
-                        playback.playTrack(snap, context: [snap], from: .recently)
-                    }
+                    AlbumObjectView(
+                        title: snap.title,
+                        subtitle: snap.artist,
+                        artwork: ArtworkSource.resolve(for: snap),
+                        size: MusicObjectMetrics.albumRail,
+                        role: .play,
+                        nowPlayingID: snap.id,
+                        showsHoverPlay: true,
+                        onSelect: {},
+                        onPlay: { playback.playTrack(snap, context: recentlyPlayed, from: .recently) }
+                    )
                 }
             }
         }
@@ -243,8 +227,12 @@ struct HomeView: View {
                     ForEach(0..<5, id: \.self) { _ in SkeletonCard(size: 160, aspect: .wide169) }
                 }
             } else if let err = trendingError {
-                Text(err).font(.caption).foregroundStyle(BrandColors.textSecondary)
-                    .frame(maxWidth: .infinity).padding(.vertical, 20)
+                VStack(spacing: 8) {
+                    Text(err).font(.caption).foregroundStyle(BrandColors.textSecondary)
+                    Button(tr("Retry", "重试")) { loadTrending() }
+                        .buttonStyle(.plain)
+                }
+                .frame(maxWidth: .infinity).padding(.vertical, 20)
             } else if !ytTrending.isEmpty {
                 ResponsiveCarousel(cardSize: 160) {
                     ForEach(ytTrending.prefix(10), id: \.id) { entry in
@@ -263,9 +251,20 @@ struct HomeView: View {
     private var youtubeImportsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: tr("Imported Playlists", "已导入歌单"))
-            ResponsiveCarousel(cardSize: 150) {
+            ResponsiveCarousel(cardSize: MusicObjectMetrics.albumRail) {
                 ForEach(ytImports.prefix(10), id: \.id) { imp in
-                    YouTubeImportCardSmall(imp: imp)
+                    AlbumObjectView(
+                        title: imp.title,
+                        subtitle: imp.channel,
+                        artwork: importArtwork(imp),
+                        size: MusicObjectMetrics.albumRail,
+                        role: .browse,
+                        showsHoverPlay: true,
+                        onSelect: {
+                            NotificationCenter.default.post(name: .musesNavigateYouTubeImport, object: imp)
+                        },
+                        onPlay: { playImport(imp) }
+                    )
                 }
             }
         }
@@ -286,24 +285,37 @@ struct HomeView: View {
 
     @ViewBuilder
     private func discoverySection(_ section: HomeSection) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: section.title, subtitle: section.subtitle)
+        // 已加载但无结果:整段(含 SectionHeader)静默折叠。
+        if (section.status == .loaded || section.status == .idle) && section.items.isEmpty {
+            EmptyView()
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                SectionHeader(title: section.title, subtitle: section.subtitle)
 
-            switch section.status {
-            case .loading:
-                // 无缓存冷启:骨架占位(不使用居中 spinner,§15)。
-                ResponsiveCarousel(cardSize: 160) {
-                    ForEach(0..<5, id: \.self) { _ in SkeletonCard(size: 160, aspect: .wide169) }
-                }
-            case .failed(let msg):
-                Text(msg ?? tr("Couldn’t load this section", "无法加载该区段"))
-                    .font(.caption).foregroundStyle(BrandColors.textSecondary)
-                    .frame(maxWidth: .infinity).padding(.vertical, 20)
-            case .loaded, .idle:
-                if section.items.isEmpty {
-                    // 已加载但无结果:不显示空占位,静默折叠。
-                    EmptyView()
-                } else {
+                switch section.status {
+                case .loading:
+                    // 无缓存冷启:骨架占位(不使用居中 spinner,§15)。
+                    ResponsiveCarousel(cardSize: 160) {
+                        ForEach(0..<5, id: \.self) { _ in SkeletonCard(size: 160, aspect: .wide169) }
+                    }
+                case .failed(let msg):
+                    if homeDiscovery.isRefreshing && retryingIDs.contains(section.id) {
+                        ResponsiveCarousel(cardSize: 160) {
+                            ForEach(0..<5, id: \.self) { _ in SkeletonCard(size: 160, aspect: .wide169) }
+                        }
+                    } else {
+                        VStack(spacing: 8) {
+                            Text(msg ?? tr("Couldn’t load this section", "无法加载该区段"))
+                                .font(.caption).foregroundStyle(BrandColors.textSecondary)
+                            Button(tr("Retry", "重试")) {
+                                retryingIDs.insert(section.id)
+                                homeDiscovery.reload()
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .frame(maxWidth: .infinity).padding(.vertical, 20)
+                    }
+                case .loaded, .idle:
                     ResponsiveCarousel(cardSize: 160) {
                         ForEach(section.items) { item in
                             if case .youTube(let card) = item {
@@ -340,8 +352,22 @@ struct HomeView: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 5),
                       spacing: 20) {
                 ForEach(albums, id: \.id) { album in
-                    AlbumCard(album: album)
-                        .onTapGesture { selectedAlbum = album }
+                    AlbumObjectView(
+                        title: album.title,
+                        subtitle: album.albumArtist,
+                        artwork: ArtworkSource.localHash(album.artworkHash),
+                        size: MusicObjectMetrics.albumGrid,
+                        role: .browse,
+                        isNowPlaying: album.id == playingAlbumID,
+                        showsHoverPlay: true,
+                        onSelect: { selectedAlbum = album },
+                        onPlay: { playAlbum(album) }
+                    )
+                    .contextMenu {
+                        Button(library.isPinned(album) ? tr("Unpin", "取消钉选") : tr("Pin", "钉选")) {
+                            library.togglePin(album)
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 24)
@@ -369,11 +395,36 @@ struct HomeView: View {
         }
     }
 
+    private func refreshPlayingCollection() {
+        let id = playback.state.track?.id
+        playingAlbumID = id.flatMap { library.track(by: $0)?.album?.id }
+        playingArtistID = id.flatMap { library.track(by: $0)?.artistRef?.id }
+    }
+
     private func playAlbum(_ album: Album) {
         let tracks = library.tracks(in: album)
         let snaps = tracks.map { TrackSnapshot(from: $0) }
         guard let first = snaps.first else { return }
         playback.playTrack(first, context: snaps, from: .album)
+    }
+
+    private func playImport(_ imp: YouTubeImport) {
+        let snaps = (imp.items ?? []).sorted { $0.order < $1.order }
+            .compactMap { $0.track }
+            .map { TrackSnapshot(from: $0) }
+        guard let first = snaps.first else { return }
+        playback.playTrack(first, context: snaps, from: .import)
+    }
+
+    private func importArtwork(_ imp: YouTubeImport) -> ArtworkSource {
+        if let urlStr = imp.artworkUrl, let url = URL(string: urlStr) {
+            return .remote(url)
+        }
+        if let first = (imp.items ?? []).sorted(by: { $0.order < $1.order }).first,
+           let url = URL(string: "https://i.ytimg.com/vi/\(first.youTubeId)/hqdefault.jpg") {
+            return .remote(url)
+        }
+        return .placeholder
     }
 
     // MARK: - YouTube 辅助
@@ -429,49 +480,6 @@ struct HomeView: View {
     }
 }
 
-/// 最近播放的曲目卡片:方形封面 + 标题 + 艺术家(本地用 artworkHash,YouTube 用缩略图)。
-struct RecentTrackCard: View {
-    let snap: TrackSnapshot
-    let onPlay: () -> Void
-
-    var body: some View {
-        Button(action: onPlay) {
-            VStack(alignment: .leading, spacing: 6) {
-                artwork
-                    .frame(width: 120, height: 120)
-                    .clipped().cornerRadius(8)
-                Text(snap.title).font(.caption).lineLimit(1)
-                    .foregroundStyle(BrandColors.textPrimary)
-                Text(snap.artist).font(.caption2).lineLimit(1)
-                    .foregroundStyle(BrandColors.textSecondary)
-            }
-            .frame(width: 120)
-        }
-        .buttonStyle(.plain)
-    }
-
-    @ViewBuilder
-    private var artwork: some View {
-        if let hash = snap.artworkHash,
-           let path = ArtworkCache.default.path(forHash: hash) {
-            Image(nsImage: NSImage(byReferencing: path)).resizable().scaledToFill()
-        } else if let vid = snap.youTubeId,
-                  let url = URL(string: "https://i.ytimg.com/vi/\(vid)/hqdefault.jpg") {
-            CachedAsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: { placeholder }
-        } else if let urlStr = snap.artworkUrl, let url = URL(string: urlStr) {
-            CachedAsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: { placeholder }
-        } else {
-            placeholder
-        }
-    }
-
-    private var placeholder: some View {
-        RoundedRectangle(cornerRadius: 8).fill(BrandColors.surface)
-            .overlay(Image(systemName: "music.note").font(.title)
-                .foregroundStyle(BrandColors.textSecondary.opacity(0.5)))
-    }
-}
-
 /// YouTube 热门单曲卡片:缩略图 + 标题 + 频道。
 struct YouTubeTrendingCard: View {
     let entry: YTDlpBridge.YTDlpPlaylistEntry
@@ -489,9 +497,9 @@ struct YouTubeTrendingCard: View {
                 .frame(width: 160, height: 90)
                 .clipped().cornerRadius(8)
 
-                Text(entry.title).font(.caption).lineLimit(1)
+                Text(entry.title).font(.subheadline).lineLimit(1)
                     .foregroundStyle(BrandColors.textPrimary)
-                Text(entry.uploader ?? "YouTube").font(.caption2).lineLimit(1)
+                Text(entry.uploader ?? "YouTube").font(.caption).lineLimit(1)
                     .foregroundStyle(BrandColors.textSecondary)
             }
             .frame(width: 160)
@@ -518,67 +526,14 @@ struct HomeDiscoveryCardView: View {
                 .frame(width: 160, height: 90)
                 .clipped().cornerRadius(8)
 
-                Text(card.title).font(.caption).lineLimit(1)
+                Text(card.title).font(.subheadline).lineLimit(1)
                     .foregroundStyle(BrandColors.textPrimary)
-                Text(card.uploader ?? "YouTube").font(.caption2).lineLimit(1)
+                Text(card.uploader ?? "YouTube").font(.caption).lineLimit(1)
                     .foregroundStyle(BrandColors.textSecondary)
             }
             .frame(width: 160)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(card.title) — \(card.uploader ?? "YouTube")")
-    }
-}
-
-/// 已导入 YouTube 歌单的迷你卡片:封面 + 标题 + 频道。
-struct YouTubeImportCardSmall: View {
-    let imp: YouTubeImport
-
-    private var items: [YouTubeImportItem] {
-        (imp.items ?? []).sorted { $0.order < $1.order }
-    }
-
-    var body: some View {
-        Button {
-            NotificationCenter.default.post(name: .musesNavigateYouTubeImport, object: imp)
-        } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                Group {
-                    if let urlStr = imp.artworkUrl, let url = URL(string: urlStr) {
-                        CachedAsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: { thumbnailFallback }
-                    } else {
-                        thumbnailFallback
-                    }
-                }
-                .frame(width: 140, height: 140)
-                .clipped().cornerRadius(8)
-
-                Text(imp.title).font(.caption).lineLimit(1)
-                    .foregroundStyle(BrandColors.textPrimary)
-                Text(imp.channel).font(.caption2).lineLimit(1)
-                    .foregroundStyle(BrandColors.textSecondary)
-            }
-            .frame(width: 140)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var thumbnailFallback: some View {
-        Group {
-            if let first = items.first {
-                CachedAsyncImage(url: URL(string: "https://i.ytimg.com/vi/\(first.youTubeId)/hqdefault.jpg")) { img in
-                    img.resizable().scaledToFill()
-                } placeholder: {
-                    placeholder
-                }
-            } else {
-                placeholder
-            }
-        }
-    }
-    private var placeholder: some View {
-        RoundedRectangle(cornerRadius: 8).fill(BrandColors.surface)
-            .overlay(Image(systemName: "music.note.list")
-                .font(.title).foregroundStyle(BrandColors.textSecondary.opacity(0.5)))
     }
 }

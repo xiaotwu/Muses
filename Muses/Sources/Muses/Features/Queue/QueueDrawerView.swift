@@ -10,6 +10,9 @@ struct QueueDrawerView: View {
     /// 重命名分组 alert 的目标分组 id 与临时文本。
     @State private var renameTarget: QueueGroup.ID?
     @State private var renameText = ""
+    /// Queue has no search field; keep the drawer itself key-focusable so
+    /// Escape reaches `.onKeyPress` the way Search's focused field does.
+    @FocusState private var drawerFocused: Bool
 
     var body: some View {
         HStack(spacing: 0) {
@@ -25,7 +28,23 @@ struct QueueDrawerView: View {
                          alignment: .leading)
                 .transition(.move(edge: .trailing))
         }
+        .onExitCommand { dismissUnlessRenaming() }
+        .onKeyPress(.escape) {
+            guard renameTarget == nil else { return .ignored }
+            isPresented = false
+            return .handled
+        }
+        .focusable()
+        .focused($drawerFocused)
+        .onAppear { drawerFocused = true }
+        .onChange(of: renameTarget) { _, target in
+            drawerFocused = (target == nil)
+        }
         .animation(.easeInOut(duration: 0.25), value: isPresented)
+    }
+
+    private func dismissUnlessRenaming() {
+        if renameTarget == nil { isPresented = false }
     }
 
     private var drawer: some View {

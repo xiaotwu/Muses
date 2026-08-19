@@ -12,6 +12,7 @@ struct PlaylistDetailView: View {
     @Query(sort: \Playlist.name) private var allPlaylists: [Playlist]
     @State private var showAddTrackSheet = false
     @State private var showM3UImporter = false
+    @State private var selectedItemID: UUID?
 
     private var sortedItems: [PlaylistItem] {
         (playlist.items ?? []).sorted { $0.order < $1.order }
@@ -78,13 +79,10 @@ struct PlaylistDetailView: View {
                 EmptyStateView(icon: "music.note.list", title: tr("Playlist is empty", "歌单为空"),
                                subtitle: tr("Tap \"Add Tracks\" to import songs", "点击「添加曲目」导入歌曲"))
             } else {
-                List {
+                List(selection: $selectedItemID) {
                     ForEach(sortedItems, id: \.id) { item in
-                        PlaylistTrackRow(item: item, onRemove: { removeItem(item) })
-                            .trackContextMenu(snapshot: item.track.map { TrackSnapshot(from: $0) },
-                                              track: item.track,
-                                              playlists: allPlaylists,
-                                              onPlay: { playFromList(item) })
+                        playlistRow(item)
+                            .tag(item.id)
                     }
                     .onMove { indices, destination in
                         guard let from = indices.first else { return }
@@ -134,6 +132,43 @@ struct PlaylistDetailView: View {
         playlistService.removeItem(item)
     }
 
+    @ViewBuilder
+    private func playlistRow(_ item: PlaylistItem) -> some View {
+        if let track = item.track {
+            SongObjectView(
+                title: track.title,
+                artist: track.artist,
+                durationLabel: String(format: "%d:%02d", Int(track.durationSeconds) / 60, Int(track.durationSeconds) % 60),
+                artwork: ArtworkSource.localHash(track.localArtworkHash ?? track.album?.artworkHash),
+                isSelected: selectedItemID == item.id,
+                nowPlayingID: track.id,
+                showsHoverPlay: true,
+                showsPlayButton: true,
+                isLossless: track.isLossless,
+                onSelect: { selectedItemID = item.id },
+                onPlay: { playFromList(item) },
+                onRemove: { removeItem(item) }
+            )
+            .trackContextMenu(snapshot: TrackSnapshot(from: track),
+                              track: track,
+                              playlists: allPlaylists,
+                              onPlay: { playFromList(item) })
+        } else {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(BrandColors.textSecondary)
+                Text(tr("(Track deleted)", "(曲目已删除)")).foregroundStyle(BrandColors.textSecondary)
+                Spacer()
+                Button(role: .destructive, action: { removeItem(item) }) {
+                    Image(systemName: "minus.circle")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(BrandColors.textSecondary)
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
     /// 在歌单完整上下文中播放某项(右键菜单 Play)。
     private func playFromList(_ item: PlaylistItem) {
         let snaps = sortedItems.compactMap { $0.track }.map { TrackSnapshot(from: $0) }
@@ -148,44 +183,6 @@ struct PlaylistDetailView: View {
         panel.nameFieldStringValue = "\(playlist.name).m3u"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         playlistService.exportM3U(playlist, to: url)
-    }
-}
-
-/// 歌单内曲目行。
-struct PlaylistTrackRow: View {
-    let item: PlaylistItem
-    let onRemove: () -> Void
-    @Environment(PlaybackService.self) private var playback
-
-    var body: some View {
-        HStack(spacing: 12) {
-            if let track = item.track {
-                Button {
-                    let snap = TrackSnapshot(from: track)
-                    playback.playTrack(snap, context: [snap], from: .playlist)
-                } label: {
-                    Image(systemName: "play.fill")
-                        .foregroundStyle(BrandColors.magenta)
-                }
-                .buttonStyle(.plain)
-
-                VStack(alignment: .leading) {
-                    Text(track.title).foregroundStyle(BrandColors.textPrimary)
-                    Text(track.artist).font(.caption).foregroundStyle(BrandColors.textSecondary)
-                }
-            } else {
-                Image(systemName: "exclamationmark.triangle")
-                    .foregroundStyle(BrandColors.textSecondary)
-                Text(tr("(Track deleted)", "(曲目已删除)")).foregroundStyle(BrandColors.textSecondary)
-            }
-            Spacer()
-            Button(role: .destructive, action: onRemove) {
-                Image(systemName: "minus.circle")
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(BrandColors.textSecondary)
-        }
-        .padding(.vertical, 4)
     }
 }
 
