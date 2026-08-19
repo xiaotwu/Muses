@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import SwiftData
 
 struct AlbumDetailView: View {
     let album: Album
@@ -7,6 +8,7 @@ struct AlbumDetailView: View {
     @Environment(PlaybackService.self) private var playback
     @Environment(LibraryService.self) private var library
     @Environment(NotesService.self) private var notes
+    @Query(sort: \Playlist.name) private var allPlaylists: [Playlist]
     @State private var gradient: [Color] = [BrandColors.background, BrandColors.surface]
     /// 批量已喜欢 id 集合,避免每行 `TrackRow` 单独 fetch。
     @State private var likedSet: Set<UUID> = []
@@ -123,6 +125,10 @@ struct AlbumDetailView: View {
             ForEach(sortedTracks(), id: \.id) { track in
                 TrackRow(track: track, likedIDs: likedSet)
                     .onTapGesture { play(track) }
+                    .trackContextMenu(snapshot: TrackSnapshot(from: track),
+                                      track: track,
+                                      playlists: allPlaylists,
+                                      onPlay: { play(track) })
                     .padding(.vertical, 6)
             }
         }
@@ -168,9 +174,6 @@ struct TrackRow: View {
     /// 父视图批量查询的已喜欢 id 集合;为 nil 时回退到单次 `isLiked(id:)`。
     var likedIDs: Set<UUID>? = nil
     @Environment(LibraryService.self) private var library
-    @Environment(NotesService.self) private var notes
-    @State private var showEditTrack = false
-    @State private var showTrackNotes = false
     var body: some View {
         let _ = library.likedRevision
         let _ = library.metadataRevision
@@ -198,16 +201,6 @@ struct TrackRow: View {
                 .help(liked ? tr("Unlike", "取消收藏") : tr("Like", "收藏"))
             }
             Text(formatDuration(track.durationSeconds)).foregroundStyle(BrandColors.textSecondary)
-        }
-        .contextMenu {
-            Button(tr("Edit Info", "编辑信息")) { showEditTrack = true }
-            Button(tr("Notes & Bookmarks…", "笔记与书签…")) { showTrackNotes = true }
-        }
-        .sheet(isPresented: $showEditTrack) {
-            EditTrackSheet(track: track)
-        }
-        .sheet(isPresented: $showTrackNotes) {
-            TrackNotesSheet(track: track)
         }
     }
     private func formatDuration(_ s: Double) -> String {

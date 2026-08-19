@@ -45,6 +45,11 @@ struct MusesApp: App {
     init() {
         // 品牌字标字体:尽早注册,使首屏 "Muses" wordmark 即用 MonteCarlo。
         FontLoader.registerMonteCarlo()
+        // P5 issue #7 — 应用内功能标志默认开启(用户显式选择「全部启用」)。
+        // 仅注册未显式设置的键:用户曾在设置中关闭的项保持关闭(不回退其选择)。
+        // 桌面集成 4 项(全局热键/托盘/迷你播放器/桌面歌词)仍默认关——占用系统资源、
+        // 不打扰;可在设置中按需开启。
+        UserDefaults.standard.register(defaults: FeatureFlagDefaults.enabledByDefault)
         let container = makeModelContainerWithFallback()
         self.modelContainer = container
         let meta = MetadataService(artworkCache: .default)

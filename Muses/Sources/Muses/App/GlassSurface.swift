@@ -62,4 +62,10 @@ extension View {
         modifier(MusesGlass(shape: RoundedRectangle(cornerRadius: cornerRadius,
                                                     style: .continuous), tint: tint))
     }
+
+    /// 轻微发光(issue #5):深色主题下白色文字 + 白色阴影 = 柔光;浅色主题黑色文字 + 黑色阴影 = 暗辉。
+    /// 仅用于表达性表面的强调文字,静态、克制,不影响可读性。
+    func glow(_ color: Color, radius: CGFloat = 2.5) -> some View {
+        self.shadow(color: color, radius: radius)
+    }
 }

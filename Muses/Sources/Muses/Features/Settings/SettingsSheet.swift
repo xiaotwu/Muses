@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// 设置类别枚举。
 enum SettingsCategory: String, Hashable, CaseIterable {
@@ -68,6 +69,13 @@ struct SettingsSheet: View {
                         GPUSettingsView()
                         NotificationsSettingsView()
                         LanguageSettingsView()
+                        Section {
+                            Button(role: .destructive) {
+                                NSApp.terminate(nil)
+                            } label: {
+                                Label(tr("Quit Muses", "退出 Muses"), systemImage: "power")
+                            }
+                        }
                     case .playback:
                         PlaybackSettingsView()
                         Section(tr("Equalizer", "均衡器")) {

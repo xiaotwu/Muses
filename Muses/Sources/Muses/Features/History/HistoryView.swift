@@ -9,7 +9,7 @@ import SwiftData
 struct HistoryView: View {
     @Environment(HistoryService.self) private var history
     @Environment(PlaybackService.self) private var playback
-    @AppStorage(PrefKey.ffSmartHistory) private var enabled = false
+    @AppStorage(PrefKey.ffSmartHistory) private var enabled = true
     @State private var range: RecapRange = .week
     @State private var outcomeFilter: ListeningOutcome? = nil
     @State private var search: String = ""
@@ -192,6 +192,13 @@ struct HistoryView: View {
         .padding(.vertical, 8)
         .contentShape(Rectangle())
         .onTapGesture { replay(ev) }
+        .contextMenu {
+            Button(tr("Replay", "重放")) { replay(ev) }
+            if ev.source == .local {
+                Button(tr("Play Next", "下一首播放")) { queueAction(ev, playNext: true) }
+                Button(tr("Add to Queue", "加入队列")) { queueAction(ev, playNext: false) }
+            }
+        }
     }
 
     private func outcomeBadge(_ o: ListeningOutcome) -> some View {
@@ -218,6 +225,19 @@ struct HistoryView: View {
         else { return }
         let snap = TrackSnapshot(from: track)
         playback.playTrack(snap, context: [snap], from: .recently)
+    }
+
+    /// 历史右键:本地曲目加入队列(点击时按 id 解析,不在渲染期 fetch)。
+    private func queueAction(_ ev: ListeningEvent, playNext: Bool) {
+        guard ev.source == .local else { return }
+        let trackId = ev.trackId
+        guard let track = (try? ModelContext(history.container)
+                            .fetch(FetchDescriptor<Track>(
+                                predicate: #Predicate { $0.id == trackId })))?.first
+        else { return }
+        let snap = TrackSnapshot(from: track)
+        if playNext { playback.queue.playNext(snap) }
+        else { playback.queue.addToQueue(snap) }
     }
 
     // MARK: - 未启用态

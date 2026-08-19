@@ -115,7 +115,9 @@ struct RootView: View {
         }
         .overlay {
             if showSearch {
-                GlobalSearchView(isPresented: $showSearch)
+                GlobalSearchView(isPresented: $showSearch,
+                                  showLocalFolder: $showImport,
+                                  showYouTubeLink: $showYouTubeLink)
                     .transition(.opacity)
             }
         }
@@ -186,11 +188,7 @@ struct RootView: View {
         .sheet(isPresented: $showAudioInfo) {
             AudioInfoPanel()
         }
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                AddMusicMenu(showLocalFolder: $showImport, showYouTubeLink: $showYouTubeLink)
-            }
-        }
+        // P5 issue #6 — 「+」导入按钮仅在 Search 面板内,移出全局 toolbar。
         .id(language)
     }
 }

@@ -5,6 +5,7 @@ struct ArtistsView: View {
     @Binding var selectedArtist: Artist?
     @Binding var selectedBrowsableArtist: BrowsableArtist?
     @Environment(LibraryService.self) private var library
+    @Environment(PlaybackService.self) private var playback
     @Environment(MetadataEnrichmentService.self) private var enrichment
     @State private var searchText = ""
     @State private var debouncedSearch = ""
@@ -29,6 +30,10 @@ struct ArtistsView: View {
                     ForEach(artists, id: \.id) { artist in
                         ArtistCard(artist: artist)
                             .onTapGesture { selectedArtist = artist }
+                            .contextMenu {
+                                Button(tr("Play", "播放")) { playArtist(artist, shuffle: false) }
+                                Button(tr("Shuffle", "随机播放")) { playArtist(artist, shuffle: true) }
+                            }
                     }
                 }
                 .padding(20)
@@ -74,6 +79,14 @@ struct ArtistsView: View {
         let all = library.allArtists()
         guard !q.isEmpty else { return all }
         return all.filter { $0.name.localizedCaseInsensitiveContains(q) }
+    }
+
+    /// 艺术家卡片右键:播放该艺术家全部曲目(可选随机)。
+    private func playArtist(_ artist: Artist, shuffle: Bool) {
+        var snaps = library.tracks(byArtist: artist).map { TrackSnapshot(from: $0) }
+        guard !snaps.isEmpty else { return }
+        if shuffle { snaps.shuffle() }
+        playback.playTrack(snaps[0], context: snaps, from: .artist)
     }
 
     private func loadProjection() async {

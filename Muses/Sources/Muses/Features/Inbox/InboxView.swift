@@ -9,7 +9,7 @@ struct InboxView: View {
     @Environment(InboxService.self) private var inbox
     @Environment(PlaybackService.self) private var playback
     @Environment(LibraryService.self) private var library
-    @AppStorage(PrefKey.ffInbox) private var enabled = false
+    @AppStorage(PrefKey.ffInbox) private var enabled = true
     @Query(sort: \InboxItem.addedAt, order: .reverse) private var items: [InboxItem]
     @State private var noteTarget: InboxItem.ID?
     @State private var noteText = ""
@@ -109,23 +109,31 @@ struct InboxView: View {
                 .buttonStyle(.plain).foregroundStyle(BrandColors.textSecondary)
                 .help(tr("Reject", "拒绝"))
             Menu {
-                Button(tr("Play Next", "下一首播放")) { playback.queue.playNext(snapshot(for: item)) }
-                Button(tr("Add to Queue", "加入队列")) { playback.queue.addToQueue(snapshot(for: item)) }
-                Divider()
-                Menu(tr("Snooze", "延后")) {
-                    Button(tr("Later Today", "今晚")) { snooze(item, .laterToday) }
-                    Button(tr("Tomorrow", "明天")) { snooze(item, .tomorrow) }
-                    Button(tr("This Weekend", "本周末")) { snooze(item, .weekend) }
-                    Button(tr("Next Week", "下周")) { snooze(item, .nextWeek) }
-                }
-                Button(tr("Add note", "添加备注")) { noteTarget = item.id; noteText = item.notes ?? "" }
-                Divider()
-                Button(tr("Remove", "移除"), role: .destructive) { inbox.remove(id: item.id) }
+                inboxMenuContent(for: item)
             } label: {
                 Image(systemName: "ellipsis").foregroundStyle(BrandColors.textSecondary)
             }.menuStyle(.borderlessButton).menuIndicator(.hidden)
         }
         .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .contextMenu { inboxMenuContent(for: item) }
+    }
+
+    /// 收件箱行的菜单内容(右键菜单与「…」按钮共用,issue #2)。
+    @ViewBuilder
+    private func inboxMenuContent(for item: InboxItem) -> some View {
+        Button(tr("Play Next", "下一首播放")) { playback.queue.playNext(snapshot(for: item)) }
+        Button(tr("Add to Queue", "加入队列")) { playback.queue.addToQueue(snapshot(for: item)) }
+        Divider()
+        Menu(tr("Snooze", "延后")) {
+            Button(tr("Later Today", "今晚")) { snooze(item, .laterToday) }
+            Button(tr("Tomorrow", "明天")) { snooze(item, .tomorrow) }
+            Button(tr("This Weekend", "本周末")) { snooze(item, .weekend) }
+            Button(tr("Next Week", "下周")) { snooze(item, .nextWeek) }
+        }
+        Button(tr("Add note", "添加备注")) { noteTarget = item.id; noteText = item.notes ?? "" }
+        Divider()
+        Button(tr("Remove", "移除"), role: .destructive) { inbox.remove(id: item.id) }
     }
 
     // MARK: - 辅助

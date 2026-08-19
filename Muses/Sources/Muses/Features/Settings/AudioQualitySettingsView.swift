@@ -4,7 +4,7 @@ import SwiftUI
 struct AudioQualitySettingsView: View {
     @AppStorage(PrefKey.localAudioQuality) private var localQuality: String = "native"
     @AppStorage(PrefKey.ytAudioQuality) private var ytQuality: String = "bestaudio"
-    @AppStorage(PrefKey.ffAudioNerd) private var audioNerd = false
+    @AppStorage(PrefKey.ffAudioNerd) private var audioNerd = true
 
     var body: some View {
         Section(tr("Local Audio Quality", "本地音质")) {
