@@ -8,6 +8,8 @@ struct PinsView: View {
     @Environment(LibraryService.self) private var library
     @Environment(PlaylistService.self) private var playlistService
     @Environment(PlaybackService.self) private var playback
+    @State private var playingAlbumID: UUID?
+    @State private var playingArtistID: UUID?
 
     var body: some View {
         ScrollView {
@@ -37,6 +39,8 @@ struct PinsView: View {
         }
         .navigationTitle(tr("Pins", "钉选"))
         .background(BrandColors.background)
+        .onAppear { refreshPlayingCollection() }
+        .onChange(of: playback.state.track?.id) { _, _ in refreshPlayingCollection() }
     }
 
     private func pinnedAlbumsSection(_ albums: [Album]) -> some View {
@@ -53,6 +57,8 @@ struct PinsView: View {
                         artwork: ArtworkSource.localHash(album.artworkHash),
                         size: MusicObjectMetrics.albumGrid,
                         role: .browse,
+                        isNowPlaying: album.id == playingAlbumID,
+                        showsHoverPlay: true,
                         onSelect: { selectedAlbum = album },
                         onPlay: { playAlbum(album) }
                     )
@@ -80,6 +86,7 @@ struct PinsView: View {
                         artwork: playlistArtwork(playlist),
                         size: MusicObjectMetrics.albumGrid,
                         role: .browse,
+                        showsHoverPlay: true,
                         onSelect: { selectedPlaylist = playlist },
                         onPlay: { playPlaylist(playlist) }
                     )
@@ -91,6 +98,12 @@ struct PinsView: View {
                 }
             }
         }
+    }
+
+    private func refreshPlayingCollection() {
+        let id = playback.state.track?.id
+        playingAlbumID = id.flatMap { library.track(by: $0)?.album?.id }
+        playingArtistID = id.flatMap { library.track(by: $0)?.artistRef?.id }
     }
 
     private func playAlbum(_ album: Album) {

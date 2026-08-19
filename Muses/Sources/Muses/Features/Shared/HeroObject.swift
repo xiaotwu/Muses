@@ -6,8 +6,13 @@ struct HeroObjectView: View {
     var metadata: String? = nil
     let artwork: ArtworkSource
     var gradient: [Color] = []
+    var isNowPlaying: Bool = false
+    var showsHoverPlay: Bool = false
     var onOpen: () -> Void
     var onPlay: () -> Void
+
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 24) {
@@ -19,8 +24,13 @@ struct HeroObjectView: View {
                     targetSize: MusicObjectMetrics.albumHero
                 )
                 .shadow(radius: 20)
+                .overlay(alignment: .bottomLeading) { nowPlayingBadge }
+                .overlay(alignment: .bottomTrailing) { hoverPlayOverlay }
             }
             .buttonStyle(.plain)
+            .onHover { hovering = $0 }
+            .offset(y: liftOffset)
+            .animation(MusesMotion.hoverAnimation(reduceMotion: reduceMotion), value: hovering)
             .accessibilityLabel("\(title) — \(subtitle)")
 
             VStack(alignment: .leading, spacing: 8) {
@@ -65,6 +75,31 @@ struct HeroObjectView: View {
             if !gradient.isEmpty {
                 LinearGradient(colors: gradient, startPoint: .top, endPoint: .center)
             }
+        }
+    }
+
+    private var liftOffset: CGFloat {
+        (showsHoverPlay && hovering && !reduceMotion) ? -MusicObjectMetrics.hoverLift : 0
+    }
+
+    @ViewBuilder
+    private var nowPlayingBadge: some View {
+        if isNowPlaying {
+            Image(systemName: "speaker.wave.2")
+                .font(.caption)
+                .padding(12)
+                .foregroundStyle(BrandColors.textPrimary)
+        }
+    }
+
+    @ViewBuilder
+    private var hoverPlayOverlay: some View {
+        if showsHoverPlay {
+            HoverPlayButton(onPlay: onPlay)
+                .padding(12)
+                .opacity(hovering ? 1 : 0)
+                .animation(reduceMotion ? nil : .easeOut(duration: MusesMotion.overlay), value: hovering)
+                .allowsHitTesting(hovering)
         }
     }
 }

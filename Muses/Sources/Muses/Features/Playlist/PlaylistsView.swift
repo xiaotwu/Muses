@@ -26,6 +26,7 @@ struct PlaylistsView: View {
                             artwork: playlistArtwork(playlist),
                             size: MusicObjectMetrics.albumGrid,
                             role: .browse,
+                            showsHoverPlay: true,
                             onSelect: { selectedPlaylist = playlist },
                             onPlay: { playPlaylist(playlist) }
                         )

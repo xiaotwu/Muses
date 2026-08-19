@@ -28,6 +28,8 @@ struct HomeView: View {
     @State private var trendingTask: Task<Void, Never>?
     @State private var gradientTask: Task<Void, Never>?
     @State private var retryingIDs: Set<String> = []
+    @State private var playingAlbumID: UUID?
+    @State private var playingArtistID: UUID?
 
     /// Hero 专辑:优先选最近播放的,否则最近添加的,否则第一个。
     /// 现在读取缓存的 `heroAlbum`,由 `refreshLibrarySnapshot()` 维护。
@@ -99,6 +101,7 @@ struct HomeView: View {
         )
         .onAppear {
             PerfTrace.event("home.appear")
+            refreshPlayingCollection()
             // 将资料库快照从同步 appear 路径延迟到首帧绘制后(spec §15/§16),
             // 让骨架/缓存内容先上屏。
             Task { @MainActor in
@@ -124,6 +127,7 @@ struct HomeView: View {
         .onChange(of: homeDiscovery.isRefreshing) { _, refreshing in
             if !refreshing { retryingIDs.removeAll() }
         }
+        .onChange(of: playback.state.track?.id) { _, _ in refreshPlayingCollection() }
     }
 
     /// 一次性刷新资料库快照(专辑 / 最近添加 / 钉选 / Hero / 最近播放),
@@ -155,6 +159,8 @@ struct HomeView: View {
             metadata: album.year.map(String.init),
             artwork: ArtworkSource.localHash(album.artworkHash),
             gradient: heroGradient,
+            isNowPlaying: album.id == playingAlbumID,
+            showsHoverPlay: true,
             onOpen: { selectedAlbum = album },
             onPlay: { playAlbum(album) }
         )
@@ -173,6 +179,8 @@ struct HomeView: View {
                         artwork: ArtworkSource.localHash(album.artworkHash),
                         size: MusicObjectMetrics.albumRail,
                         role: .browse,
+                        isNowPlaying: album.id == playingAlbumID,
+                        showsHoverPlay: true,
                         onSelect: { selectedAlbum = album },
                         onPlay: { playAlbum(album) }
                     )
@@ -195,6 +203,8 @@ struct HomeView: View {
                         artwork: ArtworkSource.resolve(for: snap),
                         size: MusicObjectMetrics.albumRail,
                         role: .play,
+                        nowPlayingID: snap.id,
+                        showsHoverPlay: true,
                         onSelect: {},
                         onPlay: { playback.playTrack(snap, context: recentlyPlayed, from: .recently) }
                     )
@@ -249,6 +259,7 @@ struct HomeView: View {
                         artwork: importArtwork(imp),
                         size: MusicObjectMetrics.albumRail,
                         role: .browse,
+                        showsHoverPlay: true,
                         onSelect: {
                             NotificationCenter.default.post(name: .musesNavigateYouTubeImport, object: imp)
                         },
@@ -347,6 +358,8 @@ struct HomeView: View {
                         artwork: ArtworkSource.localHash(album.artworkHash),
                         size: MusicObjectMetrics.albumGrid,
                         role: .browse,
+                        isNowPlaying: album.id == playingAlbumID,
+                        showsHoverPlay: true,
                         onSelect: { selectedAlbum = album },
                         onPlay: { playAlbum(album) }
                     )
@@ -380,6 +393,12 @@ struct HomeView: View {
             heroGradient = colors.map { Color(nsColor: $0) } + [BrandColors.background]
             PerfTrace.event("home.gradientReady")
         }
+    }
+
+    private func refreshPlayingCollection() {
+        let id = playback.state.track?.id
+        playingAlbumID = id.flatMap { library.track(by: $0)?.album?.id }
+        playingArtistID = id.flatMap { library.track(by: $0)?.artistRef?.id }
     }
 
     private func playAlbum(_ album: Album) {

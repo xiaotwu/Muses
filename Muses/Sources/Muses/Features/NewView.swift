@@ -19,6 +19,8 @@ struct NewView: View {
     // Phase D5 — 情境化推荐区段(ffSituationalNew 开启时使用)。
     @State private var situationalSections: [SituationalSection] = []
     @State private var situationalTask: Task<Void, Never>?
+    @State private var playingAlbumID: UUID?
+    @State private var playingArtistID: UUID?
 
     var body: some View {
         ScrollView {
@@ -39,7 +41,7 @@ struct NewView: View {
             .padding(.bottom, 100)
         }
         .background(BrandColors.background)
-        .onAppear { scheduleCompute() }
+        .onAppear { scheduleCompute(); refreshPlayingCollection() }
         .onDisappear {
             computeTask?.cancel()
             situationalTask?.cancel()
@@ -47,6 +49,7 @@ struct NewView: View {
         .onChange(of: library.likedRevision) { _, _ in scheduleCompute() }
         .onChange(of: library.metadataRevision) { _, _ in scheduleCompute() }
         .onChange(of: library.playRevision) { _, _ in scheduleCompute() }
+        .onChange(of: playback.state.track?.id) { _, _ in refreshPlayingCollection() }
     }
 
     // MARK: - Phase D5/D6:情境化推荐(D4 原语呈现)
@@ -88,6 +91,8 @@ struct NewView: View {
                         artwork: ArtworkSource.resolve(for: snap),
                         size: MusicObjectMetrics.albumRail,
                         role: .play,
+                        nowPlayingID: snap.id,
+                        showsHoverPlay: true,
                         onSelect: {},
                         onPlay: { playback.playTrack(snap, context: section.items, from: .songs) }
                     )
@@ -191,12 +196,20 @@ struct NewView: View {
                         artwork: ArtworkSource.localHash(album.artworkHash),
                         size: MusicObjectMetrics.albumRail,
                         role: .browse,
+                        isNowPlaying: album.id == playingAlbumID,
+                        showsHoverPlay: true,
                         onSelect: { selectedAlbum = album },
                         onPlay: { playAlbum(album) }
                     )
                 }
             }
         }
+    }
+
+    private func refreshPlayingCollection() {
+        let id = playback.state.track?.id
+        playingAlbumID = id.flatMap { library.track(by: $0)?.album?.id }
+        playingArtistID = id.flatMap { library.track(by: $0)?.artistRef?.id }
     }
 
     private func playAlbum(_ album: Album) {

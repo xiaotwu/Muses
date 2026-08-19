@@ -9,6 +9,8 @@ struct SongObjectView: View {
     let artwork: ArtworkSource
     var isSelected: Bool = false
     var isNowPlaying: Bool = false
+    /// Track identity for `NowPlayingMark`. The only object-level playback read.
+    var nowPlayingID: UUID? = nil
     var showsHoverPlay: Bool = false
     var showsPlayButton: Bool = false
     /// When true, double-click calls `onPlay` on this same view (Songs list). Default false.
@@ -24,6 +26,8 @@ struct SongObjectView: View {
     var onInbox: (() -> Void)? = nil
     var onOverflow: (() -> Void)? = nil
 
+    @State private var hovering = false
+
     var body: some View {
         HStack(spacing: 10) {
             if let indexLabel {
@@ -38,15 +42,11 @@ struct SongObjectView: View {
                 glyphSize: 16,
                 targetSize: MusicObjectMetrics.songArtMin
             )
+            .overlay { hoverPlayOverlay }
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    if isNowPlaying {
-                        Image(systemName: "speaker.wave.2")
-                            .font(.caption)
-                            .foregroundStyle(BrandColors.textPrimary)
-                            .accessibilityHidden(true)
-                    }
+                    nowPlayingBadge
                     Text(title)
                         .foregroundStyle(BrandColors.textPrimary)
                         .lineLimit(1)
@@ -161,8 +161,33 @@ struct SongObjectView: View {
             onSelect: onSelect,
             onDoubleClick: playsOnDoubleClick ? onPlay : nil
         ))
+        .onHover { hovering = $0 }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(title) — \(artist)")
+    }
+
+    /// Songs list: hover Play on the 44pt art when hovered or selected. Never lifts.
+    @ViewBuilder
+    private var hoverPlayOverlay: some View {
+        if showsHoverPlay {
+            HoverPlayButton(onPlay: onPlay)
+                .opacity((hovering || isSelected) ? 1 : 0)
+                .allowsHitTesting(hovering || isSelected)
+        }
+    }
+
+    @ViewBuilder
+    private var nowPlayingBadge: some View {
+        if let nowPlayingID {
+            NowPlayingMark(itemID: nowPlayingID)
+                .font(.caption)
+                .accessibilityHidden(true)
+        } else if isNowPlaying {
+            Image(systemName: "speaker.wave.2")
+                .font(.caption)
+                .foregroundStyle(BrandColors.textPrimary)
+                .accessibilityHidden(true)
+        }
     }
 }
 

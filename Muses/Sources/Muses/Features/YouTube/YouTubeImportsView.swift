@@ -193,6 +193,8 @@ struct YouTubeImportCard: View {
                             indexLabel: "\(item.order + 1)",
                             artwork: importItemArtwork(item),
                             isSelected: selectedItemID == item.id,
+                            nowPlayingID: item.track?.id,
+                            showsHoverPlay: true,
                             showsPlayButton: true,
                             onSelect: { selectedItemID = item.id },
                             onPlay: {

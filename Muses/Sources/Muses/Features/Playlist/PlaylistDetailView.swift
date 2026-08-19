@@ -141,6 +141,8 @@ struct PlaylistDetailView: View {
                 durationLabel: String(format: "%d:%02d", Int(track.durationSeconds) / 60, Int(track.durationSeconds) % 60),
                 artwork: ArtworkSource.localHash(track.localArtworkHash ?? track.album?.artworkHash),
                 isSelected: selectedItemID == item.id,
+                nowPlayingID: track.id,
+                showsHoverPlay: true,
                 showsPlayButton: true,
                 isLossless: track.isLossless,
                 onSelect: { selectedItemID = item.id },
