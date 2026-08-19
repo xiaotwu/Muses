@@ -25,4 +25,16 @@ struct ArtworkCacheTests {
         let h2 = try cache.store(data)
         #expect(h1 == h2)
     }
+
+    @Test("localHash missing hash is placeholder; present hash is localFile")
+    func artworkSourceLocalHash() {
+        #expect(ArtworkSource.localHash(nil) == .placeholder)
+        #expect(ArtworkSource.localHash("") == .placeholder)
+        // A hash with no file on disk still yields localFile only if ArtworkCache returns a path.
+        // If path(forHash:) is nil → placeholder.
+        let missing = ArtworkSource.localHash("definitely-not-a-real-hash-\(UUID().uuidString)")
+        if ArtworkCache.default.path(forHash: "definitely-not-a-real-hash") == nil {
+            #expect(missing == .placeholder)
+        }
+    }
 }

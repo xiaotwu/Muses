@@ -328,32 +328,15 @@ struct NowPlayingView: View {
 
     private func extractGradient() {
         let source = ArtworkSource.resolve(for: playback.state.track)
-        switch source {
-        case .cached(let img):
-            applyGradient(from: img)
-        case .remote(let url):
-            // 缩略图在后台解码 + 提色,避免阻塞主线程。
-            Task.detached(priority: .utility) {
-                guard let data = try? Data(contentsOf: url),
-                      let img = NSImage(data: data) else {
-                    await MainActor.run {
-                        gradient = [BrandColors.background, BrandColors.surface]
-                    }
-                    return
-                }
-                let colors = AlbumArtworkExtractor.dominantColors(img, count: 3)
-                await MainActor.run {
-                    gradient = colors.map { Color(nsColor: $0) } + [BrandColors.background]
-                }
-            }
-        case .placeholder:
-            gradient = [BrandColors.background, BrandColors.surface]
+        let expectedID = playback.state.track?.id
+        Task { @MainActor in
+            let img = await Task.detached(priority: .userInitiated) {
+                source.loadNSImage()
+            }.value
+            guard playback.state.track?.id == expectedID, let img else { return }
+            let colors = AlbumArtworkExtractor.dominantColors(img, count: 4)
+            gradient = colors.map { Color(nsColor: $0) } + [BrandColors.background]
         }
-    }
-
-    private func applyGradient(from img: NSImage) {
-        let colors = AlbumArtworkExtractor.dominantColors(img, count: 3)
-        gradient = colors.map { Color(nsColor: $0) } + [BrandColors.background]
     }
 
     private func format(_ s: Double) -> String {
