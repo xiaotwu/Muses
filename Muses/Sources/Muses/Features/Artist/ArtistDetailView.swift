@@ -10,8 +10,12 @@ struct ArtistDetailView: View {
     @Query(sort: \Playlist.name) private var allPlaylists: [Playlist]
     @Binding var selectedAlbum: Album?
     @State private var gradient: [Color] = [BrandColors.background, BrandColors.surface]
-    /// 批量已喜欢 id 集合,避免每行 `TrackRow` 单独 fetch。
+    @State private var gradientTask: Task<Void, Never>?
+    /// 批量已喜欢 id 集合,避免每行单独 fetch。
     @State private var likedSet: Set<UUID> = []
+    @State private var selectedTrackID: UUID?
+    @State private var playingAlbumID: UUID?
+    @State private var playingArtistID: UUID?
 
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: 16), count: 4)
@@ -31,6 +35,7 @@ struct ArtistDetailView: View {
             LinearGradient(colors: gradient, startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
             ScrollView {
+                let _ = library.pinRevision
                 VStack(alignment: .leading, spacing: 24) {
                     header
                     if !albums.isEmpty {
@@ -49,24 +54,20 @@ struct ArtistDetailView: View {
                 Button { selection = nil } label: { Image(systemName: "chevron.backward") }
             }
         }
-        .onAppear { extractGradient(); refreshLikedSet() }
+        .onAppear { extractGradient(); refreshLikedSet(); refreshPlayingCollection() }
+        .onDisappear { gradientTask?.cancel(); gradientTask = nil }
         .onChange(of: library.likedRevision) { _, _ in refreshLikedSet() }
+        .onChange(of: playback.state.track?.id) { _, _ in refreshPlayingCollection() }
     }
 
     private var header: some View {
         HStack(alignment: .top, spacing: 20) {
-            let art = artist.artworkHash.flatMap { ArtworkCache.default.path(forHash: $0) }
-                .map { NSImage(byReferencing: $0) }
-            ZStack {
-                Circle().fill(BrandColors.surface).frame(width: 180, height: 180)
-                if let img = art {
-                    Image(nsImage: img).resizable().scaledToFill()
-                        .frame(width: 180, height: 180).clipShape(Circle())
-                } else {
-                    Image(systemName: "person.2.fill").font(.system(size: 48))
-                        .foregroundStyle(BrandColors.textSecondary)
-                }
-            }
+            ArtworkView(
+                source: ArtworkSource.localHash(artist.artworkHash),
+                glyphSize: 48,
+                clipCircle: true,
+                targetSize: 180
+            )
             VStack(alignment: .leading, spacing: 8) {
                 Text(artist.name).font(.largeTitle).fontWeight(.bold)
                     .foregroundStyle(BrandColors.textPrimary)
@@ -91,8 +92,22 @@ struct ArtistDetailView: View {
             Text(tr("Albums", "专辑")).font(.headline).foregroundStyle(BrandColors.textPrimary)
             LazyVGrid(columns: columns, spacing: 16) {
                 ForEach(albums, id: \.id) { album in
-                    AlbumCard(album: album)
-                        .onTapGesture { selectedAlbum = album }
+                    AlbumObjectView(
+                        title: album.title,
+                        subtitle: album.albumArtist,
+                        artwork: ArtworkSource.localHash(album.artworkHash),
+                        size: MusicObjectMetrics.albumGrid,
+                        role: .browse,
+                        isNowPlaying: album.id == playingAlbumID,
+                        showsHoverPlay: true,
+                        onSelect: { selectedAlbum = album },
+                        onPlay: { playAlbum(album) }
+                    )
+                    .contextMenu {
+                        Button(library.isPinned(album) ? tr("Unpin", "取消钉选") : tr("Pin", "钉选")) {
+                            library.togglePin(album)
+                        }
+                    }
                 }
             }
         }
@@ -103,16 +118,33 @@ struct ArtistDetailView: View {
             Text(tr("Songs", "歌曲")).font(.headline).foregroundStyle(BrandColors.textPrimary)
             VStack(spacing: 0) {
                 ForEach(tracks, id: \.id) { track in
-                    TrackRow(track: track, showHeart: true, likedIDs: likedSet)
-                        .onTapGesture { play(track) }
-                        .trackContextMenu(snapshot: TrackSnapshot(from: track),
-                                          track: track,
-                                          playlists: allPlaylists,
-                                          onPlay: { play(track) })
-                        .padding(.vertical, 6)
+                    SongObjectView(
+                        title: track.title,
+                        artist: track.artist,
+                        durationLabel: songDuration(track.durationSeconds),
+                        artwork: ArtworkSource.localHash(track.localArtworkHash ?? track.album?.artworkHash),
+                        isSelected: selectedTrackID == track.id,
+                        nowPlayingID: track.id,
+                        showsHoverPlay: true,
+                        isLossless: track.isLossless,
+                        isLiked: likedSet.contains(track.id),
+                        onToggleLike: { library.toggleLike(track) },
+                        onSelect: { selectedTrackID = track.id; play(track) },
+                        onPlay: { play(track) }
+                    )
+                    .trackContextMenu(snapshot: TrackSnapshot(from: track),
+                                      track: track,
+                                      playlists: allPlaylists,
+                                      onPlay: { play(track) })
                 }
             }
         }
+    }
+
+    private func refreshPlayingCollection() {
+        let id = playback.state.track?.id
+        playingAlbumID = id.flatMap { library.track(by: $0)?.album?.id }
+        playingArtistID = id.flatMap { library.track(by: $0)?.artistRef?.id }
     }
 
     private func play(_ track: Track) {
@@ -130,12 +162,30 @@ struct ArtistDetailView: View {
         play(first)
     }
 
+    private func playAlbum(_ album: Album) {
+        let snaps = library.tracks(in: album).map { TrackSnapshot(from: $0) }
+        guard let first = snaps.first else { return }
+        playback.playTrack(first, context: snaps, from: .album)
+    }
+
+    private func songDuration(_ s: Double) -> String {
+        String(format: "%d:%02d", Int(s) / 60, Int(s) % 60)
+    }
+
     private func extractGradient() {
-        // 从第一张专辑封面提取渐变色
-        guard let album = albums.first,
-              let h = album.artworkHash, let p = ArtworkCache.default.path(forHash: h),
-              let img = NSImage(contentsOf: p) else { return }
-        let colors = AlbumArtworkExtractor.dominantColors(img, count: 3)
-        gradient = colors.map { Color(nsColor: $0) } + [BrandColors.background]
+        gradientTask?.cancel()
+        guard let album = albums.first else { return }
+        let source = ArtworkSource.localHash(album.artworkHash)
+        guard case .localFile = source else { return }
+        let expectedArtistID = artist.id
+        gradientTask = Task { @MainActor in
+            let img = await Task.detached(priority: .userInitiated) {
+                source.loadNSImage()
+            }.value
+            guard !Task.isCancelled, artist.id == expectedArtistID, let img else { return }
+            let colors = AlbumArtworkExtractor.dominantColors(img, count: 3)
+            guard !Task.isCancelled else { return }
+            gradient = colors.map { Color(nsColor: $0) } + [BrandColors.background]
+        }
     }
 }

@@ -255,9 +255,12 @@ struct PhaseP3EnrichmentTests {
                                     year: nil, trackCount: 1, artworkURL: "https://cover.art/x",
                                     artworkHash: nil, canonicalIDs: .empty,
                                     confidence: 1.0, localAlbumID: nil, trackSnapshots: [])
-        if case .remote(let url) = ArtworkSource.resolve(for: withURL) {
+        switch ArtworkSource.resolve(for: withURL) {
+        case .remote(let url):
             #expect(url.absoluteString == "https://cover.art/x")
-        } else { Issue.record("有 artworkURL 应解析为 .remote") }
+        case .localFile, .placeholder:
+            Issue.record("有 artworkURL 应解析为 .remote")
+        }
 
         // 派生无封面 → 回退首支 YT 缩略图
         let derivedNoHash = BrowsableAlbum(id: "y", origin: .youTubeDerived, title: "T",
@@ -269,16 +272,22 @@ struct PhaseP3EnrichmentTests {
                                                filePath: nil, youTubeId: "vid1", artworkHash: nil,
                                                artworkUrl: nil, sampleRate: nil, bitDepth: nil,
                                                codec: nil, isLossless: false)])
-        if case .remote(let url) = ArtworkSource.resolve(for: derivedNoHash) {
+        switch ArtworkSource.resolve(for: derivedNoHash) {
+        case .remote(let url):
             #expect(url.absoluteString.contains("ytimg.com/vi/vid1"))
-        } else { Issue.record("派生无封面应回退 YT 缩略图 .remote") }
+        case .localFile, .placeholder:
+            Issue.record("派生无封面应回退 YT 缩略图 .remote")
+        }
 
         // 本地无任何来源 → .placeholder
         let empty = BrowsableAlbum(id: "z", origin: .local, title: "T", artistName: "A",
                                    year: nil, trackCount: 0, artworkURL: nil, artworkHash: nil,
                                    canonicalIDs: .empty, confidence: 1.0, localAlbumID: nil,
                                    trackSnapshots: [])
-        if case .placeholder = ArtworkSource.resolve(for: empty) { /* ok */ } else {
+        switch ArtworkSource.resolve(for: empty) {
+        case .placeholder:
+            break
+        case .localFile, .remote:
             Issue.record("无任何封面来源应为 .placeholder")
         }
 
@@ -287,7 +296,10 @@ struct PhaseP3EnrichmentTests {
                                           artistName: "A", year: nil, trackCount: 0,
                                           artworkURL: nil, artworkHash: nil, canonicalIDs: .empty,
                                           confidence: 0.5, localAlbumID: nil, trackSnapshots: [])
-        if case .placeholder = ArtworkSource.resolve(for: derivedEmpty) { /* ok */ } else {
+        switch ArtworkSource.resolve(for: derivedEmpty) {
+        case .placeholder:
+            break
+        case .localFile, .remote:
             Issue.record("派生无曲目也应为 .placeholder")
         }
     }

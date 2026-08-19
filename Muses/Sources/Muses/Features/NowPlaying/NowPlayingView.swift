@@ -1,20 +1,20 @@
 import SwiftUI
-import AppKit
 
-/// 全屏 Now Playing 视图(Apple Music 风格双栏):
-/// 左栏 = 封面 + 元信息 + 传输控件 + 进度条 + 频谱;右栏 = 歌词 + 即将播放。
-/// 由 RootView 通过 `.overlay` 呈现(`showNowPlaying`)。窄窗(<960pt)回退为单栏。
+/// 全屏 Now Playing chrome(Apple Music 风格双栏):
+/// 左栏 = 封面槽或 in-scroll 封面 + 元信息 + 传输 + 进度 + 频谱;右栏 = 歌词 + 即将播放。
+/// 宽路径封面由 RootView live-cover host 绘制;本视图不铺渐变。窄窗(<960pt)或 skip-morph 回退为单栏。
 struct NowPlayingView: View {
     @Binding var isPresented: Bool
+    @Binding var showLyrics: Bool
+    /// When true, the RootView live-cover host owns Cover/Vinyl; this view is chrome only.
+    var coverHostedExternally: Bool = false
     @Environment(PlaybackService.self) private var playback
 
     @AppStorage(PrefKey.nowPlayingMode) private var modeRaw: String = NowPlayingMode.cover.rawValue
     /// Phase 22 §10.8:歌词呈现模式 inline/lyricsOnly/minimal。
     @AppStorage(PrefKey.nowPlayingLyricsMode) private var lyricsModeRaw: String = NowPlayingLyricsMode.inline.rawValue
-    @State private var gradient: [Color] = [BrandColors.background, BrandColors.surface]
     @State private var seeking = false
     @State private var seekValue: Double = 0
-    @State private var showLyrics = true
 
     var onShowQueue: () -> Void = {}
 
@@ -24,23 +24,17 @@ struct NowPlayingView: View {
     private var lyricsFullscreen: Bool { showLyrics && lyricsMode != .inline }
 
     var body: some View {
-        ZStack {
-            LinearGradient(colors: gradient, startPoint: .top, endPoint: .bottom)
-                .ignoresSafeArea()
-                .overlay(BrandColors.scrim.ignoresSafeArea())
-
-            GeometryReader { geo in
-                let twoColumn = geo.size.width >= 960
-                VStack(spacing: 0) {
-                    topBar
-                        .padding(.horizontal, 48).padding(.top, 12)
-                    if twoColumn {
-                        twoColumnLayout
-                            .padding(.horizontal, 48).padding(.bottom, 32).padding(.top, 12)
-                    } else {
-                        singleColumnLayout
-                            .padding(.horizontal, 24).padding(.bottom, 32).padding(.top, 12)
-                    }
+        GeometryReader { geo in
+            let twoColumn = geo.size.width >= 960
+            VStack(spacing: 0) {
+                topBar
+                    .padding(.horizontal, 48).padding(.top, 12)
+                if twoColumn {
+                    twoColumnLayout
+                        .padding(.horizontal, 48).padding(.bottom, 32).padding(.top, 12)
+                } else {
+                    singleColumnLayout
+                        .padding(.horizontal, 24).padding(.bottom, 32).padding(.top, 12)
                 }
             }
         }
@@ -48,10 +42,6 @@ struct NowPlayingView: View {
         .onKeyPress(.space) {
             playback.toggle()
             return .handled
-        }
-        .onAppear { extractGradient() }
-        .onChange(of: playback.state.track?.id) {
-            extractGradient()
         }
     }
 
@@ -174,12 +164,18 @@ struct NowPlayingView: View {
 
     @ViewBuilder
     private var centerContent: some View {
-        let source = ArtworkSource.resolve(for: playback.state.track)
-        switch mode {
-        case .cover:
-            CoverArtModeView(source: source)
-        case .vinyl:
-            VinylModeView(source: source)
+        if coverHostedExternally {
+            Color.clear
+                .frame(width: 480, height: 480)
+                .anchorPreference(key: CoverSlotPreferenceKey.self, value: .bounds) { $0 }
+        } else {
+            let source = ArtworkSource.resolve(for: playback.state.track)
+            switch mode {
+            case .cover:
+                CoverArtModeView(source: source)
+            case .vinyl:
+                VinylModeView(source: source)
+            }
         }
     }
 
@@ -322,38 +318,6 @@ struct NowPlayingView: View {
         case .all: tr("Repeat: All", "循环:全部")
         case .one: tr("Repeat: One", "循环:单曲")
         }
-    }
-
-    // MARK: - 渐变提取(本地 + YouTube 缩略图)
-
-    private func extractGradient() {
-        let source = ArtworkSource.resolve(for: playback.state.track)
-        switch source {
-        case .cached(let img):
-            applyGradient(from: img)
-        case .remote(let url):
-            // 缩略图在后台解码 + 提色,避免阻塞主线程。
-            Task.detached(priority: .utility) {
-                guard let data = try? Data(contentsOf: url),
-                      let img = NSImage(data: data) else {
-                    await MainActor.run {
-                        gradient = [BrandColors.background, BrandColors.surface]
-                    }
-                    return
-                }
-                let colors = AlbumArtworkExtractor.dominantColors(img, count: 3)
-                await MainActor.run {
-                    gradient = colors.map { Color(nsColor: $0) } + [BrandColors.background]
-                }
-            }
-        case .placeholder:
-            gradient = [BrandColors.background, BrandColors.surface]
-        }
-    }
-
-    private func applyGradient(from img: NSImage) {
-        let colors = AlbumArtworkExtractor.dominantColors(img, count: 3)
-        gradient = colors.map { Color(nsColor: $0) } + [BrandColors.background]
     }
 
     private func format(_ s: Double) -> String {

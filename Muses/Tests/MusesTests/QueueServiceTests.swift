@@ -77,4 +77,26 @@ struct QueueServiceTests {
         let p = q.previous()
         #expect(p?.track.title == "a")
     }
+
+    @Test("recently-played context keeps full list and tapped index")
+    func recentlyPlayedFullContext() {
+        let q = QueueService()
+        let ctx = [snap("a"), snap("b"), snap("c")]
+        q.play(ctx[1], context: ctx, from: .recently)
+        #expect(q.items.count == 3)
+        #expect(q.currentIndex == 1)
+        #expect(q.current()?.track.title == "b")
+        let n = q.next()
+        #expect(n?.track.title == "c")
+    }
+
+    @Test("playlist context of three snaps positions last tap at index 2")
+    func playlistFullContext() {
+        let q = QueueService()
+        let ctx = [snap("a"), snap("b"), snap("c")]
+        q.play(ctx[2], context: ctx, from: .playlist)
+        #expect(q.items.count == 3)
+        #expect(q.currentIndex == 2)
+        #expect(q.current()?.track.title == "c")
+    }
 }

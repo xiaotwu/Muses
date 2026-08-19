@@ -17,7 +17,7 @@ struct MiniPlayerView: View {
         ThemeApplier {
             VStack(spacing: 14) {
                 ArtworkView(source: ArtworkSource.resolve(for: playback.state.track),
-                             cornerRadius: 10, glyphSize: 48)
+                             cornerRadius: 10, glyphSize: 48, targetSize: 180)
                     .frame(width: 180, height: 180)
 
                 Text(title)
