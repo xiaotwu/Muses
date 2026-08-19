@@ -1,5 +1,6 @@
 .build/
 .swiftpm/
+.worktrees/
 .DS_Store
 .superpowers/
 Muses/Sources/Muses/Resources/yt-dlp
