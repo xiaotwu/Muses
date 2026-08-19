@@ -113,14 +113,14 @@ struct ArtworkView: View {
     }
 }
 
-/// 本地封面:首帧读 `ImageLoader` 内存命中;未命中走有界解码,消失时取消,URL 变化丢弃结果。
+/// 本地封面:首帧读 `ImageLoader` 内存命中;未命中走有界解码。
+/// 不取消共享 in-flight decode;视图消失或 URL 变化时丢弃结果(同 `CachedAsyncImage`)。
 private struct LocalArtworkImage: View {
     let url: URL
     let targetSize: CGFloat
 
     @State private var image: NSImage?
     @State private var loadedIdentity: String = ""
-    @State private var loadTask: Task<NSImage?, Never>?
 
     private var identity: String {
         "\(url.absoluteString)#\(Int(targetSize.rounded()))"
@@ -134,10 +134,6 @@ private struct LocalArtworkImage: View {
         }
         .task(id: identity) {
             await loadIfNeeded()
-        }
-        .onDisappear {
-            loadTask?.cancel()
-            loadTask = nil
         }
     }
 
@@ -157,9 +153,7 @@ private struct LocalArtworkImage: View {
         }
         let expected = identity
         let task = ImageLoader.shared.loadLocal(url: url, targetSize: targetSize)
-        loadTask = task
         let img = await task.value
-        loadTask = nil
         guard expected == identity, !Task.isCancelled else { return }
         image = img
         loadedIdentity = expected

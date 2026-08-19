@@ -181,7 +181,6 @@ struct SongObjectView: View {
         if let nowPlayingID {
             NowPlayingMark(itemID: nowPlayingID)
                 .font(.caption)
-                .accessibilityHidden(true)
         } else if isNowPlaying {
             Image(systemName: "speaker.wave.2")
                 .font(.caption)

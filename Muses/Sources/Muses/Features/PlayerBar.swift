@@ -59,15 +59,21 @@ struct PlayerBar: View {
         if let trackID = playback.state.track?.id,
            let ns = artworkWorldNamespace,
            !skipArtworkMorph {
-            if showNowPlaying {
-                Color.clear.frame(width: 52, height: 52)
-            } else {
-                art.matchedGeometryEffect(
-                    id: ArtworkContinuityID.liveCover(trackID),
-                    in: ns,
-                    isSource: !showNowPlaying
-                )
+            // Keep a 52pt token with the same liveCover id while NP is open so
+            // the pair exists for morph. Hide pixels; do not drop the effect.
+            Group {
+                if showNowPlaying {
+                    Color.clear
+                } else {
+                    art
+                }
             }
+            .frame(width: 52, height: 52)
+            .matchedGeometryEffect(
+                id: ArtworkContinuityID.liveCover(trackID),
+                in: ns,
+                isSource: !showNowPlaying
+            )
         } else {
             art
         }

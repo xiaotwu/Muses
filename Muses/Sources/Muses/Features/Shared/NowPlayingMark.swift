@@ -11,6 +11,7 @@ struct NowPlayingMark: View {
         if playback.state.track?.id == itemID {
             Image(systemName: playback.state.isPlaying ? "speaker.wave.2" : "play.fill")
                 .foregroundStyle(BrandColors.textPrimary)
+                .accessibilityLabel(tr("Now Playing", "正在播放"))
         }
     }
 }
