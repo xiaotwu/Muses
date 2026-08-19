@@ -184,7 +184,7 @@ struct YouTubeImportCard: View {
                 Divider().background(BrandColors.textSecondary.opacity(0.1))
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(items, id: \.id) { item in
-                        YouTubeImportItemRow(item: item)
+                        YouTubeImportItemRow(item: item, context: visibleSnaps)
                     }
 
                     // 本地附加区
@@ -261,10 +261,13 @@ struct YouTubeImportCard: View {
                 .font(.title2).foregroundStyle(BrandColors.textSecondary.opacity(0.5)))
     }
 
+    private var visibleSnaps: [TrackSnapshot] {
+        items.compactMap { $0.track }.map { TrackSnapshot(from: $0) }
+    }
+
     private func playAll() {
-        let snaps = items.compactMap { $0.track }.map { TrackSnapshot(from: $0) }
-        guard let first = snaps.first else { return }
-        playback.playTrack(first, context: snaps, from: .import)
+        guard let first = visibleSnaps.first else { return }
+        playback.playTrack(first, context: visibleSnaps, from: .import)
     }
 
     private func relativeDate(_ d: Date) -> String {
@@ -277,6 +280,7 @@ struct YouTubeImportCard: View {
 /// YouTube 导入条目行:序号 + 标题 + 艺术家 + 时长 + 操作。
 struct YouTubeImportItemRow: View {
     let item: YouTubeImportItem
+    let context: [TrackSnapshot]
     @Environment(PlaybackService.self) private var playback
     @Environment(InboxService.self) private var inbox
 
@@ -295,7 +299,7 @@ struct YouTubeImportItemRow: View {
             Button {
                 if let t = item.track {
                     let snap = TrackSnapshot(from: t)
-                    playback.playTrack(snap, context: [snap], from: .import)
+                    playback.playTrack(snap, context: context, from: .import)
                 }
             } label: { Image(systemName: "play.fill") }
             .buttonStyle(.plain).foregroundStyle(BrandColors.magenta)

@@ -80,7 +80,7 @@ struct PlaylistDetailView: View {
             } else {
                 List {
                     ForEach(sortedItems, id: \.id) { item in
-                        PlaylistTrackRow(item: item, onRemove: { removeItem(item) })
+                        PlaylistTrackRow(item: item, onRemove: { removeItem(item) }, onPlay: { playFromList(item) })
                             .trackContextMenu(snapshot: item.track.map { TrackSnapshot(from: $0) },
                                               track: item.track,
                                               playlists: allPlaylists,
@@ -155,15 +155,12 @@ struct PlaylistDetailView: View {
 struct PlaylistTrackRow: View {
     let item: PlaylistItem
     let onRemove: () -> Void
-    @Environment(PlaybackService.self) private var playback
+    var onPlay: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
             if let track = item.track {
-                Button {
-                    let snap = TrackSnapshot(from: track)
-                    playback.playTrack(snap, context: [snap], from: .playlist)
-                } label: {
+                Button(action: onPlay) {
                     Image(systemName: "play.fill")
                         .foregroundStyle(BrandColors.magenta)
                 }
