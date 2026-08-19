@@ -53,9 +53,7 @@ struct RootView: View {
                     case .new:
                         NewView(selectedAlbum: $selectedAlbum)
                     case .search:
-                        // Search 触发 GlobalSearchView overlay
-                        EmptyView()
-                            .onAppear { showSearch = true; section = .home }
+                        HomeView(selection: $section, selectedAlbum: $selectedAlbum)
                     case .pins:
                         PinsView(selection: $section, selectedAlbum: $selectedAlbum,
                                  selectedPlaylist: $selectedPlaylist)

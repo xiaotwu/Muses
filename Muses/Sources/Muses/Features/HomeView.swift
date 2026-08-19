@@ -27,6 +27,7 @@ struct HomeView: View {
     /// 在途任务句柄(用于 disappear 取消,spec §23)。
     @State private var trendingTask: Task<Void, Never>?
     @State private var gradientTask: Task<Void, Never>?
+    @State private var retryingIDs: Set<String> = []
 
     /// Hero 专辑:优先选最近播放的,否则最近添加的,否则第一个。
     /// 现在读取缓存的 `heroAlbum`,由 `refreshLibrarySnapshot()` 维护。
@@ -120,6 +121,9 @@ struct HomeView: View {
         .onChange(of: library.pinRevision) { _, _ in refreshLibrarySnapshot() }
         .onChange(of: library.likedRevision) { _, _ in refreshLibrarySnapshot() }
         .onChange(of: library.playRevision) { _, _ in refreshRecentlyPlayed() }
+        .onChange(of: homeDiscovery.isRefreshing) { _, refreshing in
+            if !refreshing { retryingIDs.removeAll() }
+        }
     }
 
     /// 一次性刷新资料库快照(专辑 / 最近添加 / 钉选 / Hero / 最近播放),
@@ -243,8 +247,12 @@ struct HomeView: View {
                     ForEach(0..<5, id: \.self) { _ in SkeletonCard(size: 160, aspect: .wide169) }
                 }
             } else if let err = trendingError {
-                Text(err).font(.caption).foregroundStyle(BrandColors.textSecondary)
-                    .frame(maxWidth: .infinity).padding(.vertical, 20)
+                VStack(spacing: 8) {
+                    Text(err).font(.caption).foregroundStyle(BrandColors.textSecondary)
+                    Button(tr("Retry", "重试")) { loadTrending() }
+                        .buttonStyle(.plain)
+                }
+                .frame(maxWidth: .infinity).padding(.vertical, 20)
             } else if !ytTrending.isEmpty {
                 ResponsiveCarousel(cardSize: 160) {
                     ForEach(ytTrending.prefix(10), id: \.id) { entry in
@@ -286,24 +294,37 @@ struct HomeView: View {
 
     @ViewBuilder
     private func discoverySection(_ section: HomeSection) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: section.title, subtitle: section.subtitle)
+        // 已加载但无结果:整段(含 SectionHeader)静默折叠。
+        if (section.status == .loaded || section.status == .idle) && section.items.isEmpty {
+            EmptyView()
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                SectionHeader(title: section.title, subtitle: section.subtitle)
 
-            switch section.status {
-            case .loading:
-                // 无缓存冷启:骨架占位(不使用居中 spinner,§15)。
-                ResponsiveCarousel(cardSize: 160) {
-                    ForEach(0..<5, id: \.self) { _ in SkeletonCard(size: 160, aspect: .wide169) }
-                }
-            case .failed(let msg):
-                Text(msg ?? tr("Couldn’t load this section", "无法加载该区段"))
-                    .font(.caption).foregroundStyle(BrandColors.textSecondary)
-                    .frame(maxWidth: .infinity).padding(.vertical, 20)
-            case .loaded, .idle:
-                if section.items.isEmpty {
-                    // 已加载但无结果:不显示空占位,静默折叠。
-                    EmptyView()
-                } else {
+                switch section.status {
+                case .loading:
+                    // 无缓存冷启:骨架占位(不使用居中 spinner,§15)。
+                    ResponsiveCarousel(cardSize: 160) {
+                        ForEach(0..<5, id: \.self) { _ in SkeletonCard(size: 160, aspect: .wide169) }
+                    }
+                case .failed(let msg):
+                    if homeDiscovery.isRefreshing && retryingIDs.contains(section.id) {
+                        ResponsiveCarousel(cardSize: 160) {
+                            ForEach(0..<5, id: \.self) { _ in SkeletonCard(size: 160, aspect: .wide169) }
+                        }
+                    } else {
+                        VStack(spacing: 8) {
+                            Text(msg ?? tr("Couldn’t load this section", "无法加载该区段"))
+                                .font(.caption).foregroundStyle(BrandColors.textSecondary)
+                            Button(tr("Retry", "重试")) {
+                                retryingIDs.insert(section.id)
+                                homeDiscovery.reload()
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .frame(maxWidth: .infinity).padding(.vertical, 20)
+                    }
+                case .loaded, .idle:
                     ResponsiveCarousel(cardSize: 160) {
                         ForEach(section.items) { item in
                             if case .youTube(let card) = item {

@@ -25,6 +25,7 @@ struct QueueDrawerView: View {
                          alignment: .leading)
                 .transition(.move(edge: .trailing))
         }
+        .onExitCommand { isPresented = false }
         .animation(.easeInOut(duration: 0.25), value: isPresented)
     }
 

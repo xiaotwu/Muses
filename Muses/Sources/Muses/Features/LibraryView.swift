@@ -25,7 +25,7 @@ struct LibraryView: View {
             let derivedAlbums = projection.albums.filter { !$0.isLocal }
             if albums.isEmpty && derivedAlbums.isEmpty && progress.total == 0 {
                 EmptyStateView(icon: "square.stack", title: tr("Library is empty", "资料库为空"),
-                               subtitle: tr("Open Search (⌘K) and tap + to import a music folder, or drag files into the window", "打开搜索(⌘K)点击 + 导入音乐文件夹,或拖拽文件到窗口"))
+                               subtitle: tr("Open Search (⌘F) and tap + to import a music folder, or drag files into the window", "打开搜索(⌘F)点击 + 导入音乐文件夹,或拖拽文件到窗口"))
             } else {
                 LazyVGrid(columns: columns, spacing: 20) {
                     ForEach(albums, id: \.id) { album in
@@ -126,7 +126,7 @@ struct SongsListView: View {
                 EmptyStateView(
                     icon: "music.note",
                     title: searchText.isEmpty ? tr("No songs in library", "资料库中没有歌曲") : tr("No search results", "无搜索结果"),
-                    subtitle: searchText.isEmpty ? tr("Open Search (⌘K) and tap + to import a music folder", "打开搜索(⌘K)点击 + 导入音乐文件夹") : nil)
+                    subtitle: searchText.isEmpty ? tr("Open Search (⌘F) and tap + to import a music folder", "打开搜索(⌘F)点击 + 导入音乐文件夹") : nil)
             } else {
                 List(tracks, id: \.id) { track in
                     SongRow(track: track,
