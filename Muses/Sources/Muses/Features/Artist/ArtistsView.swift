@@ -27,12 +27,18 @@ struct ArtistsView: View {
             } else {
                 LazyVGrid(columns: columns, spacing: 20) {
                     ForEach(artists, id: \.id) { artist in
-                        ArtistCard(artist: artist)
-                            .onTapGesture { selectedArtist = artist }
-                            .contextMenu {
-                                Button(tr("Play", "播放")) { playArtist(artist, shuffle: false) }
-                                Button(tr("Shuffle", "随机播放")) { playArtist(artist, shuffle: true) }
-                            }
+                        ArtistObjectView(
+                            name: artist.name,
+                            detail: "\(artist.albums.count) \(tr("albums", "张专辑"))",
+                            artwork: ArtworkSource.localHash(artist.artworkHash),
+                            size: MusicObjectMetrics.artistGrid,
+                            onSelect: { selectedArtist = artist },
+                            onPlay: { playArtist(artist, shuffle: false) }
+                        )
+                        .contextMenu {
+                            Button(tr("Play", "播放")) { playArtist(artist, shuffle: false) }
+                            Button(tr("Shuffle", "随机播放")) { playArtist(artist, shuffle: true) }
+                        }
                     }
                 }
                 .padding(20)
@@ -47,8 +53,11 @@ struct ArtistsView: View {
                     .padding(.horizontal, 20)
                     LazyVGrid(columns: columns, spacing: 20) {
                         ForEach(derivedArtists) { browsable in
-                            BrowsableArtistCard(browsable: browsable)
-                                .onTapGesture { selectedBrowsableArtist = browsable }
+                            BrowsableArtistCard(
+                                browsable: browsable,
+                                onSelect: { selectedBrowsableArtist = browsable },
+                                onPlay: { playBrowsable(browsable) }
+                            )
                         }
                     }
                     .padding(20)
@@ -88,26 +97,15 @@ struct ArtistsView: View {
         playback.playTrack(snaps[0], context: snaps, from: .artist)
     }
 
+    private func playBrowsable(_ browsable: BrowsableArtist) {
+        guard let first = browsable.trackSnapshots.first else { return }
+        playback.playTrack(first, context: browsable.trackSnapshots, from: .artist)
+    }
+
     private func loadProjection() async {
         await enrichment.refreshCandidates()
         projection = await enrichment.projection()
         await enrichment.enrichDerived()
         projection = await enrichment.projection()
-    }
-}
-
-struct ArtistCard: View {
-    let artist: Artist
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ArtworkView(
-                source: ArtworkSource.localHash(artist.artworkHash),
-                glyphSize: 32,
-                clipCircle: true,
-                targetSize: 200
-            )
-            Text(artist.name).font(.subheadline).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
-            Text("\(artist.albums.count) \(tr("albums", "张专辑"))").font(.caption).foregroundStyle(BrandColors.textSecondary)
-        }
     }
 }

@@ -11,8 +11,9 @@ struct ArtistDetailView: View {
     @Binding var selectedAlbum: Album?
     @State private var gradient: [Color] = [BrandColors.background, BrandColors.surface]
     @State private var gradientTask: Task<Void, Never>?
-    /// 批量已喜欢 id 集合,避免每行 `TrackRow` 单独 fetch。
+    /// 批量已喜欢 id 集合,避免每行单独 fetch。
     @State private var likedSet: Set<UUID> = []
+    @State private var selectedTrackID: UUID?
 
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: 16), count: 4)
@@ -32,6 +33,7 @@ struct ArtistDetailView: View {
             LinearGradient(colors: gradient, startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
             ScrollView {
+                let _ = library.pinRevision
                 VStack(alignment: .leading, spacing: 24) {
                     header
                     if !albums.isEmpty {
@@ -87,8 +89,20 @@ struct ArtistDetailView: View {
             Text(tr("Albums", "专辑")).font(.headline).foregroundStyle(BrandColors.textPrimary)
             LazyVGrid(columns: columns, spacing: 16) {
                 ForEach(albums, id: \.id) { album in
-                    AlbumCard(album: album)
-                        .onTapGesture { selectedAlbum = album }
+                    AlbumObjectView(
+                        title: album.title,
+                        subtitle: album.albumArtist,
+                        artwork: ArtworkSource.localHash(album.artworkHash),
+                        size: MusicObjectMetrics.albumGrid,
+                        role: .browse,
+                        onSelect: { selectedAlbum = album },
+                        onPlay: { playAlbum(album) }
+                    )
+                    .contextMenu {
+                        Button(library.isPinned(album) ? tr("Unpin", "取消钉选") : tr("Pin", "钉选")) {
+                            library.togglePin(album)
+                        }
+                    }
                 }
             }
         }
@@ -99,13 +113,22 @@ struct ArtistDetailView: View {
             Text(tr("Songs", "歌曲")).font(.headline).foregroundStyle(BrandColors.textPrimary)
             VStack(spacing: 0) {
                 ForEach(tracks, id: \.id) { track in
-                    TrackRow(track: track, showHeart: true, likedIDs: likedSet)
-                        .onTapGesture { play(track) }
-                        .trackContextMenu(snapshot: TrackSnapshot(from: track),
-                                          track: track,
-                                          playlists: allPlaylists,
-                                          onPlay: { play(track) })
-                        .padding(.vertical, 6)
+                    SongObjectView(
+                        title: track.title,
+                        artist: track.artist,
+                        durationLabel: songDuration(track.durationSeconds),
+                        artwork: ArtworkSource.localHash(track.localArtworkHash ?? track.album?.artworkHash),
+                        isSelected: selectedTrackID == track.id,
+                        isLossless: track.isLossless,
+                        isLiked: likedSet.contains(track.id),
+                        onToggleLike: { library.toggleLike(track) },
+                        onSelect: { selectedTrackID = track.id; play(track) },
+                        onPlay: { play(track) }
+                    )
+                    .trackContextMenu(snapshot: TrackSnapshot(from: track),
+                                      track: track,
+                                      playlists: allPlaylists,
+                                      onPlay: { play(track) })
                 }
             }
         }
@@ -124,6 +147,16 @@ struct ArtistDetailView: View {
     private func playAll() {
         guard let first = tracks.first else { return }
         play(first)
+    }
+
+    private func playAlbum(_ album: Album) {
+        let snaps = library.tracks(in: album).map { TrackSnapshot(from: $0) }
+        guard let first = snaps.first else { return }
+        playback.playTrack(first, context: snaps, from: .album)
+    }
+
+    private func songDuration(_ s: Double) -> String {
+        String(format: "%d:%02d", Int(s) / 60, Int(s) % 60)
     }
 
     private func extractGradient() {

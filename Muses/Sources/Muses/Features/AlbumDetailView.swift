@@ -11,8 +11,9 @@ struct AlbumDetailView: View {
     @Query(sort: \Playlist.name) private var allPlaylists: [Playlist]
     @State private var gradient: [Color] = [BrandColors.background, BrandColors.surface]
     @State private var gradientTask: Task<Void, Never>?
-    /// 批量已喜欢 id 集合,避免每行 `TrackRow` 单独 fetch。
+    /// 批量已喜欢 id 集合,避免每行单独 fetch。
     @State private var likedSet: Set<UUID> = []
+    @State private var selectedTrackID: UUID?
     @State private var showAlbumNotes = false
 
     var body: some View {
@@ -122,13 +123,23 @@ struct AlbumDetailView: View {
     private var trackList: some View {
         VStack(spacing: 0) {
             ForEach(sortedTracks(), id: \.id) { track in
-                TrackRow(track: track, likedIDs: likedSet)
-                    .onTapGesture { play(track) }
-                    .trackContextMenu(snapshot: TrackSnapshot(from: track),
-                                      track: track,
-                                      playlists: allPlaylists,
-                                      onPlay: { play(track) })
-                    .padding(.vertical, 6)
+                SongObjectView(
+                    title: track.title,
+                    artist: track.artist,
+                    durationLabel: formatDuration(track.durationSeconds),
+                    indexLabel: "\(track.trackNo ?? 0)",
+                    artwork: ArtworkSource.localHash(track.localArtworkHash ?? track.album?.artworkHash),
+                    isSelected: selectedTrackID == track.id,
+                    isLossless: track.isLossless,
+                    isLiked: likedSet.contains(track.id),
+                    onToggleLike: { library.toggleLike(track) },
+                    onSelect: { selectedTrackID = track.id; play(track) },
+                    onPlay: { play(track) }
+                )
+                .trackContextMenu(snapshot: TrackSnapshot(from: track),
+                                  track: track,
+                                  playlists: allPlaylists,
+                                  onPlay: { play(track) })
             }
         }
     }
@@ -173,45 +184,5 @@ struct AlbumDetailView: View {
             return String(format: "%d:%02d:%02d", mins / 60, mins % 60, secs)
         }
         return String(format: "%d:%02d", mins, secs)
-    }
-}
-
-struct TrackRow: View {
-    let track: Track
-    var showHeart: Bool = true
-    /// 父视图批量查询的已喜欢 id 集合;为 nil 时回退到单次 `isLiked(id:)`。
-    var likedIDs: Set<UUID>? = nil
-    @Environment(LibraryService.self) private var library
-    var body: some View {
-        let _ = library.likedRevision
-        let _ = library.metadataRevision
-        let liked = likedIDs?.contains(track.id) ?? library.isLiked(id: track.id)
-        HStack {
-            Text("\(track.trackNo ?? 0)").foregroundStyle(BrandColors.textSecondary)
-                .frame(width: 28, alignment: .trailing)
-            VStack(alignment: .leading) {
-                Text(track.title).foregroundStyle(BrandColors.textPrimary)
-                Text(track.artist).font(.caption).foregroundStyle(BrandColors.textSecondary)
-            }
-            Spacer()
-            if track.isLossless {
-                Text("Hi-Res").font(.caption2).padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(BrandColors.green.opacity(0.2))
-                    .foregroundStyle(BrandColors.green).cornerRadius(4)
-            }
-            if showHeart {
-                Button { library.toggleLike(track) } label: {
-                    Image(systemName: liked ? "heart.fill" : "heart")
-                        .font(.caption)
-                }
-                .foregroundStyle(liked ? BrandColors.magenta : BrandColors.textSecondary)
-                .buttonStyle(.plain)
-                .help(liked ? tr("Unlike", "取消收藏") : tr("Like", "收藏"))
-            }
-            Text(formatDuration(track.durationSeconds)).foregroundStyle(BrandColors.textSecondary)
-        }
-    }
-    private func formatDuration(_ s: Double) -> String {
-        String(format: "%d:%02d", Int(s) / 60, Int(s) % 60)
     }
 }

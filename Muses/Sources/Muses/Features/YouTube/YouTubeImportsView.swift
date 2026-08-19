@@ -91,9 +91,11 @@ struct YouTubeImportCard: View {
     let imp: YouTubeImport
     @Environment(YouTubeImportService.self) private var importService
     @Environment(PlaybackService.self) private var playback
+    @Environment(InboxService.self) private var inbox
     @State private var expanded = false
     @State private var syncing = false
     @State private var showAddLocalSheet = false
+    @State private var selectedItemID: UUID?
 
     private var items: [YouTubeImportItem] {
         (imp.items ?? []).sorted { $0.order < $1.order }
@@ -184,7 +186,40 @@ struct YouTubeImportCard: View {
                 Divider().background(BrandColors.textSecondary.opacity(0.1))
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(items, id: \.id) { item in
-                        YouTubeImportItemRow(item: item, context: visibleSnaps)
+                        SongObjectView(
+                            title: item.title,
+                            artist: item.artist,
+                            durationLabel: formatImportDuration(item.durationMs),
+                            indexLabel: "\(item.order + 1)",
+                            artwork: importItemArtwork(item),
+                            isSelected: selectedItemID == item.id,
+                            showsPlayButton: true,
+                            onSelect: { selectedItemID = item.id },
+                            onPlay: {
+                                if let t = item.track {
+                                    let snap = TrackSnapshot(from: t)
+                                    playback.playTrack(snap, context: visibleSnaps, from: .import)
+                                }
+                            },
+                            onQueue: {
+                                if let t = item.track {
+                                    playback.queue.addToQueue(TrackSnapshot(from: t))
+                                }
+                            },
+                            onInbox: {
+                                if let t = item.track {
+                                    inbox.add(TrackSnapshot(from: t), source: .youTubeImport)
+                                }
+                            }
+                        )
+                        .trackContextMenu(snapshot: item.track.map { TrackSnapshot(from: $0) },
+                                          track: item.track,
+                                          onPlay: {
+                                              if let t = item.track {
+                                                  let snap = TrackSnapshot(from: t)
+                                                  playback.playTrack(snap, context: visibleSnaps, from: .import)
+                                              }
+                                          })
                     }
 
                     // 本地附加区
@@ -275,54 +310,20 @@ struct YouTubeImportCard: View {
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: d, relativeTo: .now)
     }
-}
 
-/// YouTube 导入条目行:序号 + 标题 + 艺术家 + 时长 + 操作。
-struct YouTubeImportItemRow: View {
-    let item: YouTubeImportItem
-    let context: [TrackSnapshot]
-    @Environment(PlaybackService.self) private var playback
-    @Environment(InboxService.self) private var inbox
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Text("\(item.order + 1)").font(.caption).foregroundStyle(BrandColors.textSecondary)
-                .frame(width: 24, alignment: .trailing)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.title).font(.callout).foregroundStyle(BrandColors.textPrimary)
-                    .lineLimit(1)
-                Text(item.artist).font(.caption2).foregroundStyle(BrandColors.textSecondary)
-                    .lineLimit(1)
-            }
-            Spacer()
-            Text(format(item.durationMs)).font(.caption).foregroundStyle(BrandColors.textSecondary)
-            Button {
-                if let t = item.track {
-                    let snap = TrackSnapshot(from: t)
-                    playback.playTrack(snap, context: context, from: .import)
-                }
-            } label: { Image(systemName: "play.fill") }
-            .buttonStyle(.plain).foregroundStyle(BrandColors.magenta)
-            Button {
-                if let t = item.track {
-                    playback.queue.addToQueue(TrackSnapshot(from: t))
-                }
-            } label: { Image(systemName: "text.badge.plus") }
-            .buttonStyle(.plain).foregroundStyle(BrandColors.textSecondary)
-            Button {
-                if let t = item.track {
-                    inbox.add(TrackSnapshot(from: t), source: .youTubeImport)
-                }
-            } label: { Image(systemName: "tray.and.arrow.down") }
-            .buttonStyle(.plain).foregroundStyle(BrandColors.textSecondary)
-            .help(tr("Save to Inbox", "保存到收件箱"))
-        }
-        .padding(.horizontal, 12).padding(.vertical, 6)
-    }
-
-    private func format(_ ms: Int) -> String {
+    private func formatImportDuration(_ ms: Int) -> String {
         let s = ms / 1000
         return String(format: "%d:%02d", s / 60, s % 60)
+    }
+
+    private func importItemArtwork(_ item: YouTubeImportItem) -> ArtworkSource {
+        if let t = item.track {
+            return ArtworkSource.resolve(for: TrackSnapshot(from: t))
+        }
+        if let url = URL(string: "https://i.ytimg.com/vi/\(item.youTubeId)/hqdefault.jpg") {
+            return .remote(url)
+        }
+        return .placeholder
     }
 }
 

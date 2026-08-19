@@ -27,8 +27,9 @@ struct SkeletonBlock: View {
 
 /// 卡片骨架(方形/16:9)。
 struct SkeletonCard: View {
+    enum Aspect { case square, wide169 }
     var size: CGFloat = 160
-    var aspect: DiscoveryCard.Aspect = .square
+    var aspect: Aspect = .square
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             SkeletonBlock(width: size,
@@ -40,7 +41,7 @@ struct SkeletonCard: View {
     }
 }
 
-/// 行骨架(配合 `SongCompactRow` 节奏)。
+/// 行骨架(配合歌曲行节奏)。
 struct SkeletonRow: View {
     var body: some View {
         HStack(spacing: 10) {

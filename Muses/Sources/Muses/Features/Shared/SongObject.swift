@@ -10,6 +10,7 @@ struct SongObjectView: View {
     var isSelected: Bool = false
     var isNowPlaying: Bool = false
     var showsHoverPlay: Bool = false
+    var showsPlayButton: Bool = false
     var isLossless: Bool = false
     var showLocalBadge: Bool = false
     var isLiked: Bool? = nil
@@ -98,6 +99,16 @@ struct SongObjectView: View {
                     .foregroundStyle(BrandColors.textSecondary)
                     .monospacedDigit()
                     .frame(width: 44, alignment: .trailing)
+            }
+
+            if showsPlayButton {
+                Button(action: onPlay) {
+                    Image(systemName: "play.fill")
+                        .foregroundStyle(BrandColors.magenta)
+                }
+                .buttonStyle(.plain)
+                .help(tr("Play", "播放"))
+                .accessibilityLabel(tr("Play", "播放"))
             }
 
             if let onQueue {

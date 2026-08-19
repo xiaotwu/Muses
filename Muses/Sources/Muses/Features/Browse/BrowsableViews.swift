@@ -3,21 +3,23 @@ import AppKit
 
 // MARK: - Cards
 
-/// 派生专辑卡片(YouTube-derived)。带 YT 来源标识 + 置信度点。
-/// 本地专辑沿用既有 `AlbumCard`(直接渲染 `Album` @Model)。
+/// 派生专辑卡片(YouTube-derived)。Album 对象 + YT 来源标识。
 struct BrowsableAlbumCard: View {
     let browsable: BrowsableAlbum
+    var onSelect: () -> Void
+    var onPlay: () -> Void
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ArtworkView(source: ArtworkSource.resolve(for: browsable),
-                        cornerRadius: 8, glyphSize: 60, targetSize: 200)
-                .frame(width: 200, height: 200)
-                .overlay(alignment: .topTrailing) { sourceBadge }
-            Text(browsable.title).font(.subheadline)
-                .foregroundStyle(BrandColors.textPrimary).lineLimit(1)
-            Text(browsable.artistName).font(.caption)
-                .foregroundStyle(BrandColors.textSecondary).lineLimit(1)
-        }
+        AlbumObjectView(
+            title: browsable.title,
+            subtitle: browsable.artistName,
+            artwork: ArtworkSource.resolve(for: browsable),
+            size: MusicObjectMetrics.albumGrid,
+            role: .browse,
+            onSelect: onSelect,
+            onPlay: onPlay
+        )
+        .overlay(alignment: .topTrailing) { sourceBadge }
     }
 
     private var sourceBadge: some View {
@@ -35,47 +37,23 @@ struct BrowsableAlbumCard: View {
 /// 派生艺术家卡片(圆形封面 + YT 来源标识)。
 struct BrowsableArtistCard: View {
     let browsable: BrowsableArtist
+    var onSelect: () -> Void
+    var onPlay: () -> Void
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ArtworkView(source: ArtworkSource.resolve(for: browsable),
-                        glyphSize: 60, clipCircle: true, targetSize: 200)
-            .overlay(alignment: .topTrailing) {
-                Image(systemName: "play.rectangle.fill").font(.caption2)
-                    .padding(5).background(.ultraThinMaterial, in: Circle())
-                    .foregroundStyle(BrandColors.textPrimary).padding(6)
-            }
-            Text(browsable.name).font(.subheadline)
-                .foregroundStyle(BrandColors.textPrimary).lineLimit(1)
-            Text("\(browsable.trackCount) \(tr("songs", "首歌曲"))").font(.caption)
-                .foregroundStyle(BrandColors.textSecondary)
+        ArtistObjectView(
+            name: browsable.name,
+            detail: "\(browsable.trackCount) \(tr("songs", "首歌曲"))",
+            artwork: ArtworkSource.resolve(for: browsable),
+            size: MusicObjectMetrics.artistGrid,
+            onSelect: onSelect,
+            onPlay: onPlay
+        )
+        .overlay(alignment: .topTrailing) {
+            Image(systemName: "play.rectangle.fill").font(.caption2)
+                .padding(5).background(.ultraThinMaterial, in: Circle())
+                .foregroundStyle(BrandColors.textPrimary).padding(6)
         }
-    }
-}
-
-// MARK: - Track snapshot row (derived detail 用;不依赖 @Model)
-
-struct TrackSnapshotRow: View {
-    let snapshot: TrackSnapshot
-    var index: Int? = nil
-    var body: some View {
-        HStack {
-            if let index {
-                Text("\(index)").foregroundStyle(BrandColors.textSecondary)
-                    .frame(width: 28, alignment: .trailing)
-            }
-            VStack(alignment: .leading) {
-                Text(snapshot.title).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
-                Text(snapshot.artist).font(.caption).foregroundStyle(BrandColors.textSecondary).lineLimit(1)
-            }
-            Spacer()
-            Text(formatDuration(snapshot.durationSeconds))
-                .foregroundStyle(BrandColors.textSecondary)
-        }
-        .padding(.vertical, 6)
-    }
-
-    private func formatDuration(_ s: Double) -> String {
-        String(format: "%d:%02d", Int(s) / 60, Int(s) % 60)
     }
 }
 
@@ -86,6 +64,7 @@ struct DerivedAlbumDetailView: View {
     let browsable: BrowsableAlbum
     @Binding var selection: BrowsableAlbum?
     @Environment(PlaybackService.self) private var playback
+    @State private var selectedTrackID: UUID?
 
     var body: some View {
         ScrollView {
@@ -139,8 +118,18 @@ struct DerivedAlbumDetailView: View {
     private var trackList: some View {
         VStack(spacing: 0) {
             ForEach(Array(browsable.trackSnapshots.enumerated()), id: \.element.id) { idx, snap in
-                TrackSnapshotRow(snapshot: snap, index: idx + 1)
-                    .onTapGesture { play(snap) }
+                SongObjectView(
+                    title: snap.title,
+                    artist: snap.artist,
+                    durationLabel: String(format: "%d:%02d", Int(snap.durationSeconds) / 60, Int(snap.durationSeconds) % 60),
+                    indexLabel: "\(idx + 1)",
+                    artwork: ArtworkSource.resolve(for: snap),
+                    isSelected: selectedTrackID == snap.id,
+                    isLossless: snap.isLossless,
+                    onSelect: { selectedTrackID = snap.id; play(snap) },
+                    onPlay: { play(snap) }
+                )
+                .trackContextMenu(snapshot: snap, onPlay: { play(snap) })
             }
         }
     }
@@ -159,6 +148,7 @@ struct DerivedArtistDetailView: View {
     let browsable: BrowsableArtist
     @Binding var selection: BrowsableArtist?
     @Environment(PlaybackService.self) private var playback
+    @State private var selectedTrackID: UUID?
 
     var body: some View {
         ScrollView {
@@ -204,8 +194,18 @@ struct DerivedArtistDetailView: View {
     private var trackList: some View {
         VStack(spacing: 0) {
             ForEach(Array(browsable.trackSnapshots.enumerated()), id: \.element.id) { idx, snap in
-                TrackSnapshotRow(snapshot: snap, index: idx + 1)
-                    .onTapGesture { play(snap) }
+                SongObjectView(
+                    title: snap.title,
+                    artist: snap.artist,
+                    durationLabel: String(format: "%d:%02d", Int(snap.durationSeconds) / 60, Int(snap.durationSeconds) % 60),
+                    indexLabel: "\(idx + 1)",
+                    artwork: ArtworkSource.resolve(for: snap),
+                    isSelected: selectedTrackID == snap.id,
+                    isLossless: snap.isLossless,
+                    onSelect: { selectedTrackID = snap.id; play(snap) },
+                    onPlay: { play(snap) }
+                )
+                .trackContextMenu(snapshot: snap, onPlay: { play(snap) })
             }
         }
     }
