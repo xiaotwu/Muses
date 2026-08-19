@@ -9,6 +9,9 @@ struct RootView: View {
     @State private var selectedPlaylist: Playlist?
     @State private var selectedArtist: Artist?
     @State private var selectedYouTubeImport: YouTubeImport?
+    // P3 — 派生(YouTube-derived)浏览条目详情;本地条目仍走 selectedAlbum/selectedArtist。
+    @State private var selectedBrowsableAlbum: BrowsableAlbum?
+    @State private var selectedBrowsableArtist: BrowsableArtist?
     @State private var showImport = false
     @State private var showYouTubeLink = false
     @State private var showNowPlaying = false
@@ -32,9 +35,13 @@ struct RootView: View {
             Group {
                 if let album = selectedAlbum {
                     AlbumDetailView(album: album, selection: $selectedAlbum)
+                } else if let browsableAlbum = selectedBrowsableAlbum {
+                    DerivedAlbumDetailView(browsable: browsableAlbum, selection: $selectedBrowsableAlbum)
                 } else if let artist = selectedArtist {
                     ArtistDetailView(artist: artist, selection: $selectedArtist,
                                      selectedAlbum: $selectedAlbum)
+                } else if let browsableArtist = selectedBrowsableArtist {
+                    DerivedArtistDetailView(browsable: browsableArtist, selection: $selectedBrowsableArtist)
                 } else if let playlist = selectedPlaylist {
                     PlaylistDetailView(playlist: playlist, selectedPlaylist: $selectedPlaylist)
                 } else if let ytImport = selectedYouTubeImport {
@@ -55,9 +62,11 @@ struct RootView: View {
                     case .recently:
                         RecentlyView(selection: $section, selectedAlbum: $selectedAlbum)
                     case .albums:
-                        LibraryView(selection: $section, selectedAlbum: $selectedAlbum)
+                        LibraryView(selection: $section, selectedAlbum: $selectedAlbum,
+                                     selectedBrowsableAlbum: $selectedBrowsableAlbum)
                     case .artists:
-                        ArtistsView(selectedArtist: $selectedArtist)
+                        ArtistsView(selectedArtist: $selectedArtist,
+                                    selectedBrowsableArtist: $selectedBrowsableArtist)
                     case .songs:
                         SongsListView()
                     case .playlists:

@@ -32,6 +32,9 @@ struct MusesApp: App {
     // P2 — YouTube 账户(真实 Google OAuth 2.0 PKCE + Data API):用于 Home 个性化信号
     // (订阅频道/喜欢的视频→艺术家名),凭证与令牌存 Keychain,最小只读 scope,永不阻断播放。
     let youTubeAccountService: YouTubeAccountService
+    // P3 — 非持久化元数据富集投影层:统一 local + YouTube-derived 专辑/艺术家浏览;
+    // MusicBrainz 确认 + Cover Art 封面,不改 SwiftData schema。
+    let metadataEnrichmentService: MetadataEnrichmentService
     // Phase 24 — 原生桌面集成:全局热键 / 菜单栏托盘 / 桌面歌词 / 迷你播放器。
     let globalHotkeyService: GlobalHotkeyService
     let trayController: TrayController
@@ -137,6 +140,8 @@ struct MusesApp: App {
         // 用户需在设置中填入自己的 Google Cloud OAuth 凭证(产品不内置)。
         let youTubeAccount = YouTubeAccountService()
         self.youTubeAccountService = youTubeAccount
+        // P3 — 非持久化浏览投影 + 富集服务(只读 ModelContainer,off-main 构建)。
+        self.metadataEnrichmentService = MetadataEnrichmentService(container: container)
         self.homeDiscoveryService = HomeDiscoveryService(
             provider: discoveryProvider,
             library: library,
@@ -316,6 +321,7 @@ struct MusesApp: App {
                     .environment(homeDiscoveryService)
                     .environment(situationalRecommendationService)
                     .environment(youTubeAccountService)
+                    .environment(metadataEnrichmentService)
                     .modelContainer(modelContainer)
                     .background(MiniPlayerOpener())
                     .onOpenURL { url in

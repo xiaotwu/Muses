@@ -24,6 +24,37 @@ enum ArtworkSource {
         return .placeholder
     }
 
+    /// 从 `BrowsableAlbum` 解析封面:本地缓存 hash → 远程 URL(Cover Art/ytimg)→ 占位。
+    static func resolve(for album: BrowsableAlbum) -> ArtworkSource {
+        if let h = album.artworkHash, let p = ArtworkCache.default.path(forHash: h) {
+            return .cached(NSImage(byReferencing: p))
+        }
+        if let urlStr = album.artworkURL, let url = URL(string: urlStr) {
+            return .remote(url)
+        }
+        // 派生专辑无封面时,回退到首支 YouTube 曲目缩略图。
+        if album.origin == .youTubeDerived, let vid = album.trackSnapshots.first?.youTubeId,
+           let url = URL(string: "https://i.ytimg.com/vi/\(vid)/hqdefault.jpg") {
+            return .remote(url)
+        }
+        return .placeholder
+    }
+
+    /// 从 `BrowsableArtist` 解析封面。
+    static func resolve(for artist: BrowsableArtist) -> ArtworkSource {
+        if let h = artist.artworkHash, let p = ArtworkCache.default.path(forHash: h) {
+            return .cached(NSImage(byReferencing: p))
+        }
+        if let urlStr = artist.artworkURL, let url = URL(string: urlStr) {
+            return .remote(url)
+        }
+        if artist.origin == .youTubeDerived, let vid = artist.trackSnapshots.first?.youTubeId,
+           let url = URL(string: "https://i.ytimg.com/vi/\(vid)/hqdefault.jpg") {
+            return .remote(url)
+        }
+        return .placeholder
+    }
+
     /// 同步加载为 `NSImage`(`.cached` 直接返回;`.remote` 阻塞读取网络数据,仅在
     /// 后台任务中调用,用于渐变颜色提取)。
     var nsImage: NSImage? {
