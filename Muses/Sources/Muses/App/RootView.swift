@@ -4,6 +4,10 @@ struct RootView: View {
     @Environment(LibraryService.self) private var library
     @Environment(PlaylistService.self) private var playlistService
     @Environment(SessionService.self) private var sessions
+    @Environment(PlaybackService.self) private var playback
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var artworkWorld
+    @State private var coverSlot: Anchor<CGRect>?
     @State private var section: SidebarSection = .home
     @State private var selectedAlbum: Album?
     @State private var selectedPlaylist: Playlist?
@@ -15,6 +19,8 @@ struct RootView: View {
     @State private var showImport = false
     @State private var showYouTubeLink = false
     @State private var showNowPlaying = false
+    @State private var nowPlayingShowLyrics = true
+    @State private var windowWidth: CGFloat = 1440
     @State private var showQueue = false
     @State private var showSearch = false
     @State private var showSettings = false
@@ -24,72 +30,25 @@ struct RootView: View {
     /// 由 Profile 弹出菜单设置,用于直接跳转到指定 Settings 分类(如 YouTube 登录)。
     @State private var initialSettingsCategory: SettingsCategory? = nil
     @AppStorage(PrefKey.language) private var language = "system"
+    @AppStorage(PrefKey.nowPlayingLyricsMode) private var lyricsModeRaw: String = NowPlayingLyricsMode.inline.rawValue
+
+    private var lyricsFullscreen: Bool {
+        nowPlayingShowLyrics && (NowPlayingLyricsMode(rawValue: lyricsModeRaw) ?? .inline) != .inline
+    }
+
+    private var skipArtworkMorph: Bool {
+        reduceMotion
+            || lyricsFullscreen
+            || playback.state.track?.id == nil
+            || windowWidth < 960
+    }
 
     var body: some View {
-        NavigationSplitView {
-            SidebarView(selection: $section,
-                        showSettings: $showSettings,
-                        showAbout: $showAbout,
-                        initialSettingsCategory: $initialSettingsCategory)
-        } detail: {
-            Group {
-                if let album = selectedAlbum {
-                    AlbumDetailView(album: album, selection: $selectedAlbum)
-                } else if let browsableAlbum = selectedBrowsableAlbum {
-                    DerivedAlbumDetailView(browsable: browsableAlbum, selection: $selectedBrowsableAlbum)
-                } else if let artist = selectedArtist {
-                    ArtistDetailView(artist: artist, selection: $selectedArtist,
-                                     selectedAlbum: $selectedAlbum)
-                } else if let browsableArtist = selectedBrowsableArtist {
-                    DerivedArtistDetailView(browsable: browsableArtist, selection: $selectedBrowsableArtist)
-                } else if let playlist = selectedPlaylist {
-                    PlaylistDetailView(playlist: playlist, selectedPlaylist: $selectedPlaylist)
-                } else if let ytImport = selectedYouTubeImport {
-                    YouTubeAlbumDetailView(youTubeImport: ytImport)
-                } else {
-                    switch section {
-                    case .home:
-                        HomeView(selection: $section, selectedAlbum: $selectedAlbum)
-                    case .new:
-                        NewView(selectedAlbum: $selectedAlbum)
-                    case .search:
-                        HomeView(selection: $section, selectedAlbum: $selectedAlbum)
-                    case .pins:
-                        PinsView(selection: $section, selectedAlbum: $selectedAlbum,
-                                 selectedPlaylist: $selectedPlaylist)
-                    case .recently:
-                        RecentlyView(selection: $section, selectedAlbum: $selectedAlbum)
-                    case .albums:
-                        LibraryView(selection: $section, selectedAlbum: $selectedAlbum,
-                                     selectedBrowsableAlbum: $selectedBrowsableAlbum)
-                    case .artists:
-                        ArtistsView(selectedArtist: $selectedArtist,
-                                    selectedBrowsableArtist: $selectedBrowsableArtist)
-                    case .songs:
-                        SongsListView()
-                    case .playlists:
-                        PlaylistsView(selectedPlaylist: $selectedPlaylist)
-                    case .history:
-                        HistoryView()
-                    case .inbox:
-                        InboxView()
-                    }
-                }
+        continuityChrome(splitView)
+            .sheet(isPresented: $showImport) {
+                ImportSheet()
+                    .environment(library)
             }
-            .safeAreaInset(edge: .bottom, spacing: 8) {
-                PlayerBar(onArtworkTap: { showNowPlaying = true },
-                          onQueueTap: { showQueue = true })
-                    .padding(.horizontal, 8)
-            }
-            .background(BrandColors.background)
-        }
-        // P4 — 根级 tint:消除系统默认蓝色控件,统一为纯黑白主题(magenta=白/黑)。
-        // 作用于所有未显式 tint 的按钮/开关/滑块/链接,符合 issue #5「蓝色 UI」根治。
-        .tint(BrandColors.magenta)
-        .sheet(isPresented: $showImport) {
-            ImportSheet()
-                .environment(library)
-        }
         .sheet(isPresented: $showYouTubeLink) {
             AddYouTubeLinkSheet()
         }
@@ -99,29 +58,6 @@ struct RootView: View {
         }) {
             SettingsSheet(initialCategory: initialSettingsCategory ?? (showAbout ? .about : nil))
         }
-        .overlay(alignment: .trailing) {
-            if showQueue {
-                QueueDrawerView(isPresented: $showQueue)
-            }
-        }
-        .overlay {
-            if showNowPlaying {
-                NowPlayingView(isPresented: $showNowPlaying,
-                               onShowQueue: { showQueue = true })
-                    .transition(.opacity)
-            }
-        }
-        .overlay {
-            if showSearch {
-                GlobalSearchView(isPresented: $showSearch,
-                                  showLocalFolder: $showImport,
-                                  showYouTubeLink: $showYouTubeLink)
-                    .transition(.opacity)
-            }
-        }
-        .animation(.easeInOut(duration: 0.25), value: showNowPlaying)
-        .animation(.easeInOut(duration: 0.25), value: showQueue)
-        .animation(.easeInOut(duration: 0.2), value: showSearch)
         .dropDestination(for: URL.self) { urls, _ in
             Task { await library.importURLs(urls) }
             return true
@@ -188,6 +124,169 @@ struct RootView: View {
         }
         // P5 issue #6 — 「+」导入按钮仅在 Search 面板内,移出全局 toolbar。
         .id(language)
+    }
+
+    private var splitView: some View {
+        NavigationSplitView {
+            SidebarView(selection: $section,
+                        showSettings: $showSettings,
+                        showAbout: $showAbout,
+                        initialSettingsCategory: $initialSettingsCategory)
+        } detail: {
+            detailStack
+                .safeAreaInset(edge: .bottom, spacing: 8) {
+                    PlayerBar(showNowPlaying: showNowPlaying,
+                              skipArtworkMorph: skipArtworkMorph,
+                              onArtworkTap: { showNowPlaying = true },
+                              onQueueTap: { showQueue = true })
+                        .padding(.horizontal, 8)
+                }
+                .background(BrandColors.background)
+        }
+    }
+
+    @ViewBuilder
+    private var detailStack: some View {
+        if let album = selectedAlbum {
+            AlbumDetailView(album: album, selection: $selectedAlbum)
+        } else if let browsableAlbum = selectedBrowsableAlbum {
+            DerivedAlbumDetailView(browsable: browsableAlbum, selection: $selectedBrowsableAlbum)
+        } else if let artist = selectedArtist {
+            ArtistDetailView(artist: artist, selection: $selectedArtist,
+                             selectedAlbum: $selectedAlbum)
+        } else if let browsableArtist = selectedBrowsableArtist {
+            DerivedArtistDetailView(browsable: browsableArtist, selection: $selectedBrowsableArtist)
+        } else if let playlist = selectedPlaylist {
+            PlaylistDetailView(playlist: playlist, selectedPlaylist: $selectedPlaylist)
+        } else if let ytImport = selectedYouTubeImport {
+            YouTubeAlbumDetailView(youTubeImport: ytImport)
+        } else {
+            switch section {
+            case .home:
+                HomeView(selection: $section, selectedAlbum: $selectedAlbum)
+            case .new:
+                NewView(selectedAlbum: $selectedAlbum)
+            case .search:
+                HomeView(selection: $section, selectedAlbum: $selectedAlbum)
+            case .pins:
+                PinsView(selection: $section, selectedAlbum: $selectedAlbum,
+                         selectedPlaylist: $selectedPlaylist)
+            case .recently:
+                RecentlyView(selection: $section, selectedAlbum: $selectedAlbum)
+            case .albums:
+                LibraryView(selection: $section, selectedAlbum: $selectedAlbum,
+                             selectedBrowsableAlbum: $selectedBrowsableAlbum)
+            case .artists:
+                ArtistsView(selectedArtist: $selectedArtist,
+                            selectedBrowsableArtist: $selectedBrowsableArtist)
+            case .songs:
+                SongsListView()
+            case .playlists:
+                PlaylistsView(selectedPlaylist: $selectedPlaylist)
+            case .history:
+                HistoryView()
+            case .inbox:
+                InboxView()
+            }
+        }
+    }
+
+    private func continuityChrome<Content: View>(_ content: Content) -> some View {
+        content
+            // P4 — 根级 tint:消除系统默认蓝色控件,统一为纯黑白主题(magenta=白/黑)。
+            .tint(BrandColors.magenta)
+            .environment(\.artworkWorldNamespace, artworkWorld)
+            .background {
+                GeometryReader { geo in
+                    Color.clear.preference(key: RootWindowWidthKey.self, value: geo.size.width)
+                }
+            }
+            .onPreferenceChange(RootWindowWidthKey.self) { windowWidth = $0 }
+            .overlay(alignment: .trailing) {
+                if showQueue {
+                    QueueDrawerView(isPresented: $showQueue)
+                }
+            }
+            .overlay { nowPlayingLayers }
+            .overlay {
+                if showSearch {
+                    GlobalSearchView(isPresented: $showSearch,
+                                      showLocalFolder: $showImport,
+                                      showYouTubeLink: $showYouTubeLink)
+                        .transition(.opacity)
+                }
+            }
+            .animation(MusesMotion.morphAnimation(reduceMotion: reduceMotion), value: showNowPlaying)
+            .animation(.easeInOut(duration: 0.25), value: showQueue)
+            .animation(.easeInOut(duration: 0.2), value: showSearch)
+            .onChange(of: showNowPlaying) { _, open in
+                if !open { nowPlayingShowLyrics = true }
+            }
+    }
+
+    /// Back → middle → front: environment gradient, chrome, live-cover host.
+    private var nowPlayingLayers: some View {
+        GeometryReader { _ in
+            ZStack {
+                if showNowPlaying {
+                    NowPlayingEnvironmentLayer()
+                        .transition(.opacity)
+                        .zIndex(0)
+                    NowPlayingView(isPresented: $showNowPlaying,
+                                   showLyrics: $nowPlayingShowLyrics,
+                                   coverHostedExternally: !skipArtworkMorph,
+                                   onShowQueue: { showQueue = true })
+                        .transition(.opacity)
+                        .zIndex(1)
+                }
+            }
+            .overlayPreferenceValue(CoverSlotPreferenceKey.self) { anchor in
+                GeometryReader { slotProxy in
+                    liveCoverHost(proxy: slotProxy, anchor: anchor)
+                        .background(CoverSlotBinder(anchor: anchor, storage: $coverSlot))
+                }
+                .allowsHitTesting(false)
+            }
+        }
+        .allowsHitTesting(showNowPlaying)
+    }
+
+    @ViewBuilder
+    private func liveCoverHost(proxy: GeometryProxy, anchor: Anchor<CGRect>?) -> some View {
+        if showNowPlaying, !skipArtworkMorph,
+           let trackID = playback.state.track?.id,
+           let anchor {
+            let rect = proxy[anchor]
+            LiveCoverHost(
+                source: ArtworkSource.resolve(for: playback.state.track),
+                trackID: trackID,
+                namespace: artworkWorld,
+                isSource: showNowPlaying,
+                isPresented: showNowPlaying
+            )
+            .frame(width: rect.width, height: rect.height)
+            .offset(x: rect.minX, y: rect.minY)
+        }
+    }
+}
+
+private struct RootWindowWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 1440
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+/// `Anchor` is not Equatable, so `onPreferenceChange` cannot store it. Overlay
+/// positioning uses the preference value directly; this keeps `coverSlot` in sync.
+private struct CoverSlotBinder: View {
+    let anchor: Anchor<CGRect>?
+    @Binding var storage: Anchor<CGRect>?
+    var body: some View {
+        Color.clear
+            .task(id: anchor == nil ? 0 : 1) {
+                storage = anchor
+            }
     }
 }
 
