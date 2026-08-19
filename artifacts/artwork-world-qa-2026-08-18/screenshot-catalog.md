@@ -20,7 +20,7 @@ Runtime library: the worktree app created `~/Library/Application Support/Muses/m
 | [07b-search-query-typed.png](07b-search-query-typed.png) | dark | focused non-empty query | **Pass.** Field focused with `query` + caret. |
 | [08-escape-search.png](08-escape-search.png) | dark | focused non-empty query dismissed | **Pass.** System Events Escape dismissed the overlay; Home remains. |
 | [09-queue-open-only.png](09-queue-open-only.png) | dark | Queue drawer | **Pass.** ⌘K / PlayerBar list opens Current Queue / Up Next / History. |
-| [09-queue-escape.png](09-queue-escape.png) | dark | drawer dismiss via Escape | **Fail in this run.** Escape with the drawer visible did not close it. |
+| [09-queue-escape.png](09-queue-escape.png) | dark | drawer dismiss via Escape | **Pass after fix.** Drawer was open (`09-queue-escape-retest-open.png`); System Events Escape dismissed it. Rename alert not exercised. |
 | [09-queue-scrim-close.png](09-queue-scrim-close.png) | dark | drawer dismiss via scrim | **Pass.** Clicking the left scrim closed the drawer. |
 | [09-queue-closed-via-x.png](09-queue-closed-via-x.png) | dark | drawer dismiss via Close | **Pass.** AX `Close` (`xmark.circle.fill`) closed the drawer. |
 | [10-morph-wide.png](10-morph-wide.png) | dark, ≥960 | PlayerBar → NP morph | **Skip path only.** No `track?.id`, so morph is skipped. Wide two-column NP with 480pt placeholder cover + lyrics rail. Interpolation not proven. |
@@ -36,6 +36,8 @@ Runtime library: the worktree app created `~/Library/Application Support/Muses/m
 | [15-home-reduce-transparency.png](15-home-reduce-transparency.png) | `defaults write reduceTransparency` did **not** change rendering. |
 | [16-home-reduce-motion.png](16-home-reduce-motion.png) | `defaults write reduceMotion` did **not** change rendering. |
 | [09-queue-escape-open.png](09-queue-escape-open.png) | Search overlay + Queue stacked (⌘K while Search was still up). |
+| [09-queue-escape-retest-open.png](09-queue-escape-retest-open.png) | Post-fix Queue open (PlayerBar list). |
+| [09-queue-escape-retest.png](09-queue-escape-retest.png) | Same session after Escape — drawer gone. |
 | [00-probe-home.png](00-probe-home.png) | First Home probe after launch. |
 | probe-*.png | Sidebar route probes (Pins / Recently / History empty). |
 
@@ -46,7 +48,7 @@ Runtime library: the worktree app created `~/Library/Application Support/Muses/m
 | Search overlay from sidebar | Pass. Overlay only; Home stays selected. |
 | Search overlay from ⌘F | Pass. |
 | Escape with focused non-empty query | Pass (System Events Escape). Raw `CGEvent` Escape did not reach the field. |
-| Queue Escape | **Did not dismiss.** Scrim and Close did. |
+| Queue Escape | **Pass after fix.** Drawer focused; Escape dismissed. Scrim and Close still dismiss. |
 | Failed rail Retry | Pass. Header kept; Retry → skeleton. |
 | Hover Play vs click-to-open | **Not run.** No album/hero/rail objects. |
 | Songs click-select / double-click-play | **Not run.** Empty list. |
