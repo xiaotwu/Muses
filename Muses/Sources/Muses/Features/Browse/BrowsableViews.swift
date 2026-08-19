@@ -9,7 +9,8 @@ struct BrowsableAlbumCard: View {
     let browsable: BrowsableAlbum
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ArtworkView(source: ArtworkSource.resolve(for: browsable), cornerRadius: 8, glyphSize: 60)
+            ArtworkView(source: ArtworkSource.resolve(for: browsable),
+                        cornerRadius: 8, glyphSize: 60, targetSize: 200)
                 .frame(width: 200, height: 200)
                 .overlay(alignment: .topTrailing) { sourceBadge }
             Text(browsable.title).font(.subheadline)
@@ -36,12 +37,8 @@ struct BrowsableArtistCard: View {
     let browsable: BrowsableArtist
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ZStack {
-                Circle().fill(BrandColors.surface).frame(width: 200, height: 200)
-                ArtworkView(source: ArtworkSource.resolve(for: browsable),
-                            cornerRadius: 100, glyphSize: 60)
-                    .frame(width: 200, height: 200).clipShape(Circle())
-            }
+            ArtworkView(source: ArtworkSource.resolve(for: browsable),
+                        glyphSize: 60, clipCircle: true, targetSize: 200)
             .overlay(alignment: .topTrailing) {
                 Image(systemName: "play.rectangle.fill").font(.caption2)
                     .padding(5).background(.ultraThinMaterial, in: Circle())
@@ -110,7 +107,8 @@ struct DerivedAlbumDetailView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 20) {
-            ArtworkView(source: ArtworkSource.resolve(for: browsable), cornerRadius: 12, glyphSize: 60)
+            ArtworkView(source: ArtworkSource.resolve(for: browsable),
+                        cornerRadius: 12, glyphSize: 60, targetSize: 160)
                 .frame(width: 160, height: 160)
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
@@ -182,7 +180,8 @@ struct DerivedArtistDetailView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 20) {
-            ArtworkView(source: ArtworkSource.resolve(for: browsable), cornerRadius: 100, glyphSize: 60)
+            ArtworkView(source: ArtworkSource.resolve(for: browsable),
+                        glyphSize: 60, clipCircle: true, targetSize: 160)
                 .frame(width: 160, height: 160).clipShape(Circle())
             VStack(alignment: .leading, spacing: 6) {
                 Text("YouTube").font(.caption.bold())

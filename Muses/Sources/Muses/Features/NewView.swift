@@ -94,27 +94,12 @@ struct NewView: View {
             playback.playTrack(snap, context: [snap], from: .songs)
         } label: {
             VStack(alignment: .leading, spacing: 6) {
-                Group {
-                    if let hash = snap.artworkHash,
-                       let path = ArtworkCache.default.path(forHash: hash) {
-                        Image(nsImage: NSImage(byReferencing: path)).resizable().scaledToFill()
-                    } else if let vid = snap.youTubeId,
-                              let url = URL(string: "https://i.ytimg.com/vi/\(vid)/hqdefault.jpg") {
-                        CachedAsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: {
-                            RoundedRectangle(cornerRadius: 8).fill(BrandColors.surface)
-                                .overlay(Image(systemName: "music.note").font(.title))
-                        }
-                    } else if let urlStr = snap.artworkUrl, let url = URL(string: urlStr) {
-                        CachedAsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: {
-                            RoundedRectangle(cornerRadius: 8).fill(BrandColors.surface)
-                                .overlay(Image(systemName: "music.note").font(.title))
-                        }
-                    } else {
-                        RoundedRectangle(cornerRadius: 8).fill(BrandColors.surface)
-                            .overlay(Image(systemName: "music.note").font(.title)
-                                .foregroundStyle(BrandColors.textSecondary.opacity(0.5)))
-                    }
-                }
+                ArtworkView(
+                    source: ArtworkSource.resolve(for: snap),
+                    cornerRadius: 8,
+                    glyphSize: 32,
+                    targetSize: 140
+                )
                 .frame(width: 140, height: 140)
                 .clipped().cornerRadius(8)
 

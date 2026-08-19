@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 
 /// Phase D4 — 紧凑歌曲行原语:封面 + 标题 + 艺术家 + "…",用于 2–4 列歌曲网格。
 ///
@@ -53,23 +52,18 @@ struct SongCompactRow: View {
         .accessibilityLabel("\(title) — \(artist)")
     }
 
-    @ViewBuilder
-    private var artwork: some View {
-        if let path = artworkPath,
-           let img = NSImage(contentsOf: path) {
-            Image(nsImage: img).resizable().scaledToFill()
-        } else if let remoteURL {
-            CachedAsyncImage(url: remoteURL,
-                             content: { $0.resizable().scaledToFill() },
-                             placeholder: { placeholder })
-        } else {
-            placeholder
-        }
+    private var artworkSource: ArtworkSource {
+        if let path = artworkPath { return .localFile(path) }
+        if let remoteURL { return .remote(remoteURL) }
+        return .placeholder
     }
 
-    private var placeholder: some View {
-        Rectangle().fill(BrandColors.surface)
-            .overlay(Image(systemName: "music.note").font(.caption)
-                .foregroundStyle(BrandColors.textSecondary.opacity(0.5)))
+    private var artwork: some View {
+        ArtworkView(
+            source: artworkSource,
+            cornerRadius: 4,
+            glyphSize: 16,
+            targetSize: rowHeight
+        )
     }
 }

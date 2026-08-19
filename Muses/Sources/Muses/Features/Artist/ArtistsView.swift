@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 
 struct ArtistsView: View {
     @Binding var selectedArtist: Artist?
@@ -101,18 +100,12 @@ struct ArtistCard: View {
     let artist: Artist
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            let art = artist.artworkHash.flatMap { ArtworkCache.default.path(forHash: $0) }
-                .map { NSImage(byReferencing: $0) }
-            ZStack {
-                Circle().fill(BrandColors.surface).frame(width: 200, height: 200)
-                if let img = art {
-                    Image(nsImage: img).resizable().scaledToFill()
-                        .frame(width: 200, height: 200).clipShape(Circle())
-                } else {
-                    Image(systemName: "person.2.fill").font(.largeTitle)
-                        .foregroundStyle(BrandColors.textSecondary)
-                }
-            }
+            ArtworkView(
+                source: ArtworkSource.localHash(artist.artworkHash),
+                glyphSize: 32,
+                clipCircle: true,
+                targetSize: 200
+            )
             Text(artist.name).font(.subheadline).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
             Text("\(artist.albums.count) \(tr("albums", "张专辑"))").font(.caption).foregroundStyle(BrandColors.textSecondary)
         }
