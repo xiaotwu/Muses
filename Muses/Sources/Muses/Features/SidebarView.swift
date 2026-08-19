@@ -251,7 +251,7 @@ struct ProfilePopover: View {
         }
         .padding(4)
         .frame(width: 200)
-        .background(.ultraThinMaterial)
+        // P4 — popover 由系统提供原生玻璃/材质,移除手动 material 层避免双重背景。
     }
 
     private func popoverItem(icon: String, title: String, action: @escaping () -> Void) -> some View {

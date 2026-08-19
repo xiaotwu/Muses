@@ -33,7 +33,7 @@ struct MiniPlayerView: View {
             }
             .padding(18)
             .frame(width: 240)
-            .background(.regularMaterial)
+            .musesGlass(cornerRadius: 16)
             .overlay(alignment: .topTrailing) { topRightControls }
         }
         .windowLevel(alwaysOnTop ? .floating : .normal)

@@ -85,6 +85,9 @@ struct RootView: View {
             }
             .background(BrandColors.background)
         }
+        // P4 — 根级 tint:消除系统默认蓝色控件,统一为纯黑白主题(magenta=白/黑)。
+        // 作用于所有未显式 tint 的按钮/开关/滑块/链接,符合 issue #5「蓝色 UI」根治。
+        .tint(BrandColors.magenta)
         .sheet(isPresented: $showImport) {
             ImportSheet()
                 .environment(library)
