@@ -80,38 +80,20 @@ struct NewView: View {
     private func situationalSection(_ section: SituationalSection) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: section.title, subtitle: section.subtitle)
-            ResponsiveCarousel(cardSize: 140) {
+            ResponsiveCarousel(cardSize: MusicObjectMetrics.albumRail) {
                 ForEach(section.items, id: \.id) { snap in
-                    situationalTrackCard(snap)
+                    AlbumObjectView(
+                        title: snap.title,
+                        subtitle: snap.artist,
+                        artwork: ArtworkSource.resolve(for: snap),
+                        size: MusicObjectMetrics.albumRail,
+                        role: .play,
+                        onSelect: {},
+                        onPlay: { playback.playTrack(snap, context: section.items, from: .songs) }
+                    )
                 }
             }
         }
-    }
-
-    @ViewBuilder
-    private func situationalTrackCard(_ snap: TrackSnapshot) -> some View {
-        Button {
-            playback.playTrack(snap, context: [snap], from: .songs)
-        } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                ArtworkView(
-                    source: ArtworkSource.resolve(for: snap),
-                    cornerRadius: 8,
-                    glyphSize: 32,
-                    targetSize: 140
-                )
-                .frame(width: 140, height: 140)
-                .clipped().cornerRadius(8)
-
-                Text(snap.title).font(.caption).lineLimit(1)
-                    .foregroundStyle(BrandColors.textPrimary)
-                Text(snap.artist).font(.caption2).lineLimit(1)
-                    .foregroundStyle(BrandColors.textSecondary)
-            }
-            .frame(width: 140)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(snap.title) — \(snap.artist)")
     }
 
     // MARK: - Legacy(RecommendationService,ffSituationalNew 关闭时)
@@ -201,16 +183,25 @@ struct NewView: View {
     private func recSection(title: String, subtitle: String, albums: [Album]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: title, subtitle: subtitle)
-            ResponsiveCarousel(cardSize: 150) {
+            ResponsiveCarousel(cardSize: MusicObjectMetrics.albumRail) {
                 ForEach(albums, id: \.id) { album in
-                    DiscoveryCard(
+                    AlbumObjectView(
                         title: album.title,
                         subtitle: album.albumArtist,
-                        artworkPath: album.artworkHash.flatMap { ArtworkCache.default.path(forHash: $0) },
-                        size: 150, aspect: .square,
-                        onTap: { selectedAlbum = album })
+                        artwork: ArtworkSource.localHash(album.artworkHash),
+                        size: MusicObjectMetrics.albumRail,
+                        role: .browse,
+                        onSelect: { selectedAlbum = album },
+                        onPlay: { playAlbum(album) }
+                    )
                 }
             }
         }
+    }
+
+    private func playAlbum(_ album: Album) {
+        let snaps = library.tracks(in: album).map { TrackSnapshot(from: $0) }
+        guard let first = snaps.first else { return }
+        playback.playTrack(first, context: snaps, from: .album)
     }
 }

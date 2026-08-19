@@ -5,6 +5,7 @@ struct RecentlyView: View {
     @Binding var selection: SidebarSection
     @Binding var selectedAlbum: Album?
     @Environment(LibraryService.self) private var library
+    @Environment(PlaybackService.self) private var playback
 
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: 16), count: 4)
@@ -12,6 +13,7 @@ struct RecentlyView: View {
 
     var body: some View {
         ScrollView {
+            let _ = library.pinRevision
             let albums = library.allAlbums().sorted { a, b in
                 // 按专辑中最新曲目的 addedAt 排序(无曲目则用最早)
                 let aDate = a.tracks.map(\.addedAt).max() ?? .distantPast
@@ -29,8 +31,20 @@ struct RecentlyView: View {
             } else {
                 LazyVGrid(columns: columns, spacing: 20) {
                     ForEach(albums.prefix(50), id: \.id) { album in
-                        AlbumCard(album: album)
-                            .onTapGesture { selectedAlbum = album }
+                        AlbumObjectView(
+                            title: album.title,
+                            subtitle: album.albumArtist,
+                            artwork: ArtworkSource.localHash(album.artworkHash),
+                            size: MusicObjectMetrics.albumGrid,
+                            role: .browse,
+                            onSelect: { selectedAlbum = album },
+                            onPlay: { playAlbum(album) }
+                        )
+                        .contextMenu {
+                            Button(library.isPinned(album) ? tr("Unpin", "取消钉选") : tr("Pin", "钉选")) {
+                                library.togglePin(album)
+                            }
+                        }
                     }
                 }
                 .padding(24)
@@ -38,5 +52,11 @@ struct RecentlyView: View {
         }
         .navigationTitle(tr("Recently", "最近"))
         .background(BrandColors.background)
+    }
+
+    private func playAlbum(_ album: Album) {
+        let snaps = library.tracks(in: album).map { TrackSnapshot(from: $0) }
+        guard let first = snaps.first else { return }
+        playback.playTrack(first, context: snaps, from: .album)
     }
 }
