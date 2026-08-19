@@ -20,7 +20,7 @@ struct QueueDrawerView: View {
 
             drawer
                 .frame(width: 360)
-                .background(.ultraThinMaterial)
+                .musesGlass(in: Rectangle())
                 .overlay(Rectangle().frame(width: 1).foregroundStyle(BrandColors.hairline),
                          alignment: .leading)
                 .transition(.move(edge: .trailing))

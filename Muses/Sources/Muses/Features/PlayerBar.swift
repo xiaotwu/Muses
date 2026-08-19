@@ -21,8 +21,7 @@ struct PlayerBar: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 64)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .musesGlass(cornerRadius: 16)
         .shadow(color: .black.opacity(0.25), radius: 8, x: 0, y: 2)
     }
 
