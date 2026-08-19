@@ -5,7 +5,10 @@ import SwiftData
 struct LibraryView: View {
     @Binding var selection: SidebarSection
     @Binding var selectedAlbum: Album?
+    @Binding var selectedBrowsableAlbum: BrowsableAlbum?
     @Environment(LibraryService.self) private var library
+    @Environment(MetadataEnrichmentService.self) private var enrichment
+    @State private var projection = BrowseProjection.empty
 
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: 16), count: 5)
@@ -19,7 +22,8 @@ struct LibraryView: View {
                     .padding()
             }
             let albums = library.allAlbums()
-            if albums.isEmpty && progress.total == 0 {
+            let derivedAlbums = projection.albums.filter { !$0.isLocal }
+            if albums.isEmpty && derivedAlbums.isEmpty && progress.total == 0 {
                 EmptyStateView(icon: "square.stack", title: tr("Library is empty", "资料库为空"),
                                subtitle: tr("Click + at the top-left to import a music folder, or drag files into the window", "点击左上角 + 导入音乐文件夹,或拖拽文件到窗口"))
             } else {
@@ -30,10 +34,38 @@ struct LibraryView: View {
                     }
                 }
                 .padding(20)
+
+                // P3 — YouTube-derived 专辑(MusicBrainz 确认 ≥0.70 后 surfaced,带 YT 标识)。
+                if !derivedAlbums.isEmpty {
+                    HStack {
+                        Text(tr("YouTube", "YouTube")).font(.headline)
+                            .foregroundStyle(BrandColors.textSecondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 20)
+                    LazyVGrid(columns: columns, spacing: 20) {
+                        ForEach(derivedAlbums) { browsable in
+                            BrowsableAlbumCard(browsable: browsable)
+                                .onTapGesture { selectedBrowsableAlbum = browsable }
+                        }
+                    }
+                    .padding(20)
+                }
             }
         }
         .navigationTitle(tr("Albums", "专辑"))
         .background(BrandColors.background)
+        .task { await loadProjection() }
+        .onChange(of: enrichment.enrichmentRevision) { _, _ in
+            Task { await loadProjection() }
+        }
+    }
+
+    private func loadProjection() async {
+        await enrichment.refreshCandidates()
+        projection = await enrichment.projection()
+        await enrichment.enrichDerived()
+        projection = await enrichment.projection()
     }
 }
 

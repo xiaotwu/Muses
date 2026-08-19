@@ -3,10 +3,13 @@ import AppKit
 
 struct ArtistsView: View {
     @Binding var selectedArtist: Artist?
+    @Binding var selectedBrowsableArtist: BrowsableArtist?
     @Environment(LibraryService.self) private var library
+    @Environment(MetadataEnrichmentService.self) private var enrichment
     @State private var searchText = ""
     @State private var debouncedSearch = ""
     @State private var searchTask: Task<Void, Never>?
+    @State private var projection = BrowseProjection.empty
 
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: 16), count: 5)
@@ -14,8 +17,10 @@ struct ArtistsView: View {
 
     var body: some View {
         let artists = filteredArtists()
+        let derivedArtists = projection.artists.filter { !$0.isLocal }
+            .filter { q.isEmpty || $0.name.localizedCaseInsensitiveContains(q) }
         ScrollView {
-            if artists.isEmpty {
+            if artists.isEmpty && derivedArtists.isEmpty {
                 EmptyStateView(
                     icon: "person.2",
                     title: searchText.isEmpty ? tr("No artists in library", "资料库中没有艺术家") : tr("No results", "无搜索结果"))
@@ -27,6 +32,23 @@ struct ArtistsView: View {
                     }
                 }
                 .padding(20)
+
+                // P3 — YouTube-derived 艺术家(MusicBrainz 确认 ≥0.70 后 surfaced)。
+                if !derivedArtists.isEmpty {
+                    HStack {
+                        Text(tr("YouTube", "YouTube")).font(.headline)
+                            .foregroundStyle(BrandColors.textSecondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 20)
+                    LazyVGrid(columns: columns, spacing: 20) {
+                        ForEach(derivedArtists) { browsable in
+                            BrowsableArtistCard(browsable: browsable)
+                                .onTapGesture { selectedBrowsableArtist = browsable }
+                        }
+                    }
+                    .padding(20)
+                }
             }
         }
         .navigationTitle(tr("Artists", "艺术家"))
@@ -40,13 +62,25 @@ struct ArtistsView: View {
             }
         }
         .background(BrandColors.background)
+        .task { await loadProjection() }
+        .onChange(of: enrichment.enrichmentRevision) { _, _ in
+            Task { await loadProjection() }
+        }
     }
+
+    private var q: String { debouncedSearch.trimmingCharacters(in: .whitespaces) }
 
     private func filteredArtists() -> [Artist] {
         let all = library.allArtists()
-        let q = debouncedSearch.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return all }
         return all.filter { $0.name.localizedCaseInsensitiveContains(q) }
+    }
+
+    private func loadProjection() async {
+        await enrichment.refreshCandidates()
+        projection = await enrichment.projection()
+        await enrichment.enrichDerived()
+        projection = await enrichment.projection()
     }
 }
 

@@ -246,6 +246,52 @@ struct PhaseP3EnrichmentTests {
         #expect(derived.first?.canonicalIDs.musicBrainzReleaseGroup == "rg1")
     }
 
+    // MARK: - Artwork resolution (Browsable → ArtworkSource)
+
+    @Test("ArtworkSource.resolve(album): URL 优先;无 URL 派生回退首支 YT 缩略图;占位")
+    func artworkSourceResolution() {
+        // 有远程封面 URL → .remote(该 URL)
+        let withURL = BrowsableAlbum(id: "x", origin: .local, title: "T", artistName: "A",
+                                    year: nil, trackCount: 1, artworkURL: "https://cover.art/x",
+                                    artworkHash: nil, canonicalIDs: .empty,
+                                    confidence: 1.0, localAlbumID: nil, trackSnapshots: [])
+        if case .remote(let url) = ArtworkSource.resolve(for: withURL) {
+            #expect(url.absoluteString == "https://cover.art/x")
+        } else { Issue.record("有 artworkURL 应解析为 .remote") }
+
+        // 派生无封面 → 回退首支 YT 缩略图
+        let derivedNoHash = BrowsableAlbum(id: "y", origin: .youTubeDerived, title: "T",
+                                           artistName: "A", year: nil, trackCount: 1,
+                                           artworkURL: nil, artworkHash: nil, canonicalIDs: .empty,
+                                           confidence: 0.5, localAlbumID: nil,
+                                           trackSnapshots: [TrackSnapshot(id: UUID(), title: "s",
+                                               artist: "a", albumTitle: nil, durationSeconds: 1,
+                                               filePath: nil, youTubeId: "vid1", artworkHash: nil,
+                                               artworkUrl: nil, sampleRate: nil, bitDepth: nil,
+                                               codec: nil, isLossless: false)])
+        if case .remote(let url) = ArtworkSource.resolve(for: derivedNoHash) {
+            #expect(url.absoluteString.contains("ytimg.com/vi/vid1"))
+        } else { Issue.record("派生无封面应回退 YT 缩略图 .remote") }
+
+        // 本地无任何来源 → .placeholder
+        let empty = BrowsableAlbum(id: "z", origin: .local, title: "T", artistName: "A",
+                                   year: nil, trackCount: 0, artworkURL: nil, artworkHash: nil,
+                                   canonicalIDs: .empty, confidence: 1.0, localAlbumID: nil,
+                                   trackSnapshots: [])
+        if case .placeholder = ArtworkSource.resolve(for: empty) { /* ok */ } else {
+            Issue.record("无任何封面来源应为 .placeholder")
+        }
+
+        // 派生且无 YT 曲目 → .placeholder(不回退)
+        let derivedEmpty = BrowsableAlbum(id: "w", origin: .youTubeDerived, title: "T",
+                                          artistName: "A", year: nil, trackCount: 0,
+                                          artworkURL: nil, artworkHash: nil, canonicalIDs: .empty,
+                                          confidence: 0.5, localAlbumID: nil, trackSnapshots: [])
+        if case .placeholder = ArtworkSource.resolve(for: derivedEmpty) { /* ok */ } else {
+            Issue.record("派生无曲目也应为 .placeholder")
+        }
+    }
+
     // MARK: - Helpers
 
     private func mbReleaseGroup(title: String, artist: String, year: String, score: Int) -> MBReleaseGroup {
