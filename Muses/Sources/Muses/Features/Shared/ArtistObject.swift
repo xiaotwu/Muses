@@ -19,13 +19,16 @@ struct ArtistObjectView: View {
                 ArtworkView(source: artwork, glyphSize: 40,
                             clipCircle: true, targetSize: size)
                     .overlay(alignment: .bottom) { nowPlayingBadge }
-                    .overlay(alignment: .bottom) { hoverPlayOverlay }
                 Text(name).font(.subheadline).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
                 Text(detail).font(.caption).foregroundStyle(BrandColors.textSecondary).lineLimit(1)
             }
             .frame(width: size)
         }
         .buttonStyle(.plain)
+        .overlay(alignment: .top) {
+            hoverPlayOverlay
+                .frame(width: size, height: size, alignment: .bottom)
+        }
         .onHover { hovering = $0 }
         .offset(y: liftOffset)
         .animation(MusesMotion.hoverAnimation(reduceMotion: reduceMotion), value: hovering)

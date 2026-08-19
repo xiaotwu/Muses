@@ -19,6 +19,8 @@ struct RootView: View {
     @State private var showImport = false
     @State private var showYouTubeLink = false
     @State private var showNowPlaying = false
+    /// Keeps `LiveCoverHost` mounted through the close morph so PlayerBar still has a pair.
+    @State private var liveCoverHostRetained = false
     @State private var nowPlayingShowLyrics = true
     @State private var windowWidth: CGFloat = 1440
     @State private var showQueue = false
@@ -221,6 +223,16 @@ struct RootView: View {
             .animation(.easeInOut(duration: 0.2), value: showSearch)
             .onChange(of: showNowPlaying) { _, open in
                 if !open { nowPlayingShowLyrics = true }
+                if open {
+                    liveCoverHostRetained = !skipArtworkMorph
+                } else if liveCoverHostRetained {
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: UInt64(MusesMotion.nowPlayingMorph * 1_000_000_000))
+                        if !showNowPlaying {
+                            liveCoverHostRetained = false
+                        }
+                    }
+                }
             }
     }
 
@@ -253,19 +265,23 @@ struct RootView: View {
 
     @ViewBuilder
     private func liveCoverHost(proxy: GeometryProxy, anchor: Anchor<CGRect>?) -> some View {
-        if showNowPlaying, !skipArtworkMorph,
-           let trackID = playback.state.track?.id,
-           let anchor {
-            let rect = proxy[anchor]
-            LiveCoverHost(
+        if (showNowPlaying || liveCoverHostRetained), !skipArtworkMorph,
+           let trackID = playback.state.track?.id {
+            let host = LiveCoverHost(
                 source: ArtworkSource.resolve(for: playback.state.track),
                 trackID: trackID,
                 namespace: artworkWorld,
                 isSource: showNowPlaying,
                 isPresented: showNowPlaying
             )
-            .frame(width: rect.width, height: rect.height)
-            .offset(x: rect.minX, y: rect.minY)
+            if let anchor {
+                let rect = proxy[anchor]
+                host
+                    .frame(width: rect.width, height: rect.height)
+                    .offset(x: rect.minX, y: rect.minY)
+            } else if liveCoverHostRetained, !showNowPlaying {
+                host.opacity(0)
+            }
         }
     }
 }

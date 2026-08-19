@@ -25,9 +25,9 @@ struct HeroObjectView: View {
                 )
                 .shadow(radius: 20)
                 .overlay(alignment: .bottomLeading) { nowPlayingBadge }
-                .overlay(alignment: .bottomTrailing) { hoverPlayOverlay }
             }
             .buttonStyle(.plain)
+            .overlay(alignment: .bottomTrailing) { hoverPlayOverlay }
             .onHover { hovering = $0 }
             .offset(y: liftOffset)
             .animation(MusesMotion.hoverAnimation(reduceMotion: reduceMotion), value: hovering)

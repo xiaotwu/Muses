@@ -39,6 +39,10 @@ struct AlbumObjectView: View {
             .frame(width: size)
         }
         .buttonStyle(.plain)
+        .overlay(alignment: .topLeading) {
+            hoverPlayOverlay
+                .frame(width: size, height: size, alignment: .bottomTrailing)
+        }
         .onHover { hovering = $0 }
         .offset(y: liftOffset)
         .animation(MusesMotion.hoverAnimation(reduceMotion: reduceMotion), value: hovering)
@@ -60,7 +64,6 @@ struct AlbumObjectView: View {
         ArtworkView(source: artwork, cornerRadius: cornerRadius,
                     glyphSize: size > 180 ? 40 : 28, targetSize: size)
             .overlay(alignment: .bottomLeading) { nowPlayingBadge }
-            .overlay(alignment: .bottomTrailing) { hoverPlayOverlay }
     }
 
     @ViewBuilder
