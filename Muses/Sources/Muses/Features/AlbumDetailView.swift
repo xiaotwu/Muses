@@ -130,6 +130,8 @@ struct AlbumDetailView: View {
                     indexLabel: "\(track.trackNo ?? 0)",
                     artwork: ArtworkSource.localHash(track.localArtworkHash ?? track.album?.artworkHash),
                     isSelected: selectedTrackID == track.id,
+                    nowPlayingID: track.id,
+                    showsHoverPlay: true,
                     isLossless: track.isLossless,
                     isLiked: likedSet.contains(track.id),
                     onToggleLike: { library.toggleLike(track) },

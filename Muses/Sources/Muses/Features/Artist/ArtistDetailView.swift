@@ -14,6 +14,8 @@ struct ArtistDetailView: View {
     /// 批量已喜欢 id 集合,避免每行单独 fetch。
     @State private var likedSet: Set<UUID> = []
     @State private var selectedTrackID: UUID?
+    @State private var playingAlbumID: UUID?
+    @State private var playingArtistID: UUID?
 
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: 16), count: 4)
@@ -52,9 +54,10 @@ struct ArtistDetailView: View {
                 Button { selection = nil } label: { Image(systemName: "chevron.backward") }
             }
         }
-        .onAppear { extractGradient(); refreshLikedSet() }
+        .onAppear { extractGradient(); refreshLikedSet(); refreshPlayingCollection() }
         .onDisappear { gradientTask?.cancel(); gradientTask = nil }
         .onChange(of: library.likedRevision) { _, _ in refreshLikedSet() }
+        .onChange(of: playback.state.track?.id) { _, _ in refreshPlayingCollection() }
     }
 
     private var header: some View {
@@ -95,6 +98,8 @@ struct ArtistDetailView: View {
                         artwork: ArtworkSource.localHash(album.artworkHash),
                         size: MusicObjectMetrics.albumGrid,
                         role: .browse,
+                        isNowPlaying: album.id == playingAlbumID,
+                        showsHoverPlay: true,
                         onSelect: { selectedAlbum = album },
                         onPlay: { playAlbum(album) }
                     )
@@ -119,6 +124,8 @@ struct ArtistDetailView: View {
                         durationLabel: songDuration(track.durationSeconds),
                         artwork: ArtworkSource.localHash(track.localArtworkHash ?? track.album?.artworkHash),
                         isSelected: selectedTrackID == track.id,
+                        nowPlayingID: track.id,
+                        showsHoverPlay: true,
                         isLossless: track.isLossless,
                         isLiked: likedSet.contains(track.id),
                         onToggleLike: { library.toggleLike(track) },
@@ -132,6 +139,12 @@ struct ArtistDetailView: View {
                 }
             }
         }
+    }
+
+    private func refreshPlayingCollection() {
+        let id = playback.state.track?.id
+        playingAlbumID = id.flatMap { library.track(by: $0)?.album?.id }
+        playingArtistID = id.flatMap { library.track(by: $0)?.artistRef?.id }
     }
 
     private func play(_ track: Track) {

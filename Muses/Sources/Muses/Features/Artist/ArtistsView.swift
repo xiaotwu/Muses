@@ -10,6 +10,8 @@ struct ArtistsView: View {
     @State private var debouncedSearch = ""
     @State private var searchTask: Task<Void, Never>?
     @State private var projection = BrowseProjection.empty
+    @State private var playingAlbumID: UUID?
+    @State private var playingArtistID: UUID?
 
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: 16), count: 5)
@@ -32,6 +34,8 @@ struct ArtistsView: View {
                             detail: "\(artist.albums.count) \(tr("albums", "张专辑"))",
                             artwork: ArtworkSource.localHash(artist.artworkHash),
                             size: MusicObjectMetrics.artistGrid,
+                            isNowPlaying: artist.id == playingArtistID,
+                            showsHoverPlay: true,
                             onSelect: { selectedArtist = artist },
                             onPlay: { playArtist(artist, shuffle: false) }
                         )
@@ -55,6 +59,8 @@ struct ArtistsView: View {
                         ForEach(derivedArtists) { browsable in
                             BrowsableArtistCard(
                                 browsable: browsable,
+                                isNowPlaying: browsable.localArtistID == playingArtistID,
+                                showsHoverPlay: true,
                                 onSelect: { selectedBrowsableArtist = browsable },
                                 onPlay: { playBrowsable(browsable) }
                             )
@@ -76,6 +82,8 @@ struct ArtistsView: View {
         }
         .background(BrandColors.background)
         .task { await loadProjection() }
+        .onAppear { refreshPlayingCollection() }
+        .onChange(of: playback.state.track?.id) { _, _ in refreshPlayingCollection() }
         .onChange(of: enrichment.enrichmentRevision) { _, _ in
             Task { await loadProjection() }
         }
@@ -87,6 +95,12 @@ struct ArtistsView: View {
         let all = library.allArtists()
         guard !q.isEmpty else { return all }
         return all.filter { $0.name.localizedCaseInsensitiveContains(q) }
+    }
+
+    private func refreshPlayingCollection() {
+        let id = playback.state.track?.id
+        playingAlbumID = id.flatMap { library.track(by: $0)?.album?.id }
+        playingArtistID = id.flatMap { library.track(by: $0)?.artistRef?.id }
     }
 
     /// 艺术家卡片右键:播放该艺术家全部曲目(可选随机)。

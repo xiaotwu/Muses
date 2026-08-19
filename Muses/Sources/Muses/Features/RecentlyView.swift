@@ -6,6 +6,8 @@ struct RecentlyView: View {
     @Binding var selectedAlbum: Album?
     @Environment(LibraryService.self) private var library
     @Environment(PlaybackService.self) private var playback
+    @State private var playingAlbumID: UUID?
+    @State private var playingArtistID: UUID?
 
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: 16), count: 4)
@@ -37,6 +39,8 @@ struct RecentlyView: View {
                             artwork: ArtworkSource.localHash(album.artworkHash),
                             size: MusicObjectMetrics.albumGrid,
                             role: .browse,
+                            isNowPlaying: album.id == playingAlbumID,
+                            showsHoverPlay: true,
                             onSelect: { selectedAlbum = album },
                             onPlay: { playAlbum(album) }
                         )
@@ -52,6 +56,14 @@ struct RecentlyView: View {
         }
         .navigationTitle(tr("Recently", "最近"))
         .background(BrandColors.background)
+        .onAppear { refreshPlayingCollection() }
+        .onChange(of: playback.state.track?.id) { _, _ in refreshPlayingCollection() }
+    }
+
+    private func refreshPlayingCollection() {
+        let id = playback.state.track?.id
+        playingAlbumID = id.flatMap { library.track(by: $0)?.album?.id }
+        playingArtistID = id.flatMap { library.track(by: $0)?.artistRef?.id }
     }
 
     private func playAlbum(_ album: Album) {

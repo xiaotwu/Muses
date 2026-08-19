@@ -9,6 +9,8 @@ struct LibraryView: View {
     @Environment(PlaybackService.self) private var playback
     @Environment(MetadataEnrichmentService.self) private var enrichment
     @State private var projection = BrowseProjection.empty
+    @State private var playingAlbumID: UUID?
+    @State private var playingArtistID: UUID?
 
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: 16), count: 5)
@@ -36,6 +38,8 @@ struct LibraryView: View {
                             artwork: ArtworkSource.localHash(album.artworkHash),
                             size: MusicObjectMetrics.albumGrid,
                             role: .browse,
+                            isNowPlaying: album.id == playingAlbumID,
+                            showsHoverPlay: true,
                             onSelect: { selectedAlbum = album },
                             onPlay: { playAlbum(album) }
                         )
@@ -60,6 +64,8 @@ struct LibraryView: View {
                         ForEach(derivedAlbums) { browsable in
                             BrowsableAlbumCard(
                                 browsable: browsable,
+                                isNowPlaying: browsable.localAlbumID == playingAlbumID,
+                                showsHoverPlay: true,
                                 onSelect: { selectedBrowsableAlbum = browsable },
                                 onPlay: { playBrowsable(browsable) }
                             )
@@ -72,6 +78,8 @@ struct LibraryView: View {
         .navigationTitle(tr("Albums", "专辑"))
         .background(BrandColors.background)
         .task { await loadProjection() }
+        .onAppear { refreshPlayingCollection() }
+        .onChange(of: playback.state.track?.id) { _, _ in refreshPlayingCollection() }
         .onChange(of: enrichment.enrichmentRevision) { _, _ in
             Task { await loadProjection() }
         }
@@ -82,6 +90,12 @@ struct LibraryView: View {
         projection = await enrichment.projection()
         await enrichment.enrichDerived()
         projection = await enrichment.projection()
+    }
+
+    private func refreshPlayingCollection() {
+        let id = playback.state.track?.id
+        playingAlbumID = id.flatMap { library.track(by: $0)?.album?.id }
+        playingArtistID = id.flatMap { library.track(by: $0)?.artistRef?.id }
     }
 
     private func playAlbum(_ album: Album) {
@@ -138,6 +152,8 @@ struct SongsListView: View {
                         durationLabel: songDuration(track.durationSeconds),
                         artwork: ArtworkSource.localHash(track.localArtworkHash ?? track.album?.artworkHash),
                         isSelected: selectedSongID == track.id,
+                        nowPlayingID: track.id,
+                        showsHoverPlay: true,
                         playsOnDoubleClick: true,
                         isLossless: track.isLossless,
                         isLiked: likedSet.contains(track.id),
@@ -226,6 +242,8 @@ struct LikedView: View {
                         durationLabel: songDuration(track.durationSeconds),
                         artwork: ArtworkSource.localHash(track.localArtworkHash ?? track.album?.artworkHash),
                         isSelected: selectedSongID == track.id,
+                        nowPlayingID: track.id,
+                        showsHoverPlay: true,
                         isLossless: track.isLossless,
                         isLiked: true,
                         onToggleLike: { library.toggleLike(track) },

@@ -6,6 +6,8 @@ import AppKit
 /// 派生专辑卡片(YouTube-derived)。Album 对象 + YT 来源标识。
 struct BrowsableAlbumCard: View {
     let browsable: BrowsableAlbum
+    var isNowPlaying: Bool = false
+    var showsHoverPlay: Bool = false
     var onSelect: () -> Void
     var onPlay: () -> Void
 
@@ -16,6 +18,8 @@ struct BrowsableAlbumCard: View {
             artwork: ArtworkSource.resolve(for: browsable),
             size: MusicObjectMetrics.albumGrid,
             role: .browse,
+            isNowPlaying: isNowPlaying,
+            showsHoverPlay: showsHoverPlay,
             onSelect: onSelect,
             onPlay: onPlay
         )
@@ -37,6 +41,8 @@ struct BrowsableAlbumCard: View {
 /// 派生艺术家卡片(圆形封面 + YT 来源标识)。
 struct BrowsableArtistCard: View {
     let browsable: BrowsableArtist
+    var isNowPlaying: Bool = false
+    var showsHoverPlay: Bool = false
     var onSelect: () -> Void
     var onPlay: () -> Void
 
@@ -46,6 +52,8 @@ struct BrowsableArtistCard: View {
             detail: "\(browsable.trackCount) \(tr("songs", "首歌曲"))",
             artwork: ArtworkSource.resolve(for: browsable),
             size: MusicObjectMetrics.artistGrid,
+            isNowPlaying: isNowPlaying,
+            showsHoverPlay: showsHoverPlay,
             onSelect: onSelect,
             onPlay: onPlay
         )
@@ -125,6 +133,8 @@ struct DerivedAlbumDetailView: View {
                     indexLabel: "\(idx + 1)",
                     artwork: ArtworkSource.resolve(for: snap),
                     isSelected: selectedTrackID == snap.id,
+                    nowPlayingID: snap.id,
+                    showsHoverPlay: true,
                     isLossless: snap.isLossless,
                     onSelect: { selectedTrackID = snap.id; play(snap) },
                     onPlay: { play(snap) }
@@ -201,6 +211,8 @@ struct DerivedArtistDetailView: View {
                     indexLabel: "\(idx + 1)",
                     artwork: ArtworkSource.resolve(for: snap),
                     isSelected: selectedTrackID == snap.id,
+                    nowPlayingID: snap.id,
+                    showsHoverPlay: true,
                     isLossless: snap.isLossless,
                     onSelect: { selectedTrackID = snap.id; play(snap) },
                     onPlay: { play(snap) }
