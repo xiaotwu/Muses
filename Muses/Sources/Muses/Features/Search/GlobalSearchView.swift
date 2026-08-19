@@ -39,6 +39,7 @@ struct GlobalSearchView: View {
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(BrandColors.hairline, lineWidth: 1))
                 .transition(.opacity.combined(with: .scale(scale: 0.96)))
         }
+        .onExitCommand { close() }
         .animation(.easeInOut(duration: 0.2), value: isPresented)
         .onAppear { searchFieldFocused = true }
     }
@@ -56,6 +57,11 @@ struct GlobalSearchView: View {
                 .textFieldStyle(.plain)
                 .focused($searchFieldFocused)
                 .onSubmit { /* debounce 自动触发 */ }
+                .onExitCommand { close() }
+                .onKeyPress(.escape) {
+                    close()
+                    return .handled
+                }
 
                 if search.isSearchingYouTube {
                     ProgressView().controlSize(.small)

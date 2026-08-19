@@ -26,8 +26,12 @@ struct SidebarView: View {
             List(selection: $selection) {
                 // 顶级项
                 Section {
-                    Label(tr("Search", "搜索"), systemImage: "magnifyingglass")
-                        .tag(SidebarSection.search)
+                    Button {
+                        NotificationCenter.default.post(name: .musesFocusSearch, object: nil)
+                    } label: {
+                        Label(tr("Search", "搜索"), systemImage: "magnifyingglass")
+                    }
+                    .buttonStyle(.plain)
                     Label(tr("Home", "首页"), systemImage: "house")
                         .tag(SidebarSection.home)
                     Label(tr("New", "新发现"), systemImage: "sparkles")
