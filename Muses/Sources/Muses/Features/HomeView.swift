@@ -150,20 +150,13 @@ struct HomeView: View {
 
     private func heroSection(_ album: Album) -> some View {
         HStack(spacing: 24) {
-            // 大封面
-            let art = album.artworkHash.flatMap { ArtworkCache.default.path(forHash: $0) }
-                .map { NSImage(byReferencing: $0) }
-            if let img = art {
-                Image(nsImage: img).resizable().scaledToFill()
-                    .frame(width: 200, height: 200)
-                    .clipped().cornerRadius(12)
-                    .shadow(radius: 20)
-            } else {
-                RoundedRectangle(cornerRadius: 12).fill(BrandColors.surface)
-                    .frame(width: 200, height: 200)
-                    .overlay(Image(systemName: "music.note").font(.largeTitle))
-                    .shadow(radius: 20)
-            }
+            ArtworkView(
+                source: ArtworkSource.localHash(album.artworkHash),
+                cornerRadius: 12,
+                glyphSize: 32,
+                targetSize: 200
+            )
+            .shadow(radius: 20)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text(tr("FEATURED", "推荐"))
@@ -471,25 +464,13 @@ struct RecentTrackCard: View {
         .buttonStyle(.plain)
     }
 
-    @ViewBuilder
     private var artwork: some View {
-        if let hash = snap.artworkHash,
-           let path = ArtworkCache.default.path(forHash: hash) {
-            Image(nsImage: NSImage(byReferencing: path)).resizable().scaledToFill()
-        } else if let vid = snap.youTubeId,
-                  let url = URL(string: "https://i.ytimg.com/vi/\(vid)/hqdefault.jpg") {
-            CachedAsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: { placeholder }
-        } else if let urlStr = snap.artworkUrl, let url = URL(string: urlStr) {
-            CachedAsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: { placeholder }
-        } else {
-            placeholder
-        }
-    }
-
-    private var placeholder: some View {
-        RoundedRectangle(cornerRadius: 8).fill(BrandColors.surface)
-            .overlay(Image(systemName: "music.note").font(.title)
-                .foregroundStyle(BrandColors.textSecondary.opacity(0.5)))
+        ArtworkView(
+            source: ArtworkSource.resolve(for: snap),
+            cornerRadius: 8,
+            glyphSize: 32,
+            targetSize: 120
+        )
     }
 }
 

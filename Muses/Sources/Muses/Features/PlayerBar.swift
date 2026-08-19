@@ -46,21 +46,12 @@ struct PlayerBar: View {
     }
 
     private var artwork: some View {
-        Group {
-            if let h = playback.state.track?.artworkHash,
-               let p = ArtworkCache.default.path(forHash: h) {
-                Image(nsImage: NSImage(byReferencing: p)).resizable().scaledToFill()
-            } else if let vid = playback.state.track?.youTubeId,
-                      let url = URL(string: "https://i.ytimg.com/vi/\(vid)/hqdefault.jpg") {
-                AsyncImage(url: url) { phase in
-                    if let img = phase.image { img.resizable().scaledToFill() }
-                    else { Rectangle().fill(BrandColors.surface) }
-                }
-            } else {
-                Rectangle().fill(BrandColors.surface)
-            }
-        }
-        .clipped()
+        ArtworkView(
+            source: ArtworkSource.resolve(for: playback.state.track),
+            cornerRadius: 6,
+            glyphSize: 20,
+            targetSize: 52
+        )
     }
 
     /// "…" 溢出菜单(图三):收藏 / 添加到歌单 / 显示在专辑中 / 显示在艺术家中 /

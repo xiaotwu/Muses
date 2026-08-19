@@ -10,6 +10,7 @@ struct ArtistDetailView: View {
     @Query(sort: \Playlist.name) private var allPlaylists: [Playlist]
     @Binding var selectedAlbum: Album?
     @State private var gradient: [Color] = [BrandColors.background, BrandColors.surface]
+    @State private var gradientTask: Task<Void, Never>?
     /// 批量已喜欢 id 集合,避免每行 `TrackRow` 单独 fetch。
     @State private var likedSet: Set<UUID> = []
 
@@ -50,23 +51,18 @@ struct ArtistDetailView: View {
             }
         }
         .onAppear { extractGradient(); refreshLikedSet() }
+        .onDisappear { gradientTask?.cancel(); gradientTask = nil }
         .onChange(of: library.likedRevision) { _, _ in refreshLikedSet() }
     }
 
     private var header: some View {
         HStack(alignment: .top, spacing: 20) {
-            let art = artist.artworkHash.flatMap { ArtworkCache.default.path(forHash: $0) }
-                .map { NSImage(byReferencing: $0) }
-            ZStack {
-                Circle().fill(BrandColors.surface).frame(width: 180, height: 180)
-                if let img = art {
-                    Image(nsImage: img).resizable().scaledToFill()
-                        .frame(width: 180, height: 180).clipShape(Circle())
-                } else {
-                    Image(systemName: "person.2.fill").font(.system(size: 48))
-                        .foregroundStyle(BrandColors.textSecondary)
-                }
-            }
+            ArtworkView(
+                source: ArtworkSource.localHash(artist.artworkHash),
+                glyphSize: 48,
+                clipCircle: true,
+                targetSize: 180
+            )
             VStack(alignment: .leading, spacing: 8) {
                 Text(artist.name).font(.largeTitle).fontWeight(.bold)
                     .foregroundStyle(BrandColors.textPrimary)
@@ -131,11 +127,19 @@ struct ArtistDetailView: View {
     }
 
     private func extractGradient() {
-        // 从第一张专辑封面提取渐变色
-        guard let album = albums.first,
-              let h = album.artworkHash, let p = ArtworkCache.default.path(forHash: h),
-              let img = NSImage(contentsOf: p) else { return }
-        let colors = AlbumArtworkExtractor.dominantColors(img, count: 3)
-        gradient = colors.map { Color(nsColor: $0) } + [BrandColors.background]
+        gradientTask?.cancel()
+        guard let album = albums.first else { return }
+        let source = ArtworkSource.localHash(album.artworkHash)
+        guard case .localFile = source else { return }
+        let expectedArtistID = artist.id
+        gradientTask = Task { @MainActor in
+            let img = await Task.detached(priority: .userInitiated) {
+                source.loadNSImage()
+            }.value
+            guard !Task.isCancelled, artist.id == expectedArtistID, let img else { return }
+            let colors = AlbumArtworkExtractor.dominantColors(img, count: 3)
+            guard !Task.isCancelled else { return }
+            gradient = colors.map { Color(nsColor: $0) } + [BrandColors.background]
+        }
     }
 }

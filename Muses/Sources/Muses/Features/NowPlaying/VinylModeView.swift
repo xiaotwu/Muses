@@ -70,7 +70,7 @@ struct VinylModeView: View {
 
     @ViewBuilder
     private var artwork: some View {
-        ArtworkView(source: source, cornerRadius: 0, glyphSize: 60)
+        ArtworkView(source: source, cornerRadius: 0, glyphSize: 60, targetSize: 288)
     }
 
     /// 基于 TimelineView 的 date 累积旋转角度; 暂停或 Reduce Motion 时不增。

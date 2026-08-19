@@ -1,10 +1,8 @@
 import SwiftUI
-import AppKit
 
 /// Phase D4 — 方形/16:9 发现卡片原语:封面 + 标题 + 副标题,横向滚动友好。
 ///
-/// 统一本地专辑(artworkHash → ArtworkCache)与 YouTube(thumbnailURL → CachedAsyncImage)
-/// 的卡片呈现。封面大小由 `size` 与 `aspect` 控制;点击经 `onTap`。
+/// 统一本地专辑与远程封面,经 `ArtworkView` 显示。封面大小由 `size` 与 `aspect` 控制;点击经 `onTap`。
 struct DiscoveryCard: View {
     enum Aspect { case square, wide169 }
     let title: String
@@ -50,23 +48,20 @@ struct DiscoveryCard: View {
         .accessibilityLabel(subtitle.map { "\(title) — \($0)" } ?? title)
     }
 
-    @ViewBuilder
-    private var artwork: some View {
-        if let path = artworkPath,
-           let img = NSImage(contentsOf: path) {
-            Image(nsImage: img).resizable().scaledToFill()
-        } else if let remoteURL {
-            CachedAsyncImage(url: remoteURL, lowResURL: lowResURL,
-                             content: { $0.resizable().scaledToFill() },
-                             placeholder: { placeholder })
-        } else {
-            placeholder
-        }
+    private var artworkSource: ArtworkSource {
+        // Type API keeps lowResURL / fallbackSymbol; decode + placeholder live on ArtworkView.
+        _ = (lowResURL, fallbackSymbol)
+        if let path = artworkPath { return .localFile(path) }
+        if let remoteURL { return .remote(remoteURL) }
+        return .placeholder
     }
 
-    private var placeholder: some View {
-        Rectangle().fill(BrandColors.surface)
-            .overlay(Image(systemName: fallbackSymbol).font(.title)
-                .foregroundStyle(BrandColors.textSecondary.opacity(0.5)))
+    private var artwork: some View {
+        ArtworkView(
+            source: artworkSource,
+            cornerRadius: 8,
+            glyphSize: 32,
+            targetSize: size
+        )
     }
 }

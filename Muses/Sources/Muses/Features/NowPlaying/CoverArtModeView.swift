@@ -7,7 +7,7 @@ struct CoverArtModeView: View {
     let source: ArtworkSource
 
     var body: some View {
-        ArtworkView(source: source, cornerRadius: 12, glyphSize: 80)
+        ArtworkView(source: source, cornerRadius: 12, glyphSize: 80, targetSize: 480)
             .frame(width: 480, height: 480)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .shadow(radius: 24)

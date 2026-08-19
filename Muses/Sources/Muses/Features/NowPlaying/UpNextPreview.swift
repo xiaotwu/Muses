@@ -32,7 +32,7 @@ struct UpNextPreview: View {
                     } label: {
                         HStack(spacing: 10) {
                             ArtworkView(source: ArtworkSource.resolve(for: item.track),
-                                        cornerRadius: 4, glyphSize: 14)
+                                        cornerRadius: 4, glyphSize: 14, targetSize: 36)
                                 .frame(width: 36, height: 36)
                                 .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                             VStack(alignment: .leading, spacing: 2) {

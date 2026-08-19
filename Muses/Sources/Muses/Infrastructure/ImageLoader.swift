@@ -49,14 +49,25 @@ final class ImageLoader {
             let img = await Task.detached(priority: .userInitiated) { () -> NSImage? in
                 guard let src = NSImage(contentsOf: url) else { return nil }
                 let scale: CGFloat = 2
-                let px = max(targetSize * scale, 1)
-                let newSize = NSSize(width: px, height: px)
-                let dest = NSImage(size: newSize)
-                dest.lockFocus()
-                src.draw(in: NSRect(origin: .zero, size: newSize),
-                         from: NSRect(origin: .zero, size: src.size),
-                         operation: .copy, fraction: 1)
-                dest.unlockFocus()
+                let px = max(Int((targetSize * scale).rounded()), 1)
+                guard let bitmap = NSBitmapImageRep(
+                    bitmapDataPlanes: nil,
+                    pixelsWide: px,
+                    pixelsHigh: px,
+                    bitsPerSample: 8,
+                    samplesPerPixel: 4,
+                    hasAlpha: true,
+                    isPlanar: false,
+                    colorSpaceName: .deviceRGB,
+                    bytesPerRow: px * 4,
+                    bitsPerPixel: 32
+                ) else { return nil }
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+                src.draw(in: NSRect(x: 0, y: 0, width: px, height: px))
+                NSGraphicsContext.restoreGraphicsState()
+                let dest = NSImage(size: NSSize(width: px, height: px))
+                dest.addRepresentation(bitmap)
                 return dest
             }.value
             if let img {

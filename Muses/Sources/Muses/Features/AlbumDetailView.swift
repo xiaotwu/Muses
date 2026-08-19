@@ -10,6 +10,7 @@ struct AlbumDetailView: View {
     @Environment(NotesService.self) private var notes
     @Query(sort: \Playlist.name) private var allPlaylists: [Playlist]
     @State private var gradient: [Color] = [BrandColors.background, BrandColors.surface]
+    @State private var gradientTask: Task<Void, Never>?
     /// 批量已喜欢 id 集合,避免每行 `TrackRow` 单独 fetch。
     @State private var likedSet: Set<UUID> = []
     @State private var showAlbumNotes = false
@@ -34,6 +35,7 @@ struct AlbumDetailView: View {
             }
         }
         .onAppear { extractGradient(); refreshLikedSet() }
+        .onDisappear { gradientTask?.cancel(); gradientTask = nil }
         .onChange(of: library.likedRevision) { _, _ in refreshLikedSet() }
         .sheet(isPresented: $showAlbumNotes) {
             AlbumNotesSheet(album: album)
@@ -109,15 +111,12 @@ struct AlbumDetailView: View {
     }
 
     private var artwork: some View {
-        Group {
-            if let h = album.artworkHash, let p = ArtworkCache.default.path(forHash: h) {
-                Image(nsImage: NSImage(byReferencing: p)).resizable().scaledToFill()
-            } else {
-                RoundedRectangle(cornerRadius: 12).fill(BrandColors.surface)
-                    .overlay(Image(systemName: "music.note").font(.largeTitle))
-            }
-        }
-        .clipped().cornerRadius(12)
+        ArtworkView(
+            source: ArtworkSource.localHash(album.artworkHash),
+            cornerRadius: 12,
+            glyphSize: 32,
+            targetSize: 240
+        )
     }
 
     private var trackList: some View {
@@ -152,10 +151,19 @@ struct AlbumDetailView: View {
     }
 
     private func extractGradient() {
-        guard let h = album.artworkHash, let p = ArtworkCache.default.path(forHash: h),
-              let img = NSImage(contentsOf: p) else { return }
-        let colors = AlbumArtworkExtractor.dominantColors(img, count: 4)
-        gradient = colors.map { Color(nsColor: $0) } + [BrandColors.background]
+        gradientTask?.cancel()
+        let source = ArtworkSource.localHash(album.artworkHash)
+        guard case .localFile = source else { return }
+        let expectedID = album.id
+        gradientTask = Task { @MainActor in
+            let img = await Task.detached(priority: .userInitiated) {
+                source.loadNSImage()
+            }.value
+            guard !Task.isCancelled, album.id == expectedID, let img else { return }
+            let colors = AlbumArtworkExtractor.dominantColors(img, count: 4)
+            guard !Task.isCancelled else { return }
+            gradient = colors.map { Color(nsColor: $0) } + [BrandColors.background]
+        }
     }
 
     private func formatDuration(_ s: Double) -> String {

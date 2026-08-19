@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 import SwiftData
 
 struct LibraryView: View {
@@ -76,15 +75,12 @@ struct AlbumCard: View {
         let _ = library.pinRevision
         let pinned = library.isPinned(album)
         VStack(alignment: .leading, spacing: 8) {
-            let art = album.artworkHash.flatMap { ArtworkCache.default.path(forHash: $0) }
-                .map { NSImage(byReferencing: $0) }
-            if let img = art {
-                Image(nsImage: img).resizable().scaledToFill()
-                    .frame(width: 200, height: 200).clipped().cornerRadius(8)
-            } else {
-                RoundedRectangle(cornerRadius: 8).fill(BrandColors.surface)
-                    .frame(width: 200, height: 200).overlay(Image(systemName: "music.note"))
-            }
+            ArtworkView(
+                source: ArtworkSource.localHash(album.artworkHash),
+                cornerRadius: 8,
+                glyphSize: 32,
+                targetSize: 200
+            )
             Text(album.title).font(.subheadline).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
             Text(album.albumArtist).font(.caption).foregroundStyle(BrandColors.textSecondary).lineLimit(1)
         }
@@ -257,16 +253,12 @@ struct SongRow: View {
     }
 
     private var artwork: some View {
-        Group {
-            let hash = track.localArtworkHash ?? track.album?.artworkHash
-            if let h = hash, let p = ArtworkCache.default.path(forHash: h) {
-                Image(nsImage: NSImage(byReferencing: p)).resizable().scaledToFill()
-            } else {
-                RoundedRectangle(cornerRadius: 4).fill(BrandColors.surface)
-                    .overlay(Image(systemName: "music.note").font(.title3))
-            }
-        }
-        .clipped()
+        ArtworkView(
+            source: ArtworkSource.localHash(track.localArtworkHash ?? track.album?.artworkHash),
+            cornerRadius: 4,
+            glyphSize: 16,
+            targetSize: 40
+        )
     }
 
     private func formatDuration(_ s: Double) -> String {
