@@ -5,6 +5,8 @@ import AppKit
 /// 克隆 QueueDrawerView 的 scrim+panel 模式,但居中而非 trailing。
 struct GlobalSearchView: View {
     @Binding var isPresented: Bool
+    @Binding var showLocalFolder: Bool
+    @Binding var showYouTubeLink: Bool
     @Environment(GlobalSearchService.self) private var search
     @Environment(PlaybackService.self) private var playback
     @Environment(LibraryService.self) private var library
@@ -58,6 +60,8 @@ struct GlobalSearchView: View {
                 if search.isSearchingYouTube {
                     ProgressView().controlSize(.small)
                 }
+                // P5 issue #6 — 「+」导入菜单仅在 Search 面板内。
+                AddMusicMenu(showLocalFolder: $showLocalFolder, showYouTubeLink: $showYouTubeLink)
                 Button { close() } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(BrandColors.textSecondary)

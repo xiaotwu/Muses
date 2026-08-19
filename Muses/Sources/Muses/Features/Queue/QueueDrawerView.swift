@@ -6,7 +6,7 @@ struct QueueDrawerView: View {
     @Environment(PlaybackService.self) private var playback
     @Binding var isPresented: Bool
     /// Phase 19 Advanced Queue:关闭时维持既有 UI(分组/历史标签/还原/移除均隐藏)。
-    @AppStorage(PrefKey.ffAdvancedQueue) private var advancedQueue = false
+    @AppStorage(PrefKey.ffAdvancedQueue) private var advancedQueue = true
     /// 重命名分组 alert 的目标分组 id 与临时文本。
     @State private var renameTarget: QueueGroup.ID?
     @State private var renameText = ""

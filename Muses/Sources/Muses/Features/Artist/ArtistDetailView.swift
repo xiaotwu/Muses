@@ -1,11 +1,13 @@
 import SwiftUI
 import AppKit
+import SwiftData
 
 struct ArtistDetailView: View {
     let artist: Artist
     @Binding var selection: Artist?
     @Environment(LibraryService.self) private var library
     @Environment(PlaybackService.self) private var playback
+    @Query(sort: \Playlist.name) private var allPlaylists: [Playlist]
     @Binding var selectedAlbum: Album?
     @State private var gradient: [Color] = [BrandColors.background, BrandColors.surface]
     /// 批量已喜欢 id 集合,避免每行 `TrackRow` 单独 fetch。
@@ -70,6 +72,7 @@ struct ArtistDetailView: View {
                     .foregroundStyle(BrandColors.textPrimary)
                 if let genre = artist.primaryGenre {
                     Text(genre).font(.caption).foregroundStyle(BrandColors.cyan)
+                        .glow(BrandColors.cyan, radius: 2)
                 }
                 Text("\(albums.count) \(tr("albums", "张专辑")) · \(tracks.count) \(tr("songs", "首歌曲"))")
                     .font(.title3).foregroundStyle(BrandColors.textSecondary)
@@ -102,6 +105,10 @@ struct ArtistDetailView: View {
                 ForEach(tracks, id: \.id) { track in
                     TrackRow(track: track, showHeart: true, likedIDs: likedSet)
                         .onTapGesture { play(track) }
+                        .trackContextMenu(snapshot: TrackSnapshot(from: track),
+                                          track: track,
+                                          playlists: allPlaylists,
+                                          onPlay: { play(track) })
                         .padding(.vertical, 6)
                 }
             }

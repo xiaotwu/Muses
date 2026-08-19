@@ -9,6 +9,7 @@ struct PlaylistDetailView: View {
     @Binding var selectedPlaylist: Playlist?
     @Environment(PlaylistService.self) private var playlistService
     @Environment(PlaybackService.self) private var playback
+    @Query(sort: \Playlist.name) private var allPlaylists: [Playlist]
     @State private var showAddTrackSheet = false
     @State private var showM3UImporter = false
 
@@ -80,6 +81,10 @@ struct PlaylistDetailView: View {
                 List {
                     ForEach(sortedItems, id: \.id) { item in
                         PlaylistTrackRow(item: item, onRemove: { removeItem(item) })
+                            .trackContextMenu(snapshot: item.track.map { TrackSnapshot(from: $0) },
+                                              track: item.track,
+                                              playlists: allPlaylists,
+                                              onPlay: { playFromList(item) })
                     }
                     .onMove { indices, destination in
                         guard let from = indices.first else { return }
@@ -127,6 +132,13 @@ struct PlaylistDetailView: View {
 
     private func removeItem(_ item: PlaylistItem) {
         playlistService.removeItem(item)
+    }
+
+    /// 在歌单完整上下文中播放某项(右键菜单 Play)。
+    private func playFromList(_ item: PlaylistItem) {
+        let snaps = sortedItems.compactMap { $0.track }.map { TrackSnapshot(from: $0) }
+        guard let snap = snaps.first(where: { $0.id == item.track?.id }) else { return }
+        playback.playTrack(snap, context: snaps, from: .playlist)
     }
 
     private func exportM3U() {

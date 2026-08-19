@@ -126,3 +126,24 @@ enum PrefKey {
     /// 上下文监听:记录前台应用 bundle id(隐私敏感,默认关闭)。
     static let contextTrackActiveApp = "muses.context.trackActiveApp"
 }
+
+/// P5 issue #7 — 应用内功能标志默认开启清单(用户显式选择「全部启用」)。
+/// 桌面集成 4 项(全局热键/托盘/迷你播放器/桌面歌词)默认关——占用系统资源、不打扰。
+/// 此清单用于 `UserDefaults.register(defaults:)`,仅注册用户未显式设置过的键,
+/// 不回退用户曾手动关闭的选择。
+enum FeatureFlagDefaults {
+    static let enabledByDefault: [String: Bool] = [
+        PrefKey.ffSmartHistory: true,
+        PrefKey.ffSessions: true,
+        PrefKey.ffAdvancedQueue: true,
+        PrefKey.ffInbox: true,
+        PrefKey.ffNotes: true,
+        PrefKey.ffContext: true,
+        PrefKey.ffAutomation: true,
+        PrefKey.ffAudioNerd: true,
+        PrefKey.ffLocalHardening: true,
+        PrefKey.ffFocusMode: true,
+        PrefKey.ffDiscovery: true,
+        PrefKey.ffSituationalNew: true
+    ]
+}
