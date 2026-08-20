@@ -3,16 +3,15 @@ import AppKit
 
 /// 设置类别枚举。
 enum SettingsCategory: String, Hashable, CaseIterable {
-    case general, playback, audioQuality, library, appearance, youtube, lyrics, desktop, updates, about
+    case general, playback, audioQuality, appearance, youtube, lyrics, desktop, updates, about
 
     var label: String {
         switch self {
         case .general:      return tr("General", "通用")
         case .playback:     return tr("Playback", "播放")
-        case .audioQuality: return tr("Audio Quality", "音质")
-        case .library:      return tr("Library", "资料库")
+        case .audioQuality: return tr("Quality", "清晰度")
         case .appearance:   return tr("Appearance", "外观")
-        case .youtube:      return tr("YouTube", "YouTube")
+        case .youtube:      return "YouTube"
         case .lyrics:       return tr("Lyrics", "歌词")
         case .desktop:      return tr("Desktop", "桌面")
         case .updates:      return tr("Updates", "更新")
@@ -24,10 +23,9 @@ enum SettingsCategory: String, Hashable, CaseIterable {
         switch self {
         case .general:      return "gear"
         case .playback:     return "play.circle"
-        case .audioQuality: return "waveform"
-        case .library:      return "folder"
+        case .audioQuality: return "sparkles.tv"
         case .appearance:   return "paintbrush"
-        case .youtube:      return "play.rectangle"
+        case .youtube:      return "play.rectangle.fill"
         case .lyrics:       return "text.alignleft"
         case .desktop:      return "menubar.rectangle"
         case .updates:      return "arrow.triangle.2.circlepath"
@@ -36,82 +34,184 @@ enum SettingsCategory: String, Hashable, CaseIterable {
     }
 }
 
-/// 设置弹窗:左侧分类 + 右侧内容(macOS 系统设置风格)。
+/// Apple Music–style Account page in the main content slot.
 struct SettingsSheet: View {
-    @Environment(\.dismiss) private var dismiss
+    @Binding var isPresented: Bool
     @State private var selectedCategory: SettingsCategory
-    @State private var showEQEditor = false
+    @State private var showingDetail: Bool
+    @State private var escapeMonitor: Any?
+    @Environment(YouTubeAccountService.self) private var youTubeAccount
 
-    init(initialCategory: SettingsCategory? = nil) {
+    init(isPresented: Binding<Bool>, initialCategory: SettingsCategory? = nil) {
+        _isPresented = isPresented
         _selectedCategory = State(initialValue: initialCategory ?? .general)
+        _showingDetail = State(initialValue: initialCategory != nil)
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            // 左侧:类别列表
-            List(selection: $selectedCategory) {
-                ForEach(SettingsCategory.allCases, id: \.self) { cat in
-                    Label(cat.label, systemImage: cat.icon)
-                        .tag(cat)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                if showingDetail {
+                    ChromeIconButton(
+                        systemName: "chevron.left",
+                        help: tr("Back", "返回"),
+                        accessibility: tr("Back", "返回")
+                    ) { showingDetail = false }
                 }
+                Spacer()
+                ChromeIconButton(
+                    systemName: "xmark",
+                    help: tr("Close", "关闭"),
+                    accessibility: tr("Close Settings", "关闭设置")
+                ) { close() }
             }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
-            .frame(width: 180)
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
 
-            Divider()
-
-            // 右侧:选中类别的内容
-            ScrollView {
-                Form {
-                    switch selectedCategory {
-                    case .general:
-                        GPUSettingsView()
-                        NotificationsSettingsView()
-                        LanguageSettingsView()
-                        Section {
-                            Button(role: .destructive) {
-                                NSApp.terminate(nil)
-                            } label: {
-                                Label(tr("Quit Muses", "退出 Muses"), systemImage: "power")
+            if showingDetail {
+                Text(selectedCategory.label)
+                    .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
+                    .foregroundStyle(BrandColors.textPrimary)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 8)
+                ScrollView {
+                    Form {
+                        switch selectedCategory {
+                        case .general:
+                            GPUSettingsView()
+                            NotificationsSettingsView()
+                            LanguageSettingsView()
+                            Section {
+                                Button(role: .destructive) {
+                                    NSApp.terminate(nil)
+                                } label: {
+                                    Label(tr("Quit Muses", "退出 Muses"), systemImage: "power")
+                                }
                             }
+                        case .playback:
+                            PlaybackSettingsView()
+                        case .audioQuality:
+                            AudioQualitySettingsView()
+                        case .appearance:
+                            ThemeSettingsView()
+                        case .youtube:
+                            YouTubeSettingsView()
+                            YTDlpConfigWizard()
+                        case .lyrics:
+                            LyricsSettingsView()
+                        case .desktop:
+                            DesktopSettingsView()
+                        case .updates:
+                            UpdatesSettingsView()
+                        case .about:
+                            AboutSettingsView()
                         }
-                    case .playback:
-                        PlaybackSettingsView()
-                        Section(tr("Equalizer", "均衡器")) {
-                            Button { showEQEditor = true } label: {
-                                Label(tr("Open EQ Editor", "打开 EQ 编辑器"), systemImage: "slider.vertical.3")
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(BrandColors.magenta)
-                        }
-                    case .audioQuality:
-                        AudioQualitySettingsView()
-                    case .library:
-                        ScanRootsSettingsView()
-                    case .appearance:
-                        ThemeSettingsView()
-                    case .youtube:
-                        YouTubeSettingsView()
-                    case .lyrics:
-                        LyricsSettingsView()
-                    case .desktop:
-                        DesktopSettingsView()
-                    case .updates:
-                        UpdatesSettingsView()
-                    case .about:
-                        AboutSettingsView()
                     }
+                    .formStyle(.grouped)
+                    .scrollContentBackground(.hidden)
                 }
-                .formStyle(.grouped)
-                .scrollContentBackground(.hidden)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        Text(tr("Settings", "设置"))
+                            .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
+                            .foregroundStyle(BrandColors.textPrimary)
+                        accountHeader
+                        VStack(spacing: 0) {
+                            ForEach(SettingsCategory.allCases, id: \.self) { cat in
+                                Button {
+                                    selectedCategory = cat
+                                    showingDetail = true
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: cat.icon)
+                                            .font(.system(size: 14, weight: .semibold))
+                                            .foregroundStyle(BrandColors.magenta)
+                                            .frame(width: 28, height: 28)
+                                        Text(cat.label)
+                                            .foregroundStyle(BrandColors.textPrimary)
+                                        Spacer()
+                                        Image(systemName: "chevron.right")
+                                            .font(.caption)
+                                            .foregroundStyle(BrandColors.textSecondary)
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 10)
+                                }
+                                .buttonStyle(.plain)
+                                if cat != SettingsCategory.allCases.last {
+                                    Divider().opacity(0.15)
+                                }
+                            }
+                        }
+                        .background(BrandColors.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 100)
+                }
             }
         }
-        .background(.ultraThinMaterial)
-        .frame(width: 680, height: 520)
-        .sheet(isPresented: $showEQEditor) {
-            EQEditorView()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(BrandColors.background)
+        .onExitCommand { handleEscape() }
+        .onAppear {
+            escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                if event.keyCode == 53 {
+                    handleEscape()
+                    return nil
+                }
+                return event
+            }
         }
+        .onDisappear {
+            if let escapeMonitor {
+                NSEvent.removeMonitor(escapeMonitor)
+                self.escapeMonitor = nil
+            }
+        }
+    }
+
+    private var accountHeader: some View {
+        HStack(spacing: 16) {
+            ChromeGlyph(systemName: "person.crop.circle.fill",
+                        selected: youTubeAccount.isConnected, size: 36, hit: 56)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(youTubeAccount.account?.channel?.title
+                     ?? tr("Not signed in", "未登录"))
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(BrandColors.textPrimary)
+                Text(youTubeAccount.isConnected
+                     ? tr("YouTube connected", "已连接 YouTube")
+                     : tr("Connect YouTube in Settings", "在设置中连接 YouTube"))
+                    .font(.caption)
+                    .foregroundStyle(BrandColors.textSecondary)
+            }
+            Spacer()
+            if youTubeAccount.isConnected {
+                Button(tr("Sign Out", "退出登录")) { youTubeAccount.disconnect() }
+                    .buttonStyle(.bordered)
+            } else {
+                Button(tr("Connect", "连接")) {
+                    Task { await youTubeAccount.connect() }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(BrandColors.magenta)
+            }
+        }
+        .padding(16)
+        .background(BrandColors.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func handleEscape() {
+        if showingDetail {
+            showingDetail = false
+        } else {
+            close()
+        }
+    }
+
+    private func close() {
+        isPresented = false
     }
 }
 

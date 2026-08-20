@@ -64,6 +64,83 @@ struct ChromeLayoutTests {
         #expect(AppleMusicTokens.cardCorner == 8)
     }
 
+    @Test("library sidebar stays visible on Home and New")
+    func sidebarAlwaysVisibleUnlessCollapsed() {
+        #expect(LibraryChromePolicy.showsSidebar(section: .home, collapsed: false))
+        #expect(LibraryChromePolicy.showsSidebar(section: .new, collapsed: false))
+        #expect(LibraryChromePolicy.showsSidebar(section: .songs, collapsed: false))
+        #expect(!LibraryChromePolicy.showsSidebar(section: .home, collapsed: true))
+    }
+
+    @Test("selected chrome glyph uses accent and no glow")
+    func selectedGlyphIsAccentWithoutGlow() {
+        #expect(ChromeGlyphStyle.selectedGlowRadius == 0)
+        #expect(ChromeGlyphStyle.selectedUsesAccent)
+    }
+
+    @Test("search occupies content after first non-empty character")
+    func searchOccupiesContent() {
+        #expect(!SearchChromePolicy.occupiesContent(query: ""))
+        #expect(!SearchChromePolicy.occupiesContent(query: "   "))
+        #expect(SearchChromePolicy.occupiesContent(query: "a"))
+        #expect(SearchChromePolicy.topResult(from: ["Alpha", "Alpine", "Beta"], query: "alp") == "Alpha")
+    }
+
+    @Test("dock lyrics opens Now Playing or toggles lyrics focus")
+    func dockLyricsPolicy() {
+        #expect(DockLyricsPolicy.action(nowPlayingOpen: false) == .openNowPlaying)
+        #expect(DockLyricsPolicy.action(nowPlayingOpen: true) == .toggleLyricsFocus)
+    }
+
+    @Test("Top Picks prefers hero then mixed then recent, max three unique")
+    func topPicksResolver() {
+        func yt(_ id: String) -> DiscoveryItem {
+            .youTube(YouTubeDiscoveryCard(id: id, title: id))
+        }
+        let picks = TopPicksResolver.picks(
+            hero: yt("h"),
+            mixed: [yt("h"), yt("m1"), yt("m2")],
+            recent: [yt("m1"), yt("r1")],
+            max: 3
+        )
+        #expect(picks.map(\.id) == ["yt:h", "yt:m1", "yt:m2"])
+    }
+
+    @Test("Top Picks does not fabricate cards")
+    func topPicksSparse() {
+        let picks = TopPicksResolver.picks(hero: nil, mixed: [], recent: [
+            .youTube(YouTubeDiscoveryCard(id: "only", title: "only"))
+        ], max: 3)
+        #expect(picks.count == 1)
+    }
+
+    @Test("New featured slot is the first available item")
+    func newFeaturedSlot() {
+        let items = [
+            DiscoveryItem.youTube(YouTubeDiscoveryCard(id: "a", title: "A")),
+            DiscoveryItem.youTube(YouTubeDiscoveryCard(id: "b", title: "B"))
+        ]
+        #expect(NewFeaturedResolver.featured(from: items)?.id == "yt:a")
+        #expect(NewFeaturedResolver.featured(from: []) == nil)
+    }
+
+    @Test("Settings occupies content while presented")
+    func settingsOccupiesContent() {
+        #expect(SettingsChromePolicy.showsAccount(isPresented: true))
+        #expect(!SettingsChromePolicy.showsAccount(isPresented: false))
+    }
+
+    @Test("Apple Music shell contract")
+    func appleMusicShellContract() {
+        #expect(PlayerDockMetrics.height == 72)
+        #expect(AppleMusicTokens.sidebarWidth == 250)
+        #expect(LibraryChromePolicy.showsSidebar(section: .home, collapsed: false))
+        #expect(SearchChromePolicy.occupiesContent(query: "q"))
+        #expect(DockLyricsPolicy.action(nowPlayingOpen: false) == .openNowPlaying)
+        #expect(ChromeGlyphStyle.selectedGlowRadius == 0)
+        #expect(AppleMusicTokens.keyColorHex == "FA586A")
+    }
+
     @Test("player dock is full-width web chrome, not a floating capsule")
     func playerDockMetrics() {
         #expect(PlayerDockMetrics.height == 72)

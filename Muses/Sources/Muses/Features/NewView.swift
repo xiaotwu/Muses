@@ -28,7 +28,7 @@ struct NewView: View {
                 // Phase D6 — Apple Music 风格大标题(~30pt),与 Home 节奏一致。
                 // 保留 "New" 名称(用户确认决定,本阶段不改名 "For You")。
                 Text(tr("New", "发现"))
-                    .font(.system(size: 30, weight: .heavy))
+                    .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
                     .foregroundStyle(BrandColors.textPrimary)
                     .padding(.horizontal, 24)
 
@@ -38,9 +38,10 @@ struct NewView: View {
                     legacyBody
                 }
             }
+            .padding(.top, 8)
             .padding(.bottom, 100)
         }
-        .background(BrandColors.background)
+        .background(BrowseBackground())
         .onAppear { scheduleCompute(); refreshPlayingCollection() }
         .onDisappear {
             computeTask?.cancel()
@@ -63,6 +64,31 @@ struct NewView: View {
                 skeletonSection
             }
         } else {
+            if let featured = NewFeaturedResolver.featured(
+                from: situationalSections.first.map { section in
+                    section.items.map { DiscoveryItem.track($0) }
+                } ?? []
+            ), case .track(let snap) = featured {
+                VStack(alignment: .leading, spacing: 12) {
+                    AlbumObjectView(
+                        title: snap.title,
+                        subtitle: snap.artist,
+                        artwork: ArtworkSource.resolve(for: snap),
+                        size: MusicObjectMetrics.albumHero,
+                        role: .play,
+                        nowPlayingID: snap.id,
+                        showsHoverPlay: true,
+                        onSelect: {},
+                        onPlay: {
+                            playback.playTrack(
+                                snap,
+                                context: situationalSections.first?.items ?? [snap],
+                                from: .songs)
+                        }
+                    )
+                    .padding(.horizontal, 24)
+                }
+            }
             ForEach(situationalSections) { section in
                 situationalSection(section)
             }
@@ -113,7 +139,7 @@ struct NewView: View {
                         subtitle: tr("Recommendations are hidden while you focus. End Focus Mode to see picks.",
                                        "专注时隐藏推荐。结束专注模式以查看推荐。")
                     )
-                    .padding(.top, 60)
+                    .padding(.top, 24)
                 } else if let r = recs, r.hasContent {
                     if !r.becauseYouListened.isEmpty {
                         recSection(
@@ -146,7 +172,7 @@ struct NewView: View {
                         title: tr("Finding picks for you…", "正在为你挑选…"),
                         subtitle: nil
                     )
-                    .padding(.top, 60)
+                    .padding(.top, 24)
                 } else {
                     EmptyStateView(
                         icon: "sparkles",
@@ -154,7 +180,7 @@ struct NewView: View {
                         subtitle: tr("Recommendations are based on your play history and liked songs. Play and like some tracks to get personalized picks.",
                                        "推荐基于你的播放历史与收藏。播放并收藏一些曲目以获得个性化推荐。")
                     )
-                    .padding(.top, 60)
+                    .padding(.top, 24)
                 }
     }
 

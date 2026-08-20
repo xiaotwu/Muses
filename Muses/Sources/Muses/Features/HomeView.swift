@@ -30,6 +30,8 @@ struct HomeView: View {
     @State private var retryingIDs: Set<String> = []
     @State private var playingAlbumID: UUID?
     @State private var playingArtistID: UUID?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(PrefKey.ytCookieSource) private var cookieSourceRaw = YTCookieSource.none.rawValue
 
     /// Hero 专辑:优先选最近播放的,否则最近添加的,否则第一个。
     /// 现在读取缓存的 `heroAlbum`,由 `refreshLibrarySnapshot()` 维护。
@@ -39,13 +41,12 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 32) {
                 // Phase D4 — Apple Music 风格大标题(~30pt)。保留既有信息架构与行为。
                 Text(tr("Home", "首页"))
-                    .font(.system(size: 30, weight: .heavy))
+                    .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
                     .foregroundStyle(BrandColors.textPrimary)
                     .padding(.horizontal, 24)
 
-                // Hero
-                if let hero = heroAlbum {
-                    heroSection(hero)
+                if !topPickItems.isEmpty {
+                    listenNowTopPicks
                 }
 
                 // Recently Played(本地 + YouTube,来源播放历史)
@@ -64,41 +65,23 @@ struct HomeView: View {
                     }
                 }
 
-                // 最近添加
-                if !recentlyAdded.isEmpty {
-                    horizontalSection(
-                        title: tr("Recently Added", "最近添加"),
-                        albums: recentlyAdded
-                    )
-                }
-
-                // 钉选
-                if !pinnedAlbumsCache.isEmpty {
-                    horizontalSection(
-                        title: tr("Pinned", "钉选"),
-                        albums: pinnedAlbumsCache
-                    )
-                }
-
-                // 已导入的 YouTube 歌单(ffDiscovery 关时在此呈现;开时由发现流托管)。
                 if !homeDiscovery.isEnabled, !ytImports.isEmpty {
                     youtubeImportsSection
                 }
 
-                // 全部专辑
-                if !albums.isEmpty {
-                    allAlbumsSection
+                if homeDiscovery.isEnabled, !focus.isActive {
+                    Color.clear
+                        .frame(height: 1)
+                        .onAppear { homeDiscovery.loadMore() }
+                    if homeDiscovery.isLoadingMore {
+                        ProgressView().frame(maxWidth: .infinity).padding(.bottom, 24)
+                    }
                 }
             }
-            .padding(.top, 24)
+            .padding(.top, 8)
             .padding(.bottom, 100)
         }
-        .background(
-            LinearGradient(colors: heroGradient,
-                           startPoint: .top, endPoint: .center)
-                .ignoresSafeArea()
-                .animation(.easeInOut(duration: 0.4), value: heroAlbum?.id)
-        )
+        .background(BrowseBackground())
         .onAppear {
             PerfTrace.event("home.appear")
             refreshPlayingCollection()
@@ -109,9 +92,12 @@ struct HomeView: View {
                 PerfTrace.event("home.firstCachedContent")
             }
             updateGradientAsync()
-            loadTrending()
-            // Phase D3:动态发现流 cache-first 加载(仅 ffDiscovery 开启时生效)。
-            homeDiscovery.load()
+            // Discovery and trending spawn yt-dlp. Let the first Home frame
+            // paint from cache / library snapshot first.
+            Task { @MainActor in
+                loadTrending()
+                homeDiscovery.load()
+            }
         }
         .onDisappear {
             // 页面切换取消非必要任务(spec §23)。
@@ -150,6 +136,89 @@ struct HomeView: View {
         recentlyPlayed = library.recentlyPlayedTracks(limit: 20)
     }
 
+    private var mixedDiscoveryItems: [DiscoveryItem] {
+        homeDiscovery.sections.first(where: { $0.kind == .mixed || $0.kind == .youTubeCarousel })?.items
+            ?? homeDiscovery.sections.first?.items ?? []
+    }
+
+    private var mixedSectionID: String? {
+        homeDiscovery.sections.first(where: { $0.kind == .mixed || $0.kind == .youTubeCarousel })?.id
+            ?? homeDiscovery.sections.first?.id
+    }
+
+    private var topPickItems: [DiscoveryItem] {
+        let hero: DiscoveryItem? = heroAlbum.map { .album(AlbumRef(album: $0)) }
+        let recent = recentlyPlayed.map { DiscoveryItem.track($0) }
+        return TopPicksResolver.picks(hero: hero, mixed: mixedDiscoveryItems, recent: recent)
+    }
+
+    private var listenNowTopPicks: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(tr("Top Picks", "精选"))
+                .font(.system(size: AppleMusicTokens.sectionTitleSize, weight: .semibold))
+                .foregroundStyle(BrandColors.textPrimary)
+                .padding(.horizontal, 24)
+            HStack(alignment: .top, spacing: 16) {
+                ForEach(topPickItems) { item in
+                    discoveryCard(item, size: MusicObjectMetrics.albumHero)
+                }
+            }
+            .padding(.horizontal, 24)
+        }
+    }
+
+    @ViewBuilder
+    private func discoveryCard(_ item: DiscoveryItem, size: CGFloat) -> some View {
+        switch item {
+        case .youTube(let card):
+            AlbumObjectView(
+                title: card.title,
+                subtitle: card.uploader ?? "YouTube",
+                artwork: ArtworkSource.resolve(
+                    hash: nil, remoteURL: card.thumbnailURL, youTubeId: card.id),
+                size: size,
+                role: .play,
+                showsHoverPlay: true,
+                onSelect: {},
+                onPlay: { Task { await playYouTubeCard(card) } }
+            )
+        case .album(let ref):
+            AlbumObjectView(
+                title: ref.title,
+                subtitle: ref.albumArtist,
+                artwork: ArtworkSource.resolve(
+                    hash: ref.artworkHash, remoteURL: nil, youTubeId: nil),
+                size: size,
+                role: .browse,
+                isNowPlaying: ref.id == playingAlbumID,
+                showsHoverPlay: true,
+                onSelect: {
+                    if let album = albums.first(where: { $0.id == ref.id }) {
+                        selectedAlbum = album
+                    }
+                },
+                onPlay: {
+                    if let album = albums.first(where: { $0.id == ref.id }) {
+                        playAlbum(album)
+                    }
+                }
+            )
+        case .track(let snap):
+            AlbumObjectView(
+                title: snap.title,
+                subtitle: snap.artist,
+                artwork: ArtworkSource.resolve(for: snap),
+                size: size,
+                role: .play,
+                showsHoverPlay: true,
+                onSelect: {},
+                onPlay: { playback.playTrack(snap, context: recentlyPlayed, from: .songs) }
+            )
+        case .playlist:
+            EmptyView()
+        }
+    }
+
     // MARK: - Hero
 
     private func heroSection(_ album: Album) -> some View {
@@ -157,7 +226,10 @@ struct HomeView: View {
             title: album.title,
             subtitle: album.albumArtist,
             metadata: album.year.map(String.init),
-            artwork: ArtworkSource.localHash(album.artworkHash),
+            artwork: ArtworkSource.resolve(
+                hash: album.artworkHash,
+                remoteURL: album.artworkUrl,
+                youTubeId: album.tracks.first?.youTubeId),
             gradient: heroGradient,
             isNowPlaying: album.id == playingAlbumID,
             showsHoverPlay: true,
@@ -176,7 +248,10 @@ struct HomeView: View {
                     AlbumObjectView(
                         title: album.title,
                         subtitle: album.albumArtist,
-                        artwork: ArtworkSource.localHash(album.artworkHash),
+                        artwork: ArtworkSource.resolve(
+                            hash: album.artworkHash,
+                            remoteURL: album.artworkUrl,
+                            youTubeId: album.tracks.first?.youTubeId),
                         size: MusicObjectMetrics.albumRail,
                         role: .browse,
                         isNowPlaying: album.id == playingAlbumID,
@@ -208,6 +283,9 @@ struct HomeView: View {
                         onSelect: {},
                         onPlay: { playback.playTrack(snap, context: recentlyPlayed, from: .recently) }
                     )
+                    .trackContextMenu(snapshot: snap, onPlay: {
+                        playback.playTrack(snap, context: recentlyPlayed, from: .recently)
+                    })
                 }
             }
         }
@@ -234,11 +312,28 @@ struct HomeView: View {
                 }
                 .frame(maxWidth: .infinity).padding(.vertical, 20)
             } else if !ytTrending.isEmpty {
-                ResponsiveCarousel(cardSize: 160) {
+                ResponsiveCarousel(cardSize: MusicObjectMetrics.albumRail) {
                     ForEach(ytTrending.prefix(10), id: \.id) { entry in
-                        YouTubeTrendingCard(entry: entry) {
-                            Task { await playYouTube(entry) }
-                        }
+                        AlbumObjectView(
+                            title: entry.title,
+                            subtitle: entry.uploader ?? "YouTube",
+                            artwork: ArtworkSource.resolve(hash: nil, remoteURL: nil, youTubeId: entry.id),
+                            size: MusicObjectMetrics.albumRail,
+                            role: .play,
+                            showsHoverPlay: true,
+                            onSelect: {},
+                            onPlay: { Task { await playYouTube(entry) } }
+                        )
+                        .trackContextMenu(
+                            snapshot: TrackSnapshot(
+                                id: UUID(), title: entry.title,
+                                artist: entry.uploader ?? "YouTube",
+                                albumTitle: nil, durationSeconds: entry.duration ?? 0,
+                                filePath: nil, youTubeId: entry.id,
+                                artworkHash: nil, artworkUrl: YouTubeThumbnail.urlString(videoId: entry.id),
+                                sampleRate: 0, bitDepth: 0, codec: "YouTube", isLossless: false),
+                            onPlay: { Task { await playYouTube(entry) } }
+                        )
                     }
                 }
             }
@@ -265,6 +360,15 @@ struct HomeView: View {
                         },
                         onPlay: { playImport(imp) }
                     )
+                    .contextMenu {
+                        Button(tr("Play", "播放")) { playImport(imp) }
+                        Button(tr("Open", "打开")) {
+                            NotificationCenter.default.post(name: .musesNavigateYouTubeImport, object: imp)
+                        }
+                        Button(tr("Open on YouTube", "在 YouTube 打开")) {
+                            if let url = URL(string: imp.url) { NSWorkspace.shared.open(url) }
+                        }
+                    }
                 }
             }
         }
@@ -276,11 +380,64 @@ struct HomeView: View {
     /// 标题/副标题来自 provider,视图不硬编码 YouTube Music 区段名。
     @ViewBuilder
     private var discoveryFeedSection: some View {
+        let failed = homeDiscovery.sections.filter {
+            if case .failed = $0.status { return true }
+            return false
+        }
+        let live = homeDiscovery.sections.filter {
+            if case .failed = $0.status { return false }
+            return true
+        }
         VStack(alignment: .leading, spacing: 32) {
-            ForEach(homeDiscovery.sections) { section in
-                discoverySection(section)
+            ForEach(live) { section in
+                if section.id != mixedSectionID {
+                    discoverySection(section)
+                }
+            }
+            if !failed.isEmpty, !(homeDiscovery.isRefreshing && !retryingIDs.isEmpty) {
+                discoveryFailureBanner(failed)
+            } else if !failed.isEmpty {
+                ResponsiveCarousel(cardSize: 160) {
+                    ForEach(0..<5, id: \.self) { _ in SkeletonCard(size: 160, aspect: .wide169) }
+                }
             }
         }
+    }
+
+    private func discoveryFailureBanner(_ sections: [HomeSection]) -> some View {
+        let message = sections.compactMap { section -> String? in
+            if case .failed(let msg) = section.status { return msg }
+            return nil
+        }.first
+        return VStack(alignment: .leading, spacing: 10) {
+            Text(tr("YouTube discovery unavailable", "无法加载 YouTube 发现"))
+                .font(.headline)
+                .foregroundStyle(BrandColors.textPrimary)
+            Text(message ?? tr("Couldn’t load this section", "无法加载该区段"))
+                .font(.caption)
+                .foregroundStyle(BrandColors.textSecondary)
+            Text(YouTubeIdentity.discoveryCookieHint(
+                cookieSource: YTCookieSource(rawValue: cookieSourceRaw) ?? .none))
+                .font(.caption)
+                .foregroundStyle(BrandColors.textSecondary)
+            HStack(spacing: 12) {
+                Button(tr("Retry", "重试")) {
+                    for section in sections { retryingIDs.insert(section.id) }
+                    homeDiscovery.reload()
+                }
+                .buttonStyle(.bordered)
+                Button(tr("YouTube Settings", "YouTube 设置")) {
+                    NotificationCenter.default.post(
+                        name: .musesOpenSettings, object: SettingsCategory.youtube)
+                }
+                .buttonStyle(.bordered)
+            }
+            .tint(BrandColors.magenta)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(BrandColors.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 24)
     }
 
     @ViewBuilder
@@ -295,33 +452,36 @@ struct HomeView: View {
                 switch section.status {
                 case .loading:
                     // 无缓存冷启:骨架占位(不使用居中 spinner,§15)。
-                    ResponsiveCarousel(cardSize: 160) {
-                        ForEach(0..<5, id: \.self) { _ in SkeletonCard(size: 160, aspect: .wide169) }
+                    ResponsiveCarousel(cardSize: MusicObjectMetrics.albumRail) {
+                        ForEach(0..<5, id: \.self) { _ in SkeletonCard(size: 160, aspect: .square) }
                     }
-                case .failed(let msg):
-                    if homeDiscovery.isRefreshing && retryingIDs.contains(section.id) {
-                        ResponsiveCarousel(cardSize: 160) {
-                            ForEach(0..<5, id: \.self) { _ in SkeletonCard(size: 160, aspect: .wide169) }
-                        }
-                    } else {
-                        VStack(spacing: 8) {
-                            Text(msg ?? tr("Couldn’t load this section", "无法加载该区段"))
-                                .font(.caption).foregroundStyle(BrandColors.textSecondary)
-                            Button(tr("Retry", "重试")) {
-                                retryingIDs.insert(section.id)
-                                homeDiscovery.reload()
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .frame(maxWidth: .infinity).padding(.vertical, 20)
-                    }
+                case .failed:
+                    EmptyView()
                 case .loaded, .idle:
-                    ResponsiveCarousel(cardSize: 160) {
+                    ResponsiveCarousel(cardSize: MusicObjectMetrics.albumRail) {
                         ForEach(section.items) { item in
                             if case .youTube(let card) = item {
-                                HomeDiscoveryCardView(card: card) {
-                                    Task { await playYouTubeCard(card) }
-                                }
+                                AlbumObjectView(
+                                    title: card.title,
+                                    subtitle: card.uploader ?? "YouTube",
+                                    artwork: ArtworkSource.resolve(
+                                        hash: nil, remoteURL: card.thumbnailURL, youTubeId: card.id),
+                                    size: MusicObjectMetrics.albumRail,
+                                    role: .play,
+                                    showsHoverPlay: true,
+                                    onSelect: {},
+                                    onPlay: { Task { await playYouTubeCard(card) } }
+                                )
+                                .trackContextMenu(
+                                    snapshot: TrackSnapshot(
+                                        id: UUID(), title: card.title,
+                                        artist: card.uploader ?? "YouTube",
+                                        albumTitle: nil, durationSeconds: card.duration ?? 0,
+                                        filePath: nil, youTubeId: card.id,
+                                        artworkHash: nil, artworkUrl: card.thumbnailURL,
+                                        sampleRate: 0, bitDepth: 0, codec: "YouTube", isLossless: false),
+                                    onPlay: { Task { await playYouTubeCard(card) } }
+                                )
                             }
                         }
                     }
@@ -337,7 +497,9 @@ struct HomeView: View {
             uploader: card.uploader, duration: card.duration)
         do {
             let snap = try await ytSearch.importAsTrack(entry: entry)
-            playback.playTrack(snap, context: [snap], from: .search)
+            let siblings = sectionItems(for: card)
+            let context = TrackSnapshot.playbackContext(playing: snap, youTubeEntries: siblings)
+            playback.playTrack(snap, context: context, from: .search)
         } catch {
             // 静默:发现流播放失败不弹错(与现有 playYouTube 行为一致)。
         }
@@ -355,7 +517,10 @@ struct HomeView: View {
                     AlbumObjectView(
                         title: album.title,
                         subtitle: album.albumArtist,
-                        artwork: ArtworkSource.localHash(album.artworkHash),
+                        artwork: ArtworkSource.resolve(
+                            hash: album.artworkHash,
+                            remoteURL: album.artworkUrl,
+                            youTubeId: album.tracks.first?.youTubeId),
                         size: MusicObjectMetrics.albumGrid,
                         role: .browse,
                         isNowPlaying: album.id == playingAlbumID,
@@ -421,7 +586,7 @@ struct HomeView: View {
             return .remote(url)
         }
         if let first = (imp.items ?? []).sorted(by: { $0.order < $1.order }).first,
-           let url = URL(string: "https://i.ytimg.com/vi/\(first.youTubeId)/hqdefault.jpg") {
+           let url = YouTubeThumbnail.url(videoId: first.youTubeId) {
             return .remote(url)
         }
         return .placeholder
@@ -473,9 +638,27 @@ struct HomeView: View {
     private func playYouTube(_ entry: YTDlpBridge.YTDlpPlaylistEntry) async {
         do {
             let snap = try await ytSearch.importAsTrack(entry: entry)
-            playback.playTrack(snap, context: [snap], from: .search)
+            let context = TrackSnapshot.playbackContext(
+                playing: snap, youTubeEntries: ytTrending)
+            playback.playTrack(snap, context: context, from: .search)
         } catch {
             // 静默
+        }
+    }
+
+    private func sectionItems(for card: YouTubeDiscoveryCard) -> [YTDlpBridge.YTDlpPlaylistEntry] {
+        let section = homeDiscovery.sections.first { section in
+            section.items.contains { item in
+                if case .youTube(let c) = item { return c.id == card.id }
+                return false
+            }
+        }
+        return (section?.items ?? []).compactMap { item in
+            if case .youTube(let c) = item {
+                return YTDlpBridge.YTDlpPlaylistEntry(
+                    id: c.id, title: c.title, uploader: c.uploader, duration: c.duration)
+            }
+            return nil
         }
     }
 }
@@ -488,7 +671,7 @@ struct YouTubeTrendingCard: View {
     var body: some View {
         Button(action: onPlay) {
             VStack(alignment: .leading, spacing: 6) {
-                CachedAsyncImage(url: URL(string: "https://i.ytimg.com/vi/\(entry.id)/hqdefault.jpg")) { img in
+                CachedAsyncImage(url: YouTubeThumbnail.url(videoId: entry.id)) { img in
                     img.resizable().scaledToFill()
                 } placeholder: {
                     Rectangle().fill(BrandColors.surface)
