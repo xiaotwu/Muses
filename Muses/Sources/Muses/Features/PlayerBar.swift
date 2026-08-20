@@ -1,12 +1,12 @@
 import SwiftUI
 import AppKit
 
-/// Full-width Apple Music Web–style dock.
+/// Floating capsule player, matching live music.apple.com (not a full-width dock).
 enum PlayerDockMetrics {
-    static let height: CGFloat = 72
-    static let art: CGFloat = 48
+    static let height: CGFloat = AppleMusicTokens.capsuleHeight
+    static let art: CGFloat = 40
     static let icon: CGFloat = 28
-    static let play: CGFloat = 36
+    static let play: CGFloat = 32
 }
 
 struct PlayerBar: View {
@@ -26,18 +26,33 @@ struct PlayerBar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 16) {
-            identity.frame(minWidth: 180, maxWidth: 260, alignment: .leading)
+        HStack(spacing: 12) {
+            identity.frame(width: 180, alignment: .leading)
             center.frame(maxWidth: .infinity)
             trailing
         }
-        .padding(.horizontal, 16)
-        .frame(height: PlayerDockMetrics.height)
+        .padding(.horizontal, 14)
+        .frame(width: AppleMusicTokens.capsuleWidth, height: PlayerDockMetrics.height)
         .background {
             DockBackground()
         }
-        .overlay(Rectangle().fill(BrandColors.textPrimary.opacity(0.08)).frame(height: 1),
-                 alignment: .top)
+        .clipShape(RoundedRectangle(cornerRadius: AppleMusicTokens.capsuleCorner, style: .continuous))
+        .overlay(alignment: .top) {
+            GeometryReader { geo in
+                let frac = playback.state.duration > 0
+                    ? max(0, min(1, playback.state.position / playback.state.duration)) : 0
+                Rectangle()
+                    .fill(BrandColors.magenta)
+                    .frame(width: geo.size.width * frac, height: 2)
+            }
+            .frame(height: 2)
+            .clipShape(Capsule())
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: AppleMusicTokens.capsuleCorner, style: .continuous)
+                .stroke(BrandColors.textPrimary.opacity(0.08), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
         .focusEffectDisabled()
         .contextMenu {
             Button(tr("Open Now Playing", "打开正在播放")) { onArtworkTap() }
@@ -86,35 +101,32 @@ struct PlayerBar: View {
     }
 
     private var center: some View {
-        VStack(spacing: 4) {
-            HStack(spacing: 10) {
-                dockButton("shuffle", selected: playback.queue.shuffle,
-                           help: tr("Shuffle", "随机")) {
-                    playback.queue.toggleShuffle()
-                }
-                dockButton("backward.fill", help: tr("Previous", "上一首")) {
-                    playback.previous()
-                }
-                Button { playback.toggle() } label: {
-                    ChromeGlyph(
-                        systemName: playback.state.isPlaying ? "pause.fill" : "play.fill",
-                        selected: playback.state.isPlaying,
-                        size: 18,
-                        hit: PlayerDockMetrics.play
-                    )
-                }
-                .buttonStyle(.plain)
-                .help(playback.state.isPlaying ? tr("Pause", "暂停") : tr("Play", "播放"))
-                .accessibilityLabel(playback.state.isPlaying ? tr("Pause", "暂停") : tr("Play", "播放"))
-                dockButton("forward.fill", help: tr("Next", "下一首")) {
-                    playback.next()
-                }
-                dockButton(repeatIcon, selected: playback.queue.repeatMode != .off,
-                           help: repeatHelp) {
-                    playback.queue.setRepeat(playback.queue.repeatMode.next)
-                }
+        HStack(spacing: 8) {
+            dockButton("shuffle", selected: playback.queue.shuffle,
+                       help: tr("Shuffle", "随机")) {
+                playback.queue.toggleShuffle()
             }
-            scrubber
+            dockButton("backward.fill", help: tr("Previous", "上一首")) {
+                playback.previous()
+            }
+            Button { playback.toggle() } label: {
+                ChromeGlyph(
+                    systemName: playback.state.isPlaying ? "pause.fill" : "play.fill",
+                    selected: false,
+                    size: 16,
+                    hit: PlayerDockMetrics.play
+                )
+            }
+            .buttonStyle(.plain)
+            .help(playback.state.isPlaying ? tr("Pause", "暂停") : tr("Play", "播放"))
+            .accessibilityLabel(playback.state.isPlaying ? tr("Pause", "暂停") : tr("Play", "播放"))
+            dockButton("forward.fill", help: tr("Next", "下一首")) {
+                playback.next()
+            }
+            dockButton(repeatIcon, selected: playback.queue.repeatMode != .off,
+                       help: repeatHelp) {
+                playback.queue.setRepeat(playback.queue.repeatMode.next)
+            }
         }
     }
 
@@ -209,7 +221,7 @@ struct PlayerBar: View {
     }
 }
 
-/// Kept so existing tests compile; the dock no longer uses a floating capsule.
+/// Capsule fill: system material, opaque when Reduce Transparency is on.
 private struct DockBackground: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 

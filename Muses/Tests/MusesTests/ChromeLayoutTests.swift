@@ -61,7 +61,8 @@ struct ChromeLayoutTests {
         #expect(AppleMusicTokens.pageTitleSize == 34)
         #expect(AppleMusicTokens.sectionTitleSize == 22)
         #expect(AppleMusicTokens.sidebarWidth >= 232 && AppleMusicTokens.sidebarWidth <= 260)
-        #expect(AppleMusicTokens.cardCorner == 8)
+        #expect(AppleMusicTokens.cardCorner == 12)
+        #expect(abs(AppleMusicTokens.editorialAspect - 16.0 / 9.0) < 0.01)
     }
 
     @Test("library sidebar stays visible on Home and New")
@@ -130,21 +131,32 @@ struct ChromeLayoutTests {
         #expect(!SettingsChromePolicy.showsAccount(isPresented: false))
     }
 
+    @Test("Apple Music Web shell is left nav plus floating capsule")
+    func liveWebShell() {
+        #expect(AppleMusicChrome.primaryNavInSidebar)
+        #expect(AppleMusicChrome.playerIsFloatingCapsule)
+        #expect(AppleMusicChrome.selectedNavUsesAccent)
+        #expect(abs(AppleMusicChrome.editorialAspect - 16.0 / 9.0) < 0.01)
+    }
+
     @Test("Apple Music shell contract")
     func appleMusicShellContract() {
-        #expect(PlayerDockMetrics.height == 72)
-        #expect(AppleMusicTokens.sidebarWidth == 250)
+        #expect(PlayerDockMetrics.height == AppleMusicTokens.capsuleHeight)
+        #expect(AppleMusicTokens.sidebarWidth == 240)
         #expect(LibraryChromePolicy.showsSidebar(section: .home, collapsed: false))
         #expect(SearchChromePolicy.occupiesContent(query: "q"))
         #expect(DockLyricsPolicy.action(nowPlayingOpen: false) == .openNowPlaying)
         #expect(ChromeGlyphStyle.selectedGlowRadius == 0)
         #expect(AppleMusicTokens.keyColorHex == "FA586A")
+        #expect(AppleMusicChrome.playerIsFloatingCapsule)
+        #expect(AppleMusicChrome.primaryNavInSidebar)
     }
 
-    @Test("player dock is full-width web chrome, not a floating capsule")
+    @Test("player is a floating capsule, not a full-width dock")
     func playerDockMetrics() {
-        #expect(PlayerDockMetrics.height == 72)
-        #expect(PlayerDockMetrics.art == 48)
+        #expect(PlayerDockMetrics.height == AppleMusicTokens.capsuleHeight)
+        #expect(PlayerDockMetrics.art == 40)
+        #expect(AppleMusicChrome.playerIsFloatingCapsule)
         #expect(PlayerDockMetrics.play > PlayerDockMetrics.icon)
         #expect(AppTopTab.from(.home) == .home)
         #expect(AppTopTab.from(.new) == .new)

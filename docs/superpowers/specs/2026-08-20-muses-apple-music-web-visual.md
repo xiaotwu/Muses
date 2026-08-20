@@ -20,11 +20,11 @@ Muses stays a YouTube-native macOS app. Do not wrap `music.apple.com` or `music.
 | Accent | Apple Music pink (start `#FA586A`, calibrate from live Web Player) |
 | Glow | None. Sidra white bloom is removed |
 | YouTube mark | Keeps its own red |
-| Top tabs | Home / New / Library. No Radio. No rename to Listen Now |
+| Primary nav | Left pane: Search, Home, New (pink when selected). No Radio. No top-bar tabs |
 | Library sidebar | Always visible on Home, New, and Library |
 | Search | Real top-bar field; first non-empty query replaces main content |
 | Settings | Content-slot account page, not a 680×520 System Settings sheet |
-| Player | Full-width dock; YouTube video control occupies the AirPlay slot |
+| Player | Floating capsule (live music.apple.com). YouTube video occupies the AirPlay slot |
 | Now Playing | Content slot; large cover + title/artist under it; lyrics right; lyrics can fill the slot |
 | Home / New | Listen Now / New layouts, YouTube discovery data |
 | Playback / queue / OAuth / yt-dlp | Unchanged |

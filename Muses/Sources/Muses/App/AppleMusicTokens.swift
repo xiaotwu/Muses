@@ -9,8 +9,23 @@ enum AppleMusicTokens {
     static let lightPageRGB = (r: 1.0, g: 1.0, b: 1.0)
     static let pageTitleSize: CGFloat = 34
     static let sectionTitleSize: CGFloat = 22
-    static let sidebarWidth: CGFloat = 250
-    static let cardCorner: CGFloat = 8
+    static let sidebarWidth: CGFloat = 240
+    static let sidebarCorner: CGFloat = 20
+    static let sidebarInset: CGFloat = 8
+    static let cardCorner: CGFloat = 12
+    static let editorialAspect: CGFloat = 16.0 / 9.0
+    static let editorialWidth: CGFloat = 320
+    static let capsuleWidth: CGFloat = 640
+    static let capsuleHeight: CGFloat = 56
+    static let capsuleCorner: CGFloat = 28
+}
+
+/// Live music.apple.com chrome (2026-08-20 screenshot), not the Sidra top-bar shell.
+enum AppleMusicChrome {
+    static let primaryNavInSidebar = true
+    static let playerIsFloatingCapsule = true
+    static let editorialAspect: CGFloat = AppleMusicTokens.editorialAspect
+    static let selectedNavUsesAccent = true
 }
 
 enum LibraryChromePolicy {
