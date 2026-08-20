@@ -37,7 +37,7 @@ Measure `music.apple.com` in both appearances at implementation and lock tokens 
 
 ```
 dark:
-  background     #000000
+  background     #1F1F1F
   chrome         #1C1C1E
   surface        #2C2C2E
   textPrimary    #F5F5F7

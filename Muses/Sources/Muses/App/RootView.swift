@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct RootView: View {
     @Environment(LibraryService.self) private var library
@@ -24,6 +25,7 @@ struct RootView: View {
     @State private var nowPlayingShowLyrics = true
     @State private var windowWidth: CGFloat = 1440
     @State private var showQueue = false
+    @State private var showLyricsDrawer = false
     @State private var showSearch = false
     @State private var showSettings = false
     @State private var showAbout = false
@@ -33,6 +35,11 @@ struct RootView: View {
     @State private var initialSettingsCategory: SettingsCategory? = nil
     @AppStorage(PrefKey.language) private var language = "system"
     @AppStorage(PrefKey.nowPlayingLyricsMode) private var lyricsModeRaw: String = NowPlayingLyricsMode.inline.rawValue
+    @Environment(\.libraryStoreFallback) private var libraryStoreFallback
+    @State private var showStoreFallbackAlert = false
+    @State private var showYouTubeVideo = false
+    @AppStorage(PrefKey.sidebarCollapsed) private var sidebarCollapsed = false
+    @AppStorage(PrefKey.nowPlayingMode) private var nowPlayingModeRaw: String = NowPlayingMode.cover.rawValue
 
     private var lyricsFullscreen: Bool {
         nowPlayingShowLyrics && (NowPlayingLyricsMode(rawValue: lyricsModeRaw) ?? .inline) != .inline
@@ -46,105 +53,220 @@ struct RootView: View {
     }
 
     var body: some View {
-        continuityChrome(splitView)
-            .sheet(isPresented: $showImport) {
-                ImportSheet()
-                    .environment(library)
-            }
-        .sheet(isPresented: $showYouTubeLink) {
-            AddYouTubeLinkSheet()
-        }
-        .sheet(isPresented: $showSettings, onDismiss: {
-            showAbout = false
-            initialSettingsCategory = nil
-        }) {
-            SettingsSheet(initialCategory: initialSettingsCategory ?? (showAbout ? .about : nil))
-        }
-        .dropDestination(for: URL.self) { urls, _ in
-            Task { await library.importURLs(urls) }
-            return true
-        }
-        .onAppear {
-            DispatchQueue.main.async {
-                NSApp.windows.first?.setFrameAutosaveName("MusesMainWindow")
-            }
-        }
-        // Phase 18:启动恢复对话框——绝不静默替换用户队列,必须显式「继续 / 重新开始」。
-        .alert(tr("Continue previous session?", "继续上次的收听会话?"),
-               isPresented: Binding(
-                get: { sessions.pendingRestore != nil },
-                set: { if !$0 { sessions.clearPendingRestore() } })) {
-            Button(tr("Continue", "继续")) { sessions.continuePendingSession() }
-            Button(tr("Start Fresh", "重新开始"), role: .destructive) {
-                sessions.discardPendingSession()
-            }
-        } message: {
-            if let offer = sessions.pendingRestore {
-                Text(offer.displayText)
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .musesToggleQueue)) { _ in
-            showQueue.toggle()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .musesFocusSearch)) { _ in
-            showSearch.toggle()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .musesNavigateArtist)) { note in
-            if let artist = note.object as? Artist {
-                selectedArtist = artist
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .musesNavigateAlbum)) { note in
-            if let album = note.object as? Album {
-                selectedAlbum = album
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .musesSelectPlaylist)) { note in
-            if let playlist = note.object as? Playlist {
-                selectedPlaylist = playlist
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .musesNavigateYouTubeImport)) { note in
-            if let ytImport = note.object as? YouTubeImport {
-                selectedYouTubeImport = ytImport
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .musesCloseYouTubeAlbum)) { _ in
-            selectedYouTubeImport = nil
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .musesToggleFocusMode)) { _ in
-            showFocus.toggle()
-        }
-        .sheet(isPresented: $showFocus) {
-            FocusView()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .musesToggleAudioInfo)) { _ in
-            showAudioInfo.toggle()
-        }
-        .sheet(isPresented: $showAudioInfo) {
-            AudioInfoPanel()
-        }
-        // P5 issue #6 — 「+」导入按钮仅在 Search 面板内,移出全局 toolbar。
-        .id(language)
+        notificationWired
+            .id(language)
     }
 
-    private var splitView: some View {
-        NavigationSplitView {
-            SidebarView(selection: $section,
-                        showSettings: $showSettings,
-                        showAbout: $showAbout,
-                        initialSettingsCategory: $initialSettingsCategory)
-        } detail: {
-            detailStack
-                .safeAreaInset(edge: .bottom, spacing: 8) {
-                    PlayerBar(showNowPlaying: showNowPlaying,
-                              skipArtworkMorph: skipArtworkMorph,
-                              onArtworkTap: { showNowPlaying = true },
-                              onQueueTap: { showQueue = true })
-                        .padding(.horizontal, 8)
+    private var notificationWired: some View {
+        navigationWired
+            .onChange(of: showSettings) { _, open in
+                if !open {
+                    showAbout = false
+                    initialSettingsCategory = nil
                 }
-                .background(BrandColors.background)
+            }
+            .dropDestination(for: URL.self) { urls, _ in
+                let text = urls.map(\.absoluteString).joined(separator: "\n")
+                if text.contains("youtu") {
+                    showYouTubeLink = true
+                }
+                return true
+            }
+            .onAppear(perform: handleAppear)
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                if NSApp.keyWindow == nil {
+                    MusesSingleInstance.orderFrontMainWindow()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .musesToggleQueue)) { _ in
+                if showNowPlaying {
+                    showNowPlaying = false
+                }
+                showQueue.toggle()
+                if showQueue { showLyricsDrawer = false }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .musesFocusSearch)) { _ in
+                showSearch.toggle()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .musesOpenSettings)) { note in
+                if let category = note.object as? SettingsCategory {
+                    initialSettingsCategory = category
+                }
+                showSettings = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .musesToggleSidebar)) { _ in
+                sidebarCollapsed.toggle()
+            }
+            .onChange(of: section) { _, new in
+                applySidebarSectionChange(new)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .musesToggleFocusMode)) { _ in
+                showFocus.toggle()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .musesToggleAudioInfo)) { _ in
+                showAudioInfo.toggle()
+            }
+    }
+
+    private var navigationWired: some View {
+        sheetHost
+            .onReceive(NotificationCenter.default.publisher(for: .musesNavigateArtist)) { note in
+                if let artist = note.object as? Artist { selectedArtist = artist }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .musesNavigateAlbum)) { note in
+                if let album = note.object as? Album { selectedAlbum = album }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .musesSelectPlaylist)) { note in
+                if let playlist = note.object as? Playlist { selectedPlaylist = playlist }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .musesNavigateYouTubeImport)) { note in
+                if let ytImport = note.object as? YouTubeImport { selectedYouTubeImport = ytImport }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .musesCloseYouTubeAlbum)) { _ in
+                selectedYouTubeImport = nil
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .musesShowPlaylistsOverview)) { _ in
+                selectedPlaylist = nil
+                selectedYouTubeImport = nil
+                section = .playlists
+            }
+    }
+
+    private var sheetHost: some View {
+        alertHost
+            .sheet(isPresented: $showFocus) {
+                FocusView()
+                    .tint(BrandColors.magenta)
+            }
+            .sheet(isPresented: $showAudioInfo) {
+                AudioInfoPanel()
+                    .tint(BrandColors.magenta)
+            }
+    }
+
+    private var sessionRestorePresented: Binding<Bool> {
+        Binding(
+            get: { sessions.pendingRestore != nil },
+            set: { if !$0 { sessions.clearPendingRestore() } }
+        )
+    }
+
+    private var alertHost: some View {
+        continuityChrome(splitView)
+            .alert(
+                tr("Library could not be opened", "无法打开资料库"),
+                isPresented: $showStoreFallbackAlert
+            ) {
+                Button(tr("OK", "好")) { showStoreFallbackAlert = false }
+            } message: {
+                Text(tr(
+                    "Muses could not open your on-disk library and is using a temporary empty session. Your original library was copied to a muses-corrupt backup in Application Support and was not deleted. Quit other Muses instances and relaunch. If this keeps happening, restore the backup.",
+                    "Muses 无法打开磁盘上的资料库,当前使用临时空白会话。原始库已备份为 Application Support 中的 muses-corrupt 副本,未被删除。请退出其他 Muses 实例后重新启动。若反复出现,请从备份恢复。"
+                ))
+            }
+            .alert(tr("Continue previous session?", "继续上次的收听会话?"),
+                   isPresented: sessionRestorePresented) {
+                Button(tr("Continue", "继续")) { sessions.continuePendingSession() }
+                Button(tr("Start Fresh", "重新开始"), role: .destructive) {
+                    sessions.discardPendingSession()
+                }
+            } message: {
+                if let offer = sessions.pendingRestore {
+                    Text(offer.displayText)
+                }
+            }
+    }
+
+    private func handleAppear() {
+        if libraryStoreFallback { showStoreFallbackAlert = true }
+        DispatchQueue.main.async {
+            MusesSingleInstance.orderFrontMainWindow()
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            MusesSingleInstance.orderFrontMainWindow()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            MusesSingleInstance.setWindowToolbarVisible(false)
+            for window in NSApp.windows {
+                MusesSingleInstance.hideSystemSidebarButtons(in: window)
+            }
+        }
+    }
+
+    private func rehideSidebarToggle() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            for window in NSApp.windows {
+                MusesSingleInstance.hideSystemSidebarButtons(in: window)
+            }
+        }
+    }
+
+    /// Sidebar items must replace pushed album/artist/playlist detail. Playlist
+    /// rows set `section` to `.playlists` *after* selecting a playlist, so that
+    /// destination keeps playlist / YouTube-import context.
+    private func applySidebarSectionChange(_ new: SidebarSection) {
+        selectedAlbum = nil
+        selectedBrowsableAlbum = nil
+        selectedArtist = nil
+        selectedBrowsableArtist = nil
+        if SidebarDetailClearPolicy.policy(for: new) == .clearAll {
+            selectedPlaylist = nil
+            selectedYouTubeImport = nil
+        }
+    }
+
+    private let chromeTop: CGFloat = 52
+    private let chromeSide: CGFloat = 0
+    private let chromeBottom: CGFloat = PlayerDockMetrics.height
+    private var showsLibrarySidebar: Bool { section.isLibrary && !sidebarCollapsed }
+
+    private var splitView: some View {
+        VStack(spacing: 0) {
+            AppTopBar(section: $section, showSettings: $showSettings)
+            HStack(spacing: 0) {
+                if showsLibrarySidebar {
+                    SidebarView(selection: $section,
+                                showSettings: $showSettings,
+                                showAbout: $showAbout,
+                                initialSettingsCategory: $initialSettingsCategory,
+                                selectedPlaylist: $selectedPlaylist,
+                                selectedYouTubeImport: $selectedYouTubeImport,
+                                sidebarCollapsed: $sidebarCollapsed)
+                        .frame(width: 232)
+                }
+                detailStack
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(BrowseBackground())
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if !showYouTubeVideo {
+                PlayerBar(showNowPlaying: showNowPlaying,
+                          skipArtworkMorph: skipArtworkMorph,
+                          lyricsActive: showLyricsDrawer,
+                          queueActive: showQueue,
+                          onArtworkTap: { openNowPlaying() },
+                          onLyricsTap: {
+                              showLyricsDrawer.toggle()
+                              showQueue = false
+                          },
+                          onQueueTap: {
+                              showQueue.toggle()
+                              showLyricsDrawer = false
+                          },
+                          onVideoTap: { showYouTubeVideo = true })
+            }
+        }
+        .background(BrandColors.background)
+        .toolbar(.hidden)
+        .tint(BrandColors.magenta)
+        .animation(MusesMotion.drawerAnimation(reduceMotion: reduceMotion), value: showsLibrarySidebar)
+        .focusEffectDisabled()
+    }
+
+    private func openNowPlaying() {
+        showQueue = false
+        showLyricsDrawer = false
+        showNowPlaying = true
     }
 
     @ViewBuilder
@@ -171,16 +293,11 @@ struct RootView: View {
             case .search:
                 HomeView(selection: $section, selectedAlbum: $selectedAlbum)
             case .pins:
-                PinsView(selection: $section, selectedAlbum: $selectedAlbum,
-                         selectedPlaylist: $selectedPlaylist)
+                RecentlyView(selection: $section, selectedAlbum: $selectedAlbum)
             case .recently:
                 RecentlyView(selection: $section, selectedAlbum: $selectedAlbum)
-            case .albums:
-                LibraryView(selection: $section, selectedAlbum: $selectedAlbum,
-                             selectedBrowsableAlbum: $selectedBrowsableAlbum)
-            case .artists:
-                ArtistsView(selectedArtist: $selectedArtist,
-                            selectedBrowsableArtist: $selectedBrowsableArtist)
+            case .albums, .artists:
+                SongsListView()
             case .songs:
                 SongsListView()
             case .playlists:
@@ -195,8 +312,6 @@ struct RootView: View {
 
     private func continuityChrome<Content: View>(_ content: Content) -> some View {
         content
-            // P4 — 根级 tint:消除系统默认蓝色控件,统一为纯黑白主题(magenta=白/黑)。
-            .tint(BrandColors.magenta)
             .environment(\.artworkWorldNamespace, artworkWorld)
             .background {
                 GeometryReader { geo in
@@ -204,26 +319,86 @@ struct RootView: View {
                 }
             }
             .onPreferenceChange(RootWindowWidthKey.self) { windowWidth = $0 }
-            .overlay(alignment: .trailing) {
-                if showQueue {
-                    QueueDrawerView(isPresented: $showQueue)
+            .overlay {
+                VStack(spacing: 0) {
+                    Color.clear.frame(height: chromeTop)
+                        .allowsHitTesting(false)
+                    nowPlayingLayers
+                    Color.clear.frame(height: showYouTubeVideo ? 0 : chromeBottom)
+                        .allowsHitTesting(false)
+                }
+                .tint(BrandColors.magenta)
+            }
+            .overlay {
+                if !showNowPlaying, showLyricsDrawer || showQueue {
+                    ZStack(alignment: .trailing) {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                showQueue = false
+                                showLyricsDrawer = false
+                            }
+                        HStack(alignment: .top, spacing: 8) {
+                            if showLyricsDrawer {
+                                LyricsDrawerView(isPresented: $showLyricsDrawer)
+                            }
+                            if showQueue {
+                                QueueDrawerView(isPresented: $showQueue, showsScrim: false)
+                            }
+                        }
+                        .padding(.top, chromeTop)
+                        .padding(.trailing, 12)
+                        .padding(.bottom, chromeBottom + 8)
+                    }
+                    .tint(BrandColors.magenta)
                 }
             }
-            .overlay { nowPlayingLayers }
             .overlay {
                 if showSearch {
                     GlobalSearchView(isPresented: $showSearch,
                                       showLocalFolder: $showImport,
                                       showYouTubeLink: $showYouTubeLink)
                         .transition(.opacity)
+                        .tint(BrandColors.magenta)
+                }
+            }
+            .overlay {
+                if showSettings {
+                    SettingsSheet(
+                        isPresented: $showSettings,
+                        initialCategory: initialSettingsCategory ?? (showAbout ? .about : nil)
+                    )
+                    .tint(BrandColors.magenta)
+                }
+            }
+            .overlay {
+                if showYouTubeLink {
+                    ZStack {
+                        BrandColors.scrim
+                            .ignoresSafeArea()
+                            .contentShape(Rectangle())
+                            .onTapGesture { showYouTubeLink = false }
+                        AddYouTubeLinkSheet(isPresented: $showYouTubeLink)
+                    }
+                    .tint(BrandColors.magenta)
                 }
             }
             .animation(MusesMotion.morphAnimation(reduceMotion: reduceMotion), value: showNowPlaying)
-            .animation(.easeInOut(duration: 0.25), value: showQueue)
-            .animation(.easeInOut(duration: 0.2), value: showSearch)
+            .animation(MusesMotion.drawerAnimation(reduceMotion: reduceMotion), value: showQueue)
+            .animation(MusesMotion.overlayAnimation(reduceMotion: reduceMotion), value: showSearch)
+            .animation(MusesMotion.overlayAnimation(reduceMotion: reduceMotion), value: showYouTubeVideo)
+            .animation(MusesMotion.overlayAnimation(reduceMotion: reduceMotion), value: showSettings)
+            .overlay {
+                if showYouTubeVideo, let videoId = playback.state.track?.youTubeId {
+                    YouTubeVideoOverlay(videoId: videoId, isPresented: $showYouTubeVideo)
+                        .tint(BrandColors.magenta)
+                }
+            }
             .onChange(of: showNowPlaying) { _, open in
                 if !open { nowPlayingShowLyrics = true }
                 if open {
+                    showQueue = false
+                    showLyricsDrawer = false
                     liveCoverHostRetained = !skipArtworkMorph
                 } else if liveCoverHostRetained {
                     Task { @MainActor in
@@ -233,7 +408,16 @@ struct RootView: View {
                         }
                     }
                 }
+                MusesSingleInstance.setWindowToolbarVisible(false)
             }
+            .onChange(of: showYouTubeVideo) { _, _ in
+                MusesSingleInstance.setWindowToolbarVisible(false)
+            }
+            .onChange(of: section) { _, _ in rehideSidebarToggle() }
+            .onChange(of: selectedAlbum?.id) { _, _ in rehideSidebarToggle() }
+            .onChange(of: selectedArtist?.id) { _, _ in rehideSidebarToggle() }
+            .onChange(of: selectedPlaylist?.id) { _, _ in rehideSidebarToggle() }
+            .onChange(of: selectedYouTubeImport?.id) { _, _ in rehideSidebarToggle() }
     }
 
     /// Back → middle → front: environment gradient, chrome, live-cover host.
@@ -246,8 +430,7 @@ struct RootView: View {
                         .zIndex(0)
                     NowPlayingView(isPresented: $showNowPlaying,
                                    showLyrics: $nowPlayingShowLyrics,
-                                   coverHostedExternally: !skipArtworkMorph,
-                                   onShowQueue: { showQueue = true })
+                                   coverHostedExternally: !skipArtworkMorph)
                         .transition(.opacity)
                         .zIndex(1)
                 }
@@ -278,6 +461,9 @@ struct RootView: View {
                 let rect = proxy[anchor]
                 host
                     .frame(width: rect.width, height: rect.height)
+                    .scaleEffect(playback.state.isPlaying && !reduceMotion ? 1.06 : 1.0)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.35),
+                               value: playback.state.isPlaying)
                     .offset(x: rect.minX, y: rect.minY)
             } else if liveCoverHostRetained, !showNowPlaying {
                 host.opacity(0)
@@ -314,11 +500,36 @@ enum SidebarSection: String, Hashable, CaseIterable {
     case inbox    // Phase 20: Music Inbox
 }
 
+/// Which pushed details survive a sidebar section change.
+enum SidebarDetailClearPolicy: Equatable {
+    case keepPlaylistContext
+    case clearAll
+
+    static func policy(for section: SidebarSection) -> SidebarDetailClearPolicy {
+        section == .playlists ? .keepPlaylistContext : .clearAll
+    }
+}
+
+private struct LibraryStoreFallbackKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// True when Muses opened an empty in-memory store because the on-disk library failed.
+    var libraryStoreFallback: Bool {
+        get { self[LibraryStoreFallbackKey.self] }
+        set { self[LibraryStoreFallbackKey.self] = newValue }
+    }
+}
+
 extension Notification.Name {
     static let musesToggleQueue = Notification.Name("muses.toggleQueue")
     static let musesFocusSearch = Notification.Name("muses.focusSearch")
     static let musesNavigateYouTubeImport = Notification.Name("muses.navigateYouTubeImport")
     static let musesCloseYouTubeAlbum = Notification.Name("muses.closeYouTubeAlbum")
+    static let musesShowPlaylistsOverview = Notification.Name("muses.showPlaylistsOverview")
+    static let musesOpenSettings = Notification.Name("muses.openSettings")
+    static let musesToggleSidebar = Notification.Name("muses.toggleSidebar")
     // Phase 24 — 桌面集成通知。
     static let musesOpenMiniPlayer = Notification.Name("muses.openMiniPlayer")
     static let musesToggleDesktopLyrics = Notification.Name("muses.toggleDesktopLyrics")
@@ -351,29 +562,31 @@ enum BrandColors {
         NSColor(srgbRed: r, green: g, blue: b, alpha: a)
     }
 
-    /// 纯黑背景(Apple Music 深色风格)。
+    /// Measured Apple Music Web page fill (`body` #1F1F1F dark / white light).
     static let background = dynamic(
-        rgb(0, 0, 0),
-        rgb(0.97, 0.97, 0.96)
+        rgb(AppleMusicTokens.darkPageRGB.r,
+            AppleMusicTokens.darkPageRGB.g,
+            AppleMusicTokens.darkPageRGB.b),
+        rgb(AppleMusicTokens.lightPageRGB.r,
+            AppleMusicTokens.lightPageRGB.g,
+            AppleMusicTokens.lightPageRGB.b)
     )
-    /// 卡片/表面色:略高于纯黑,用于卡片背景。
+    /// 卡片/表面色:略高于页面底。
     static let surface = dynamic(
         rgb(0.15, 0.15, 0.17),
         rgb(0.92, 0.92, 0.94)
     )
-    /// 纯黑白主题:副颜色为白色(深色)或黑色(浅色)。
+    /// Apple Music `--keyColor` #FA586A (play, scrubber, selected row, active lyric).
     static let magenta = dynamic(
-        rgb(1, 1, 1),
-        rgb(0, 0, 0)
+        rgb(AppleMusicTokens.keyColorRGB.r,
+            AppleMusicTokens.keyColorRGB.g,
+            AppleMusicTokens.keyColorRGB.b),
+        rgb(AppleMusicTokens.keyColorRGB.r,
+            AppleMusicTokens.keyColorRGB.g,
+            AppleMusicTokens.keyColorRGB.b)
     )
-    static let cyan = dynamic(
-        rgb(1, 1, 1),
-        rgb(0, 0, 0)
-    )
-    static let green = dynamic(
-        rgb(1, 1, 1),
-        rgb(0, 0, 0)
-    )
+    static let cyan = magenta
+    static let green = magenta
     static let textPrimary = dynamic(
         rgb(0.94, 0.94, 0.94),
         rgb(0.09, 0.09, 0.10)
