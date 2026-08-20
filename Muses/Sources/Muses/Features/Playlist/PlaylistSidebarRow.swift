@@ -9,25 +9,32 @@ import SwiftUI
 /// 以保持本行视图轻量、可在 `ForEach` 中复用且不持有 @Model 强引用。
 struct PlaylistSidebarRow: View {
     let item: SidebarPlaylistItem
+    var isSelected: Bool = false
     let onTap: () -> Void
 
     var body: some View {
-        HStack(spacing: 6) {
-            if item.isYouTube {
-                Image(systemName: "play.rectangle.fill")
-                    .font(.system(size: 10))
-                    .foregroundStyle(BrandColors.textSecondary)
-                    .accessibilityHidden(true)
+        Button(action: onTap) {
+            HStack(spacing: 6) {
+                if item.isYouTube {
+                    YouTubeMark(size: 12)
+                        .accessibilityHidden(true)
+                }
+                Text(item.name)
+                    .lineLimit(1)
+                    .foregroundStyle(isSelected ? BrandColors.magenta : BrandColors.textPrimary)
+                Spacer(minLength: 0)
             }
-            Text(item.name)
-                .lineLimit(1)
-                .foregroundStyle(BrandColors.textPrimary)
+            .padding(.vertical, 4)
+            .padding(.horizontal, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isSelected ? BrandColors.surface : Color.clear)
+            )
         }
-        .tag(SidebarSection.playlists)
-        .contentShape(Rectangle())
-        .onTapGesture { onTap() }
+        .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var accessibilityLabel: String {

@@ -154,16 +154,67 @@ struct HomeView: View {
 
     private var listenNowTopPicks: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(tr("Top Picks", "精选"))
-                .font(.system(size: AppleMusicTokens.sectionTitleSize, weight: .semibold))
-                .foregroundStyle(BrandColors.textPrimary)
-                .padding(.horizontal, 24)
-            HStack(alignment: .top, spacing: 16) {
-                ForEach(topPickItems) { item in
-                    discoveryCard(item, size: MusicObjectMetrics.albumHero)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 16) {
+                    ForEach(topPickItems) { item in
+                        editorialCard(item)
+                    }
                 }
+                .padding(.horizontal, 24)
             }
-            .padding(.horizontal, 24)
+        }
+    }
+
+    @ViewBuilder
+    private func editorialCard(_ item: DiscoveryItem) -> some View {
+        switch item {
+        case .youTube(let card):
+            EditorialCard(
+                eyebrow: tr("Featured", "精选"),
+                title: card.title,
+                subtitle: card.uploader ?? "YouTube",
+                artwork: ArtworkSource.resolve(
+                    hash: nil, remoteURL: card.thumbnailURL, youTubeId: card.id),
+                onOpen: { Task { await playYouTubeCard(card) } },
+                onPlay: { Task { await playYouTubeCard(card) } }
+            )
+        case .album(let ref):
+            EditorialCard(
+                eyebrow: tr("Album", "专辑"),
+                title: ref.title,
+                subtitle: ref.albumArtist,
+                artwork: ArtworkSource.resolve(
+                    hash: ref.artworkHash, remoteURL: nil, youTubeId: nil),
+                onOpen: {
+                    if let album = albums.first(where: { $0.id == ref.id }) {
+                        selectedAlbum = album
+                    }
+                },
+                onPlay: {
+                    if let album = albums.first(where: { $0.id == ref.id }) {
+                        playAlbum(album)
+                    }
+                }
+            )
+        case .track(let snap):
+            EditorialCard(
+                eyebrow: tr("Song", "歌曲"),
+                title: snap.title,
+                subtitle: snap.artist,
+                artwork: ArtworkSource.resolve(for: snap),
+                onOpen: { playback.playTrack(snap, context: recentlyPlayed, from: .songs) },
+                onPlay: { playback.playTrack(snap, context: recentlyPlayed, from: .songs) }
+            )
+        case .playlist(let ref):
+            EditorialCard(
+                eyebrow: tr("Playlist", "歌单"),
+                title: ref.name,
+                subtitle: ref.isYouTube ? "YouTube" : tr("Playlist", "歌单"),
+                artwork: ArtworkSource.resolve(
+                    hash: nil, remoteURL: ref.artworkUrl, youTubeId: ref.firstYouTubeVideoId),
+                onOpen: {},
+                onPlay: {}
+            )
         }
     }
 

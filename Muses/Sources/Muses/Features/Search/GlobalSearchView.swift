@@ -26,6 +26,16 @@ struct GlobalSearchView: View {
             }
             .padding(.horizontal, 24)
             .padding(.top, 8)
+            TextField(tr("Search", "搜索"), text: Binding(
+                get: { search.query },
+                set: { search.query = $0 }
+            ))
+            .textFieldStyle(.plain)
+            .padding(.horizontal, 12)
+            .frame(height: 32)
+            .background(BrandColors.surface, in: Capsule())
+            .padding(.horizontal, 24)
+            .padding(.top, 8)
             .padding(.bottom, 16)
 
             ScrollView {

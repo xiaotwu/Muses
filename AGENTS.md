@@ -62,9 +62,9 @@ Historical plans describe intent but do not override current implementation unle
 
 Chrome (as of `docs/superpowers/specs/2026-08-20-muses-apple-music-web-visual.md`; supersedes Sidra black/white/glow):
 
-- One top bar: traffic lights, Muses wordmark, Home / New / Library, real search field, avatar (opens the Account / Settings content page).
-- Library sidebar is always visible (Recently, Songs, Playlists, History, Inbox, playlist rows). Home and New keep the pane; they are not full-width.
-- Full-width player dock at the bottom, always visible except under the YouTube video overlay. Not a floating capsule. YouTube video occupies the AirPlay slot.
+- Left nav (live Apple Music Web): rounded pane with traffic lights, Muses wordmark, Search / Home / New (selected item is pink), then Library (Recently, Songs, History, Inbox) and playlists. Profile at the bottom opens Settings. No top-bar tabs. No Radio.
+- Library pane is always visible unless the user collapsed it.
+- Player is a floating glass capsule at the bottom of the content area, not a full-width dock. YouTube video occupies the AirPlay slot. Hidden under the YouTube video overlay.
 - Now Playing fills the content slot (beside the sidebar, above the dock). Large square cover, title/artist under it, lyrics on the right. It does not duplicate transport. Dock lyrics toggles lyrics-focus inside Now Playing. Opening Now Playing closes the queue panel.
 - Visual language matches Apple Music Web: SF Pro, near-black / near-white neutrals, accent `#FA586A` (calibrate from `music.apple.com`) for card Play, scrubber, selected sidebar row, current track title, and active lyric. Dock play/pause is primary-colored, not pink. No Sidra white glow. YouTube mark keeps its red. Selected top tabs are bold primary text, not pink.
 - Top bar, Library sidebar, and player icons are heavier monochrome SF Symbols (semibold, ≥28pt hit target). The macOS application menu stays text.
@@ -94,7 +94,7 @@ Do not simplify mature queue/history workflows merely to make implementation eas
 
 Muses should remain distinctly macOS-native. Prioritize artwork (and Now Playing video), hierarchy, depth, clarity, responsiveness, desktop information density, and an expressive playback surface.
 
-Chrome layout follows Apple Music Web (top nav + persistent Library pane + full-width dock). Visual skin matches `music.apple.com`: pink accent, SF Pro, glass dock. It is a native SwiftUI clone, not a WebView wrap of music.apple.com or music.youtube.com.
+Chrome layout follows live Apple Music Web: left nav (Search / Home / New + Library), 16:9 editorial heroes, square album rails, floating capsule player. Visual skin matches `music.apple.com`: pink accent, SF Pro, glass capsule. Native SwiftUI clone, not a WebView wrap of music.apple.com or music.youtube.com.
 
 Avoid:
 

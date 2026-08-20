@@ -86,7 +86,7 @@ struct RootView: View {
                 if showQueue { showLyricsDrawer = false }
             }
             .onReceive(NotificationCenter.default.publisher(for: .musesFocusSearch)) { _ in
-                // AppTopBar focuses the real search field.
+                section = .search
             }
             .onReceive(NotificationCenter.default.publisher(for: .musesOpenSettings)) { note in
                 if let category = note.object as? SettingsCategory {
@@ -215,16 +215,15 @@ struct RootView: View {
         }
     }
 
-    private let chromeTop: CGFloat = 52
+    private let chromeTop: CGFloat = 8
     private let chromeSide: CGFloat = 0
-    private let chromeBottom: CGFloat = PlayerDockMetrics.height
+    private let chromeBottom: CGFloat = AppleMusicTokens.capsuleHeight + 24
     private var showsLibrarySidebar: Bool {
         LibraryChromePolicy.showsSidebar(section: section, collapsed: sidebarCollapsed)
     }
 
     private var splitView: some View {
-        VStack(spacing: 0) {
-            AppTopBar(section: $section, showSettings: $showSettings)
+        ZStack(alignment: .bottom) {
             HStack(spacing: 0) {
                 if showsLibrarySidebar {
                     SidebarView(selection: $section,
@@ -234,25 +233,36 @@ struct RootView: View {
                                 selectedPlaylist: $selectedPlaylist,
                                 selectedYouTubeImport: $selectedYouTubeImport,
                                 sidebarCollapsed: $sidebarCollapsed)
-                        .frame(width: AppleMusicTokens.sidebarWidth)
+                        .padding(.leading, AppleMusicTokens.sidebarInset)
+                        .padding(.vertical, AppleMusicTokens.sidebarInset)
                 }
                 detailStack
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(BrowseBackground())
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
             if !showYouTubeVideo {
-                PlayerBar(showNowPlaying: showNowPlaying,
-                          skipArtworkMorph: skipArtworkMorph,
-                          lyricsActive: showNowPlaying && nowPlayingShowLyrics,
-                          queueActive: showQueue,
-                          onArtworkTap: { openNowPlaying() },
-                          onLyricsTap: { handleDockLyrics() },
-                          onQueueTap: {
-                              showQueue.toggle()
-                              showLyricsDrawer = false
-                          },
-                          onVideoTap: { showYouTubeVideo = true })
+                HStack {
+                    if showsLibrarySidebar {
+                        Color.clear.frame(width: AppleMusicTokens.sidebarWidth + AppleMusicTokens.sidebarInset)
+                    }
+                    Spacer(minLength: 0)
+                    PlayerBar(showNowPlaying: showNowPlaying,
+                              skipArtworkMorph: skipArtworkMorph,
+                              lyricsActive: showNowPlaying && nowPlayingShowLyrics,
+                              queueActive: showQueue,
+                              onArtworkTap: { openNowPlaying() },
+                              onLyricsTap: { handleDockLyrics() },
+                              onQueueTap: {
+                                  showQueue.toggle()
+                                  showLyricsDrawer = false
+                              },
+                              onVideoTap: { showYouTubeVideo = true })
+                    Spacer(minLength: 0)
+                    if showQueue {
+                        Color.clear.frame(width: 280)
+                    }
+                }
+                .padding(.bottom, 12)
             }
         }
         .background(BrandColors.background)
@@ -287,7 +297,7 @@ struct RootView: View {
                 isPresented: $showSettings,
                 initialCategory: initialSettingsCategory ?? (showAbout ? .about : nil)
             )
-        } else if SearchChromePolicy.occupiesContent(query: search.query) {
+        } else if section == .search || SearchChromePolicy.occupiesContent(query: search.query) {
             GlobalSearchView(isPresented: .constant(true),
                              showLocalFolder: $showImport,
                              showYouTubeLink: $showYouTubeLink)
