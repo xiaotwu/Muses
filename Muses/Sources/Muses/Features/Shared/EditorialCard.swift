@@ -7,13 +7,12 @@ struct EditorialCard: View {
     let subtitle: String
     let artwork: ArtworkSource
     var width: CGFloat = AppleMusicTokens.editorialWidth
+    var imageHeight: CGFloat = AppleMusicTokens.editorialHeight
     var onOpen: () -> Void
     var onPlay: () -> Void
 
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var imageHeight: CGFloat { width / AppleMusicTokens.editorialAspect }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {

@@ -152,7 +152,7 @@ struct SettingsSheet: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(BrandColors.background)
+        .background(Color.clear)
         .onExitCommand { handleEscape() }
         .onAppear {
             escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in

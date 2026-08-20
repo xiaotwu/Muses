@@ -32,7 +32,8 @@ struct PlayerBar: View {
             trailing
         }
         .padding(.horizontal, 14)
-        .frame(width: AppleMusicTokens.capsuleWidth, height: PlayerDockMetrics.height)
+        .frame(maxWidth: AppleMusicTokens.capsuleWidth)
+        .frame(height: PlayerDockMetrics.height)
         .background {
             DockBackground()
         }

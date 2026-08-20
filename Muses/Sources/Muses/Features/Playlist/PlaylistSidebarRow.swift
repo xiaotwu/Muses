@@ -24,14 +24,17 @@ struct PlaylistSidebarRow: View {
                     .foregroundStyle(isSelected ? BrandColors.magenta : BrandColors.textPrimary)
                 Spacer(minLength: 0)
             }
-            .padding(.vertical, 4)
-            .padding(.horizontal, 6)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, minHeight: AppleMusicTokens.navItemHeight, alignment: .leading)
+            .contentShape(Rectangle())
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(isSelected ? BrandColors.surface : Color.clear)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected ? BrandColors.textPrimary.opacity(0.08) : Color.clear)
             )
         }
         .buttonStyle(.plain)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityAddTraits(isSelected ? .isSelected : [])

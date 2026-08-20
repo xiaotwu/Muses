@@ -30,7 +30,7 @@ struct NewView: View {
                 Text(tr("New", "发现"))
                     .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
                     .foregroundStyle(BrandColors.textPrimary)
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, AppleMusicTokens.contentPaddingX)
 
                 if situational.isEnabled {
                     situationalBody

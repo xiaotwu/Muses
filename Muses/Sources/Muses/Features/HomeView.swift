@@ -43,7 +43,7 @@ struct HomeView: View {
                 Text(tr("Home", "首页"))
                     .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
                     .foregroundStyle(BrandColors.textPrimary)
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, AppleMusicTokens.contentPaddingX)
 
                 if !topPickItems.isEmpty {
                     listenNowTopPicks
@@ -160,7 +160,7 @@ struct HomeView: View {
                         editorialCard(item)
                     }
                 }
-                .padding(.horizontal, 24)
+                .padding(.horizontal, AppleMusicTokens.contentPaddingX)
             }
         }
     }
