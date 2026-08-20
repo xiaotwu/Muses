@@ -10,12 +10,19 @@ struct YouTubeAlbumDetailView: View {
     @Environment(PlaybackService.self) private var playback
     @Environment(YouTubeImportService.self) private var importService
     @Environment(InboxService.self) private var inbox
+    @Environment(YouTubeAccountService.self) private var youTubeAccount
+    @Environment(YouTubeSearchService.self) private var searchService
     @State private var gradient: [Color] = [BrandColors.background, BrandColors.surface]
     @State private var syncing = false
-    @State private var showAddLocalSheet = false
     @State private var showDeleteConfirm = false
     @State private var pendingDelete = false
     @State private var selectedRowID: UUID?
+    @State private var showAddTrack = false
+    @State private var writeError: String?
+
+    private var isOwned: Bool {
+        youTubeAccount.ownsPlaylist(youTubeImport.playlistId)
+    }
 
     private var items: [YouTubeImportItem] {
         (youTubeImport.items ?? []).sorted { $0.order < $1.order }
@@ -24,8 +31,8 @@ struct YouTubeAlbumDetailView: View {
         youTubeImport.localAdditions ?? []
     }
 
-    /// 合并播放上下文:YT 条目对应的 Track + 本地附加(按顺序)。
-    private var allSnaps: [TrackSnapshot] {
+    /// Playback context. Built on play, not during `body`.
+    private func playbackSnaps() -> [TrackSnapshot] {
         let yt = items.compactMap { $0.track }.map { TrackSnapshot(from: $0) }
         let local = localAdditions.map { TrackSnapshot(from: $0) }
         return yt + local
@@ -33,15 +40,15 @@ struct YouTubeAlbumDetailView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(colors: gradient, startPoint: .top, endPoint: .center)
-                .ignoresSafeArea()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    header
-                    trackList
-                }
-                .padding(24)
-                .padding(.bottom, 100)
+            BrandColors.background.ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 0) {
+                header
+                    .padding(.horizontal, 24)
+                    .padding(.top, 24)
+                    .padding(.bottom, 16)
+                trackList
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 100)
             }
         }
         .navigationTitle("")
@@ -53,6 +60,9 @@ struct YouTubeAlbumDetailView: View {
             }
         }
         .onAppear { extractGradient() }
+        .sheet(isPresented: $showAddTrack) {
+            AddToYouTubePlaylistSheet(youTubeImport: youTubeImport)
+        }
         .confirmationDialog(
             tr("Delete this YouTube playlist import?",
                "删除此 YouTube 歌单导入?"),
@@ -66,99 +76,110 @@ struct YouTubeAlbumDetailView: View {
             }
             Button(tr("Cancel", "取消"), role: .cancel) {}
         } message: {
-            Text(tr("Local additions and imported tracks remain in your library unless you delete them separately.",
-                    "本地附加与已导入曲目仍保留在资料库中,除非单独删除。"))
-        }
-        .sheet(isPresented: $showAddLocalSheet) {
-            LocalTrackPickerSheet(
-                importId: youTubeImport.id,
-                existingTrackIds: Set(localAdditions.map { $0.id })
-            )
-            .environment(importService)
+            Text(tr("Imported tracks remain in your library unless you delete them separately.",
+                    "已导入曲目仍保留在资料库中,除非单独删除。"))
         }
     }
 
     // MARK: - Header
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 24) {
+        HStack(alignment: .top, spacing: 20) {
             artwork
-                .frame(width: 240, height: 240)
-                .shadow(radius: 20)
-            VStack(alignment: .leading, spacing: 8) {
-                Text(tr("PLAYLIST", "歌单"))
-                    .font(.caption).fontWeight(.bold)
-                    .foregroundStyle(BrandColors.textSecondary)
-                    .tracking(1.5)
-
+                .frame(width: 200, height: 200)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .shadow(radius: 16)
+            VStack(alignment: .leading, spacing: 10) {
                 Text(youTubeImport.title)
                     .font(.largeTitle).fontWeight(.bold)
                     .foregroundStyle(BrandColors.textPrimary)
                     .lineLimit(2)
 
-                Text(metadataLine)
-                    .font(.subheadline)
-                    .foregroundStyle(BrandColors.textSecondary)
+                HStack(spacing: 8) {
+                    YouTubeMark(size: 14)
+                    Text(metadataLine)
+                        .font(.subheadline)
+                        .foregroundStyle(BrandColors.textSecondary)
+                        .lineLimit(1)
+                }
 
-                HStack(spacing: 12) {
-                    Button { playAll() } label: {
-                        Label(tr("Play", "播放"), systemImage: "play.fill")
-                            .padding(.horizontal, 16).padding(.vertical, 8)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(BrandColors.magenta)
-                    .disabled(allSnaps.isEmpty)
-
-                    Button { shuffleAll() } label: {
-                        Label(tr("Shuffle", "随机播放"), systemImage: "shuffle")
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(allSnaps.isEmpty)
-
-                    Button { showAddLocalSheet = true } label: {
-                        Label(tr("Add Local", "添加本地"), systemImage: "plus")
-                    }
-                    .buttonStyle(.bordered)
-
+                HStack(spacing: 8) {
+                    ChromeIconButton(
+                        systemName: "play.fill",
+                        help: tr("Play", "播放"),
+                        accessibility: tr("Play", "播放"),
+                        action: playAll
+                    )
+                    ChromeIconButton(
+                        systemName: "shuffle",
+                        help: tr("Shuffle", "随机播放"),
+                        accessibility: tr("Shuffle", "随机播放"),
+                        action: shuffleAll
+                    )
                     Button {
                         if let url = URL(string: youTubeImport.url) { NSWorkspace.shared.open(url) }
                     } label: {
-                        Label(tr("Open in YT", "在 YT 中打开"), systemImage: "arrow.up.right.square")
+                        YouTubeMark(size: 16)
+                            .frame(width: 28, height: 28)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.plain)
+                    .help(tr("Open on YouTube", "在 YouTube 打开"))
+                    .accessibilityLabel(tr("Open on YouTube", "在 YouTube 打开"))
 
-                    Button {
+                    ChromeIconButton(
+                        systemName: "arrow.clockwise",
+                        help: tr("Resync", "重新同步"),
+                        accessibility: tr("Resync", "重新同步")
+                    ) {
                         Task {
                             syncing = true
                             _ = try? await importService.resync(importId: youTubeImport.id)
                             syncing = false
                         }
-                    } label: {
-                        if syncing {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Label(tr("Resync", "重新同步"), systemImage: "arrow.clockwise")
-                        }
                     }
-                    .buttonStyle(.bordered)
-                    .disabled(syncing)
 
-                    Button(role: .destructive) {
-                        showDeleteConfirm = true
-                    } label: {
-                        Label(tr("Delete", "删除"), systemImage: "trash")
+                    ChromeIconButton(
+                        systemName: "trash",
+                        help: tr("Delete", "删除"),
+                        accessibility: tr("Delete", "删除")
+                    ) { showDeleteConfirm = true }
+                    if isOwned {
+                        ChromeIconButton(
+                            systemName: "plus",
+                            help: tr("Add Tracks", "添加曲目"),
+                            accessibility: tr("Add Tracks", "添加曲目")
+                        ) { showAddTrack = true }
                     }
-                    .buttonStyle(.bordered)
                 }
                 .padding(.top, 4)
+                if isOwned {
+                    Text(tr("Edits sync to YouTube Music", "编辑会同步到 YouTube Music"))
+                        .font(.caption2)
+                        .foregroundStyle(BrandColors.textSecondary)
+                }
+                if let writeError {
+                    Text(writeError).font(.caption).foregroundStyle(.red)
+                }
             }
             Spacer()
+        }
+        .contextMenu {
+            Button(tr("Play", "播放")) { playAll() }
+            Button(tr("Shuffle", "随机播放")) { shuffleAll() }
+            Button(tr("Open on YouTube", "在 YouTube 打开")) {
+                if let url = URL(string: youTubeImport.url) { NSWorkspace.shared.open(url) }
+            }
+            Button(tr("Resync", "重新同步")) {
+                Task { _ = try? await importService.resync(importId: youTubeImport.id) }
+            }
+            Divider()
+            Button(tr("Delete", "删除"), role: .destructive) { showDeleteConfirm = true }
         }
     }
 
     /// 元数据:频道 • 曲目数 • 总时长。
     private var metadataLine: String {
-        let count = allSnaps.count
+        let count = items.count + localAdditions.count
         var parts: [String] = [youTubeImport.channel]
         parts.append("\(count) \(count == 1 ? tr("song", "首") : tr("songs", "首"))")
         let totalMs = items.reduce(0) { $0 + $1.durationMs }
@@ -189,10 +210,11 @@ struct YouTubeAlbumDetailView: View {
     private var thumbnailFallback: some View {
         Group {
             if let first = items.first {
-                AsyncImage(url: URL(string: "https://i.ytimg.com/vi/\(first.youTubeId)/hqdefault.jpg")) { phase in
-                    if let img = phase.image { img.resizable().scaledToFill() }
-                    else { placeholder }
-                }
+                CachedAsyncImage(
+                    url: YouTubeThumbnail.url(videoId: first.youTubeId),
+                    content: { $0.resizable().scaledToFill() },
+                    placeholder: { placeholder }
+                )
             } else {
                 placeholder
             }
@@ -207,8 +229,7 @@ struct YouTubeAlbumDetailView: View {
     // MARK: - Track list
 
     private var trackList: some View {
-        VStack(spacing: 0) {
-            // YT 条目
+        List {
             ForEach(items, id: \.id) { item in
                 SongObjectView(
                     title: item.title,
@@ -217,96 +238,118 @@ struct YouTubeAlbumDetailView: View {
                     indexLabel: "\(item.order + 1)",
                     artwork: importItemArtwork(item),
                     isSelected: selectedRowID == item.id,
-                    nowPlayingID: item.track?.id,
+                    nowPlayingID: playback.state.track?.youTubeId == item.youTubeId
+                    ? playback.state.track?.id : nil,
                     showsHoverPlay: true,
                     showsPlayButton: true,
                     onSelect: { selectedRowID = item.id },
                     onPlay: { playItem(item) },
+                    onRemove: removeAction(for: item),
                     onQueue: {
-                        if let t = item.track { playback.queue.addToQueue(TrackSnapshot(from: t)) }
+                        playback.queue.addToQueue(snapshot(for: item))
                     },
                     onInbox: {
-                        if let t = item.track { inbox.add(TrackSnapshot(from: t), source: .youTubeImport) }
+                        inbox.add(snapshot(for: item), source: .youTubeImport)
                     }
                 )
-                .trackContextMenu(snapshot: item.track.map { TrackSnapshot(from: $0) },
-                                  track: item.track,
+                .trackContextMenu(snapshot: TrackSnapshot(
+                                      id: item.track?.id ?? item.id,
+                                      title: item.title,
+                                      artist: item.artist,
+                                      albumTitle: youTubeImport.title,
+                                      durationSeconds: Double(item.durationMs) / 1000,
+                                      filePath: nil,
+                                      youTubeId: item.youTubeId,
+                                      artworkHash: nil,
+                                      artworkUrl: YouTubeThumbnail.urlString(videoId: item.youTubeId),
+                                      sampleRate: nil,
+                                      bitDepth: nil,
+                                      codec: nil,
+                                      isLossless: false),
+                                  track: nil,
                                   onPlay: { playItem(item) })
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
-            // 本地附加
-            ForEach(Array(localAdditions.enumerated()), id: \.element.id) { idx, track in
-                SongObjectView(
-                    title: track.title,
-                    artist: track.artist,
-                    durationLabel: formatMs(Int(track.durationSeconds * 1000)),
-                    indexLabel: "\(items.count + idx + 1)",
-                    artwork: ArtworkSource.localHash(track.localArtworkHash ?? track.album?.artworkHash),
-                    isSelected: selectedRowID == track.id,
-                    nowPlayingID: track.id,
-                    showsHoverPlay: true,
-                    showsPlayButton: true,
-                    showLocalBadge: true,
-                    onSelect: { selectedRowID = track.id },
-                    onPlay: {
-                        let snap = TrackSnapshot(from: track)
-                        playback.playTrack(snap, context: allSnaps, from: .import)
-                    },
-                    onQueue: { playback.queue.addToQueue(TrackSnapshot(from: track)) },
-                    onInbox: { inbox.add(TrackSnapshot(from: track), source: .youTubeImport) }
-                )
-                .trackContextMenu(snapshot: TrackSnapshot(from: track),
-                                  track: track,
-                                  onPlay: {
-                                      let snap = TrackSnapshot(from: track)
-                                      playback.playTrack(snap, context: allSnaps, from: .import)
-                                  })
-            }
+            .onMove(perform: moveItems)
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .focusEffectDisabled()
+    }
 
-            // 本地附加管理区
-            if !localAdditions.isEmpty {
-                Divider().background(BrandColors.textSecondary.opacity(0.1))
-                HStack {
-                    Text(tr("Local additions (shown locally only, not synced back to YT)",
-                            "本地附加(仅本地显示,不同步回 YT)"))
-                        .font(.caption).fontWeight(.medium)
-                        .foregroundStyle(BrandColors.green)
-                    Spacer()
-                }
-                .padding(.horizontal, 4).padding(.top, 10)
-                ForEach(localAdditions, id: \.id) { track in
-                    HStack {
-                        Image(systemName: "music.note").foregroundStyle(BrandColors.green)
-                            .frame(width: 20)
-                        Text(track.title).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
-                        Spacer()
-                        Button {
-                            importService.removeLocalAddition(importId: youTubeImport.id, trackId: track.id)
-                        } label: { Image(systemName: "minus.circle") }
-                            .buttonStyle(.plain).foregroundStyle(BrandColors.textSecondary)
-                            .help(tr("Remove local addition", "移除本地附加"))
-                    }
-                    .padding(.horizontal, 4).padding(.vertical, 4)
-                }
-            }
+    private func moveItems(from source: IndexSet, to destination: Int) {
+        guard isOwned, let from = source.first else { return }
+        let adjusted = destination > from ? destination - 1 : destination
+        let videoId = items[from].youTubeId
+        _ = importService.moveRemoteItem(importId: youTubeImport.id, from: from, to: adjusted)
+        Task { await writeMove(videoId: videoId, to: adjusted) }
+    }
+
+    private func removeAction(for item: YouTubeImportItem) -> (() -> Void)? {
+        guard isOwned else { return nil }
+        return { removeItem(item) }
+    }
+
+    private func removeItem(_ item: YouTubeImportItem) {
+        let videoId = item.youTubeId
+        _ = importService.removeRemoteItem(importId: youTubeImport.id, itemId: item.id)
+        Task { await writeRemove(videoId: videoId) }
+    }
+
+    private func writeMove(videoId: String, to position: Int) async {
+        guard isOwned, let writer = youTubeAccount.playlistWriter() else { return }
+        do {
+            try await writer.moveVideo(playlistId: youTubeImport.playlistId, videoId: videoId, to: position)
+            writeError = nil
+        } catch {
+            writeError = error.localizedDescription
         }
     }
 
+    private func writeRemove(videoId: String) async {
+        guard isOwned, let writer = youTubeAccount.playlistWriter() else { return }
+        do {
+            try await writer.removeVideo(playlistId: youTubeImport.playlistId, videoId: videoId)
+            writeError = nil
+        } catch {
+            writeError = error.localizedDescription
+        }
+    }
+
+    private func snapshot(for item: YouTubeImportItem) -> TrackSnapshot {
+        if let t = item.track { return TrackSnapshot(from: t) }
+        return TrackSnapshot(
+            id: item.id,
+            title: item.title,
+            artist: item.artist,
+            albumTitle: youTubeImport.title,
+            durationSeconds: Double(item.durationMs) / 1000,
+            filePath: nil,
+            youTubeId: item.youTubeId,
+            artworkHash: nil,
+            artworkUrl: YouTubeThumbnail.urlString(videoId: item.youTubeId),
+            sampleRate: nil, bitDepth: nil, codec: nil, isLossless: false
+        )
+    }
+
     private func playItem(_ item: YouTubeImportItem) {
-        guard let t = item.track else { return }
-        let snap = TrackSnapshot(from: t)
-        let ctx = allSnaps
+        let snap = snapshot(for: item)
+        let ctx = playbackSnaps()
         guard let target = ctx.first(where: { $0.id == snap.id }) ?? ctx.first else { return }
         playback.playTrack(target, context: ctx, from: .import)
     }
 
     private func playAll() {
-        guard let first = allSnaps.first else { return }
-        playback.playTrack(first, context: allSnaps, from: .import)
+        let snaps = playbackSnaps()
+        guard let first = snaps.first else { return }
+        playback.playTrack(first, context: snaps, from: .import)
     }
 
     private func shuffleAll() {
-        guard !allSnaps.isEmpty else { return }
-        let shuffled = allSnaps.shuffled()
+        let snaps = playbackSnaps()
+        guard !snaps.isEmpty else { return }
+        let shuffled = snaps.shuffled()
         guard let first = shuffled.first else { return }
         playback.playTrack(first, context: shuffled, from: .import)
     }
@@ -316,7 +359,7 @@ struct YouTubeAlbumDetailView: View {
     private func extractGradient() {
         // 从封面 URL 提取主色调(异步加载后用 NSImage)
         let urlStr = youTubeImport.artworkUrl
-            ?? (items.first.map { "https://i.ytimg.com/vi/\($0.youTubeId)/hqdefault.jpg" })
+            ?? items.first.map { YouTubeThumbnail.urlString(videoId: $0.youTubeId) }
         guard let urlStr, let url = URL(string: urlStr) else { return }
         URLSession.shared.dataTask(with: url) { data, _, _ in
             guard let data, let img = NSImage(data: data) else { return }
@@ -342,12 +385,87 @@ struct YouTubeAlbumDetailView: View {
     }
 
     private func importItemArtwork(_ item: YouTubeImportItem) -> ArtworkSource {
-        if let t = item.track {
-            return ArtworkSource.resolve(for: TrackSnapshot(from: t))
-        }
-        if let url = URL(string: "https://i.ytimg.com/vi/\(item.youTubeId)/hqdefault.jpg") {
+        if let url = YouTubeThumbnail.url(videoId: item.youTubeId) {
             return .remote(url)
         }
         return .placeholder
+    }
+}
+
+/// Search-and-add sheet for owned YouTube playlists. Writes back through Data API.
+struct AddToYouTubePlaylistSheet: View {
+    let youTubeImport: YouTubeImport
+    @Environment(\.dismiss) private var dismiss
+    @Environment(YouTubeSearchService.self) private var searchService
+    @Environment(YouTubeImportService.self) private var importService
+    @Environment(YouTubeAccountService.self) private var youTubeAccount
+    @State private var query = ""
+    @State private var results: [YTDlpBridge.YTDlpPlaylistEntry] = []
+    @State private var searching = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(tr("Add to playlist", "添加到歌单"))
+                    .font(.headline)
+                Spacer()
+                Button(tr("Done", "完成")) { dismiss() }
+            }
+            TextField(tr("Search YouTube", "搜索 YouTube"), text: $query)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit { Task { await runSearch() } }
+            if searching { ProgressView().controlSize(.small) }
+            if let error { Text(error).font(.caption).foregroundStyle(.red) }
+            List(results, id: \.id) { entry in
+                Button {
+                    Task { await add(entry) }
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(entry.title).foregroundStyle(BrandColors.textPrimary)
+                        Text(entry.uploader ?? "")
+                            .font(.caption)
+                            .foregroundStyle(BrandColors.textSecondary)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+            .listStyle(.plain)
+        }
+        .padding(16)
+        .frame(width: 420, height: 480)
+        .musesFloatingChrome(cornerRadius: 16)
+        .onTapGesture {}
+    }
+
+    private func runSearch() async {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return }
+        searching = true
+        defer { searching = false }
+        do {
+            results = try await searchService.search(query: q, limit: 12)
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func add(_ entry: YTDlpBridge.YTDlpPlaylistEntry) async {
+        _ = importService.addRemoteVideo(
+            importId: youTubeImport.id,
+            videoId: entry.id,
+            title: entry.title,
+            artist: entry.uploader ?? youTubeImport.channel,
+            durationMs: Int((entry.duration ?? 0) * 1000))
+        if youTubeAccount.ownsPlaylist(youTubeImport.playlistId),
+           let writer = youTubeAccount.playlistWriter() {
+            do {
+                try await writer.addVideo(playlistId: youTubeImport.playlistId, videoId: entry.id)
+                error = nil
+            } catch {
+                self.error = error.localizedDescription
+            }
+        }
     }
 }

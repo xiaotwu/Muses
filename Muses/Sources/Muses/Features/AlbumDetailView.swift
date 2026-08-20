@@ -18,8 +18,7 @@ struct AlbumDetailView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(colors: gradient, startPoint: .top, endPoint: .center)
-                .ignoresSafeArea()
+            BrandColors.background.ignoresSafeArea()
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     header
@@ -113,7 +112,10 @@ struct AlbumDetailView: View {
 
     private var artwork: some View {
         ArtworkView(
-            source: ArtworkSource.localHash(album.artworkHash),
+            source: ArtworkSource.resolve(
+                hash: album.artworkHash,
+                remoteURL: album.artworkUrl,
+                youTubeId: album.tracks.first?.youTubeId),
             cornerRadius: 12,
             glyphSize: 32,
             targetSize: 240
@@ -128,7 +130,7 @@ struct AlbumDetailView: View {
                     artist: track.artist,
                     durationLabel: formatDuration(track.durationSeconds),
                     indexLabel: "\(track.trackNo ?? 0)",
-                    artwork: ArtworkSource.localHash(track.localArtworkHash ?? track.album?.artworkHash),
+                    artwork: ArtworkSource.resolve(for: track),
                     isSelected: selectedTrackID == track.id,
                     nowPlayingID: track.id,
                     showsHoverPlay: true,

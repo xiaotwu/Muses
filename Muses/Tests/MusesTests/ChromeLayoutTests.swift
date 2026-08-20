@@ -62,7 +62,8 @@ struct ChromeLayoutTests {
         #expect(AppleMusicTokens.sectionTitleSize == 22)
         #expect(AppleMusicTokens.sidebarWidth >= 232 && AppleMusicTokens.sidebarWidth <= 260)
         #expect(AppleMusicTokens.cardCorner == 12)
-        #expect(abs(AppleMusicTokens.editorialAspect - 16.0 / 9.0) < 0.01)
+        #expect(AppleMusicTokens.editorialWidth == 540)
+        #expect(AppleMusicTokens.editorialHeight == 309)
     }
 
     @Test("library sidebar stays visible on Home and New")
@@ -136,13 +137,51 @@ struct ChromeLayoutTests {
         #expect(AppleMusicChrome.primaryNavInSidebar)
         #expect(AppleMusicChrome.playerIsFloatingCapsule)
         #expect(AppleMusicChrome.selectedNavUsesAccent)
-        #expect(abs(AppleMusicChrome.editorialAspect - 16.0 / 9.0) < 0.01)
+        #expect(AppleMusicTokens.editorialWidth == 540)
+    }
+
+    @Test("live AM Web spacing tokens")
+    func liveSpacingTokens() {
+        #expect(AppleMusicTokens.sidebarInset == 8)
+        #expect(AppleMusicTokens.sidebarWidth == 244)
+        #expect(AppleMusicTokens.playerBottomMargin == 20)
+        #expect(AppleMusicTokens.editorialWidth == 540)
+        #expect(AppleMusicTokens.editorialHeight == 309)
+        #expect(AppleMusicTokens.contentPaddingX == 40)
+        #expect(AppleMusicTokens.navItemHeight == 34)
+        #expect(AppleMusicTokens.capsuleWidth == 668)
+    }
+
+    @Test("player is sticky in the content column, not a window overlay")
+    func playerNotWindowOverlay() {
+        #expect(!PlayerLayoutPolicy.isWindowOverlay)
+    }
+
+    @Test("playlist list never forces height of every row")
+    func playlistListIsLazy() {
+        #expect(PlaylistListPolicy.minListHeight(rowCount: 500, rowHeight: 56) == nil)
+    }
+
+    @Test("sidebar rows use the full row as the hit target")
+    func sidebarFullRowHit() {
+        #expect(SidebarRowHitPolicy.usesFullRowHitTarget)
+    }
+
+    @Test("Settings is a floating glass panel")
+    func settingsFloatingGlass() {
+        #expect(SettingsChromePolicy.presentsAsFloatingGlass)
+    }
+
+    @Test("Muses wordmark is icon plus text")
+    func musesWordmarkLayout() {
+        #expect(MusesWordmarkMetrics.icon == 20)
+        #expect(MusesWordmarkMetrics.showsText)
     }
 
     @Test("Apple Music shell contract")
     func appleMusicShellContract() {
         #expect(PlayerDockMetrics.height == AppleMusicTokens.capsuleHeight)
-        #expect(AppleMusicTokens.sidebarWidth == 240)
+        #expect(AppleMusicTokens.sidebarWidth == 244)
         #expect(LibraryChromePolicy.showsSidebar(section: .home, collapsed: false))
         #expect(SearchChromePolicy.occupiesContent(query: "q"))
         #expect(DockLyricsPolicy.action(nowPlayingOpen: false) == .openNowPlaying)

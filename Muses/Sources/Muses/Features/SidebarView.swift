@@ -26,9 +26,7 @@ struct SidebarView: View {
                 .padding(.top, 14)
                 .padding(.leading, 8)
                 .padding(.bottom, 10)
-            Text("Muses")
-                .font(BrandFont.muses(22))
-                .foregroundStyle(BrandColors.textPrimary)
+            MusesWordmark()
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
 
@@ -129,6 +127,7 @@ struct SidebarView: View {
                         extra: (() -> Void)? = nil) -> some View {
         let on = isNavSelected(tag)
         return Button {
+            showSettings = false
             selectedPlaylist = nil
             selectedYouTubeImport = nil
             selection = tag
@@ -145,7 +144,7 @@ struct SidebarView: View {
             .foregroundStyle(on && AppleMusicChrome.selectedNavUsesAccent
                              ? BrandColors.magenta : BrandColors.textPrimary.opacity(on ? 1 : 0.85))
             .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, minHeight: AppleMusicTokens.navItemHeight, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(on ? BrandColors.textPrimary.opacity(0.08) : Color.clear)
@@ -215,6 +214,7 @@ struct SidebarView: View {
     }
 
     private func handlePlaylistTap(_ item: SidebarPlaylistItem) {
+        showSettings = false
         selection = .playlists
         switch item.origin {
         case .local:

@@ -98,6 +98,7 @@ struct RootView: View {
                 sidebarCollapsed.toggle()
             }
             .onChange(of: section) { _, new in
+                showSettings = false
                 applySidebarSectionChange(new)
             }
             .onReceive(NotificationCenter.default.publisher(for: .musesToggleFocusMode)) { _ in
@@ -215,37 +216,31 @@ struct RootView: View {
         }
     }
 
-    private let chromeTop: CGFloat = 8
+    private let chromeTop: CGFloat = 0
     private let chromeSide: CGFloat = 0
-    private let chromeBottom: CGFloat = AppleMusicTokens.capsuleHeight + 24
+    private let chromeBottom: CGFloat = AppleMusicTokens.capsuleHeight + AppleMusicTokens.playerBottomMargin
     private var showsLibrarySidebar: Bool {
         LibraryChromePolicy.showsSidebar(section: section, collapsed: sidebarCollapsed)
     }
 
     private var splitView: some View {
-        ZStack(alignment: .bottom) {
-            HStack(spacing: 0) {
-                if showsLibrarySidebar {
-                    SidebarView(selection: $section,
-                                showSettings: $showSettings,
-                                showAbout: $showAbout,
-                                initialSettingsCategory: $initialSettingsCategory,
-                                selectedPlaylist: $selectedPlaylist,
-                                selectedYouTubeImport: $selectedYouTubeImport,
-                                sidebarCollapsed: $sidebarCollapsed)
-                        .padding(.leading, AppleMusicTokens.sidebarInset)
-                        .padding(.vertical, AppleMusicTokens.sidebarInset)
-                }
+        HStack(spacing: 0) {
+            if showsLibrarySidebar {
+                SidebarView(selection: $section,
+                            showSettings: $showSettings,
+                            showAbout: $showAbout,
+                            initialSettingsCategory: $initialSettingsCategory,
+                            selectedPlaylist: $selectedPlaylist,
+                            selectedYouTubeImport: $selectedYouTubeImport,
+                            sidebarCollapsed: $sidebarCollapsed)
+                    .padding(.leading, AppleMusicTokens.sidebarInset)
+                    .padding(.top, AppleMusicTokens.sidebarInset)
+            }
+            VStack(spacing: 0) {
                 detailStack
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(BrowseBackground())
-            }
-            if !showYouTubeVideo {
-                HStack {
-                    if showsLibrarySidebar {
-                        Color.clear.frame(width: AppleMusicTokens.sidebarWidth + AppleMusicTokens.sidebarInset)
-                    }
-                    Spacer(minLength: 0)
+                if !showYouTubeVideo {
                     PlayerBar(showNowPlaying: showNowPlaying,
                               skipArtworkMorph: skipArtworkMorph,
                               lyricsActive: showNowPlaying && nowPlayingShowLyrics,
@@ -257,12 +252,8 @@ struct RootView: View {
                                   showLyricsDrawer = false
                               },
                               onVideoTap: { showYouTubeVideo = true })
-                    Spacer(minLength: 0)
-                    if showQueue {
-                        Color.clear.frame(width: 280)
-                    }
+                        .padding(.bottom, AppleMusicTokens.playerBottomMargin)
                 }
-                .padding(.bottom, 12)
             }
         }
         .background(BrandColors.background)
@@ -292,12 +283,7 @@ struct RootView: View {
 
     @ViewBuilder
     private var detailStack: some View {
-        if SettingsChromePolicy.showsAccount(isPresented: showSettings) {
-            SettingsSheet(
-                isPresented: $showSettings,
-                initialCategory: initialSettingsCategory ?? (showAbout ? .about : nil)
-            )
-        } else if section == .search || SearchChromePolicy.occupiesContent(query: search.query) {
+        if section == .search || SearchChromePolicy.occupiesContent(query: search.query) {
             GlobalSearchView(isPresented: .constant(true),
                              showLocalFolder: $showImport,
                              showYouTubeLink: $showYouTubeLink)
@@ -376,6 +362,23 @@ struct RootView: View {
                         .padding(.top, chromeTop)
                         .padding(.trailing, 12)
                         .padding(.bottom, chromeBottom + 8)
+                    }
+                    .tint(BrandColors.magenta)
+                }
+            }
+            .overlay {
+                if SettingsChromePolicy.presentsAsFloatingGlass, showSettings {
+                    ZStack {
+                        BrandColors.scrim
+                            .ignoresSafeArea()
+                            .contentShape(Rectangle())
+                            .onTapGesture { showSettings = false }
+                        SettingsSheet(
+                            isPresented: $showSettings,
+                            initialCategory: initialSettingsCategory ?? (showAbout ? .about : nil)
+                        )
+                        .frame(width: 520, height: 560)
+                        .musesGlass(cornerRadius: 18)
                     }
                     .tint(BrandColors.magenta)
                 }
