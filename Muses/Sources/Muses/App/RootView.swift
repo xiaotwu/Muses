@@ -6,6 +6,7 @@ struct RootView: View {
     @Environment(PlaylistService.self) private var playlistService
     @Environment(SessionService.self) private var sessions
     @Environment(PlaybackService.self) private var playback
+    @Environment(GlobalSearchService.self) private var search
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var artworkWorld
     @State private var coverSlot: Anchor<CGRect>?
@@ -26,7 +27,6 @@ struct RootView: View {
     @State private var windowWidth: CGFloat = 1440
     @State private var showQueue = false
     @State private var showLyricsDrawer = false
-    @State private var showSearch = false
     @State private var showSettings = false
     @State private var showAbout = false
     @State private var showFocus = false
@@ -86,7 +86,7 @@ struct RootView: View {
                 if showQueue { showLyricsDrawer = false }
             }
             .onReceive(NotificationCenter.default.publisher(for: .musesFocusSearch)) { _ in
-                showSearch.toggle()
+                // AppTopBar focuses the real search field.
             }
             .onReceive(NotificationCenter.default.publisher(for: .musesOpenSettings)) { note in
                 if let category = note.object as? SettingsCategory {
@@ -218,7 +218,9 @@ struct RootView: View {
     private let chromeTop: CGFloat = 52
     private let chromeSide: CGFloat = 0
     private let chromeBottom: CGFloat = PlayerDockMetrics.height
-    private var showsLibrarySidebar: Bool { section.isLibrary && !sidebarCollapsed }
+    private var showsLibrarySidebar: Bool {
+        LibraryChromePolicy.showsSidebar(section: section, collapsed: sidebarCollapsed)
+    }
 
     private var splitView: some View {
         VStack(spacing: 0) {
@@ -232,7 +234,7 @@ struct RootView: View {
                                 selectedPlaylist: $selectedPlaylist,
                                 selectedYouTubeImport: $selectedYouTubeImport,
                                 sidebarCollapsed: $sidebarCollapsed)
-                        .frame(width: 232)
+                        .frame(width: AppleMusicTokens.sidebarWidth)
                 }
                 detailStack
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -242,13 +244,10 @@ struct RootView: View {
             if !showYouTubeVideo {
                 PlayerBar(showNowPlaying: showNowPlaying,
                           skipArtworkMorph: skipArtworkMorph,
-                          lyricsActive: showLyricsDrawer,
+                          lyricsActive: showNowPlaying && nowPlayingShowLyrics,
                           queueActive: showQueue,
                           onArtworkTap: { openNowPlaying() },
-                          onLyricsTap: {
-                              showLyricsDrawer.toggle()
-                              showQueue = false
-                          },
+                          onLyricsTap: { handleDockLyrics() },
                           onQueueTap: {
                               showQueue.toggle()
                               showLyricsDrawer = false
@@ -269,9 +268,30 @@ struct RootView: View {
         showNowPlaying = true
     }
 
+    private func handleDockLyrics() {
+        showQueue = false
+        showLyricsDrawer = false
+        switch DockLyricsPolicy.action(nowPlayingOpen: showNowPlaying) {
+        case .openNowPlaying:
+            nowPlayingShowLyrics = true
+            showNowPlaying = true
+        case .toggleLyricsFocus:
+            nowPlayingShowLyrics.toggle()
+        }
+    }
+
     @ViewBuilder
     private var detailStack: some View {
-        if let album = selectedAlbum {
+        if SettingsChromePolicy.showsAccount(isPresented: showSettings) {
+            SettingsSheet(
+                isPresented: $showSettings,
+                initialCategory: initialSettingsCategory ?? (showAbout ? .about : nil)
+            )
+        } else if SearchChromePolicy.occupiesContent(query: search.query) {
+            GlobalSearchView(isPresented: .constant(true),
+                             showLocalFolder: $showImport,
+                             showYouTubeLink: $showYouTubeLink)
+        } else if let album = selectedAlbum {
             AlbumDetailView(album: album, selection: $selectedAlbum)
         } else if let browsableAlbum = selectedBrowsableAlbum {
             DerivedAlbumDetailView(browsable: browsableAlbum, selection: $selectedBrowsableAlbum)
@@ -339,9 +359,6 @@ struct RootView: View {
                                 showLyricsDrawer = false
                             }
                         HStack(alignment: .top, spacing: 8) {
-                            if showLyricsDrawer {
-                                LyricsDrawerView(isPresented: $showLyricsDrawer)
-                            }
                             if showQueue {
                                 QueueDrawerView(isPresented: $showQueue, showsScrim: false)
                             }
@@ -350,24 +367,6 @@ struct RootView: View {
                         .padding(.trailing, 12)
                         .padding(.bottom, chromeBottom + 8)
                     }
-                    .tint(BrandColors.magenta)
-                }
-            }
-            .overlay {
-                if showSearch {
-                    GlobalSearchView(isPresented: $showSearch,
-                                      showLocalFolder: $showImport,
-                                      showYouTubeLink: $showYouTubeLink)
-                        .transition(.opacity)
-                        .tint(BrandColors.magenta)
-                }
-            }
-            .overlay {
-                if showSettings {
-                    SettingsSheet(
-                        isPresented: $showSettings,
-                        initialCategory: initialSettingsCategory ?? (showAbout ? .about : nil)
-                    )
                     .tint(BrandColors.magenta)
                 }
             }
@@ -385,7 +384,8 @@ struct RootView: View {
             }
             .animation(MusesMotion.morphAnimation(reduceMotion: reduceMotion), value: showNowPlaying)
             .animation(MusesMotion.drawerAnimation(reduceMotion: reduceMotion), value: showQueue)
-            .animation(MusesMotion.overlayAnimation(reduceMotion: reduceMotion), value: showSearch)
+            .animation(MusesMotion.overlayAnimation(reduceMotion: reduceMotion),
+                       value: SearchChromePolicy.occupiesContent(query: search.query))
             .animation(MusesMotion.overlayAnimation(reduceMotion: reduceMotion), value: showYouTubeVideo)
             .animation(MusesMotion.overlayAnimation(reduceMotion: reduceMotion), value: showSettings)
             .overlay {

@@ -1,7 +1,7 @@
 import SwiftUI
+import AppKit
 
-/// 全局搜索面板:中心浮层 + scrim,分 section 显示本地歌曲/专辑/艺术家 + YouTube 结果。
-/// 克隆 QueueDrawerView 的 scrim+panel 模式,但居中而非 trailing。
+/// Apple Music–style search page filling the main content slot.
 struct GlobalSearchView: View {
     @Binding var isPresented: Bool
     @Binding var showLocalFolder: Bool
@@ -10,94 +10,72 @@ struct GlobalSearchView: View {
     @Environment(PlaybackService.self) private var playback
     @Environment(LibraryService.self) private var library
     @Environment(YouTubeImportService.self) private var importService
-    @FocusState private var searchFieldFocused: Bool
-    @State private var searchTab: SearchTab = .library
-
-    enum SearchTab: String, CaseIterable {
-        case library, youtubeMusic
-        var label: String {
-            switch self {
-            case .library:     return tr("Library", "资料库")
-            case .youtubeMusic: return tr("YouTube Music", "YouTube Music")
-            }
-        }
-    }
+    @State private var escapeMonitor: Any?
 
     var body: some View {
-        ZStack {
-            // scrim — 点击关闭
-            BrandColors.scrim
-                .ignoresSafeArea()
-                .onTapGesture { close() }
-
-            panel
-                .frame(width: 560)
-                .frame(maxHeight: 520)
-                .background(.ultraThinMaterial)
-                .cornerRadius(16)
-                .overlay(RoundedRectangle(cornerRadius: 16).stroke(BrandColors.hairline, lineWidth: 1))
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
-        }
-        .onExitCommand { close() }
-        .animation(.easeInOut(duration: 0.2), value: isPresented)
-        .onAppear { searchFieldFocused = true }
-    }
-
-    private var panel: some View {
-        VStack(spacing: 0) {
-            // 搜索栏
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(BrandColors.textSecondary)
-                TextField(tr("Search songs, artists, albums, YouTube…", "搜索歌曲、艺术家、专辑、YouTube…"), text: Binding(
-                    get: { search.query },
-                    set: { search.query = $0 }
-                ))
-                .textFieldStyle(.plain)
-                .focused($searchFieldFocused)
-                .onSubmit { /* debounce 自动触发 */ }
-                .onExitCommand { close() }
-                .onKeyPress(.escape) {
-                    close()
-                    return .handled
-                }
-
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(tr("Search", "搜索"))
+                    .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
+                    .foregroundStyle(BrandColors.textPrimary)
+                Spacer()
                 if search.isSearchingYouTube {
                     ProgressView().controlSize(.small)
                 }
-                // P5 issue #6 — 「+」导入菜单仅在 Search 面板内。
                 AddMusicMenu(showLocalFolder: $showLocalFolder, showYouTubeLink: $showYouTubeLink)
-                Button { close() } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(BrandColors.textSecondary)
-                }
-                .buttonStyle(.plain)
             }
-            .padding(16)
+            .padding(.horizontal, 24)
+            .padding(.top, 8)
+            .padding(.bottom, 16)
 
-            // 搜索来源切换:Library / YouTube Music
-            Picker("", selection: $searchTab) {
-                ForEach(SearchTab.allCases, id: \.self) { tab in
-                    Text(tab.label).tag(tab)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-
-            Divider().background(BrandColors.hairline)
-
-            // 结果
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    if searchTab == .library {
-                        libraryResults
-                    } else {
-                        youtubeResults
-                    }
+                VStack(alignment: .leading, spacing: 24) {
+                    topResult
+                    libraryResults
+                    youtubeResults
                 }
-                .padding(16)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 100)
             }
+        }
+        .background(BrandColors.background)
+        .onExitCommand { close() }
+        .onAppear { installEscapeMonitor() }
+        .onDisappear { removeEscapeMonitor() }
+    }
+
+    @ViewBuilder
+    private var topResult: some View {
+        if let entry = search.youtubeResults.first {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(tr("Top Result", "最佳结果"))
+                    .font(.system(size: AppleMusicTokens.sectionTitleSize, weight: .semibold))
+                    .foregroundStyle(BrandColors.textPrimary)
+                GlobalSearchYouTubeRow(entry: entry) {
+                    Task { await playYouTube(entry) }
+                }
+                .padding(12)
+                .frame(maxWidth: 360, alignment: .leading)
+                .background(BrandColors.surface, in: RoundedRectangle(cornerRadius: AppleMusicTokens.cardCorner, style: .continuous))
+            }
+        }
+    }
+
+    private func installEscapeMonitor() {
+        removeEscapeMonitor()
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if event.keyCode == 53 {
+                close()
+                return nil
+            }
+            return event
+        }
+    }
+
+    private func removeEscapeMonitor() {
+        if let escapeMonitor {
+            NSEvent.removeMonitor(escapeMonitor)
+            self.escapeMonitor = nil
         }
     }
 
@@ -247,11 +225,13 @@ struct GlobalSearchView: View {
         guard let searchService = search.youTubeSearch else { return }
         do {
             let snap = try await searchService.importAsTrack(entry: entry)
-            playback.playTrack(snap, context: [snap], from: .search)
+            let context = TrackSnapshot.playbackContext(
+                playing: snap, youTubeEntries: search.youtubeResults)
+            playback.playTrack(snap, context: context, from: .search)
+            close()
         } catch {
-            // 静默
+            // Keep the overlay open so a failed import is not mistaken for success.
         }
-        close()
     }
 }
 
@@ -260,22 +240,27 @@ struct GlobalSearchView: View {
 private struct GlobalSearchTrackRow: View {
     let track: Track
     let onPlay: () -> Void
+    @Environment(PlaybackService.self) private var playback
     var body: some View {
         Button(action: onPlay) {
             HStack(spacing: 10) {
                 ArtworkView(
-                    source: ArtworkSource.localHash(track.localArtworkHash ?? track.album?.artworkHash),
+                    source: ArtworkSource.resolve(for: track),
                     cornerRadius: 4,
                     glyphSize: 16,
                     targetSize: 40
                 )
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(track.title).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
+                    Text(track.title)
+                        .foregroundStyle(playback.state.track?.id == track.id
+                                         ? BrandColors.magenta : BrandColors.textPrimary)
+                        .lineLimit(1)
                     Text(track.artist).font(.caption).foregroundStyle(BrandColors.textSecondary).lineLimit(1)
                 }
                 Spacer()
                 Text(String(format: "%d:%02d", Int(track.durationSeconds) / 60, Int(track.durationSeconds) % 60))
                     .font(.caption2).foregroundStyle(BrandColors.textSecondary)
+                SearchSourceIcon(systemName: track.source == .youtube ? "play.rectangle" : "music.note")
             }
         }
         .buttonStyle(.plain)
@@ -297,6 +282,7 @@ private struct GlobalSearchArtistRow: View {
                 )
                 Text(artist.name).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
                 Spacer()
+                SearchSourceIcon(systemName: "person")
             }
         }
         .buttonStyle(.plain)
@@ -321,6 +307,7 @@ private struct GlobalSearchAlbumRow: View {
                     Text(album.albumArtist).font(.caption).foregroundStyle(BrandColors.textSecondary).lineLimit(1)
                 }
                 Spacer()
+                SearchSourceIcon(systemName: "square.stack")
             }
         }
         .buttonStyle(.plain)
@@ -331,26 +318,65 @@ private struct GlobalSearchAlbumRow: View {
 private struct GlobalSearchYouTubeRow: View {
     let entry: YTDlpBridge.YTDlpPlaylistEntry
     let onPlay: () -> Void
-    var body: some View {
-        Button(action: onPlay) {
-            HStack(spacing: 10) {
-                AsyncImage(url: URL(string: "https://i.ytimg.com/vi/\(entry.id)/hqdefault.jpg")) { phase in
-                    if let img = phase.image { img.resizable().scaledToFill() }
-                    else { Rectangle().fill(BrandColors.surface) }
-                }
-                .frame(width: 56, height: 32).cornerRadius(4).clipped()
+    @Environment(LibraryService.self) private var library
+    @Environment(PlaylistService.self) private var playlists
 
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(entry.title).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
-                    Text(entry.uploader ?? "YouTube").font(.caption)
-                        .foregroundStyle(BrandColors.textSecondary).lineLimit(1)
-                }
-                Spacer()
-                Image(systemName: "play.circle").foregroundStyle(BrandColors.magenta)
+    private var isSaved: Bool {
+        library.allTracks().contains { $0.youTubeId == entry.id }
+            || playlists.fetchAll().contains { pl in
+                (pl.items ?? []).contains { $0.track?.youTubeId == entry.id }
             }
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: onPlay) {
+                HStack(spacing: 10) {
+                    CachedAsyncImage(
+                        url: YouTubeThumbnail.url(videoId: entry.id),
+                        content: { $0.resizable().scaledToFill() },
+                        placeholder: { Rectangle().fill(BrandColors.surface) }
+                    )
+                    .frame(width: 56, height: 32).cornerRadius(4).clipped()
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(entry.title).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
+                        Text(entry.uploader ?? "").font(.caption)
+                            .foregroundStyle(BrandColors.textSecondary).lineLimit(1)
+                    }
+                    Spacer()
+                }
+            }
+            .buttonStyle(.plain)
+            if isSaved {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(BrandColors.green)
+                    .help(tr("In library or a playlist", "已在资料库或歌单中"))
+            }
+            Button {
+                if let url = URL(string: "https://music.youtube.com/watch?v=\(entry.id)") {
+                    NSWorkspace.shared.open(url)
+                }
+            } label: {
+                Image(systemName: "arrow.up.right")
+            }
+            .buttonStyle(.plain)
+            .help(tr("Open in browser", "在浏览器中打开"))
+            .accessibilityLabel(tr("Open in browser", "在浏览器中打开"))
         }
         .buttonStyle(.plain)
         .padding(.vertical, 2)
+    }
+}
+
+private struct SearchSourceIcon: View {
+    let systemName: String
+    var body: some View {
+        Image(systemName: systemName)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(BrandColors.textSecondary)
+            .frame(width: 14)
+            .accessibilityHidden(true)
     }
 }
 
