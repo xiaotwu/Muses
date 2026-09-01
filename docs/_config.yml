@@ -1,0 +1,4 @@
+theme: jekyll-theme-cayman
+title: Muses
+description: A native macOS music app for the YouTube era — Swift, SwiftUI, AVFoundation.
+show_downloads: true

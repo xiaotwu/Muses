@@ -5,12 +5,12 @@
 # YouTube 内容受 YouTube ToS 约束,下载行为遵守当地法律。
 #
 # 用法:
-#   ./Scripts/copy-ytdlp.sh            # 下载/更新到 Muses/Sources/Muses/Resources/yt-dlp
+#   ./Scripts/copy-ytdlp.sh            # 下载/更新到 Sources/Muses/Resources/yt-dlp
 #   ./Scripts/copy-ytdlp.sh --check    # 仅打印当前与远端版本,不下载
 
 set -euo pipefail
 
-DEST_DIR="Muses/Sources/Muses/Resources"
+DEST_DIR="Sources/Muses/Resources"
 DEST="$DEST_DIR/yt-dlp"
 REMOTE_URL="https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
 LICENSE_URL="https://raw.githubusercontent.com/yt-dlp/yt-dlp/master/LICENSE"
