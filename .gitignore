@@ -24,4 +24,5 @@ node_modules/
 # 拷入的二进制资源(copy-ytdlp.sh / make-icon.sh 生成)
 Sources/Muses/Resources/yt-dlp
 Sources/Muses/Resources/yt-dlp-LICENSE
-Sources/Muses/Resources/AppIcon.icns.playwright-mcp/
+Sources/Muses/Resources/AppIcon.icns
+.playwright-mcp/
