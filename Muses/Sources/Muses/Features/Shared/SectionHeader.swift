@@ -12,30 +12,33 @@ struct SectionHeader: View {
     var onMore: (() -> Void)? = nil
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(title)
-                .font(.title2).fontWeight(.bold)
-                .foregroundStyle(BrandColors.textPrimary)
-            if let sub = subtitle {
-                Text(sub)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(title)
+                    .font(.title2).fontWeight(.bold)
+                    .foregroundStyle(BrandColors.textPrimary)
+                Spacer(minLength: 0)
+                if let moreLabel, let onMore {
+                    Button(action: onMore) {
+                        HStack(spacing: 3) {
+                            Text(moreLabel)
+                                .font(.subheadline)
+                            Image(systemName: "chevron.right")
+                                .font(.subheadline.bold())
+                        }
+                        .foregroundStyle(BrandColors.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(moreLabel)
+                }
+            }
+            if let subtitle, !subtitle.isEmpty {
+                Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(BrandColors.textSecondary)
-            }
-            Spacer(minLength: 0)
-            if let moreLabel, let onMore {
-                Button(action: onMore) {
-                    HStack(spacing: 3) {
-                        Text(moreLabel)
-                            .font(.subheadline)
-                        Image(systemName: "chevron.right")
-                            .font(.subheadline.bold())
-                    }
-                    .foregroundStyle(BrandColors.textSecondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(moreLabel)
+                    .lineLimit(1)
             }
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, AppleMusicTokens.contentPaddingX)
     }
 }

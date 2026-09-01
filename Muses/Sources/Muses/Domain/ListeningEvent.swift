@@ -4,7 +4,7 @@ import SwiftData
 /// 单次收听事件:一首曲目从「开始播放」到「被完成 / 跳过 / 停止 / 中断」的全过程记录。
 ///
 /// 设计要点(对应 Final Spec §6 / §10.3):
-/// - **去规范化** `trackTitle`/`artist`/`albumTitle`/`sourceRaw`:历史必须在 `Track` 被删除后
+/// - **去规范化** `trackTitle`/`artist`/`albumTitle`:历史必须在 `Track` 被删除后
 ///   仍然可查询、可展示;因此不与 `Track` 建立必需关系。
 /// - `listenedMs` 为实际收听毫秒(由 `PlaybackService` 在事件发出时从 `state.position` 折算)。
 /// - `completionRatio` = `listenedMs / durationMs`(0..1);时长未知时为 nil。
@@ -23,7 +23,6 @@ final class ListeningEvent {
     var trackTitle: String
     var artist: String
     var albumTitle: String?
-    var sourceRaw: String          // TrackSource.rawValue
     var startedAt: Date
     var endedAt: Date?
     var listenedMs: Int
@@ -33,7 +32,7 @@ final class ListeningEvent {
     var sessionId: UUID?
 
     init(id: UUID = UUID(), trackId: UUID, trackTitle: String, artist: String,
-         albumTitle: String? = nil, source: TrackSource, startedAt: Date,
+         albumTitle: String? = nil, startedAt: Date,
          endedAt: Date? = nil, listenedMs: Int = 0, completionRatio: Double? = nil,
          outcome: ListeningOutcome, contextSummaryJSON: String? = nil,
          sessionId: UUID? = nil) {
@@ -42,7 +41,6 @@ final class ListeningEvent {
         self.trackTitle = trackTitle
         self.artist = artist
         self.albumTitle = albumTitle
-        self.sourceRaw = source.rawValue
         self.startedAt = startedAt
         self.endedAt = endedAt
         self.listenedMs = listenedMs
@@ -52,7 +50,6 @@ final class ListeningEvent {
         self.sessionId = sessionId
     }
 
-    var source: TrackSource { TrackSource(rawValue: sourceRaw) ?? .local }
     var outcome: ListeningOutcome { ListeningOutcome(rawValue: outcomeRaw) ?? .interrupted }
 }
 
@@ -65,26 +62,24 @@ enum ListeningOutcome: String, Codable, Sendable, CaseIterable {
     case interrupted // 未终结就被覆盖(兜底)
 }
 
-/// 收听历史查询过滤器(Final Spec §10.3:支持 title/artist/album/date/source/outcome 等)。
+/// 收听历史查询过滤器(Final Spec §10.3:支持 title/artist/album/date/outcome 等)。
 /// 全部字段可选,留 nil 表示不限制。`limit` 控制返回行数(默认 200,避免一次性载入全量)。
 struct HistoryQuery: Sendable {
     var titleContains: String?
     var artistContains: String?
     var albumContains: String?
-    var source: TrackSource?
     var outcome: ListeningOutcome?
     var fromDate: Date?
     var toDate: Date?
     var limit: Int = 200
 
     init(titleContains: String? = nil, artistContains: String? = nil,
-         albumContains: String? = nil, source: TrackSource? = nil,
+         albumContains: String? = nil,
          outcome: ListeningOutcome? = nil, fromDate: Date? = nil,
          toDate: Date? = nil, limit: Int = 200) {
         self.titleContains = titleContains?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.artistContains = artistContains?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.albumContains = albumContains?.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.source = source
         self.outcome = outcome
         self.fromDate = fromDate
         self.toDate = toDate
@@ -104,8 +99,119 @@ struct ListeningRecap: Sendable {
     let skippedCount: Int
     let uniqueTracks: Int
     let uniqueArtists: Int
-    let localMs: Int
-    let youtubeMs: Int
     let topTracks: [TrackTally]
     let topArtists: [ArtistTally]
 }
+
+struct ListeningHeatmapSlice: Sendable, Equatable, Identifiable {
+    var id: UUID { trackId }
+    let trackId: UUID
+    let title: String
+    let artist: String
+    let listenedMs: Int
+}
+
+struct ListeningTimelineEvent: Sendable, Equatable, Identifiable {
+    let id: UUID
+    let trackId: UUID
+    let title: String
+    let artist: String
+    let startedAt: Date
+    let endedAt: Date?
+    let listenedMs: Int
+    let outcome: ListeningOutcome
+}
+
+struct ListeningHeatmapCell: Sendable, Equatable, Identifiable {
+    let id: String
+    let rowID: String
+    let rowIndex: Int
+    let hour: Int
+    /// Exact accumulated listening time represented by this cell.
+    let totalMs: Int
+    /// Fixed-scale display value. For All Time this is the weekday daily
+    /// average; for calendar ranges it equals `totalMs`.
+    let intensityMs: Int
+    let eventCount: Int
+    let trackCount: Int
+    let artistCount: Int
+    let sampleDayCount: Int
+    let slices: [ListeningHeatmapSlice]
+}
+
+struct ListeningHeatmapRow: Sendable, Equatable, Identifiable {
+    let id: String
+    let index: Int
+    let date: Date?
+    let weekday: Int?
+    let sampleDayCount: Int
+    let cells: [ListeningHeatmapCell]
+}
+
+struct ListeningHeatmap: Sendable, Equatable {
+    let range: RecapRange
+    let calendarIdentifier: Calendar.Identifier
+    let timeZoneIdentifier: String
+    let rows: [ListeningHeatmapRow]
+
+    var nonzeroCells: [ListeningHeatmapCell] {
+        rows.flatMap(\.cells).filter { $0.totalMs > 0 }
+    }
+
+    var totalMs: Int { rows.flatMap(\.cells).reduce(0) { $0 + $1.totalMs } }
+
+    var peakCell: ListeningHeatmapCell? {
+        nonzeroCells.max {
+            if $0.intensityMs != $1.intensityMs { return $0.intensityMs < $1.intensityMs }
+            return $0.id > $1.id
+        }
+    }
+}
+
+enum ListeningHeatmapLevel: Int, CaseIterable, Sendable, Equatable, Comparable {
+    case none, trace, low, medium, high, peak
+
+    init(milliseconds: Int) {
+        switch milliseconds {
+        case ...0: self = .none
+        case ..<300_000: self = .trace
+        case ..<900_000: self = .low
+        case ..<1_800_000: self = .medium
+        case ..<3_600_000: self = .high
+        default: self = .peak
+        }
+    }
+
+    static func < (lhs: ListeningHeatmapLevel, rhs: ListeningHeatmapLevel) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+}
+
+/// Immutable history row used by the UI. History remains displayable after the
+/// referenced library track has been removed.
+struct ListeningEventSnapshot: Sendable, Equatable, Identifiable {
+    let id: UUID
+    let trackId: UUID
+    let title: String
+    let artist: String
+    let albumTitle: String?
+    let startedAt: Date
+    let listenedMs: Int
+    let outcome: ListeningOutcome
+}
+
+/// One consistent read for the History screen. Fetch failures are thrown, so a
+/// persistence error can never be presented as a legitimate empty library.
+struct ListeningHistoryDashboard: Sendable, Equatable {
+    let recap: ListeningRecap
+    let heatmap: ListeningHeatmap
+    let recent: [ListeningEventSnapshot]
+    /// Total persisted activity, independent of the selected recap interval.
+    /// This lets the UI distinguish a genuinely empty history from an empty
+    /// day/week/month selection.
+    let totalEventCount: Int
+}
+
+extension ListeningRecap: Equatable {}
+extension ListeningRecap.TrackTally: Equatable {}
+extension ListeningRecap.ArtistTally: Equatable {}

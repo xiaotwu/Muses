@@ -1,0 +1,25 @@
+{
+  "continuationContents": {
+    "musicShelfContinuation": {
+      "title": {"runs": [{"text": "More songs"}]},
+      "contents": [
+        {
+          "musicResponsiveListItemRenderer": {
+            "flexColumns": [
+              {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Next Song"}]}}},
+              {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Next Artist"}]}}}
+            ],
+            "navigationEndpoint": {"watchEndpoint": {"videoId": "next_video"}}
+          }
+        },
+        {
+          "continuationItemRenderer": {
+            "continuationEndpoint": {
+              "continuationCommand": {"token": "VOLATILE_NEXT_TOKEN"}
+            }
+          }
+        }
+      ]
+    }
+  }
+}

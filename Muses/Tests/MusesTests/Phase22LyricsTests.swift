@@ -7,7 +7,6 @@ import SwiftData
 /// - 增强 LRC 逐词时间 `<mm:ss.xx>` 解析为 `LyricWord`;
 /// - LRC `[offset:±ms]` 解析 + 偏移作用于当前行检测与点击跳转;
 /// - `Track.lyricsOffsetMs` 手动偏移持久化 + `LyricsService.manualOffsetMs` 可观察;
-/// - `TrackSnapshot.lyricsOffsetMs` 向后兼容解码;
 /// - 回退链 word→line→plain(无逐词数据 words=nil;无时间标签 time=nil)。
 @MainActor
 @Suite("Phase 22 Advanced Lyrics")
@@ -65,8 +64,7 @@ struct Phase22LyricsTests {
         let lrc = "[offset:-300]\n[00:01.00]line"
         let snap = TrackSnapshot(id: UUID(), title: "T", artist: "A",
                                  albumTitle: nil, durationSeconds: 1,
-                                 filePath: nil, youTubeId: nil, artworkHash: nil,
-                                 artworkUrl: nil, sampleRate: nil, bitDepth: nil,
+                                 youTubeId: "test-video",                                  artworkUrl: nil, sampleRate: nil, bitDepth: nil,
                                  codec: nil, isLossless: false, lyrics: lrc)
         let svc = LyricsService()
         let result = svc.fetchCached(track: snap)
@@ -115,7 +113,7 @@ struct Phase22LyricsTests {
     func setOffsetPersistsAndObservable() throws {
         let container = try makeContainer()
         let ctx = ModelContext(container)
-        let track = Track(source: .local, title: "Offset Song", artist: "A", durationMs: 200000)
+        let track = Track(title: "Offset Song", artist: "A", durationMs: 200000, youTubeId: "test-video")
         ctx.insert(track)
         try ctx.save()
 
@@ -134,46 +132,11 @@ struct Phase22LyricsTests {
         #expect(after.lyricsOffsetMs == nil)
     }
 
-    // MARK: - TrackSnapshot 向后兼容
-
-    @Test("TrackSnapshot.lyricsOffsetMs 旧 JSON 无字段解码为 nil;新 JSON 正确解码")
-    func snapshotOffsetBackwardCompat() throws {
-        // 旧格式:无 lyricsOffsetMs
-        let oldJSON = """
-        {
-            "id": "00000000-0000-0000-0000-000000000002",
-            "title": "T", "artist": "A", "albumTitle": null,
-            "durationSeconds": 180, "filePath": null, "youTubeId": null,
-            "artworkHash": null, "artworkUrl": null,
-            "sampleRate": null, "bitDepth": null, "codec": null,
-            "isLossless": false, "liked": false, "lyrics": null, "replayGain": null,
-            "bitRate": null, "channels": null
-        }
-        """
-        let snap = try JSONDecoder().decode(TrackSnapshot.self, from: Data(oldJSON.utf8))
-        #expect(snap.lyricsOffsetMs == nil)
-
-        // 新格式:含 lyricsOffsetMs
-        let newJSON = """
-        {
-            "id": "00000000-0000-0000-0000-000000000003",
-            "title": "T", "artist": "A", "albumTitle": null,
-            "durationSeconds": 180, "filePath": null, "youTubeId": null,
-            "artworkHash": null, "artworkUrl": null,
-            "sampleRate": null, "bitDepth": null, "codec": null,
-            "isLossless": false, "liked": false, "lyrics": null, "replayGain": null,
-            "bitRate": null, "channels": null, "lyricsOffsetMs": 400
-        }
-        """
-        let snap2 = try JSONDecoder().decode(TrackSnapshot.self, from: Data(newJSON.utf8))
-        #expect(snap2.lyricsOffsetMs == 400)
-    }
-
     @Test("TrackSnapshot(from:) 携带 lyricsOffsetMs")
     func snapshotFromTrackCarriesOffset() throws {
         let container = try makeContainer()
         let ctx = ModelContext(container)
-        let track = Track(source: .local, title: "Carry", artist: "A", durationMs: 100000)
+        let track = Track(title: "Carry", artist: "A", durationMs: 100000, youTubeId: "test-video")
         track.lyricsOffsetMs = -150
         ctx.insert(track); try ctx.save()
         let snap = TrackSnapshot(from: track)

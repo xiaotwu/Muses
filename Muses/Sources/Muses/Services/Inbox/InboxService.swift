@@ -80,7 +80,7 @@ final class InboxService {
         let item = InboxItem(trackId: snap.id, trackTitle: snap.title, artist: snap.artist,
                              albumTitle: snap.albumTitle, durationSeconds: snap.durationSeconds,
                              youTubeId: snap.youTubeId, artworkUrl: snap.artworkUrl,
-                             filePath: snap.filePath, source: source)
+                             source: source)
         ctx.insert(item)
         try? ctx.save()
         revision &+= 1

@@ -54,7 +54,6 @@ final class HistoryService {
         let trackTitle: String
         let artist: String
         let albumTitle: String?
-        let source: TrackSource
         let startedAt: Date
         let durationMs: Double
     }
@@ -78,7 +77,7 @@ final class HistoryService {
         case .trackStopped(let snap, let listenedMs):
             close(snap: snap, listenedMs: Int(listenedMs), outcome: .stopped)
         case .trackPaused, .trackResumed, .trackSeeked, .queueChanged,
-             .playbackSourceChanged, .outputDeviceChanged,
+             .outputDeviceChanged,
              .focusSessionStarted, .focusSessionEnded:
             // Phase 17 不细分;Phase 23 Context 可能利用 pause/resume/seek 做行为画像。
             break
@@ -93,7 +92,6 @@ final class HistoryService {
         pending = PendingEvent(
             trackId: snap.id, trackTitle: snap.title, artist: snap.artist,
             albumTitle: snap.albumTitle,
-            source: snap.youTubeId != nil ? .youtube : .local,
             startedAt: Date(), durationMs: snap.durationSeconds * 1000.0
         )
     }
@@ -106,7 +104,6 @@ final class HistoryService {
         let event = ListeningEvent(
             trackId: snap.id, trackTitle: snap.title, artist: snap.artist,
             albumTitle: snap.albumTitle,
-            source: snap.youTubeId != nil ? .youtube : .local,
             startedAt: startedAt, endedAt: Date(),
             listenedMs: listenedMs, completionRatio: ratio, outcome: outcome,
             contextSummaryJSON: ContextService.encode(contextProvider())
@@ -121,7 +118,7 @@ final class HistoryService {
         let ratio: Double? = p.durationMs > 0 ? 0.0 : nil
         let event = ListeningEvent(
             trackId: p.trackId, trackTitle: p.trackTitle, artist: p.artist,
-            albumTitle: p.albumTitle, source: p.source,
+            albumTitle: p.albumTitle,
             startedAt: p.startedAt, endedAt: Date(),
             listenedMs: 0, completionRatio: ratio, outcome: .interrupted,
             contextSummaryJSON: ContextService.encode(contextProvider())
@@ -152,7 +149,6 @@ final class HistoryService {
         desc.fetchLimit = query.limit
         let all = (try? ctx.fetch(desc)) ?? []
         return all.filter { ev in
-            if let s = query.source, ev.source != s { return false }
             if let o = query.outcome, ev.outcome != o { return false }
             if let f = query.fromDate, ev.startedAt < f { return false }
             if let t = query.toDate, ev.startedAt > t { return false }
@@ -174,6 +170,48 @@ final class HistoryService {
         return (try? ctx.fetchCount(FetchDescriptor<ListeningEvent>())) ?? 0
     }
 
+    /// Loads the full History presentation from one successful fetch. Unlike
+    /// the legacy convenience queries, this API intentionally propagates store
+    /// failures so the screen can render an error state instead of "no plays".
+    func dashboard(range: RecapRange, now: Date = .init(), recentLimit: Int = 80) throws
+        -> ListeningHistoryDashboard {
+        let context = ModelContext(modelContainer)
+        let descriptor = FetchDescriptor<ListeningEvent>(
+            sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
+        )
+        let all = try context.fetch(descriptor)
+        let timeline = all.map(Self.timelineSnapshot)
+        let earliest = timeline.map(\.startedAt).min()
+        let displayInterval = range.displayInterval(from: now, calendar: .current,
+                                                    earliest: earliest)
+        let dataInterval = DateInterval(start: displayInterval.start,
+                                        end: min(now, displayInterval.end))
+        let scoped = timeline.compactMap {
+            ListeningHeatmapBuilder.clipped($0, to: dataInterval)
+        }
+        return ListeningHistoryDashboard(
+            recap: Self.makeRecap(events: scoped, rangeLabel: range.label),
+            heatmap: ListeningHeatmapBuilder.build(events: timeline, range: range,
+                                                   now: now, calendar: .current),
+            // The timeline must use exactly the same calendar interval as the
+            // recap and heatmap. Showing an older play under a selected empty
+            // range makes the screen look contradictory.
+            recent: all.filter { event in
+                let end = max(event.startedAt, event.endedAt ?? event.startedAt)
+                return event.startedAt < dataInterval.end && end > dataInterval.start
+            }
+            .prefix(max(1, recentLimit)).map {
+                ListeningEventSnapshot(
+                    id: $0.id, trackId: $0.trackId, title: $0.trackTitle,
+                    artist: $0.artist, albumTitle: $0.albumTitle,
+                    startedAt: $0.startedAt, listenedMs: $0.listenedMs,
+                    outcome: $0.outcome
+                )
+            },
+            totalEventCount: all.count
+        )
+    }
+
     /// 清空全部历史(供 HistoryView「清除历史」按钮)。不可恢复。
     func clearAll() {
         let ctx = ModelContext(modelContainer)
@@ -182,20 +220,39 @@ final class HistoryService {
         historyRevision &+= 1
     }
 
+    func clearAllReporting() throws {
+        let context = ModelContext(modelContainer)
+        try context.delete(model: ListeningEvent.self)
+        try context.save()
+        historyRevision &+= 1
+    }
+
     // MARK: - 回顾汇总
 
     func recap(range: RecapRange, now: Date = Date()) -> ListeningRecap {
-        let from = range.startDate(from: now)
-        let evs = events(matching: HistoryQuery(fromDate: from, limit: 100_000))
-        var totalMs = 0, completed = 0, skipped = 0, localMs = 0, youtubeMs = 0
+        let timeline = events(matching: HistoryQuery(limit: 100_000))
+            .map(Self.timelineSnapshot)
+        let earliest = timeline.map(\.startedAt).min()
+        let displayInterval = range.displayInterval(from: now, calendar: .current,
+                                                    earliest: earliest)
+        let dataInterval = DateInterval(start: displayInterval.start,
+                                        end: min(now, displayInterval.end))
+        let scoped = timeline.compactMap {
+            ListeningHeatmapBuilder.clipped($0, to: dataInterval)
+        }
+        return Self.makeRecap(events: scoped, rangeLabel: range.label)
+    }
+
+    private nonisolated static func makeRecap(events evs: [ListeningTimelineEvent],
+                                               rangeLabel: String) -> ListeningRecap {
+        var totalMs = 0, completed = 0, skipped = 0
         var trackPlays: [UUID: (title: String, artist: String, plays: Int, ms: Int)] = [:]
         var artistPlays: [String: (plays: Int, ms: Int)] = [:]
         for ev in evs {
             totalMs += ev.listenedMs
             if ev.outcome == .completed { completed += 1 }
             if ev.outcome == .skipped { skipped += 1 }
-            if ev.source == .local { localMs += ev.listenedMs } else { youtubeMs += ev.listenedMs }
-            var tt = trackPlays[ev.trackId] ?? (ev.trackTitle, ev.artist, 0, 0)
+            var tt = trackPlays[ev.trackId] ?? (ev.title, ev.artist, 0, 0)
             tt.plays += 1; tt.ms += ev.listenedMs
             trackPlays[ev.trackId] = tt
             var at = artistPlays[ev.artist] ?? (0, 0)
@@ -209,13 +266,21 @@ final class HistoryService {
             .sorted { $0.plays > $1.plays || ($0.plays == $1.plays && $0.listenedMs > $1.listenedMs) }
             .prefix(10)
         return ListeningRecap(
-            rangeLabel: range.label,
+            rangeLabel: rangeLabel,
             totalListenedMs: totalMs, eventCount: evs.count,
             completedCount: completed, skippedCount: skipped,
             uniqueTracks: trackPlays.count, uniqueArtists: artistPlays.count,
-            localMs: localMs, youtubeMs: youtubeMs,
             topTracks: Array(topTracks), topArtists: Array(topArtists)
         )
+    }
+
+    private nonisolated static func timelineSnapshot(_ event: ListeningEvent)
+        -> ListeningTimelineEvent {
+        .init(id: event.id, trackId: event.trackId,
+              title: event.trackTitle, artist: event.artist,
+              startedAt: event.startedAt, endedAt: event.endedAt,
+              listenedMs: event.listenedMs,
+              outcome: event.outcome)
     }
 
     // MARK: - 上下文画像(Final Spec §10.2)
@@ -277,7 +342,7 @@ final class HistoryService {
 }
 
 /// 回顾时间范围。`allTime` 自最早事件起。
-enum RecapRange: String, CaseIterable, Sendable {
+enum RecapRange: String, CaseIterable, Sendable, Equatable {
     case day, week, month, allTime
 
     var label: String {
@@ -289,12 +354,32 @@ enum RecapRange: String, CaseIterable, Sendable {
         }
     }
 
-    func startDate(from now: Date) -> Date {
+    func startDate(from now: Date, calendar: Calendar = .current) -> Date {
+        displayInterval(from: now, calendar: calendar, earliest: nil).start
+    }
+
+    func displayInterval(from now: Date, calendar: Calendar = .current,
+                         earliest: Date?) -> DateInterval {
         switch self {
-        case .day: Calendar.current.date(byAdding: .day, value: -1, to: now) ?? now
-        case .week: Calendar.current.date(byAdding: .day, value: -7, to: now) ?? now
-        case .month: Calendar.current.date(byAdding: .month, value: -1, to: now) ?? now
-        case .allTime: .distantPast
+        case .day:
+            let start = calendar.startOfDay(for: now)
+            let end = calendar.date(byAdding: .day, value: 1, to: start) ?? now
+            return .init(start: start, end: end)
+        case .week:
+            if let value = calendar.dateInterval(of: .weekOfYear, for: now) { return value }
+            let start = calendar.startOfDay(for: now)
+            return .init(start: start,
+                         end: calendar.date(byAdding: .day, value: 7, to: start) ?? now)
+        case .month:
+            if let value = calendar.dateInterval(of: .month, for: now) { return value }
+            let start = calendar.startOfDay(for: now)
+            return .init(start: start,
+                         end: calendar.date(byAdding: .month, value: 1, to: start) ?? now)
+        case .allTime:
+            let start = calendar.startOfDay(for: earliest ?? now)
+            let end = calendar.date(byAdding: .day, value: 1,
+                                    to: calendar.startOfDay(for: now)) ?? now
+            return .init(start: start, end: end)
         }
     }
 }

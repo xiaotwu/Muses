@@ -9,7 +9,6 @@ final class PlayerState {
     var duration: Double = 0
     var buffering: Bool = false
     var bufferRatio: Double = 0
-    var source: TrackSource = .local
     var quality: AudioQualityInfo?
     var error: PlayerError?
 
@@ -25,6 +24,7 @@ struct AudioQualityInfo: Equatable, Sendable {
 
 enum PlayerError: LocalizedError, Equatable {
     case sourceUnavailable
+    case embedUnavailable
     case networkError(String)
     case fileMissing(String)
     case decodingFailed(String)
@@ -33,12 +33,20 @@ enum PlayerError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .sourceUnavailable: "音频源不可用(下架或受限)"
-        case .networkError(let m): "网络错误:\(m)"
-        case .fileMissing(let p): "文件缺失:\(p)"
-        case .decodingFailed(let m): "解码失败:\(m)"
-        case .engineStartFailed: "音频引擎启动失败(设备占用?)"
-        case .rateLimited: "请求被限流,请稍后重试"
+        case .sourceUnavailable:
+            tr("Audio source unavailable (removed or restricted)", "音频源不可用(下架或受限)")
+        case .embedUnavailable:
+            tr("YouTube embedding is disabled for this video", "此视频禁止嵌入播放")
+        case .networkError(let m):
+            tr("Network error: \(m)", "网络错误:\(m)")
+        case .fileMissing(let p):
+            tr("File missing: \(p)", "文件缺失:\(p)")
+        case .decodingFailed(let m):
+            tr("Decode failed: \(m)", "解码失败:\(m)")
+        case .engineStartFailed:
+            tr("Audio engine failed to start (device in use?)", "音频引擎启动失败(设备占用?)")
+        case .rateLimited:
+            tr("Rate limited, try again later", "请求被限流,请稍后重试")
         }
     }
 

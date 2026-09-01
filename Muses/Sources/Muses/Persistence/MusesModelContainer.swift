@@ -1,79 +1,83 @@
 import Foundation
 import SwiftData
+import os
 
-/// Current versioned schema. See `MusesSchemaVersioning.swift` for the rationale:
-/// declared as `1.0.0` so existing on-disk stores (also stamped `1.0.0`) match
-/// exactly and open with no migration stage.
-enum MusesSchema {
-    static var v1: Schema {
-        Schema(versionedSchema: MusesSchemaV1.self)
-    }
+func musesDefaultStoreURL() -> URL {
+    URL.homeDirectory.appending(path: "Library/Application Support/Muses/muses-youtube-native.sqlite")
 }
 
 func makeModelContainer(inMemory: Bool = false, storeURL: URL? = nil) throws -> ModelContainer {
-    let config: ModelConfiguration
+    let configuration: ModelConfiguration
     if inMemory {
-        config = ModelConfiguration(isStoredInMemoryOnly: true)
+        configuration = ModelConfiguration(isStoredInMemoryOnly: true)
     } else {
         let url = storeURL ?? musesDefaultStoreURL()
-        try? FileManager.default.createDirectory(
+        try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        config = ModelConfiguration(url: url)
+        configuration = ModelConfiguration(url: url)
     }
-    // Versioned schema + explicit plan: existing stores match V1 (`1.0.0`) and
-    // skip migration; only a V0 fixture triggers the lightweight V0→V1 stage.
-    // The corrupt-store fallback below preserves user data on any failure.
-    return try ModelContainer(for: MusesSchema.v1,
-                              migrationPlan: MusesMigrationPlan.self,
-                              configurations: config)
+    return try ModelContainer(for: MusesSchema.current, configurations: configuration)
 }
 
-/// on-disk 数据库默认路径: `~/Library/Application Support/Muses/muses.sqlite`。
-/// 抽出为函数,供 `makeModelContainerWithFallback` 与测试共享同一路径推导。
-func musesDefaultStoreURL() -> URL {
-    URL.homeDirectory.appending(path: "Library/Application Support/Muses/muses.sqlite")
+func makeCurrentModelContainer(inMemory: Bool = false,
+                               storeURL: URL? = nil) throws -> ModelContainer {
+    try makeModelContainer(inMemory: inMemory, storeURL: storeURL)
 }
 
-/// 带故障保护的容器构造:供 `MusesApp` 使用。若 on-disk 容器构造失败(如迁移失败 /
-/// 数据库损坏),先把数据库文件备份为 `muses-corrupt-<时间>.sqlite`(-wal/-shm 同备份),
-/// 再回退到内存容器,使播放可继续;**绝不**删除或覆盖原数据库。
-/// 失败信息记入日志,便于用户上报。
-/// `storeURL` 仅用于测试指向临时路径;生产调用留空,使用 `musesDefaultStoreURL()`。
-func makeModelContainerWithFallback(storeURL: URL? = nil) -> ModelContainer {
+struct MusesStoreLoadResult {
+    let container: ModelContainer
+    let usedInMemoryFallback: Bool
+    let failureDescription: String?
+
+    init(container: ModelContainer, usedInMemoryFallback: Bool,
+         failureDescription: String? = nil) {
+        self.container = container
+        self.usedInMemoryFallback = usedInMemoryFallback
+        self.failureDescription = failureDescription
+    }
+}
+
+/// The production entry point opens only the validated YouTube-native store.
+@MainActor
+func makeYouTubeNativeModelContainerWithFallback(
+    storeURL: URL = musesDefaultStoreURL()
+) -> MusesStoreLoadResult {
+    makeModelContainerWithFallback(storeURL: storeURL)
+}
+
+func makeModelContainerWithFallback(storeURL: URL? = nil) -> MusesStoreLoadResult {
+    let destination = storeURL ?? musesDefaultStoreURL()
     do {
-        return try makeModelContainer(inMemory: false, storeURL: storeURL)
+        return MusesStoreLoadResult(
+            container: try makeModelContainer(storeURL: destination),
+            usedInMemoryFallback: false)
     } catch {
         let log = AppLog.for("MusesModelContainer")
-        log.error("on-disk container failed; backing up DB and falling back to in-memory: \(error)")
-        backupCorruptStore(at: storeURL ?? musesDefaultStoreURL())
-        // 回退到内存容器:应用仍可运行(需重新扫描),用户数据备份保留在磁盘。
+        log.error("Final YouTube-native store failed to open: \(error.localizedDescription)")
+        backupCorruptStore(at: destination)
         do {
-            return try makeModelContainer(inMemory: true)
+            return MusesStoreLoadResult(
+                container: try makeModelContainer(inMemory: true),
+                usedInMemoryFallback: true,
+                failureDescription: error.localizedDescription)
         } catch {
-            // 极端情况:内存容器也构造失败(几乎不可能,除非 schema 编译期有误)。
-            // 再备份一次并以 fatalError 终止——比静默继续更安全。
-            log.error("in-memory fallback also failed: \(error)")
-            backupCorruptStore(at: storeURL ?? musesDefaultStoreURL())
-            fatalError("Muses: unable to construct any ModelContainer: \(error)")
+            fatalError("Muses cannot construct a ModelContainer: \(error)")
         }
     }
 }
 
-/// 把 on-disk 数据库文件备份到同目录 `<stem>-corrupt-<时间>.sqlite{,-wal,-shm}`。
-/// 已存在同名备份时跳过,避免覆盖。永不删除原文件。
-/// `storeURL` 指定要备份的 store 路径;默认使用 `musesDefaultStoreURL()`。
+/// Preserve an unreadable final store before falling back to an empty in-memory session.
 func backupCorruptStore(at storeURL: URL) {
-    let dir = storeURL.deletingLastPathComponent()
-    let stem = storeURL.deletingPathExtension().lastPathComponent  // 如 "muses"
-    let ext = storeURL.pathExtension                                 // 如 "sqlite"
+    let directory = storeURL.deletingLastPathComponent()
+    let stem = storeURL.deletingPathExtension().lastPathComponent
+    let ext = storeURL.pathExtension
     let stamp = ISO8601DateFormatter().string(from: Date())
         .replacingOccurrences(of: ":", with: "-")
-    let suffixes = ["", "-wal", "-shm"]
-    for suffix in suffixes {
-        let src = dir.appending(path: "\(stem).\(ext)\(suffix)")
-        let dst = dir.appending(path: "\(stem)-corrupt-\(stamp).\(ext)\(suffix)")
-        guard FileManager.default.fileExists(atPath: src.path) else { continue }
-        if FileManager.default.fileExists(atPath: dst.path) { continue }
-        try? FileManager.default.copyItem(at: src, to: dst)
+    for suffix in ["", "-wal", "-shm"] {
+        let source = URL(fileURLWithPath: storeURL.path + suffix)
+        let backup = directory.appending(path: "\(stem)-corrupt-\(stamp).\(ext)\(suffix)")
+        guard FileManager.default.fileExists(atPath: source.path),
+              !FileManager.default.fileExists(atPath: backup.path) else { continue }
+        try? FileManager.default.copyItem(at: source, to: backup)
     }
 }

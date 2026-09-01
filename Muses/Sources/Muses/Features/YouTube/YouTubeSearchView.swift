@@ -43,6 +43,8 @@ struct YouTubeSearchView: View {
                             .foregroundStyle(BrandColors.textSecondary)
                     }
                     .buttonStyle(.plain)
+                    .help(tr("Clear Search", "清除搜索"))
+                    .accessibilityLabel(tr("Clear Search", "清除搜索"))
                 }
             }
             .padding(12)
@@ -126,13 +128,14 @@ struct YouTubeSearchResultRow: View {
     var body: some View {
         HStack(spacing: 12) {
             // 缩略图
-            AsyncImage(url: URL(string: "https://i.ytimg.com/vi/\(entry.id)/hqdefault.jpg")) { phase in
-                if let img = phase.image { img.resizable().scaledToFill() }
-                else {
+            CachedAsyncImage(
+                url: YouTubeThumbnail.url(videoId: entry.id),
+                content: { $0.resizable().scaledToFill() },
+                placeholder: {
                     Rectangle().fill(BrandColors.surface)
                         .overlay(Image(systemName: "music.note").foregroundStyle(BrandColors.textSecondary))
                 }
-            }
+            )
             .frame(width: 80, height: 45)
             .cornerRadius(6)
             .clipped()
@@ -155,13 +158,17 @@ struct YouTubeSearchResultRow: View {
             .buttonStyle(.plain)
             .foregroundStyle(BrandColors.magenta)
             .help(tr("Play", "播放"))
+            .accessibilityLabel(tr("Play \(entry.title)", "播放 \(entry.title)"))
 
             Button(action: onImport) {
                 Image(systemName: isImported ? "checkmark.circle.fill" : "plus.circle")
             }
             .buttonStyle(.plain)
-            .foregroundStyle(isImported ? BrandColors.green : BrandColors.cyan)
+            .foregroundStyle(isImported ? BrandColors.textSecondary : BrandColors.magenta)
             .help(isImported ? tr("Imported", "已导入") : tr("Import to library", "导入到资料库"))
+            .accessibilityLabel(isImported
+                ? tr("\(entry.title) is in the library", "\(entry.title) 已在资料库中")
+                : tr("Import \(entry.title) to the library", "将 \(entry.title) 导入资料库"))
         }
         .padding(.vertical, 4)
     }

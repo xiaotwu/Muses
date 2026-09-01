@@ -19,12 +19,11 @@ struct Phase17HistoryTests {
     }
 
     private func snap(_ title: String, id: UUID = UUID(),
-                      youTube: Bool = false, durationSec: Double = 200) -> TrackSnapshot {
+                      durationSec: Double = 200) -> TrackSnapshot {
         TrackSnapshot(id: id, title: title, artist: "Artist \(title)",
                       albumTitle: "Album \(title)", durationSeconds: durationSec,
-                      filePath: youTube ? nil : "/tmp/\(title).wav",
-                      youTubeId: youTube ? "yt\(title)" : nil,
-                      artworkHash: nil, artworkUrl: nil,
+                      youTubeId: "yt\(title)",
+                      artworkUrl: nil,
                       sampleRate: 44100, bitDepth: 16, codec: "pcm", isLossless: false)
     }
 
@@ -35,14 +34,13 @@ struct Phase17HistoryTests {
         let container = try makeContainer()
         let ctx = ModelContext(container)
         let ev = ListeningEvent(trackId: UUID(), trackTitle: "t", artist: "a",
-                                albumTitle: "al", source: .youtube, startedAt: Date(timeIntervalSince1970: 1000),
+                                albumTitle: "al", startedAt: Date(timeIntervalSince1970: 1000),
                                 endedAt: Date(timeIntervalSince1970: 1100), listenedMs: 95000,
                                 completionRatio: 0.95, outcome: .completed)
         ctx.insert(ev)
         try ctx.save()
         let fetched = try ctx.fetch(FetchDescriptor<ListeningEvent>()).first
         #expect(fetched?.trackTitle == "t")
-        #expect(fetched?.source == .youtube)
         #expect(fetched?.outcome == .completed)
         #expect(fetched?.listenedMs == 95000)
         #expect(fetched?.completionRatio == 0.95)
@@ -151,13 +149,10 @@ struct Phase17HistoryTests {
     @Test("播放→切下一首:HistoryService 记录 skipped")
     func endToEndSkipRecords() async throws {
         let container = try makeContainer()
-        let library = LibraryService(modelContainer: container,
-                                     metadata: MetadataService(artworkCache: .default))
+        let library = LibraryService(modelContainer: container)
         let queue = QueueService()
-        let local = StubPlayerEngine17()
-        let yt = StubPlayerEngine17()
-        let playback = PlaybackService(localEngine: local, youtubeEngine: yt,
-                                        queue: queue, library: library)
+        let engine = StubPlayerEngine17()
+        let playback = PlaybackService(youtubeEngine: engine, queue: queue, library: library)
         let svc = HistoryService(modelContainer: container, eventBus: playback.eventBus,
                                  enabledProvider: { true })
 
@@ -177,13 +172,10 @@ struct Phase17HistoryTests {
     @Test("引擎自然完成回调:HistoryService 记录 completed")
     func endToEndCompletionRecords() async throws {
         let container = try makeContainer()
-        let library = LibraryService(modelContainer: container,
-                                     metadata: MetadataService(artworkCache: .default))
+        let library = LibraryService(modelContainer: container)
         let queue = QueueService()
-        let local = StubPlayerEngine17()
-        let yt = StubPlayerEngine17()
-        let playback = PlaybackService(localEngine: local, youtubeEngine: yt,
-                                        queue: queue, library: library)
+        let engine = StubPlayerEngine17()
+        let playback = PlaybackService(youtubeEngine: engine, queue: queue, library: library)
         let svc = HistoryService(modelContainer: container, eventBus: playback.eventBus,
                                  enabledProvider: { true })
 
@@ -191,7 +183,7 @@ struct Phase17HistoryTests {
         playback.playTrack(a, context: [a], from: .songs)
         try await Task.sleep(for: .milliseconds(120))
         // 模拟引擎自然完成:触发 onCompletion 回调(由 PlaybackService 接管为 completed 路径)。
-        local.fireCompletion()
+        engine.fireCompletion()
         try await Task.sleep(for: .milliseconds(120))
 
         let events = try ModelContext(container).fetch(FetchDescriptor<ListeningEvent>())
@@ -202,19 +194,17 @@ struct Phase17HistoryTests {
 
     // MARK: - 查询与汇总
 
-    @Test("HistoryQuery 按来源/结局/文本过滤")
+    @Test("HistoryQuery filters by outcome and text")
     func queryFilters() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
         let svc = HistoryService(modelContainer: container, eventBus: bus, enabledProvider: { true })
-        let yt = UUID(), local = UUID()
-        bus.post(.trackStarted(snap("Solar", id: yt, youTube: true)))
-        bus.post(.trackCompleted(snap("Solar", id: yt, youTube: true), listenedMs: 200_000))
-        bus.post(.trackStarted(snap("Lunar", id: local, youTube: false)))
-        bus.post(.trackSkipped(snap("Lunar", id: local, youTube: false), listenedMs: 4_000))
+        let solar = UUID(), lunar = UUID()
+        bus.post(.trackStarted(snap("Solar", id: solar)))
+        bus.post(.trackCompleted(snap("Solar", id: solar), listenedMs: 200_000))
+        bus.post(.trackStarted(snap("Lunar", id: lunar)))
+        bus.post(.trackSkipped(snap("Lunar", id: lunar), listenedMs: 4_000))
 
-        #expect(svc.events(matching: HistoryQuery(source: .youtube)).count == 1)
-        #expect(svc.events(matching: HistoryQuery(source: .local)).count == 1)
         #expect(svc.events(matching: HistoryQuery(outcome: .skipped)).count == 1)
         #expect(svc.events(matching: HistoryQuery(outcome: .completed)).count == 1)
         #expect(svc.events(matching: HistoryQuery(titleContains: "Lun")).count == 1)
@@ -222,31 +212,55 @@ struct Phase17HistoryTests {
         _ = svc
     }
 
-    @Test("recap 汇总:总时长/计数/唯一数/来源时长/Top 曲目")
+    @Test("recap aggregates total time, counts, unique items, and top tracks")
     func recapAggregation() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
         let svc = HistoryService(modelContainer: container, eventBus: bus, enabledProvider: { true })
-        let yt = UUID(), local = UUID()
+        let solar = UUID(), lunar = UUID()
         // 同一首 Solar 播完两次
-        bus.post(.trackStarted(snap("Solar", id: yt, youTube: true)))
-        bus.post(.trackCompleted(snap("Solar", id: yt, youTube: true), listenedMs: 200_000))
-        bus.post(.trackStarted(snap("Solar", id: yt, youTube: true)))
-        bus.post(.trackCompleted(snap("Solar", id: yt, youTube: true), listenedMs: 200_000))
-        bus.post(.trackStarted(snap("Lunar", id: local, youTube: false)))
-        bus.post(.trackSkipped(snap("Lunar", id: local, youTube: false), listenedMs: 4_000))
+        bus.post(.trackStarted(snap("Solar", id: solar)))
+        bus.post(.trackCompleted(snap("Solar", id: solar), listenedMs: 200_000))
+        bus.post(.trackStarted(snap("Solar", id: solar)))
+        bus.post(.trackCompleted(snap("Solar", id: solar), listenedMs: 200_000))
+        bus.post(.trackStarted(snap("Lunar", id: lunar)))
+        bus.post(.trackSkipped(snap("Lunar", id: lunar), listenedMs: 4_000))
 
         let recap = svc.recap(range: .allTime)
         #expect(recap.eventCount == 3)
         #expect(recap.completedCount == 2)
         #expect(recap.skippedCount == 1)
         #expect(recap.uniqueTracks == 2)
-        #expect(recap.youtubeMs == 400_000)
-        #expect(recap.localMs == 4_000)
+        #expect(recap.totalListenedMs == 404_000)
         #expect(recap.topTracks.first?.title == "Solar")
         #expect(recap.topTracks.first?.plays == 2)
         #expect(recap.topArtists.first?.name == "Artist Solar")
+        let heatmap = try svc.dashboard(range: .allTime).heatmap
+        #expect(heatmap.rows.count == 7)
+        #expect(heatmap.rows.flatMap(\.cells).count == 168)
+        #expect(heatmap.totalMs == 404_000)
         _ = svc
+    }
+
+    @Test("dashboard keeps timeline inside the selected calendar range")
+    func dashboardScopesRecentActivityToSelectedRange() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let oldStart = now.addingTimeInterval(-3 * 86_400)
+        context.insert(ListeningEvent(
+            trackId: UUID(), trackTitle: "Earlier", artist: "Artist Earlier",
+            albumTitle: nil, startedAt: oldStart, endedAt: oldStart.addingTimeInterval(120),
+            listenedMs: 120_000, completionRatio: 1, outcome: .completed
+        ))
+        try context.save()
+
+        let service = HistoryService(modelContainer: container, eventBus: PlaybackEventBus(),
+                                     enabledProvider: { true })
+        let dashboard = try service.dashboard(range: .day, now: now)
+        #expect(dashboard.totalEventCount == 1)
+        #expect(dashboard.recap.eventCount == 0)
+        #expect(dashboard.recent.isEmpty)
     }
 
     @Test("clearAll 清空全部事件并 bump revision")
@@ -292,7 +306,11 @@ private final class StubPlayerEngine17: PlayerEngine {
     func removeSpectrumTap() {}
 
     /// 测试触发「自然完成」:调用由 PlaybackService 安装的 onCompletion。
-    func fireCompletion() { onCompletion?() }
+    func fireCompletion() {
+        state.position = state.duration
+        state.isPlaying = false
+        onCompletion?()
+    }
 }
 
 /// Phase 17 测试专用桩 bridge(从不被调用,仅为满足 YouTubeStreamEngine 构造器签名)。

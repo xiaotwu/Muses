@@ -1,0 +1,125 @@
+{
+  "contents": {
+    "singleColumnBrowseResultsRenderer": {
+      "tabs": [{
+        "tabRenderer": {
+          "content": {
+            "sectionListRenderer": {
+              "contents": [
+                {
+                  "musicCarouselShelfRenderer": {
+                    "header": {
+                      "musicCarouselShelfBasicHeaderRenderer": {
+                        "title": {"runs": [{"text": "Made for you"}]},
+                        "strapline": {"runs": [{"text": "From your listening"}]},
+                        "navigationEndpoint": {
+                          "browseEndpoint": {"browseId": "FEmusic_mixed_for_you"}
+                        }
+                      }
+                    },
+                    "contents": [
+                      {
+                        "musicTwoRowItemRenderer": {
+                          "title": {"runs": [{"text": "Song One"}]},
+                          "subtitle": {"runs": [{"text": "Artist One"}]},
+                          "navigationEndpoint": {
+                            "watchEndpoint": {"videoId": "video_one", "playlistId": "RDAMVMvideo_one"}
+                          },
+                          "thumbnail": {
+                            "musicThumbnailRenderer": {
+                              "thumbnail": {
+                                "thumbnails": [
+                                  {"url": "https://i.ytimg.com/vi/video_one/mqdefault.jpg", "width": 320, "height": 180},
+                                  {"url": "https://evil.example/art.jpg", "width": 640, "height": 360}
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "unknownFutureItemRenderer": {"secret": "ignored"}
+                      },
+                      {
+                        "musicTwoRowItemRenderer": {
+                          "title": {"runs": [{"text": "Song One duplicate"}]},
+                          "navigationEndpoint": {
+                            "watchEndpoint": {"videoId": "video_one"}
+                          }
+                        }
+                      }
+                    ],
+                    "continuations": [{
+                      "nextContinuationData": {"continuation": "VOLATILE_CAROUSEL_TOKEN"}
+                    }]
+                  }
+                },
+                {
+                  "musicShelfRenderer": {
+                    "title": {"runs": [{"text": "Songs"}]},
+                    "contents": [
+                      {
+                        "musicResponsiveListItemRenderer": {
+                          "flexColumns": [
+                            {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Shelf Song"}]}}},
+                            {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Shelf Artist"}]}}}
+                          ],
+                          "navigationEndpoint": {"watchEndpoint": {"videoId": "shelf_video"}},
+                          "musicItemRendererDisplayPolicy": "MUSIC_ITEM_RENDERER_DISPLAY_POLICY_GREY_OUT",
+                          "unplayableText": {"runs": [{"text": "Unavailable"}]}
+                        }
+                      },
+                      {
+                        "musicResponsiveListItemRenderer": {
+                          "flexColumns": [
+                            {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Missing identity"}]}}}
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "gridRenderer": {
+                    "header": {"gridHeaderRenderer": {"title": {"runs": [{"text": "Albums"}]}}},
+                    "items": [{
+                      "musicTwoRowItemRenderer": {
+                        "title": {"runs": [{"text": "Album One"}]},
+                        "subtitle": {"runs": [{"text": "Artist Two"}]},
+                        "navigationEndpoint": {"browseEndpoint": {"browseId": "MPREb_album_one"}},
+                        "thumbnail": {"thumbnails": [{"url": "https://lh3.googleusercontent.com/album-one"}]}
+                      }
+                    }]
+                  }
+                },
+                {
+                  "musicCarouselShelfRenderer": {
+                    "header": {
+                      "musicCarouselShelfBasicHeaderRenderer": {
+                        "title": {"runs": [{"text": "Quick picks"}]}
+                      }
+                    },
+                    "contents": [{
+                      "musicResponsiveListItemRenderer": {
+                        "flexColumns": [
+                          {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Quick Song"}]}}},
+                          {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Quick Artist"}]}}}
+                        ],
+                        "navigationEndpoint": {"watchEndpoint": {"videoId": "quick_video"}}
+                      }
+                    }]
+                  }
+                },
+                {
+                  "unknownFutureShelfRenderer": {
+                    "contents": [{"rawPrivateField": "ignored"}]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }]
+    }
+  }
+}

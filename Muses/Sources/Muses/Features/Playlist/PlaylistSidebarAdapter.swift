@@ -43,6 +43,24 @@ struct SidebarPlaylistItem: Identifiable, Hashable {
     var isYouTube: Bool { origin == .youtube }
 }
 
+enum SidebarPlaylistOrder {
+    static func apply(_ items: [SidebarPlaylistItem]) -> [SidebarPlaylistItem] {
+        let saved = (UserDefaults.standard.array(forKey: PrefKey.sidebarPlaylistOrder) as? [String]) ?? []
+        guard !saved.isEmpty else { return items }
+        var map = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+        var out: [SidebarPlaylistItem] = []
+        for id in saved {
+            if let item = map.removeValue(forKey: id) { out.append(item) }
+        }
+        out.append(contentsOf: items.filter { map[$0.id] != nil })
+        return out
+    }
+
+    static func save(_ ids: [String]) {
+        UserDefaults.standard.set(ids, forKey: PrefKey.sidebarPlaylistOrder)
+    }
+}
+
 enum PlaylistSidebarAdapter {
     /// 合并本地歌单与 YouTube 导入,排序为侧边栏单一集合。
     /// 规则:钉选本地歌单置顶,其余按 `sortDate` 倒序(新在前)。

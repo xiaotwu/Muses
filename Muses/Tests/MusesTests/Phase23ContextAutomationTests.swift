@@ -12,11 +12,10 @@ struct Phase23ContextAutomationTests {
         try makeModelContainer(inMemory: true)
     }
 
-    private func snap(_ title: String, id: UUID = UUID(), youtube: Bool = false,
+    private func snap(_ title: String, id: UUID = UUID(), youtube: Bool = true,
                       duration: Double = 200) -> TrackSnapshot {
         TrackSnapshot(id: id, title: title, artist: "A", albumTitle: nil,
-                      durationSeconds: duration, filePath: youtube ? nil : "/tmp/x.wav",
-                      youTubeId: youtube ? "yt123" : nil, artworkHash: nil, artworkUrl: nil,
+                      durationSeconds: duration, youTubeId: youtube ? "yt123" : "yt-fallback", artworkUrl: nil,
                       sampleRate: nil, bitDepth: nil, codec: nil, isLossless: false)
     }
 
@@ -134,7 +133,7 @@ struct Phase23ContextAutomationTests {
         let container = try makeContainer()
         let ctx = ModelContext(container)
         let conditions = AutomationConditions(appBundleId: "com.apple.Xcode",
-                                              timeBand: .lateNight, source: .local,
+                                              timeBand: .lateNight,
                                               isHeadphones: true, isWeekend: nil)
         let rule = AutomationRule(name: "Late-night like", trigger: .trackStarted,
                                   conditions: conditions, action: .likeTrack,
@@ -152,33 +151,27 @@ struct Phase23ContextAutomationTests {
 
     // MARK: - AutomationService.matches(纯函数)
 
-    @Test("matches:无条件恒真;AND 语义;source 匹配;app 无上下文不匹配")
+    @Test("matches: no conditions, AND semantics, and missing context")
     func matchesSemantics() {
-        let snapLocal = snap("L", youtube: false)
-        let snapYT = snap("Y", youtube: true)
+        let snapshot = snap("Y", youtube: true)
         let ctx = ListeningContext(hour: 23, dayOfWeek: 7, isWeekend: true,
                                    frontmostAppBundleId: "com.apple.Xcode",
                                    outputDeviceName: "AirPods", isHeadphones: true)
 
         // 无条件 → 恒真
-        #expect(AutomationService.matches(nil, snapshot: snapLocal, context: nil) == true)
-        // source 匹配
-        #expect(AutomationService.matches(AutomationConditions(source: .local), snapshot: snapLocal, context: nil) == true)
-        #expect(AutomationService.matches(AutomationConditions(source: .youtube), snapshot: snapLocal, context: nil) == false)
+        #expect(AutomationService.matches(nil, snapshot: snapshot, context: nil) == true)
         // app 条件:无上下文 → 不匹配(绝不伪造)
-        #expect(AutomationService.matches(AutomationConditions(appBundleId: "com.apple.Xcode"), snapshot: snapLocal, context: nil) == false)
-        #expect(AutomationService.matches(AutomationConditions(appBundleId: "com.apple.Xcode"), snapshot: snapLocal, context: ctx) == true)
-        #expect(AutomationService.matches(AutomationConditions(appBundleId: "other"), snapshot: snapLocal, context: ctx) == false)
+        #expect(AutomationService.matches(AutomationConditions(appBundleId: "com.apple.Xcode"), snapshot: snapshot, context: nil) == false)
+        #expect(AutomationService.matches(AutomationConditions(appBundleId: "com.apple.Xcode"), snapshot: snapshot, context: ctx) == true)
+        #expect(AutomationService.matches(AutomationConditions(appBundleId: "other"), snapshot: snapshot, context: ctx) == false)
         // AND 语义:多字段须全满足
         let cond = AutomationConditions(appBundleId: "com.apple.Xcode", timeBand: .lateNight, isHeadphones: true)
-        #expect(AutomationService.matches(cond, snapshot: snapLocal, context: ctx) == true)
+        #expect(AutomationService.matches(cond, snapshot: snapshot, context: ctx) == true)
         let condFail = AutomationConditions(appBundleId: "com.apple.Xcode", timeBand: .morning)
-        #expect(AutomationService.matches(condFail, snapshot: snapLocal, context: ctx) == false) // 时段不匹配
+        #expect(AutomationService.matches(condFail, snapshot: snapshot, context: ctx) == false) // 时段不匹配
         // isWeekend
-        #expect(AutomationService.matches(AutomationConditions(isWeekend: true), snapshot: snapLocal, context: ctx) == true)
-        #expect(AutomationService.matches(AutomationConditions(isWeekend: false), snapshot: snapLocal, context: ctx) == false)
-        // source 不依赖上下文:YouTube 曲目
-        #expect(AutomationService.matches(AutomationConditions(source: .youtube), snapshot: snapYT, context: nil) == true)
+        #expect(AutomationService.matches(AutomationConditions(isWeekend: true), snapshot: snapshot, context: ctx) == true)
+        #expect(AutomationService.matches(AutomationConditions(isWeekend: false), snapshot: snapshot, context: ctx) == false)
     }
 
     // MARK: - AutomationService.cooldownAllows(纯函数)
@@ -227,8 +220,8 @@ struct Phase23ContextAutomationTests {
         let idLike = svc.addRule(name: "Auto-like", trigger: .trackStarted,
                                   action: .likeTrack)
         // 规则2:trackCompleted → addToInbox,1s 冷却。
-        let idInbox = svc.addRule(name: "Auto-inbox", trigger: .trackCompleted,
-                                   action: .addToInbox, cooldownMs: 1000)
+        _ = svc.addRule(name: "Auto-inbox", trigger: .trackCompleted,
+                        action: .addToInbox, cooldownMs: 1000)
         // 规则3:trackSkipped → playNext,但禁用。
         let idDisabled = svc.addRule(name: "Disabled", trigger: .trackSkipped,
                                      action: .playNext)

@@ -5,15 +5,6 @@ import Testing
 @Suite("Domain Models")
 struct DomainModelTests {
 
-    @Test("Track source enum round-trips")
-    func trackSourceRoundTrip() throws {
-        #expect(TrackSource.local.rawValue == "local")
-        #expect(TrackSource.youtube.rawValue == "youtube")
-        let data = try JSONEncoder().encode(TrackSource.youtube)
-        let back = try JSONDecoder().decode(TrackSource.self, from: data)
-        #expect(back == .youtube)
-    }
-
     @Test("EQBand is codable and equatable")
     func eqBandCodable() throws {
         let band = EQBand(frequency: 1000, gain: 3.0, q: 1.0)

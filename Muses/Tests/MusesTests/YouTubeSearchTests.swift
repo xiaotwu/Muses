@@ -52,7 +52,6 @@ struct YouTubeSearchTests {
         let ctx = ModelContext(container)
         let tracks = try ctx.fetch(FetchDescriptor<Track>())
         #expect(tracks.count == 1)
-        #expect(tracks.first?.source == .youtube)
         #expect(tracks.first?.youTubeId == "dup1")
 
         // 再次导入同一 entry → 返回既有,不新建

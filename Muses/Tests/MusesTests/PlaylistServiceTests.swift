@@ -14,7 +14,7 @@ struct PlaylistServiceTests {
 
     private func makeTrack(in container: ModelContainer, title: String = "Test Track") -> Track {
         let ctx = ModelContext(container)
-        let track = Track(source: .local, title: title, artist: "Artist", durationMs: 200000)
+        let track = Track(title: title, artist: "Artist", durationMs: 200000, youTubeId: "test-video")
         ctx.insert(track)
         try? ctx.save()
         return track
@@ -105,5 +105,25 @@ struct PlaylistServiceTests {
         #expect(try ctx.fetch(FetchDescriptor<Playlist>()).count == 0)
         #expect(try ctx.fetch(FetchDescriptor<PlaylistItem>()).count == 0)
         #expect(try ctx.fetch(FetchDescriptor<Track>()).count == 1, "Track 应保留(nullify)")
+    }
+
+    @Test("deleteWithUndoSnapshot restores order and pinned state")
+    func deleteAndUndoRestoresPlaylist() throws {
+        let container = try makeContainer()
+        let service = PlaylistService(modelContainer: container)
+        let a = makeTrack(in: container, title: "A")
+        let b = makeTrack(in: container, title: "B")
+        let playlist = service.create(name: "Recover me")
+        service.addTrack(playlist, track: a)
+        service.addTrack(playlist, track: b)
+        service.togglePin(playlist)
+
+        let snapshot = try #require(service.deleteWithUndoSnapshot(playlist))
+        #expect(try ModelContext(container).fetch(FetchDescriptor<Playlist>()).isEmpty)
+        let restored = try #require(service.restore(snapshot))
+        #expect(restored.name == "Recover me")
+        #expect(restored.pinned)
+        #expect((restored.items ?? []).sorted { $0.order < $1.order }
+            .compactMap { $0.track?.title } == ["A", "B"])
     }
 }

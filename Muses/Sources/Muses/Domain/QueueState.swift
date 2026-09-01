@@ -18,7 +18,7 @@ final class QueueState {
     /// 崩溃恢复:上次 checkpoint 的播放位置(毫秒)。nil = 无记录。
     /// (字段名为 Ms,事件总线 `trackSeeked(toMs:)` 亦为毫秒;恢复时 `seek(to:)` 需 ÷1000。)
     var lastPositionMs: Double?
-    /// Phase 19 Advanced Queue:队列分组 `[QueueGroup]` 的 JSON。nil = 无分组(旧库兼容)。
+    /// Phase 19 Advanced Queue:队列分组 `[QueueGroup]` 的 JSON。nil = 无分组。
     var groupsJSON: String?
 
     /// 单例持久化行使用的固定 UUID。

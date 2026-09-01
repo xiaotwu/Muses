@@ -47,7 +47,7 @@ final class TrayController {
     func setEnabled(_ enabled: Bool) {
         if enabled {
             if statusItem == nil {
-                let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+                let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
                 statusItem = item
             }
             rebuild()
@@ -69,7 +69,11 @@ final class TrayController {
         guard let item = statusItem else { return }
         let track = trackProvider()
         let playing = isPlayingProvider()
-        item.button?.title = "♪"
+        item.button?.title = ""
+        item.button?.image = TrayIcon.templateImage()
+        item.button?.imagePosition = .imageOnly
+        item.button?.imageScaling = .scaleProportionallyDown
+        item.button?.toolTip = track.map { "\($0.title) — \($0.artist)" } ?? tr("Muses", "Muses")
         let menu = NSMenu()
         menu.autoenablesItems = false
         for spec in TrayMenuModel.items(track: track, isPlaying: playing) {
@@ -100,6 +104,96 @@ final class TrayController {
         case .quit:         onQuit()
         case .header, .separator: break
         }
+    }
+}
+
+/// Menu-bar template mark: the bundled logo, white knocked out so macOS can
+/// invert it for light and dark menu bars.
+enum TrayIcon {
+    static let symbolName = "music.note"
+    static let symbolPointSize: CGFloat = 15
+
+    static func loadLogo() -> NSImage? {
+        let url = Bundle.main.url(forResource: "logo", withExtension: "png")
+            ?? Bundle.module.url(forResource: "logo", withExtension: "png")
+        return url.flatMap { NSImage(contentsOf: $0) }
+    }
+
+    static func templateImage(from source: NSImage? = nil, pointSize: CGFloat = 18) -> NSImage {
+        if source == nil,
+           let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Muses") {
+            let configuration = NSImage.SymbolConfiguration(
+                pointSize: min(symbolPointSize, pointSize),
+                weight: .semibold
+            )
+            let image = symbol.withSymbolConfiguration(configuration) ?? symbol
+            image.isTemplate = true
+            return image
+        }
+
+        let src = source ?? loadLogo() ?? NSImage(size: NSSize(width: pointSize, height: pointSize))
+        let scale: CGFloat = 2
+        let px = max(Int((pointSize * scale).rounded()), 1)
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: px,
+            pixelsHigh: px,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            src.size = NSSize(width: pointSize, height: pointSize)
+            src.isTemplate = true
+            return src
+        }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        src.draw(in: NSRect(x: 0, y: 0, width: px, height: px),
+                 from: .zero,
+                 operation: .copy,
+                 fraction: 1,
+                 respectFlipped: true,
+                 hints: [.interpolation: NSImageInterpolation.high])
+        NSGraphicsContext.restoreGraphicsState()
+
+        if let data = rep.bitmapData {
+            let row = rep.bytesPerRow
+            let spp = 4
+            for y in 0..<px {
+                for x in 0..<px {
+                    let i = y * row + x * spp
+                    let r = CGFloat(data[i]) / 255
+                    let g = CGFloat(data[i + 1]) / 255
+                    let b = CGFloat(data[i + 2]) / 255
+                    let a = CGFloat(data[i + 3]) / 255
+                    let lum = 0.299 * r + 0.587 * g + 0.114 * b
+                    if a < 0.08 || lum > 0.88 {
+                        data[i] = 0
+                        data[i + 1] = 0
+                        data[i + 2] = 0
+                        data[i + 3] = 0
+                    } else {
+                        let ink = UInt8(min(255, max(0, Int((1 - lum) * a * 255))))
+                        data[i] = 0
+                        data[i + 1] = 0
+                        data[i + 2] = 0
+                        data[i + 3] = ink
+                    }
+                }
+            }
+        }
+        // Mark this bitmap as a 2x backing representation instead of a 36pt
+        // image that AppKit has to resample back down in the menu bar.
+        rep.size = NSSize(width: pointSize, height: pointSize)
+
+        let img = NSImage(size: NSSize(width: pointSize, height: pointSize))
+        img.addRepresentation(rep)
+        img.isTemplate = true
+        return img
     }
 }
 

@@ -29,6 +29,17 @@ final class EQPreset {
 
 /// 内置 EQ 预设(不入库)。
 enum BuiltinEQPresets {
+    /// Resolve the persisted `PrefKey.eqActivePresetId` (builtin name or custom UUID).
+    static func bands(forStoredId id: String, container: ModelContainer) -> [EQBand] {
+        if let builtin = all.first(where: { $0.name == id }) { return builtin.bands }
+        guard let uuid = UUID(uuidString: id) else { return EQPresets.flat }
+        let ctx = ModelContext(container)
+        let descriptor = FetchDescriptor<EQPreset>(
+            predicate: #Predicate { $0.id == uuid }
+        )
+        return (try? ctx.fetch(descriptor).first)?.bands ?? EQPresets.flat
+    }
+
     static let all: [(name: String, bands: [EQBand])] = [
         ("Flat", EQPresets.flat),
         ("HiFi", hifi()),

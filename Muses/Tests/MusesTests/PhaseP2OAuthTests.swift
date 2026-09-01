@@ -104,6 +104,61 @@ struct PhaseP2OAuthTests {
         #expect(session.isConnected == true)
     }
 
+    @Test("OAuth defaults to read-only and incremental upgrade requests granted scopes")
+    func leastPrivilegeAndIncrementalUpgrade() async throws {
+        #expect(GoogleOAuthConfig.defaultScopes == [GoogleOAuthConfig.readOnlyScope])
+        let keychain = InMemoryKeychain()
+        let presenter = StubPresenter()
+        let session = GoogleOAuthSession(
+            keychain: keychain, presenter: presenter,
+            tokenExchange: { _ in
+                let body = #"{"access_token":"AT2","expires_in":3600,"scope":"https://www.googleapis.com/auth/youtube https://www.googleapis.com/auth/youtube.readonly"}"#
+                return (Data(body.utf8), Self.http200())
+            })
+        try session.saveConfig(GoogleOAuthConfig(
+            clientID: "cid", clientSecret: "csec",
+            redirectURI: "muses:/oauth", scopes: []))
+        try session.storeTokens(OAuthTokenSet(
+            accessToken: "AT1", refreshToken: "RT",
+            expiresAt: .now.addingTimeInterval(3600),
+            scope: GoogleOAuthConfig.readOnlyScope))
+
+        try await session.connect(
+            requestedScopes: [GoogleOAuthConfig.manageScope],
+            includeGrantedScopes: true)
+
+        let items = URLComponents(
+            url: try #require(presenter.lastAuthURL),
+            resolvingAgainstBaseURL: false)?.queryItems ?? []
+        #expect(items.first(where: { $0.name == "scope" })?.value
+                == GoogleOAuthConfig.manageScope)
+        #expect(items.first(where: { $0.name == "include_granted_scopes" })?.value
+                == "true")
+        #expect(session.loadTokens()?.refreshToken == "RT")
+    }
+
+    @Test("readonly capability cannot create a writer; granted manage scope can")
+    func writerRequiresActuallyGrantedManageScope() throws {
+        let keychain = InMemoryKeychain()
+        let session = GoogleOAuthSession(keychain: keychain)
+        try session.storeTokens(OAuthTokenSet(
+            accessToken: "AT", refreshToken: "RT",
+            expiresAt: .now.addingTimeInterval(3600),
+            scope: GoogleOAuthConfig.readOnlyScope))
+        let account = YouTubeAccountService(session: session)
+        #expect(account.canReadAccount)
+        #expect(!account.canManagePlaylists)
+        #expect(account.playlistWriter() == nil)
+
+        try session.storeTokens(OAuthTokenSet(
+            accessToken: "AT", refreshToken: "RT",
+            expiresAt: .now.addingTimeInterval(3600),
+            scope: GoogleOAuthConfig.manageScope))
+        #expect(account.canReadAccount)
+        #expect(account.canManagePlaylists)
+        #expect(account.playlistWriter() != nil)
+    }
+
     @Test("connect(): 用户取消(presenter 返回 nil)抛 userCancelled")
     func connectCancelled() async throws {
         let kc = InMemoryKeychain()
@@ -217,6 +272,32 @@ struct PhaseP2OAuthTests {
         #expect(pls.first?.itemCount == 7)
     }
 
+    @Test("DataAPI: playlistItems 解析 playlistItemId;insert 发送 POST")
+    func dataApiPlaylistWrite() async throws {
+        let client = YouTubeDataAPIClient(
+            accessTokenProvider: { "AT" },
+            http: { req in
+                let url = req.url?.absoluteString ?? ""
+                if req.httpMethod == "POST" {
+                    #expect(url.contains("/playlistItems"))
+                    let body = #"{"id":"PLI1"}"#
+                    return (Data(body.utf8), Self.http200())
+                }
+                if url.contains("/playlistItems") {
+                    let body = #"{"items":[{"id":"PLI1","snippet":{"title":"Song","channelTitle":"A"},"contentDetails":{"videoId":"vid1"}}]}"#
+                    return (Data(body.utf8), Self.http200())
+                }
+                return (Data("{}".utf8), Self.http200())
+            })
+        let items = try await client.playlistItems(playlistId: "PL1")
+        #expect(items.first?.playlistItemId == "PLI1")
+        #expect(items.first?.videoId == "vid1")
+        let inserted = try await client.insertPlaylistItem(playlistId: "PL1", videoId: "vid2")
+        #expect(inserted == "PLI1")
+        let writer = YouTubePlaylistWriteService(client: client)
+        try await writer.addVideo(playlistId: "PL1", videoId: "vid2")
+    }
+
     @Test("DataAPI: 401 → unauthorized;分页合并两页")
     func dataApiUnauthorizedAndPaging() async throws {
         let client = YouTubeDataAPIClient(
@@ -257,7 +338,8 @@ struct PhaseP2OAuthTests {
         // 预置令牌(refresh token 存在 → isConnected)。
         try session.storeTokens(OAuthTokenSet(
             accessToken: "AT", refreshToken: "RT",
-            expiresAt: Date().addingTimeInterval(3600), scope: nil))
+            expiresAt: Date().addingTimeInterval(3600),
+            scope: GoogleOAuthConfig.readOnlyScope))
         let account = YouTubeAccountService(session: session, clientFactory: { sess in
             YouTubeDataAPIClient(accessTokenProvider: { [weak sess] in
                 try await sess?.validAccessToken() ?? "AT"
@@ -292,6 +374,57 @@ struct PhaseP2OAuthTests {
         #expect(signals?.likedArtistNames == ["Artist B"])
     }
 
+    @Test("AccountService: 持久 token 重启后自动刷新账号快照")
+    func persistedTokenRestartRehydratesAccount() async throws {
+        let kc = InMemoryKeychain()
+        let originalSession = GoogleOAuthSession(
+            keychain: kc,
+            presenter: StubPresenter(),
+            tokenExchange: stubExchange
+        )
+        try originalSession.saveConfig(GoogleOAuthConfig(
+            clientID: "cid",
+            clientSecret: "csec",
+            redirectURI: "muses:/oauth",
+            scopes: []
+        ))
+        try originalSession.storeTokens(OAuthTokenSet(
+            accessToken: "persisted-access",
+            refreshToken: "persisted-refresh",
+            expiresAt: Date().addingTimeInterval(3_600),
+            scope: GoogleOAuthConfig.readOnlyScope
+        ))
+
+        // A fresh session/service pair models the next app process while using
+        // the same Keychain contents.
+        let restartedSession = GoogleOAuthSession(
+            keychain: kc,
+            presenter: StubPresenter(),
+            tokenExchange: stubExchange
+        )
+        let restarted = YouTubeAccountService(
+            session: restartedSession,
+            clientFactory: { _ in
+                YouTubeDataAPIClient(accessTokenProvider: { "persisted-access" }, http: { request in
+                    if request.url?.path.contains("/channels") == true {
+                        let body = #"{"items":[{"id":"UC-restarted","snippet":{"title":"Restored Account"}}]}"#
+                        return (Data(body.utf8), Self.http200())
+                    }
+                    return (Data(#"{"items":[]}"#.utf8), Self.http200())
+                })
+            }
+        )
+
+        #expect(restarted.isConnected)
+        #expect(restarted.account == nil)
+
+        await restarted.refreshPersistedConnectionIfNeeded()
+
+        #expect(restarted.isConnected)
+        #expect(restarted.account?.channel?.title == "Restored Account")
+        #expect(restarted.lastError == nil)
+    }
+
     @Test("AccountService: refresh 遇 unauthorized → 断开连接")
     func accountRefreshUnauthorizedDisconnects() async throws {
         let kc = InMemoryKeychain()
@@ -301,7 +434,8 @@ struct PhaseP2OAuthTests {
             redirectURI: "muses:/oauth", scopes: []))
         try session.storeTokens(OAuthTokenSet(
             accessToken: "AT", refreshToken: "RT",
-            expiresAt: Date().addingTimeInterval(3600), scope: nil))
+            expiresAt: Date().addingTimeInterval(3600),
+            scope: GoogleOAuthConfig.readOnlyScope))
         let account = YouTubeAccountService(session: session, clientFactory: { _ in
             YouTubeDataAPIClient(accessTokenProvider: { "AT" }, http: { _ in
                 (Data("{}".utf8), Self.http401())
@@ -326,7 +460,7 @@ struct PhaseP2OAuthTests {
             topArtistNames: ["LocalA"],
             recentlyPlayedArtistNames: ["Recent"],
             likedArtistNames: ["LocalB"],
-            timeBand: .evening, hour: 19)
+            timeBand: .evening, hour: 19, scope: .guest)
         let signals = PersonalizationSignals(
             likedArtistNames: ["LocalA", "YTA", "YTB"],
             subscribedChannelNames: ["LocalB", "Sub1", "Sub2"],
@@ -346,7 +480,7 @@ struct PhaseP2OAuthTests {
     func enrichedLimit5() {
         let base = HomeDiscoveryInput(
             topArtistNames: [], recentlyPlayedArtistNames: [],
-            likedArtistNames: [], timeBand: .morning, hour: 8)
+            likedArtistNames: [], timeBand: .morning, hour: 8, scope: .guest)
         let signals = PersonalizationSignals(
             likedArtistNames: ["a", "b", "c", "d", "e", "f", "g"],
             subscribedChannelNames: [], playlistTitles: [])
@@ -379,9 +513,11 @@ struct PhaseP2OAuthTests {
 @MainActor
 final class StubPresenter: AuthSessionPresenting, @unchecked Sendable {
     let returnsURL: Bool
+    private(set) var lastAuthURL: URL?
     init(returnsURL: Bool = true) { self.returnsURL = returnsURL }
 
     func present(authURL: URL, callbackScheme: String) async -> URL? {
+        lastAuthURL = authURL
         guard returnsURL else { return nil }
         let comps = URLComponents(url: authURL, resolvingAgainstBaseURL: false)
         let state = comps?.queryItems?.first(where: { $0.name == "state" })?.value ?? ""

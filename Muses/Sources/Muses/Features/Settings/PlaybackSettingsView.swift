@@ -4,6 +4,7 @@ import SwiftUI
 struct PlaybackSettingsView: View {
     @AppStorage(PrefKey.crossfadeSeconds) private var crossfadeSeconds: Double = 0
     @AppStorage(PrefKey.replayGainEnabled) private var replayGainEnabled: Bool = false
+    @AppStorage(PrefKey.resumeAfterVideo) private var resumeAfterVideo: Bool = true
 
     var body: some View {
         Section(tr("Playback", "播放")) {
@@ -20,9 +21,10 @@ struct PlaybackSettingsView: View {
                 }
 
                 Slider(value: $crossfadeSeconds, in: 0...12, step: 0.5)
-                    .tint(BrandColors.cyan)
+                    .tint(BrandColors.magenta)
 
-                Text(tr("0 sec = pure gapless playback (no crossfade); > 0 sec = overlapping crossfade between adjacent tracks. Only applies to local files.", "0 秒 = 纯无缝切换(无淡入淡出);> 0 秒 = 相邻曲目重叠交叉淡入淡出。仅本地文件生效。"))
+                Text(tr("0 sec keeps gapless playback. Crossfade is applied when adjacent YouTube tracks are available in the stream cache.",
+                        "0 秒保持无缝播放；相邻 YouTube 曲目已进入流缓存时可应用交叉淡入淡出。"))
                     .font(.caption)
                     .foregroundStyle(BrandColors.textSecondary)
             }
@@ -34,11 +36,40 @@ struct PlaybackSettingsView: View {
                 Text(tr("ReplayGain", "ReplayGain 增益"))
                     .foregroundStyle(BrandColors.textPrimary)
             }
-            .tint(BrandColors.cyan)
+            .tint(BrandColors.magenta)
 
-            Text(tr("When enabled, volume is automatically adjusted per ReplayGain tags in files, keeping loudness consistent across tracks. Tracks without tags are unaffected.", "启用后按文件内 ReplayGain 标签自动调整音量,使各曲目响度一致。无标签的曲目不受影响。"))
+            Text(tr("When available in saved metadata, ReplayGain keeps loudness consistent across tracks. Tracks without a value are unchanged.",
+                    "已保存的元数据包含 ReplayGain 时，会自动统一曲目响度；没有该值的曲目不受影响。"))
+                .font(.caption)
+                .foregroundStyle(BrandColors.textSecondary)
+
+            Divider().padding(.vertical, 4)
+
+            Toggle(isOn: $resumeAfterVideo) {
+                Text(tr("Resume music when video closes", "视频关闭后继续播放当前音乐队列"))
+                    .foregroundStyle(BrandColors.textPrimary)
+            }
+            .tint(BrandColors.magenta)
+
+            Text(tr("Opening a YouTube video always pauses music. When this is on, closing the video resumes the current queue. When off, music stays paused.", "打开 YouTube 视频总会暂停音乐。开启后,关闭视频会继续当前队列;关闭后则保持暂停。"))
+                .font(.caption)
+                .foregroundStyle(BrandColors.textSecondary)
+
+            Divider().padding(.vertical, 4)
+
+            // 悬停预览:视觉交互,归播放设置;原YouTube页已精简。
+            Toggle(isOn: $hoverPreviewSound) {
+                Text(tr("Play sound on hover preview", "悬停预览时播放声音"))
+                    .foregroundStyle(BrandColors.textPrimary)
+            }
+            .tint(BrandColors.magenta)
+
+            Text(tr("Off by default. Covers still enlarge on hover.",
+                    "默认关闭。悬停仍会放大封面。"))
                 .font(.caption)
                 .foregroundStyle(BrandColors.textSecondary)
         }
     }
+
+    @AppStorage(PrefKey.hoverPreviewSound) private var hoverPreviewSound = false
 }

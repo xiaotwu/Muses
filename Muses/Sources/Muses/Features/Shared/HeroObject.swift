@@ -29,7 +29,7 @@ struct HeroObjectView: View {
             .buttonStyle(.plain)
             .overlay(alignment: .bottomTrailing) { hoverPlayOverlay }
             .onHover { hovering = $0 }
-            .offset(y: liftOffset)
+            .scaleEffect(showsHoverPlay && hovering && !reduceMotion ? 1.06 : 1.0)
             .animation(MusesMotion.hoverAnimation(reduceMotion: reduceMotion), value: hovering)
             .accessibilityLabel("\(title) — \(subtitle)")
 
@@ -78,9 +78,7 @@ struct HeroObjectView: View {
         }
     }
 
-    private var liftOffset: CGFloat {
-        (showsHoverPlay && hovering && !reduceMotion) ? -MusicObjectMetrics.hoverLift : 0
-    }
+
 
     @ViewBuilder
     private var nowPlayingBadge: some View {

@@ -4,12 +4,12 @@ import Foundation
 
 /// P5 — 一致性清理:功能标志默认开关清单(issue #7)。
 ///
-/// 用户显式选择「全部启用」:应用内功能标志默认开;桌面集成 4 项(全局热键/托盘/
-/// 迷你播放器/桌面歌词)默认关——占用系统资源、不打扰。此测试固化该决策,防止回退。
+/// Active in-app feature flags default on; desktop utilities default off.
+/// Retired local-file flags are deliberately absent from runtime defaults.
 @MainActor
 struct PhaseP5CleanupTests {
 
-    @Test("12 项应用内功能标志默认开启")
+    @Test("应用内功能标志与菜单栏图标默认开启")
     func inAppFlagsDefaultOn() {
         let on = FeatureFlagDefaults.enabledByDefault
         #expect(on[PrefKey.ffSmartHistory] == true)
@@ -20,22 +20,22 @@ struct PhaseP5CleanupTests {
         #expect(on[PrefKey.ffContext] == true)
         #expect(on[PrefKey.ffAutomation] == true)
         #expect(on[PrefKey.ffAudioNerd] == true)
-        #expect(on[PrefKey.ffLocalHardening] == true)
+        #expect(on[PrefKey.ffLocalHardening] == nil)
         #expect(on[PrefKey.ffFocusMode] == true)
         #expect(on[PrefKey.ffDiscovery] == true)
         #expect(on[PrefKey.ffSituationalNew] == true)
+        #expect(on[PrefKey.ffTray] == true)
     }
 
-    @Test("桌面集成 4 项不在默认开启清单(仍默认关,不打扰)")
+    @Test("全局热键/迷你播放器/桌面歌词不在默认开启清单")
     func desktopFlagsNotInDefaultOn() {
         let on = FeatureFlagDefaults.enabledByDefault
         #expect(on[PrefKey.ffGlobalHotkeys] == nil)
-        #expect(on[PrefKey.ffTray] == nil)
         #expect(on[PrefKey.ffMiniPlayer] == nil)
         #expect(on[PrefKey.ffDesktopLyrics] == nil)
     }
 
-    @Test("清单仅含 12 个键(无意外项)")
+    @Test("清单含 12 个键(含菜单栏图标,不含退役的本地音乐强化)")
     func exactlyTwelveFlags() {
         #expect(FeatureFlagDefaults.enabledByDefault.count == 12)
     }

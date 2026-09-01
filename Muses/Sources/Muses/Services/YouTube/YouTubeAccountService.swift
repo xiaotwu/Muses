@@ -21,6 +21,11 @@ struct PersonalizationSignals: Sendable, Equatable {
     let playlistTitles: [String]
 }
 
+enum YouTubeAccountCapability: String, Sendable, CaseIterable {
+    case read
+    case managePlaylists
+}
+
 /// 个性化信号提供者协议(可由账号服务或其他本地源实现)。
 protocol PersonalizationSignalProviding: Sendable {
     /// 返回当前信号;无账号或未连接返回 nil。不得抛出(调用方按 nil 降级)。
@@ -46,6 +51,10 @@ final class YouTubeAccountService {
     private(set) var isConnecting: Bool = false
     /// 最近错误信息(UI 展示;nil=无)。
     private(set) var lastError: String?
+    private(set) var channelState: LoadState<YouTubeChannel> = .idle
+    private(set) var playlistsState: LoadState<[YouTubePlaylist]> = .idle
+    private(set) var subscriptionsState: LoadState<[YouTubeSubscription]> = .idle
+    private(set) var likedVideosState: LoadState<[YouTubeVideo]> = .idle
 
     init(session: GoogleOAuthSession = GoogleOAuthSession(keychain: KeychainStore()),
          clientFactory: @escaping @Sendable (GoogleOAuthSession) -> YouTubeDataAPIClient = { session in
@@ -56,11 +65,46 @@ final class YouTubeAccountService {
          }) {
         self.session = session
         self.clientFactory = clientFactory
-        // 启动时若已持 refresh token,标记已连接(但不自动拉取,避免启动阻塞)。
+        // Construction restores token-backed status synchronously. MusesApp
+        // schedules snapshot refresh after dependency composition completes.
         self.isConnected = session.isConnected
     }
 
+    /// Rehydrates the non-persisted account snapshot after an app restart.
+    /// The token remains the source of truth; network/API failures retain the
+    /// same best-effort behavior as a user-initiated refresh.
+    func refreshPersistedConnectionIfNeeded() async {
+        guard isConnected, account == nil else { return }
+        await refresh()
+    }
+
     // MARK: - Config
+
+    var isOAuthConfigured: Bool { session.loadConfig() != nil }
+
+    var activeChannelID: String? { account?.channel?.id }
+
+    var grantedScopes: [String] {
+        session.loadTokens()?.scope?
+            .split(separator: " ")
+            .map(String.init) ?? []
+    }
+
+    var capabilities: Set<YouTubeAccountCapability> {
+        let scopes = Set(grantedScopes)
+        var result = Set<YouTubeAccountCapability>()
+        if scopes.contains(GoogleOAuthConfig.readOnlyScope)
+            || scopes.contains(GoogleOAuthConfig.manageScope) {
+            result.insert(.read)
+        }
+        if scopes.contains(GoogleOAuthConfig.manageScope) {
+            result.insert(.managePlaylists)
+        }
+        return result
+    }
+
+    var canReadAccount: Bool { capabilities.contains(.read) }
+    var canManagePlaylists: Bool { capabilities.contains(.managePlaylists) }
 
     func loadConfig() -> GoogleOAuthConfig? { session.loadConfig() }
 
@@ -88,7 +132,12 @@ final class YouTubeAccountService {
         defer { isConnecting = false }
         do {
             try await session.connect()
-            isConnected = true
+            isConnected = session.isConnected
+            guard isConnected else {
+                lastError = OAuthError.noRefreshToken.errorDescription
+                return
+            }
+            clearAccountSnapshot()
             lastError = nil
             await refresh()
         } catch let e as OAuthError {
@@ -100,26 +149,78 @@ final class YouTubeAccountService {
         }
     }
 
+    /// Incremental authorization: existing read access stays usable when the
+    /// user cancels or declines the additional playlist-management scope.
+    func requestPlaylistManagementAccess() async {
+        guard session.loadConfig() != nil else {
+            lastError = OAuthError.notConfigured.errorDescription
+            return
+        }
+        guard isConnected, canReadAccount else {
+            await connect()
+            return
+        }
+        isConnecting = true
+        defer { isConnecting = false }
+        do {
+            try await session.connect(
+                requestedScopes: [GoogleOAuthConfig.manageScope],
+                includeGrantedScopes: true)
+            isConnected = session.isConnected
+            guard canManagePlaylists else {
+                lastError = tr(
+                    "YouTube playlist management permission was not granted",
+                    "未授予 YouTube 歌单管理权限")
+                return
+            }
+            lastError = nil
+            await refresh()
+        } catch let error as OAuthError {
+            // The old token set was never cleared, so read access survives.
+            lastError = error.errorDescription
+            isConnected = session.isConnected
+        } catch {
+            lastError = error.localizedDescription
+            isConnected = session.isConnected
+        }
+    }
+
     /// 断开连接:清除令牌与快照,保留 OAuth 客户端配置。
     func disconnect() {
         session.disconnect()
         isConnected = false
-        account = nil
+        clearAccountSnapshot()
         lastError = nil
     }
 
     /// 刷新账号快照(身份 + 歌单 + 订阅 + 点赞)。分项失败容忍,整体降级不抛出;
     /// 若任一项返回 `unauthorized` 则视为令牌失效,断开连接。
     func refresh() async {
-        guard session.isConnected else { return }
+        guard session.isConnected, canReadAccount else {
+            if session.isConnected {
+                lastError = tr(
+                    "Reconnect YouTube to grant read access",
+                    "请重新连接 YouTube 以授予读取权限")
+            }
+            return
+        }
         isConnecting = true
         defer { isConnecting = false }
         let client = clientFactory(session)
 
-        var channel: YouTubeChannel?
-        var playlists: [YouTubePlaylist] = []
-        var subs: [YouTubeSubscription] = []
-        var liked: [YouTubeVideo] = []
+        let previousChannel = channelState.value ?? account?.channel
+        let previousPlaylists = playlistsState.value ?? account?.playlists
+        let previousSubscriptions = subscriptionsState.value ?? account?.subscriptions
+        let previousLiked = likedVideosState.value ?? account?.likedVideos
+        channelState = .loading(previous: previousChannel)
+        playlistsState = .loading(previous: previousPlaylists)
+        subscriptionsState = .loading(previous: previousSubscriptions)
+        likedVideosState = .loading(previous: previousLiked)
+
+        var channel = previousChannel
+        var playlists = previousPlaylists ?? []
+        var subs = previousSubscriptions ?? []
+        var liked = previousLiked ?? []
         var anySuccess = false
         var unauthorized = false
         var firstError: String?
@@ -133,15 +234,47 @@ final class YouTubeAccountService {
             }
         }
 
-        do { channel = try await client.channel(); anySuccess = true } catch { handle(error) }
-        do { playlists = try await client.myPlaylists(); anySuccess = true } catch { handle(error) }
-        do { subs = try await client.subscriptions(); anySuccess = true } catch { handle(error) }
-        do { liked = try await client.likedVideos(); anySuccess = true } catch { handle(error) }
+        do {
+            channel = try await client.channel()
+            channelState = channel.map(LoadState.content) ?? .empty
+            anySuccess = true
+        } catch {
+            handle(error)
+            channelState = .failure(message: error.localizedDescription,
+                                    staleValue: previousChannel)
+        }
+        do {
+            playlists = try await client.myPlaylists()
+            playlistsState = playlists.isEmpty ? .empty : .content(playlists)
+            anySuccess = true
+        } catch {
+            handle(error)
+            playlistsState = .failure(message: error.localizedDescription,
+                                      staleValue: previousPlaylists)
+        }
+        do {
+            subs = try await client.subscriptions()
+            subscriptionsState = subs.isEmpty ? .empty : .content(subs)
+            anySuccess = true
+        } catch {
+            handle(error)
+            subscriptionsState = .failure(message: error.localizedDescription,
+                                          staleValue: previousSubscriptions)
+        }
+        do {
+            liked = try await client.likedVideos()
+            likedVideosState = liked.isEmpty ? .empty : .content(liked)
+            anySuccess = true
+        } catch {
+            handle(error)
+            likedVideosState = .failure(message: error.localizedDescription,
+                                        staleValue: previousLiked)
+        }
 
         if unauthorized {
             session.disconnect()
             isConnected = false
-            account = nil
+            clearAccountSnapshot()
             lastError = firstError
             return
         }
@@ -151,7 +284,31 @@ final class YouTubeAccountService {
         lastError = anySuccess ? nil : firstError
     }
 
+    private func clearAccountSnapshot() {
+        account = nil
+        channelState = .idle
+        playlistsState = .idle
+        subscriptionsState = .idle
+        likedVideosState = .idle
+    }
+
     // MARK: - Signals
+
+    /// True when the connected account owns this YouTube playlist id.
+    func ownsPlaylist(_ playlistId: String) -> Bool {
+        guard isConnected, !playlistId.isEmpty else { return false }
+        return account?.playlists.contains(where: { $0.id == playlistId }) == true
+    }
+
+    func playlistWriter() -> YouTubePlaylistWriteService? {
+        guard isConnected, canManagePlaylists else { return nil }
+        return YouTubePlaylistWriteService(client: clientFactory(session))
+    }
+
+    func dataAPIClient() -> YouTubeDataAPIClient? {
+        guard isConnected, canReadAccount else { return nil }
+        return clientFactory(session)
+    }
 
     /// 派生当前个性化信号(从已缓存的 `account` 快照;无快照返回 nil)。
     func signals() -> PersonalizationSignals? {

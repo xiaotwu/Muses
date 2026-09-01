@@ -1,5 +1,36 @@
 import Foundation
 
+/// A Home feed is either public guest discovery or owned by one concrete
+/// YouTube channel. The scope is deliberately non-optional so callers cannot
+/// accidentally fall back to the guest cache while refreshing an account.
+enum HomeFeedScope: Codable, Hashable, Sendable {
+    case guest
+    case account(channelID: String)
+
+    init(accountChannelID: String?) {
+        let normalized = accountChannelID?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !normalized.isEmpty else {
+            self = .guest
+            return
+        }
+        self = .account(channelID: normalized)
+    }
+
+    var cacheNamespace: String {
+        switch self {
+        case .guest:
+            return "guest"
+        case .account(let channelID):
+            let safeID = channelID.unicodeScalars.map { scalar -> Character in
+                CharacterSet.alphanumerics.contains(scalar) || scalar.value == 45 || scalar.value == 95
+                    ? Character(String(scalar)) : "_"
+            }
+            return "account-\(String(safeID))"
+        }
+    }
+}
+
 /// Home 发现输入:携带供给 provider 生成区段所需的轻量信号(§3)。
 ///
 /// 全部为 `Sendable` 值,可安全跨 actor。输入仅含**轻度**历史排序信号
@@ -15,6 +46,27 @@ struct HomeDiscoveryInput: Sendable, Equatable {
     let timeBand: ListeningContext.TimeBand
     /// 当前小时(0-23),供 provider 细分主题。
     let hour: Int
+    /// Recently played YouTube video ids, used as mix seeds (`list=RD{id}`).
+    let seedVideoIds: [String]
+    /// Cache and refresh ownership. This is never optional: a signed-out load
+    /// cannot accidentally reuse another account's saved Home response.
+    let scope: HomeFeedScope
+
+    init(topArtistNames: [String],
+         recentlyPlayedArtistNames: [String],
+         likedArtistNames: [String],
+         timeBand: ListeningContext.TimeBand,
+         hour: Int,
+         seedVideoIds: [String] = [],
+         scope: HomeFeedScope) {
+        self.topArtistNames = topArtistNames
+        self.recentlyPlayedArtistNames = recentlyPlayedArtistNames
+        self.likedArtistNames = likedArtistNames
+        self.timeBand = timeBand
+        self.hour = hour
+        self.seedVideoIds = seedVideoIds
+        self.scope = scope
+    }
 
     static func == (lhs: HomeDiscoveryInput, rhs: HomeDiscoveryInput) -> Bool {
         lhs.topArtistNames == rhs.topArtistNames
@@ -22,6 +74,8 @@ struct HomeDiscoveryInput: Sendable, Equatable {
             && lhs.likedArtistNames == rhs.likedArtistNames
             && lhs.timeBand == rhs.timeBand
             && lhs.hour == rhs.hour
+            && lhs.seedVideoIds == rhs.seedVideoIds
+            && lhs.scope == rhs.scope
     }
 
     /// 融合 YouTube 账号个性化信号(后台 refresh 路径):把账号点赞/订阅的艺术家名
@@ -43,21 +97,116 @@ struct HomeDiscoveryInput: Sendable, Equatable {
             recentlyPlayedArtistNames: recentlyPlayedArtistNames,
             likedArtistNames: merge(likedArtistNames, signals.subscribedChannelNames),
             timeBand: timeBand,
-            hour: hour)
+            hour: hour,
+            seedVideoIds: seedVideoIds,
+            scope: scope)
     }
 }
 
-/// Home 发现提供者协议(§3)。
-///
-/// 抽象出"外部 YouTube/音乐世界发现"来源,使未来接入真实鉴权的 YouTube Music
-/// Home provider 时无需改动 Home UI。本阶段默认实现 `YTDlpDiscoveryProvider` 基于
-/// yt-dlp `ytsearch` 的主题化搜索;**不**实现脆弱的内部 API。
-///
-/// 实现要点:
-/// - 区段标题由 provider 根据 `input` 生成(不硬编码在视图)。
-/// - 每个 section 独立产出,单 section 失败返回 `.failed` 不影响其它 section。
-/// - 历史仅作轻度排序(结果按与 top artists 的重叠度重排)。
+enum HomeFetchFailureCode: String, Codable, Sendable, Equatable {
+    case disabled
+    case oauthRequired
+    case cookieSourceUnavailable
+    case sessionExpired
+    case consentOrCaptchaRequired
+    case identityUnavailable
+    case accountMismatch
+    case shapeChanged
+    case rateLimited
+    case offline
+    case timedOut
+    case helperCrashed
+    case protocolMismatch
+    case responseTooLarge
+    case malformedResponse
+    case baselineUnavailable
+}
+
+struct HomeFetchFailure: Codable, Sendable, Equatable {
+    enum Layer: String, Codable, Sendable {
+        case baseline
+        case web
+    }
+
+    let layer: Layer
+    let code: HomeFetchFailureCode
+    let message: String?
+}
+
+/// Cache writes are part of the fetch value so a caller never infers them from
+/// a mutable capability observed after an await. In particular, a failed Web
+/// fetch always preserves the last successful Web partition.
+struct HomeCacheDirectives: Sendable, Equatable {
+    let storeBaseline: Bool
+    let storeWeb: Bool
+
+    static let preserveAll = HomeCacheDirectives(storeBaseline: false, storeWeb: false)
+}
+
+/// One immutable outcome for one Home refresh. Baseline and Web data remain
+/// separate until presentation so a baseline success can never overwrite a
+/// same-account Web snapshot after the enhancement fails.
+struct HomeFetchResult: Sendable {
+    let baselineSnapshot: HomeSnapshot
+    let webSnapshot: HomeSnapshot?
+    let webCapability: HomeWebCapability
+    let failures: [HomeFetchFailure]
+    let cacheDirectives: HomeCacheDirectives
+
+    static func baseline(
+        scope: HomeFeedScope,
+        sections: [HomeSection],
+        fetchedAt: Date = .init(),
+        failures: [HomeFetchFailure] = []
+    ) -> HomeFetchResult {
+        let hasSectionFailure = sections.contains { section in
+            if case .failed = section.status { return true }
+            return false
+        }
+        return HomeFetchResult(
+            baselineSnapshot: HomeSnapshot(
+                scope: scope,
+                sections: sections,
+                fetchedAt: fetchedAt,
+                expiresAt: fetchedAt.addingTimeInterval(HomeFeedCache.baselineFreshWindow)),
+            webSnapshot: nil,
+            webCapability: .notConfigured,
+            failures: failures,
+            cacheDirectives: HomeCacheDirectives(
+                storeBaseline: !hasSectionFailure && failures.isEmpty,
+                storeWeb: false))
+    }
+}
+
+/// Home discovery provider. A refresh returns content, capability, failures,
+/// and cache policy atomically. `hasWebEnhancement` is immutable configuration,
+/// not mutable outcome state, and is used only to decide whether a fresh Web
+/// partition is required before skipping refresh.
 @MainActor
 protocol HomeDiscoveryProvider: AnyObject {
-    func sections(for input: HomeDiscoveryInput) async -> [HomeSection]
+    var hasWebEnhancement: Bool { get }
+    func fetch(for input: HomeDiscoveryInput) async -> HomeFetchResult
+    func more(page: Int, input: HomeDiscoveryInput) async -> [HomeSection]
+}
+
+extension HomeDiscoveryProvider {
+    var hasWebEnhancement: Bool { false }
+    func more(page: Int, input: HomeDiscoveryInput) async -> [HomeSection] { [] }
+}
+
+/// Observable truth for the optional Web-session layer. It intentionally does
+/// not collapse into a Boolean: signed-out, disabled, rejected, and failed are
+/// different product states with different recovery paths.
+enum HomeWebCapability: Sendable, Equatable {
+    case notConfigured
+    case signedOut
+    case available(accountChannelID: String)
+    case saved(accountChannelID: String, stale: Bool, reason: String?)
+    case unavailable(reason: String?)
+    case rejected(reason: String)
+
+    var isActive: Bool {
+        if case .available = self { return true }
+        return false
+    }
 }

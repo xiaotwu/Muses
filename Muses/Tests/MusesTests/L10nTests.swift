@@ -22,14 +22,16 @@ struct L10nThemeTests {
         #expect(isZh == true || isZh == false)
     }
 
-    @Test("BrandColors.hairline 透明(取消分割线)")
-    func hairlineTransparent() {
-        // BrandColors.hairline 是动态 NSColor,在深色模式下 alpha=0
-        // 验证 Color 可正常构造(间接验证 NSColor 不 crash)
-        let _ = BrandColors.hairline
-        let _ = BrandColors.background
-        let _ = BrandColors.surface
-        #expect(true)
+    @Test("BrandColors.hairline 可在动态主题下解析")
+    func hairlineResolves() {
+        // The hairline is deliberately subtle, but remains visible in both
+        // appearances. This smoke assertion guards dynamic-color construction.
+        let color = NSColor(BrandColors.hairline)
+        var resolvesInDarkAppearance = false
+        NSAppearance(named: .darkAqua)?.performAsCurrentDrawingAppearance {
+            resolvesInDarkAppearance = color.usingColorSpace(.sRGB) != nil
+        }
+        #expect(resolvesInDarkAppearance)
     }
 
     @Test("PrefKey.gpuAcceleration 存在")

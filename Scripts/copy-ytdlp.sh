@@ -13,7 +13,6 @@ set -euo pipefail
 DEST_DIR="Muses/Sources/Muses/Resources"
 DEST="$DEST_DIR/yt-dlp"
 REMOTE_URL="https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
-VERSION_URL="https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
 LICENSE_URL="https://raw.githubusercontent.com/yt-dlp/yt-dlp/master/LICENSE"
 
 CHECK_ONLY=0
@@ -31,9 +30,14 @@ current_version() {
 
 # 通过 GitHub API 获取最新 release tag(避免下载整个二进制只为查版本)。
 remote_version() {
-    curl -fsSL "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest" \
-        | grep -m1 '"tag_name"' \
-        | sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/'
+    local response
+    response="$(curl -fsSL "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest")" \
+        || return 1
+    # Consume the complete response before parsing. An early-exiting `grep -m1`
+    # makes curl receive SIGPIPE under `set -o pipefail`, which used to append
+    # `(unknown)` to an otherwise valid tag and redownload the same binary.
+    printf '%s\n' "$response" \
+        | sed -nE 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p'
 }
 
 echo "== yt-dlp bundling =="

@@ -52,7 +52,7 @@ enum AppLanguage: String, CaseIterable, Codable {
         switch self {
         case .system: return tr("System", "跟随系统")
         case .en:     return "English"
-        case .zh:     return "中文"
+        case .zh:     return "简体中文"
         }
     }
 }
@@ -67,13 +67,18 @@ enum YTCookieSource: String, CaseIterable, Codable {
 
     var displayName: String {
         switch self {
-        case .none:    return "不使用"
+        case .none:    return tr("None", "不使用")
         case .safari:  return "Safari"
         case .chrome:  return "Chrome"
         case .firefox: return "Firefox"
-        case .file:    return "Cookie 文件"
+        case .file:    return tr("Cookie File", "Cookie 文件")
         }
     }
+
+    static var settingsCases: [YTCookieSource] { allCases }
+
+    /// Kept as a no-op so older tests/callers compile. Chrome cookies are supported.
+    static func migrateChromeIfNeeded(defaults: UserDefaults = .standard) {}
 }
 
 /// @AppStorage 键常量集中管理。
@@ -90,14 +95,34 @@ enum PrefKey {
     static let latestKnownVersion = "muses.updates.latestVersion"
     static let ytCookieSource = "muses.yt.cookieSource"
     static let ytCookiePath = "muses.yt.cookiePath"
+    /// Isolated YouTube Music Web Home. This is deliberately independent of
+    /// playback's yt-dlp cookie preference and defaults to disabled.
+    static let webHomeEnabled = "muses.webHome.enabled"
+    /// Version of the explicit disclosure accepted by the user. Zero means
+    /// no current consent; no cookie access is allowed in that state.
+    static let webHomeConsentVersion = "muses.webHome.consentVersion"
+    /// Records the narrow decision to use the supported default-browser source
+    /// shown in the dedicated Web Home disclosure. It never stores cookie
+    /// contents, authentication headers, or browser profile paths.
+    static let webHomeDefaultBrowserConsent = "muses.webHome.defaultBrowserConsent"
+    /// Safari/Chrome/Firefox source bound at confirmation time. This remains
+    /// independent of playback's yt-dlp cookie source.
+    static let webHomeBrowserSource = "muses.webHome.browserSource"
+    /// 资深用户可见的 YouTube 技术细节折叠开关;普通用户只看到一键连接。
+    static let ytShowAdvanced = "muses.yt.showAdvanced"
     static let notificationsTrackChange = "muses.notifications.trackChange"
     static let crossfadeSeconds = "muses.playback.crossfadeSeconds"
     static let replayGainEnabled = "muses.playback.replayGainEnabled"
+    static let volume = "muses.playback.volume"
     static let gpuAcceleration = "muses.gpuAcceleration"
     static let language = "muses.language"
-    static let localAudioQuality = "muses.audio.localQuality"
     static let ytAudioQuality = "muses.yt.quality"
-
+    /// IFrame suggested video quality: auto / hd1080 / hd720 / large / medium.
+    static let ytVideoQuality = "muses.yt.videoQuality"
+    static let hoverPreviewSound = "muses.ui.hoverPreviewSound"
+    static let sidebarPlaylistOrder = "muses.ui.sidebarPlaylistOrder"
+    /// Resume the audio queue after the YouTube video overlay is closed.
+    static let resumeAfterVideo = "muses.playback.resumeAfterVideo"
     // MARK: - Feature flags (Phase 16+ 产品升级开关;默认 false = 现有行为 + 按需开启)
     static let ffSmartHistory       = "muses.ff.smartHistory"
     static let ffSessions           = "muses.ff.sessions"
@@ -128,7 +153,8 @@ enum PrefKey {
 }
 
 /// P5 issue #7 — 应用内功能标志默认开启清单(用户显式选择「全部启用」)。
-/// 桌面集成 4 项(全局热键/托盘/迷你播放器/桌面歌词)默认关——占用系统资源、不打扰。
+/// 全局热键 / 迷你播放器 / 桌面歌词默认关——占用系统资源、不打扰。
+/// 菜单栏图标默认开,用模板化 App 图标代替系统音符。
 /// 此清单用于 `UserDefaults.register(defaults:)`,仅注册用户未显式设置过的键,
 /// 不回退用户曾手动关闭的选择。
 enum FeatureFlagDefaults {
@@ -141,9 +167,20 @@ enum FeatureFlagDefaults {
         PrefKey.ffContext: true,
         PrefKey.ffAutomation: true,
         PrefKey.ffAudioNerd: true,
-        PrefKey.ffLocalHardening: true,
         PrefKey.ffFocusMode: true,
         PrefKey.ffDiscovery: true,
-        PrefKey.ffSituationalNew: true
+        PrefKey.ffSituationalNew: true,
+        PrefKey.ffTray: true
+    ]
+}
+
+enum WebHomePreferenceDefaults {
+    static let consentVersion = 2
+    @MainActor
+    static let values: [String: Any] = [
+        PrefKey.webHomeEnabled: false,
+        PrefKey.webHomeConsentVersion: 0,
+        PrefKey.webHomeDefaultBrowserConsent: false,
+        PrefKey.webHomeBrowserSource: ""
     ]
 }

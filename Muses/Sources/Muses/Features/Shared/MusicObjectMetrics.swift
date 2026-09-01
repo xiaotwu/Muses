@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 enum MusicObjectMetrics {
-    static let albumRail: CGFloat = 160
+    static let albumRail: CGFloat = 184
     static let albumGrid: CGFloat = 200
     static let albumHero: CGFloat = 240
     static let artistGrid: CGFloat = 200

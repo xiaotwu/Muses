@@ -1,60 +1,34 @@
 import SwiftUI
 import AppKit
 
-/// 封面来源:本地缓存文件 URL / 远程缩略图 URL(YouTube)/ 占位。
+/// Artwork source: remote YouTube/catalog image or placeholder.
 /// 解析只返回身份,不解码。解码由 `ArtworkView` + `ImageLoader` 负责。
 enum ArtworkSource: Equatable, Sendable {
-    case localFile(URL)
     case remote(URL)
     case placeholder
 
-    static func localHash(_ hash: String?) -> ArtworkSource {
-        guard let hash, !hash.isEmpty,
-              let url = ArtworkCache.default.path(forHash: hash) else {
-            return .placeholder
+    var identity: String {
+        switch self {
+        case .remote(let url): "remote:\(url.absoluteString)"
+        case .placeholder: "placeholder"
         }
-        return .localFile(url)
     }
 
-    /// 从 `TrackSnapshot` 解析封面来源。本地 hash 优先,其次 YouTube 缩略图,再次 artwork URL。
+    /// Resolve a track's remote metadata image, then its YouTube thumbnail.
     static func resolve(for track: TrackSnapshot?) -> ArtworkSource {
         guard let track else { return .placeholder }
-        let local = localHash(track.artworkHash)
-        if case .localFile = local { return local }
-        if let vid = track.youTubeId,
-           let url = URL(string: "https://i.ytimg.com/vi/\(vid)/hqdefault.jpg") {
-            return .remote(url)
-        }
-        if let urlStr = track.artworkUrl, let url = URL(string: urlStr) {
-            return .remote(url)
-        }
-        return .placeholder
+        return resolve(remoteURL: track.artworkUrl, youTubeId: track.youTubeId)
     }
 
-    /// 从 `BrowsableAlbum` 解析封面:本地缓存 hash → 远程 URL(Cover Art/ytimg)→ 占位。
-    static func resolve(for album: BrowsableAlbum) -> ArtworkSource {
-        let local = localHash(album.artworkHash)
-        if case .localFile = local { return local }
-        if let urlStr = album.artworkURL, let url = URL(string: urlStr) {
-            return .remote(url)
-        }
-        // 派生专辑无封面时,回退到首支 YouTube 曲目缩略图。
-        if album.origin == .youTubeDerived, let vid = album.trackSnapshots.first?.youTubeId,
-           let url = URL(string: "https://i.ytimg.com/vi/\(vid)/hqdefault.jpg") {
-            return .remote(url)
-        }
-        return .placeholder
+    static func resolve(for track: Track) -> ArtworkSource {
+        resolve(for: TrackSnapshot(from: track))
     }
 
-    /// 从 `BrowsableArtist` 解析封面。
-    static func resolve(for artist: BrowsableArtist) -> ArtworkSource {
-        let local = localHash(artist.artworkHash)
-        if case .localFile = local { return local }
-        if let urlStr = artist.artworkURL, let url = URL(string: urlStr) {
+    static func resolve(remoteURL: String?, youTubeId: String? = nil) -> ArtworkSource {
+        if let urlStr = remoteURL, let url = URL(string: urlStr) {
             return .remote(url)
         }
-        if artist.origin == .youTubeDerived, let vid = artist.trackSnapshots.first?.youTubeId,
-           let url = URL(string: "https://i.ytimg.com/vi/\(vid)/hqdefault.jpg") {
+        if let vid = youTubeId, let url = YouTubeThumbnail.url(videoId: vid) {
             return .remote(url)
         }
         return .placeholder
@@ -63,47 +37,62 @@ enum ArtworkSource: Equatable, Sendable {
     /// Blocking decode for detached palette only. Never call from `body`.
     func loadNSImage() -> NSImage? {
         switch self {
-        case .localFile(let url):
-            return NSImage(contentsOf: url)
         case .remote(let url):
-            guard let data = try? Data(contentsOf: url) else { return nil }
-            return NSImage(data: data)
+            guard let data = try? Data(contentsOf: url), let img = NSImage(data: data) else { return nil }
+            return YouTubeThumbnail.cropLetterboxIfNeeded(img, url: url)
         case .placeholder:
             return nil
         }
     }
 }
 
-/// 渲染 `ArtworkSource` 的统一封面视图(方形,支持圆角与圆形裁切)。
+enum ArtworkPresentation: String, Equatable, Sendable {
+    case fill
+    case fitOnAmbient
+}
+
+/// Unified artwork rendering. Browsing defaults to square fill; selected
+/// Hero/Home surfaces can opt into complete artwork over an ambient wash.
 struct ArtworkView: View {
     let source: ArtworkSource
     var cornerRadius: CGFloat = 12
     var glyphSize: CGFloat = 80
     var clipCircle: Bool = false
     var targetSize: CGFloat = 200
+    /// Optional non-square presentation height. Decoding still uses the width
+    /// as its bounded cache target, while layout can preserve wide artwork in
+    /// editorial and playlist-card media regions.
+    var targetHeight: CGFloat? = nil
+    var presentation: ArtworkPresentation = .fill
+
+    private var resolvedHeight: CGFloat { targetHeight ?? targetSize }
 
     var body: some View {
         Group {
             switch source {
-            case .localFile(let url):
-                LocalArtworkImage(url: url, targetSize: targetSize)
             case .remote(let url):
                 CachedAsyncImage(
                     url: url,
-                    content: { $0.resizable().scaledToFill() },
+                    content: {
+                        ResolvedArtworkImage(
+                            image: $0,
+                            presentation: presentation,
+                            targetSize: targetSize
+                        )
+                    },
                     placeholder: { placeholder }
                 )
             case .placeholder:
                 placeholder
             }
         }
-        .frame(width: targetSize, height: targetSize)
+        .frame(width: targetSize, height: resolvedHeight)
         .clipped()
         .clipShape(clipCircle ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: cornerRadius)))
     }
 
     private var placeholder: some View {
-        RoundedRectangle(cornerRadius: clipCircle ? targetSize / 2 : cornerRadius)
+        RoundedRectangle(cornerRadius: clipCircle ? min(targetSize, resolvedHeight) / 2 : cornerRadius)
             .fill(BrandColors.surface)
             .overlay(
                 Image(systemName: "music.note")
@@ -113,49 +102,46 @@ struct ArtworkView: View {
     }
 }
 
-/// 本地封面:首帧读 `ImageLoader` 内存命中;未命中走有界解码。
-/// 不取消共享 in-flight decode;视图消失或 URL 变化时丢弃结果(同 `CachedAsyncImage`)。
-private struct LocalArtworkImage: View {
-    let url: URL
+/// Artwork-driven ambient fill for non-square YouTube images. The crisp
+/// foreground always keeps its complete aspect ratio while the same decoded
+/// image supplies a restrained blurred wash behind it.
+private struct ResolvedArtworkImage: View {
+    let image: Image
+    let presentation: ArtworkPresentation
     let targetSize: CGFloat
 
-    @State private var image: NSImage?
-    @State private var loadedIdentity: String = ""
-
-    private var identity: String {
-        "\(url.absoluteString)#\(Int(targetSize.rounded()))"
-    }
-
+    @ViewBuilder
     var body: some View {
-        Group {
-            if let img = displayedImage {
-                Image(nsImage: img).resizable().scaledToFill()
+        switch presentation {
+        case .fill:
+            image
+                .resizable()
+                .scaledToFill()
+        case .fitOnAmbient:
+            ZStack {
+                image
+                    .resizable()
+                    .scaledToFill()
+                    .scaleEffect(1.18)
+                    .blur(radius: max(12, targetSize * 0.075), opaque: true)
+                    .saturation(1.12)
+                    .brightness(-0.12)
+
+                LinearGradient(
+                    colors: [
+                        BrandColors.background.opacity(0.08),
+                        Color.clear,
+                        BrandColors.background.opacity(0.16)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+
+                image
+                    .resizable()
+                    .scaledToFit()
+                    .saturation(0.96)
             }
         }
-        .task(id: identity) {
-            await loadIfNeeded()
-        }
-    }
-
-    private var displayedImage: NSImage? {
-        if let hit = ImageLoader.shared.cachedImage(for: url, targetSize: targetSize) {
-            return hit
-        }
-        return loadedIdentity == identity ? image : nil
-    }
-
-    @MainActor
-    private func loadIfNeeded() async {
-        if let hit = ImageLoader.shared.cachedImage(for: url, targetSize: targetSize) {
-            image = hit
-            loadedIdentity = identity
-            return
-        }
-        let expected = identity
-        let task = ImageLoader.shared.loadLocal(url: url, targetSize: targetSize)
-        let img = await task.value
-        guard expected == identity, !Task.isCancelled else { return }
-        image = img
-        loadedIdentity = expected
     }
 }

@@ -6,18 +6,19 @@ This file defines durable product, engineering, UX, design, performance, and ver
 
 Muses is a native macOS **YouTube-native music application**. The library is imported YouTube videos and playlists. Playback, queue, artwork-led browsing, a persistent PlayerBar, immersive Now Playing (video + vinyl), and native macOS integration remain the product. It is not a local-file media player and not a demo.
 
-As of 2026-08-19 the local-file era is retired: no folder scanning, no file import, no `LocalAudioEngine` in the running app. Historical specs that describe a local + YouTube hybrid are superseded by `docs/superpowers/specs/2026-08-19-muses-youtube-native-redesign.md`.
+As of 2026-08-20 the local-file era is retired: no folder scanning, no file import, no M3U workflow, no local additions to imported YouTube playlists, and no `LocalAudioEngine` in the running app. D1 in `docs/superpowers/specs/2026-08-20-muses-apple-music-web-reconstruction.md` approves a one-time logical snapshot/import into a clean V3 store. Build and validate the replacement store at a distinct URL. Do not delete a source store as part of pointer activation; after manifest-complete validation and a successful cold restart without the pre-V3 store, remove the legacy store family and its compatibility pipeline. The user explicitly chose no long-term migration capsule on 2026-08-24.
 
 ## Source of Truth
 
 Use this hierarchy when sources disagree:
 
-1. Current executable source.
-2. Current tests.
+1. Explicit current user decisions and an approved task specification.
+2. Current executable source.
 3. Current behavior verified at runtime.
-4. Documentation and historical design notes.
+4. Current tests.
+5. Historical documentation and plans.
 
-Historical plans describe intent but do not override current implementation unless the task explicitly says so. Investigate uncertainty; do not guess. Distinguish confirmed facts, evidence-backed implications, and speculation.
+The approved reconstruction source is `docs/superpowers/specs/2026-08-20-muses-apple-music-web-reconstruction.md`. Tests that encode a superseded visual or product contract must be updated; they do not override that specification. Historical plans describe intent, not an active roadmap. Investigate uncertainty; do not guess. Distinguish confirmed facts, evidence-backed implications, and speculation.
 
 ## Core Architecture
 
@@ -45,37 +46,39 @@ Historical plans describe intent but do not override current implementation unle
 - Keep SwiftData model objects on their intended actor/context boundaries. Do not pass them into detached tasks or other real-time work.
 - Preserve immutable `Sendable` value boundaries such as `TrackSnapshot` for playback, queueing, and detached computation.
 - Continue the established fresh-context, UUID re-fetch pattern when mutating persisted objects unless an explicitly scoped architectural change replaces it.
-- Persisted keys, model fields, identifiers, relationship delete rules, queue JSON, cache formats, and filesystem paths are compatibility contracts. Changing them requires an explicit migration and backward-compatibility plan.
-- Keep `Album`, `Artist`, and `ScanRoot` tables on disk for this schema generation. Stop writing them. Do not drop tables in the same change that removes their UI.
+- Persisted user truth—stable IDs, likes, playlists and item order, YouTube imports, history, queue state, notes/bookmarks, pins, and user metadata—must survive the approved D1 logical cutover.
+- Do not carry retired local rows, `ScanRoot`, scanner/M3U state, or rebuildable catalog caches into the clean store. Preserve the source during cutover validation, then delete the pre-V3 store family and old-schema compatibility code after the approved cleanup gate passes.
+- Releases and artists require stable YouTube Music browse/playlist or YouTube channel IDs; never merge catalog objects by display name alone. Music Videos are a `Track` media kind, not a parallel playable entity.
 - Keep expensive network, metadata, palette, and recommendation work out of SwiftUI `body`.
 - Large playlist screens must use lazy stacks and snapshot values. Do not eager-`VStack` hundreds of SwiftData relationships.
 
 ### Media Sources
 
-- The unified `Track` row remains, but new rows are YouTube-backed (`youTubeId` set). Existing local rows stay in the store and are hidden from browsing.
+- The unified `Track` row remains and production rows are YouTube-backed (`youTubeId` set). The clean active store and normal runtime contain no retained local rows or local-file read path.
 - YouTube playlist import creates `YouTubeImport` + `YouTubeImportItem` + lazy `.youtube` Track. Local additions to YouTube playlists are removed as a product feature.
 - Preserve explicit deletion semantics: deleting an import and deleting its associated tracks are different operations.
-- yt-dlp remains for playlist/search metadata and embed-fallback stream URLs. Happy-path playback does not wait on yt-dlp.
+- yt-dlp remains the stream-resolution path for `YouTubeStreamEngine` and the metadata source for playlist import and fallback search. Do not describe the official IFrame player as the production audio path.
 - Treat cookie settings, timeouts, signing, and personal-use distribution constraints as part of the product boundary.
 
 ## Product Contracts
 
-Chrome (as of `docs/superpowers/specs/2026-08-20-muses-apple-music-web-visual.md`; supersedes Sidra black/white/glow):
+Chrome (as of `docs/superpowers/specs/2026-08-20-muses-apple-music-web-reconstruction.md`; supersedes the old Apple Music draft and Sidra black/white/glow):
 
-- Left nav (live Apple Music Web): rounded pane with traffic lights, Muses wordmark, Search / Home / New (selected item is pink), then Library (Recently, Songs, History, Inbox) and playlists. Profile at the bottom opens Settings. No top-bar tabs. No Radio.
+- Left nav (live Apple Music Web): liquid-glass rounded pane behind native `NSWindow` traffic lights, Muses wordmark, Search / Home / New (selected item is pink), then Library (Recently, Songs, History) and playlists. Standard window buttons remain AppKit-owned and are never reparented or manually positioned. Inbox is not a chrome destination. Collapse is an 88pt icon rail that reserves the same traffic-light clearance. Profile at the bottom opens Settings. No top-bar tabs. No Radio.
 - Library pane is always visible unless the user collapsed it.
-- Player is a floating glass capsule at the bottom of the content area, not a full-width dock. YouTube video occupies the AirPlay slot. Hidden under the YouTube video overlay.
-- Now Playing fills the content slot (beside the sidebar, above the dock). Large square cover, title/artist under it, lyrics on the right. It does not duplicate transport. Dock lyrics toggles lyrics-focus inside Now Playing. Opening Now Playing closes the queue panel.
-- Visual language matches Apple Music Web: SF Pro, near-black / near-white neutrals, accent `#FA586A` (calibrate from `music.apple.com`) for card Play, scrubber, selected sidebar row, current track title, and active lyric. Dock play/pause is primary-colored, not pink. No Sidra white glow. YouTube mark keeps its red. Selected top tabs are bold primary text, not pink.
-- Top bar, Library sidebar, and player icons are heavier monochrome SF Symbols (semibold, ≥28pt hit target). The macOS application menu stays text.
+- Player is a floating glass capsule overlaid on browsing content (it does not reserve a layout row). Idle: Muses mark + Not Playing. Playing: art + title + times + volume. Transport left; lyrics / queue / volume / expand / YouTube last on the right as chrome glyphs. Hidden under the YouTube video overlay and while Now Playing is open.
+- Queue is an integrated full-height trailing pane, not a detached floating glass drawer. Settings is a centered native floating glass panel, not an Account page inside browse content.
+- Now Playing is a fullscreen overlay. Cover left with title, like, more, artist, album, seek, transport, volume; lyrics right with options. Current lyric uses accent. Chevron back closes it. Opening Now Playing closes the queue panel and hides the dock.
+- Visual language matches Apple Music Web: SF Pro, near-black / near-white neutrals, accent `#FA586A` (calibrate from `music.apple.com`) for card Play, scrubber, selected sidebar row, current track title, and active lyric. Dock play/pause is primary-colored, not pink. No Sidra white glow. YouTube mark keeps its red.
+- Library sidebar and player icons are heavier monochrome SF Symbols (semibold, ≥28pt hit target). The macOS application menu stays text.
 
 Unless a task explicitly changes them, preserve:
 
 - The persistent PlayerBar across browsing and detail navigation.
 - Contextual previous/next behavior.
 - Current queue, Up Next, history, repeat, shuffle, reorder, and persistence semantics.
-- Artwork-led browsing (square rails) and playlist detail hierarchy.
-- Songs, playlists, pins, recently played, search, inbox, and YouTube-import organization.
+- Artwork-led discovery, page-specific content patterns, and playlist detail hierarchy. Songs and playlist details use the approved D3 centered card-deck stage + expandable complete sortable table; playlists overview uses square cards; Home and New retain measured editorial hero regions.
+- Songs, playlists, pins, recently played, search, and YouTube-import organization. Inbox tables remain on disk but have no chrome entry.
 - Likes, pins, metadata, and playback-history preservation.
 - YouTube resynchronization of imported playlists.
 - Keyboard shortcuts, application menus, context menus, sharing.
@@ -85,8 +88,10 @@ Unless a task explicitly changes them, preserve:
 Do not restore:
 
 - Folder/file scanning, `ScanRoot` settings, drag/drop of audio files, M3U file import, “Add Local”.
-- Albums and Artists as sidebar destinations or browse surfaces.
+- Radio.
 - A bottom video well. The on-demand YouTube video overlay (pauses audio; optional resume) is a product feature.
+
+Albums, Artists, and Music Videos are approved under D2: Releases and Artists use stable YouTube-backed identities, Music Videos use the Track media-kind model, and Radio remains absent. Every restored destination must define refresh, stale-cache, loading, empty, unavailable, and collection-context playback behavior.
 
 Do not simplify mature queue/history workflows merely to make implementation easier.
 
@@ -94,7 +99,7 @@ Do not simplify mature queue/history workflows merely to make implementation eas
 
 Muses should remain distinctly macOS-native. Prioritize artwork (and Now Playing video), hierarchy, depth, clarity, responsiveness, desktop information density, and an expressive playback surface.
 
-Chrome layout follows live Apple Music Web: left nav (Search / Home / New + Library), 16:9 editorial heroes, square album rails, floating capsule player. Visual skin matches `music.apple.com`: pink accent, SF Pro, glass capsule. Native SwiftUI clone, not a WebView wrap of music.apple.com or music.youtube.com.
+Chrome layout follows live Apple Music Web: left nav (Search / Home / New + Library), page-specific editorial and table patterns, square shelves, integrated Queue, and a floating capsule player. Visual skin matches `music.apple.com`: pink accent, SF Pro, neutral surfaces, and restrained semantic glass. Native SwiftUI interpretation, not a WebView wrap of music.apple.com or music.youtube.com.
 
 Avoid:
 
@@ -110,8 +115,9 @@ Avoid:
 - Now Playing is the primary expressive surface. Cover mode is a large square with title/artist beneath; vinyl (settings-only) is a circular spinning cover with no disc rim. Lyrics sit in the right column and can fill the slot. The dock keeps transport.
 - Do not make every surface compete visually with Now Playing.
 - Preserve legibility and functional control contrast over artwork-derived backgrounds in light, dark, and high-contrast appearances.
-- Home follows Apple Music Listen Now (Top Picks editorial cards, then square rails). New follows Apple Music New (featured slot + rails). Unified square card size with hover Play. They must stay calmer than Now Playing.
-- Search types into the top-bar field and replaces main content after the first non-empty character. Settings is an Account content page, not a System Settings sheet.
+- Home includes a measured Apple Music Web editorial hero region, portrait Top Picks, and square shelves. New includes landscape editorial content, compact song matrices, and square shelves. Both pages stay calmer than Now Playing.
+- Songs and playlist details center collection identity/actions above a virtualized, fan-shaped all-track hero deck. The deck has one canonical focus shared by drag, trackpad/wheel, chevrons, keyboard, and a first-to-last scrubber. Only hero-card activation performs the centered ember-burn playback ritual. A dedicated chevron handle or upward swipe replaces the stage with the complete sortable table inside the content pane; sidebar and PlayerBar remain. Songs defaults to title A–Z with no manual order; playlists default to their persisted Playlist Order. Table sorting never rewrites canonical order or playback context.
+- Search is a dedicated destination with a centered field, source scope, categories, and grouped results. Settings is a centered native floating glass panel with an opaque accessibility fallback.
 - Icon-first chrome: controls that can be an icon should be an icon, with `.help` and VoiceOver. Track titles, empty states, and settings explanations stay as text.
 - YouTube affordances use `YouTubeMark` (red rounded play rectangle), not a generic SF Symbol stand-in.
 
@@ -196,7 +202,7 @@ Accessibility is part of design and implementation, not a final cleanup phase.
 
 Muses contains high-frequency media and visualization state. Treat performance as a design constraint, especially around:
 
-- Playback-position and completion observation (IFrame time polls).
+- Playback-position and completion observation.
 - Vinyl animation and lyrics timelines.
 - Artwork loading, decoding, palette extraction, and large images.
 - Large playlist lists and SwiftData refreshes.
@@ -218,7 +224,7 @@ Changes touching these areas require narrow scope, explicit reasoning, and propo
 
 - `PlaybackService`
 - `YouTubeEmbedEngine` and its WKWebView host
-- `YouTubeStreamEngine` (fallback only)
+- `YouTubeStreamEngine` (primary production engine)
 - `QueueService` and queue persistence
 - `NowPlayingManager`
 - `PlayerBar`

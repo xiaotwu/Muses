@@ -144,43 +144,6 @@ struct TrackNotesSheet: View {
     }
 }
 
-/// 专辑笔记 sheet(Final Spec §10.7):单一 TextEditor upsert,空→删行。
-struct AlbumNotesSheet: View {
-    let album: Album
-    @Environment(NotesService.self) private var notes
-    @Environment(\.dismiss) private var dismiss
-    @State private var noteText: String = ""
-    private var enabled: Bool { notes.isEnabled }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(album.title).font(.headline)
-                    Text(album.albumArtist).font(.caption).foregroundStyle(BrandColors.textSecondary)
-                }
-                Spacer()
-                Button(tr("Done", "完成")) { dismiss() }
-            }
-            Divider()
-            Text(tr("Album Note", "专辑笔记")).font(.subheadline).foregroundStyle(BrandColors.textSecondary)
-            TextEditor(text: $noteText)
-                .font(.body)
-                .frame(minHeight: 160)
-                .padding(6)
-                .background(BrandColors.surface)
-                .cornerRadius(6)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(BrandColors.hairline, lineWidth: 1))
-                .disabled(!enabled)
-        }
-        .padding(20)
-        .frame(width: 460)
-        .frame(minHeight: 320)
-        .onAppear { noteText = notes.note(forAlbum: album.id)?.content ?? "" }
-        .onDisappear { notes.setAlbumNote(albumId: album.id, content: noteText) }
-    }
-}
-
 /// Now Playing 右栏书签列表(Final Spec §10.7):点击书签跳转到该时间戳。
 /// 仅当当前曲目有书签时渲染;无书签不占空间。
 struct BookmarksView: View {

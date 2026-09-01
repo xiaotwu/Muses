@@ -5,8 +5,7 @@ import SwiftData
 /// Phase D5 — 情境化 New 推荐(§10–12)。
 ///
 /// "Muses 根据此刻的你给你的音乐":基于 History/Context/Sessions/Focus/Inbox/Library/
-/// 已导入 YouTube 曲目的**确定性打分**(无 LLM),本地 + YouTube 混排。不新增 yt-dlp
-/// spawn——仅用已导入 YouTube 曲目 + 资料库本地曲目。
+/// 已导入 YouTube 曲目的**确定性打分**(无 LLM)。不新增 yt-dlp spawn。
 ///
 /// 架构(镜像 `RecommendationService`):
 ///  - 主 actor 一次性把服务状态投影为 `SituationalSnapshot`(全 Sendable 值)。
@@ -87,11 +86,8 @@ final class SituationalRecommendationService {
             let artist: String
             let albumTitle: String?
             let durationSeconds: Double
-            let filePath: String?
-            let youTubeId: String?
-            let artworkHash: String?
+            let youTubeId: String
             let artworkUrl: String?
-            let source: TrackSource
             let liked: Bool
             let playCount: Int
             let lastPlayedAt: Date?
@@ -100,7 +96,7 @@ final class SituationalRecommendationService {
             let trackId: UUID
             let title: String
             let artist: String
-            let youTubeId: String?
+            let youTubeId: String
             let artworkUrl: String?
             let durationSeconds: Double
         }
@@ -136,9 +132,8 @@ final class SituationalRecommendationService {
             SituationalSnapshot.TrackV(
                 id: $0.id, title: $0.title, artist: $0.artist,
                 albumTitle: $0.albumTitle, durationSeconds: $0.durationSeconds,
-                filePath: $0.filePath, youTubeId: $0.youTubeId,
-                artworkHash: $0.localArtworkHash, artworkUrl: $0.artworkUrl,
-                source: $0.source, liked: $0.liked,
+                youTubeId: $0.youTubeId, artworkUrl: $0.artworkUrl,
+                liked: $0.liked,
                 playCount: $0.playCount, lastPlayedAt: $0.lastPlayedAt)
         }
         let likedIds = Set(library.likedTracks().map(\.id))
@@ -196,8 +191,8 @@ final class SituationalRecommendationService {
                         return TrackSnapshot(
                             id: inbox.trackId, title: inbox.title, artist: inbox.artist,
                             albumTitle: nil, durationSeconds: inbox.durationSeconds,
-                            filePath: nil, youTubeId: inbox.youTubeId,
-                            artworkHash: nil, artworkUrl: inbox.artworkUrl,
+                            youTubeId: inbox.youTubeId,
+                            artworkUrl: inbox.artworkUrl,
                             sampleRate: nil, bitDepth: nil, codec: nil,
                             isLossless: false, liked: false)
                     }
@@ -206,8 +201,7 @@ final class SituationalRecommendationService {
                 return TrackSnapshot(
                     id: t.id, title: t.title, artist: t.artist,
                     albumTitle: t.albumTitle, durationSeconds: t.durationSeconds,
-                    filePath: t.filePath, youTubeId: t.youTubeId,
-                    artworkHash: t.artworkHash, artworkUrl: t.artworkUrl,
+                    youTubeId: t.youTubeId, artworkUrl: t.artworkUrl,
                     sampleRate: nil, bitDepth: nil, codec: nil,
                     isLossless: false, liked: t.liked)
             }
@@ -327,17 +321,17 @@ final class SituationalRecommendationService {
             }
         }
 
-        // (3) 最近沉迷:recency + listening。
+        // (3) High rotation: recency + listening signals.
         let obsessed = topTracks(from: snap, targetBand: nil, targetApp: nil,
                                  targetHeadphones: false, discovery: false)
         if !obsessed.isEmpty {
             sections.append(PlannedSection(id: "recently-obsessed",
-                                  title: tr("Recently obsessed with", "最近沉迷"),
-                                  subtitle: tr("Your most-played lately", "最近常听"),
+                                  title: tr("In heavy rotation", "循环热播"),
+                                  subtitle: tr("Your most-played tracks", "你最常听的歌曲"),
                                   itemIds: obsessed))
         }
 
-        // (4) 重温:收藏但近期未播。
+        // (4) Rediscover: liked tracks outside the active rotation.
         let rediscover = topTracks(from: snap, filter: { $0.liked },
                                    targetBand: nil, targetApp: nil,
                                    targetHeadphones: false, discovery: false,
@@ -345,18 +339,18 @@ final class SituationalRecommendationService {
         if !rediscover.isEmpty {
             sections.append(PlannedSection(id: "rediscover",
                                   title: tr("Rediscover", "重温"),
-                                  subtitle: tr("Liked but not played recently", "收藏但近期没听"),
+                                  subtitle: tr("Liked songs waiting for another spin", "等待再次播放的收藏歌曲"),
                                   itemIds: rediscover))
         }
 
-        // (5) 来自 YouTube 歌单:YouTube 来源曲目按得分。
-        let youTube = topTracks(from: snap, filter: { $0.source == .youtube },
+        // (5) YouTube 资料库曲目按当前上下文得分。
+        let youTube = topTracks(from: snap,
                                 targetBand: band, targetApp: nil,
                                 targetHeadphones: headphones, discovery: false)
         if !youTube.isEmpty {
             sections.append(PlannedSection(id: "from-youtube",
-                                  title: tr("From your YouTube playlists", "来自你的 YouTube 歌单"),
-                                  subtitle: tr("Imported tracks, ranked for now", "已导入曲目,按此刻排序"),
+                                  title: tr("From your YouTube library", "来自你的 YouTube 资料库"),
+                                  subtitle: tr("Your tracks, ranked for now", "你的曲目,按此刻排序"),
                                   itemIds: youTube))
         }
 

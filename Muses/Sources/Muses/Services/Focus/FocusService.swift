@@ -81,6 +81,7 @@ final class FocusService {
         totalSeconds = totalSec
         remainingSeconds = totalSec
         isQueueLocked = queueLocked
+        playback.queue.replacementLocked = queueLocked
         self.expiration = expiration
         isActive = true
 
@@ -103,6 +104,7 @@ final class FocusService {
         isActive = false
         isPomodoro = false
         isQueueLocked = false
+        playback.queue.replacementLocked = false
         remainingSeconds = 0
         totalSeconds = 0
         if let sid = activeSessionId {

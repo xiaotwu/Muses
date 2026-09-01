@@ -55,8 +55,8 @@ struct SongObjectView: View {
                             .font(.caption2)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 2)
-                            .background(BrandColors.green.opacity(0.2))
-                            .foregroundStyle(BrandColors.green)
+                            .background(BrandColors.textSecondary.opacity(0.12))
+                            .foregroundStyle(BrandColors.textSecondary)
                             .cornerRadius(4)
                     }
                     if showLocalBadge {
@@ -64,8 +64,8 @@ struct SongObjectView: View {
                             .font(.caption2)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(BrandColors.green.opacity(0.2))
-                            .foregroundStyle(BrandColors.green)
+                            .background(BrandColors.textSecondary.opacity(0.12))
+                            .foregroundStyle(BrandColors.textSecondary)
                             .cornerRadius(4)
                     }
                 }

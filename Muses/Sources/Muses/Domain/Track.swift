@@ -4,7 +4,6 @@ import SwiftData
 @Model
 final class Track {
     @Attribute(.unique) var id: UUID
-    var sourceRaw: String          // TrackSource.rawValue
     var title: String
     var artist: String
     var albumTitle: String?
@@ -14,10 +13,15 @@ final class Track {
     var discNo: Int?
     var year: Int?
     var genre: String?
-    var filePath: String?          // .local
-    var youTubeId: String?          // .youtube
+    var youTubeId: String
+    /// `TrackMediaKind.rawValue`; nil in pre-V3 rows and interpreted as `.song`.
+    var mediaKindRaw: String?
+    /// Rebuildable YouTube Music catalog links. Stable IDs are never derived
+    /// from display text; nil means catalog identity has not been resolved yet.
+    var releaseCatalogID: String?
+    var releaseOrder: Int?
+    var artistCatalogID: String?
     var artworkUrl: String?
-    var localArtworkHash: String?
     var lyrics: String?
     /// 手动逐曲歌词偏移(毫秒;Phase 22 §10.8)。正值→歌词显示更晚。nil=无手动偏移。
     var lyricsOffsetMs: Int?
@@ -36,38 +40,32 @@ final class Track {
     var lastPlayedAt: Date?
     var playCount: Int
     var liked: Bool
-    var fileModificationDate: Date?
-    /// 前 64KB 内容指纹(SHA-256),用于移动/重命名后重新关联既有 Track 行(Phase 27,可选)。
-    /// 仅在 `ffLocalHardening` 开启时计算;nil = 未启用或读取失败。绝不用于内容校验完整性。
-    var partialContentHash: String?
-
-    var album: Album?
-
-    /// 指向 Artist 实体(optional;轻量迁移加 nullable 列)。保留 `artist: String` 不删。
-    var artistRef: Artist?
-
-    /// 反向关联:若本 Track 由某 `YouTubeImportItem` 懒创建,指向该 item。
-    var youTubeImportItem: YouTubeImportItem?
-    /// 反向关联:若本 Track 作为某 `YouTubeImport` 的本地附加,指向该 import。
-    var youTubeImportLocalAddition: YouTubeImport?
-
-    init(id: UUID = UUID(), source: TrackSource, title: String, artist: String,
+    /// Playlist occurrences referencing this playable YouTube media row.
+    /// To-many is required because one video may appear more than once in one
+    /// or several playlists while each occurrence keeps its own item identity.
+    var youTubeImportItems: [YouTubeImportItem]?
+    init(id: UUID = UUID(), title: String, artist: String,
          albumTitle: String? = nil, albumArtist: String? = nil, durationMs: Int = 0,
          trackNo: Int? = nil, discNo: Int? = nil, year: Int? = nil, genre: String? = nil,
-         filePath: String? = nil, youTubeId: String? = nil, artworkUrl: String? = nil,
-         localArtworkHash: String? = nil, lyrics: String? = nil, replayGain: Double? = nil,
+         youTubeId: String, artworkUrl: String? = nil,
+         lyrics: String? = nil, replayGain: Double? = nil,
          sampleRate: Int? = nil, bitDepth: Int? = nil, codec: String? = nil, isLossless: Bool = false,
          metadataStatus: MetadataStatus = .embedded, availability: TrackAvailability = .available,
          addedAt: Date = .init(), lastPlayedAt: Date? = nil, playCount: Int = 0, liked: Bool = false,
-         fileModificationDate: Date? = nil, bitRate: Int? = nil, channels: Int? = nil,
-         partialContentHash: String? = nil) {
-        self.id = id; self.sourceRaw = source.rawValue
+         bitRate: Int? = nil, channels: Int? = nil, mediaKind: TrackMediaKind = .song,
+         releaseCatalogID: String? = nil, releaseOrder: Int? = nil,
+         artistCatalogID: String? = nil) {
+        self.id = id
         self.title = title; self.artist = artist
         self.albumTitle = albumTitle; self.albumArtist = albumArtist
         self.durationMs = durationMs; self.trackNo = trackNo; self.discNo = discNo
-        self.year = year; self.genre = genre; self.filePath = filePath
+        self.year = year; self.genre = genre
         self.youTubeId = youTubeId; self.artworkUrl = artworkUrl
-        self.localArtworkHash = localArtworkHash; self.lyrics = lyrics
+        self.mediaKindRaw = mediaKind.rawValue
+        self.releaseCatalogID = releaseCatalogID
+        self.releaseOrder = releaseOrder
+        self.artistCatalogID = artistCatalogID
+        self.lyrics = lyrics
         self.replayGain = replayGain; self.sampleRate = sampleRate
         self.bitDepth = bitDepth; self.codec = codec; self.isLossless = isLossless
         self.bitRate = bitRate; self.channels = channels
@@ -75,12 +73,13 @@ final class Track {
         self.availabilityRaw = availability.rawValue
         self.addedAt = addedAt; self.lastPlayedAt = lastPlayedAt
         self.playCount = playCount; self.liked = liked
-        self.fileModificationDate = fileModificationDate
-        self.partialContentHash = partialContentHash
     }
 
-    var source: TrackSource { TrackSource(rawValue: sourceRaw) ?? .local }
     var metadataStatus: MetadataStatus { MetadataStatus(rawValue: metadataStatusRaw) ?? .embedded }
     var availability: TrackAvailability { TrackAvailability(rawValue: availabilityRaw) ?? .available }
     var durationSeconds: Double { Double(durationMs) / 1000.0 }
+    var mediaKind: TrackMediaKind {
+        get { mediaKindRaw.flatMap(TrackMediaKind.init(rawValue:)) ?? .song }
+        set { mediaKindRaw = newValue.rawValue }
+    }
 }

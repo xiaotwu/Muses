@@ -7,8 +7,8 @@ import Foundation
 struct QueueServiceTests {
     private func snap(_ t: String) -> TrackSnapshot {
         TrackSnapshot(id: UUID(), title: t, artist: "a", albumTitle: nil,
-                      durationSeconds: 1, filePath: nil, youTubeId: nil,
-                      artworkHash: nil, artworkUrl: nil, sampleRate: nil,
+                      durationSeconds: 1, youTubeId: "test-video",
+                      artworkUrl: nil, sampleRate: nil,
                       bitDepth: nil, codec: nil, isLossless: false)
     }
 
@@ -76,6 +76,35 @@ struct QueueServiceTests {
         _ = q.next()
         let p = q.previous()
         #expect(p?.track.title == "a")
+        #expect(q.currentIndex == 0)
+        #expect(q.current()?.track.title == "a")
+    }
+
+    @Test("turning shuffle off keeps the playing track as current")
+    func shuffleOffKeepsCurrentTrack() {
+        let q = QueueService()
+        let ctx = [snap("a"), snap("b"), snap("c")]
+        q.play(ctx[1], context: ctx, from: .album)
+        q.toggleShuffle()
+        #expect(q.current()?.track.title == "b")
+        q.toggleShuffle()
+        #expect(q.current()?.track.title == "b")
+        #expect(q.currentIndex == 1)
+        #expect(q.items.map(\.track.title) == ["a", "b", "c"])
+    }
+
+    @Test("peekNext follows collection then wraps on repeat all")
+    func peekNextFollowsCollection() {
+        let q = QueueService()
+        let ctx = [snap("a"), snap("b"), snap("c")]
+        q.play(ctx[1], context: ctx, from: .album)
+        #expect(q.peekNext()?.track.title == "c")
+        q.play(ctx[2], context: ctx, from: .album)
+        #expect(q.peekNext() == nil)
+        q.setRepeat(.all)
+        #expect(q.peekNext()?.track.title == "a")
+        q.playNext(snap("x"))
+        #expect(q.peekNext()?.track.title == "x")
     }
 
     @Test("recently-played context keeps full list and tapped index")

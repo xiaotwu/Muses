@@ -7,6 +7,8 @@
 .agents/
 .codex/
 .artifacts/
+artifacts/
+shot/
 node_modules/
 # 打包产物与敏感凭据文件
 *.dmg

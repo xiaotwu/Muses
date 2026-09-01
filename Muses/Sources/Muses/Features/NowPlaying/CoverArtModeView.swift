@@ -5,10 +5,12 @@ import AppKit
 /// 宽路径由 live-cover host 展示;窄窗/skip-morph 仍由 NowPlayingView 内嵌。
 struct CoverArtModeView: View {
     let source: ArtworkSource
+    var size: CGFloat = 480
 
     var body: some View {
-        ArtworkView(source: source, cornerRadius: 12, glyphSize: 80, targetSize: 480)
-            .frame(width: 480, height: 480)
+        ArtworkView(source: source, cornerRadius: 12, glyphSize: min(80, size * 0.17), targetSize: size)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .aspectRatio(1, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .shadow(radius: 24)
     }

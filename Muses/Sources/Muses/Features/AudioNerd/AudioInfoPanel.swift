@@ -58,7 +58,7 @@ struct AudioInfoPanel: View {
         }
         .padding(20)
         .frame(width: 420)
-        .background(.regularMaterial)
+        .musesFloatingChrome(cornerRadius: 16)
         .sheet(isPresented: $showEQ) { EQEditorView() }
         .onAppear { deviceService.refresh() }
     }
@@ -93,9 +93,7 @@ enum AudioInfoModel {
     /// 由曲目快照 + 输出设备名 + EQ 预设 id + 音量 → 有序信息行。nil 字段 → "Unknown"。
     static func rows(track: TrackSnapshot?, defaultDeviceName: String?,
                      eqPresetId: String, volume: Double) -> [Row] {
-        let src: String
-        if let t = track { src = t.youTubeId != nil ? "YouTube" : "Local" }
-        else { src = unknown }
+        let src = track == nil ? unknown : "YouTube"
         return [
             Row(label: tr("Codec", "编码"), value: track?.codec ?? unknown),
             Row(label: tr("Lossless", "无损"),

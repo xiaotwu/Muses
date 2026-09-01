@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 歌词设置: 歌词来源选择。所选来源失败时自动回退到 LRCLIB 再本地 .lrc。
+/// Lyrics source selection for YouTube-backed tracks.
 struct LyricsSettingsView: View {
     @AppStorage(PrefKey.lyricsSource) private var lyricsSource: String = "lrclib"
 
@@ -9,10 +9,10 @@ struct LyricsSettingsView: View {
             Picker(tr("Lyrics Source", "歌词来源"), selection: $lyricsSource) {
                 Text(tr("LRCLIB (free, recommended)", "LRCLIB(免费, 推荐)")).tag("lrclib")
                 Text(tr("Musixmatch", "Musixmatch")).tag("musixmatch")
-                Text(tr("Local .lrc files", "本地 .lrc 文件")).tag("local")
             }
             .pickerStyle(.radioGroup)
-            Text(tr("When the selected source misses, automatically falls back to LRCLIB then local .lrc; YouTube audio has no local .lrc.", "所选来源未命中时自动回退到 LRCLIB 再本地 .lrc;YouTube 音轨无本地 .lrc。"))
+            Text(tr("When the selected source misses, Muses falls back to LRCLIB. Decorations such as “(Official Video)” are removed before lookup.",
+                    "所选来源未命中时会回退到 LRCLIB；检索前会移除“(Official Video)”等标题装饰。"))
                 .font(.caption).foregroundStyle(BrandColors.textSecondary)
         }
     }

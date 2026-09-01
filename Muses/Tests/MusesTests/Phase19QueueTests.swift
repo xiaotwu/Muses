@@ -10,7 +10,6 @@ import SwiftData
 /// - 插入模式:playAfterCurrentGroup(无当前分组降级 playNext)/ addToQueueWithPriority;
 /// - 队列历史状态标签:`next(as:)` 记 played/skipped;removeUpNext/removeItem 记 removed;
 ///   restoreFromHistory 还原并清标签;
-/// - 旧 QueueState JSON(无 historyState/locked/groupId/priority/groupsJSON)向后兼容解码。
 /// 复用既有桩:无音频引擎,纯 QueueService 逻辑 + in-memory ModelContainer。
 @MainActor
 @Suite("Phase 19 Advanced Queue")
@@ -22,8 +21,8 @@ struct Phase19QueueTests {
 
     private func snap(_ t: String) -> TrackSnapshot {
         TrackSnapshot(id: UUID(), title: t, artist: "a", albumTitle: nil,
-                      durationSeconds: 1, filePath: nil, youTubeId: nil,
-                      artworkHash: nil, artworkUrl: nil, sampleRate: nil,
+                      durationSeconds: 1, youTubeId: "test-video",
+                      artworkUrl: nil, sampleRate: nil,
                       bitDepth: nil, codec: nil, isLossless: false)
     }
 
@@ -125,7 +124,7 @@ struct Phase19QueueTests {
         let ctx = [snap("a")]
         q.play(ctx[0], context: ctx, from: .album)
         let upId = UUID()
-        q.upNext = [QueueItem(id: upId, track: snap("u"), source: .local)]
+        q.upNext = [QueueItem(id: upId, track: snap("u"))]
         let curId = q.items[0].id
         q.toggleLocked(itemId: curId)
         q.toggleLocked(itemId: upId)
@@ -187,7 +186,7 @@ struct Phase19QueueTests {
         let q = QueueService()
         let ctx = [snap("a"), snap("b")]
         q.play(ctx[0], context: ctx, from: .album)
-        q.upNext = [QueueItem(track: snap("u"), source: .local)]
+        q.upNext = [QueueItem(track: snap("u"))]
         q.removeUpNext(at: 0)
         #expect(q.upNext.isEmpty)
         #expect(q.history.first?.track.title == "u")
@@ -216,7 +215,7 @@ struct Phase19QueueTests {
         let q = QueueService()
         let ctx = [snap("a"), snap("b")]
         q.play(ctx[0], context: ctx, from: .album)
-        q.upNext = [QueueItem(track: snap("u"), source: .local)]
+        q.upNext = [QueueItem(track: snap("u"))]
         q.removeUpNext(at: 0)                     // → history(.removed)
         #expect(q.history.first?.historyState == .removed)
         q.restoreFromHistory(at: 0)
@@ -225,35 +224,11 @@ struct Phase19QueueTests {
         #expect(q.upNext.last?.historyState == nil)
     }
 
-    // MARK: - 向后兼容解码
-
-    @Test("旧 QueueState JSON(无新字段)解码为默认值")
-    func backwardCompatDecode() throws {
-        // 手工构造仅含 Phase 16 之前必需键的 QueueItem JSON(无 locked/groupId/priority/historyState)。
-        let itemId = UUID()
-        let trackId = UUID()
-        let oldTrack: [String: Any] = [
-            "id": trackId.uuidString, "title": "Old", "artist": "A",
-            "durationSeconds": 1.0, "isLossless": false
-        ]
-        let oldItem: [String: Any] = [
-            "id": itemId.uuidString, "track": oldTrack,
-            "source": "local", "queuedAt": 0, "fromContext": "songs"
-        ]
-        let data = try JSONSerialization.data(withJSONObject: [oldItem])
-        let items = try JSONDecoder().decode([QueueItem].self, from: data)
-        #expect(items.count == 1)
-        #expect(items[0].locked == false)
-        #expect(items[0].groupId == nil)
-        #expect(items[0].priority == nil)
-        #expect(items[0].historyState == nil)     // 缺省 → nil(按 .played 兜底)
-    }
-
-    @Test("restore: groupsJSON 缺省 → groups 为空")
+    @Test("restore: groupsJSON 为空 → groups 为空")
     func restoreNilGroupsJSON() throws {
         let container = try makeContainer()
         let ctx = ModelContext(container)
-        // 直接插入一行不含 groupsJSON(模拟旧库):init 默认 groupsJSON = nil
+        // 直接插入一行不含队列分组：init 默认 groupsJSON = nil。
         let row = QueueState(itemsJSON: "[]", currentIndex: -1,
                              upNextJSON: "[]", historyJSON: "[]",
                              repeatModeRaw: "off", shuffle: false)

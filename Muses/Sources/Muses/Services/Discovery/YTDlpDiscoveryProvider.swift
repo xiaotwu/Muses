@@ -16,6 +16,7 @@ final class YTDlpDiscoveryProvider: HomeDiscoveryProvider {
     /// yt-dlp 搜索入口。默认桥接 `YouTubeSearchService.search`/`YTDlpBridge.searchYouTube`。
     /// 抛错时该 section 标 `.failed`。
     private let search: (String, Int) async throws -> [YTDlpBridge.YTDlpPlaylistEntry]
+    private let fetchPlaylist: ((String) async throws -> [YTDlpBridge.YTDlpPlaylistEntry])?
     /// 每个 section 的结果上限。
     private let perSectionLimit: Int
     /// 结果裁剪到展示上限。
@@ -23,13 +24,15 @@ final class YTDlpDiscoveryProvider: HomeDiscoveryProvider {
 
     init(perSectionLimit: Int = 12,
          displayLimit: Int = 10,
+         fetchPlaylist: ((String) async throws -> [YTDlpBridge.YTDlpPlaylistEntry])? = nil,
          search: @escaping (String, Int) async throws -> [YTDlpBridge.YTDlpPlaylistEntry]) {
         self.perSectionLimit = perSectionLimit
         self.displayLimit = displayLimit
+        self.fetchPlaylist = fetchPlaylist
         self.search = search
     }
 
-    func sections(for input: HomeDiscoveryInput) async -> [HomeSection] {
+    func fetch(for input: HomeDiscoveryInput) async -> HomeFetchResult {
         // 1. 由 input 派生主题化查询 plan(标题 + 查询串)。标题在此生成,非视图硬编码。
         let plans = sectionPlans(for: input)
         // 2. 每个 section 独立 async;TaskGroup 有限并发(plan 数固定 ≤ 5,天然有界)。
@@ -41,10 +44,64 @@ final class YTDlpDiscoveryProvider: HomeDiscoveryProvider {
                 }
             }
             var out: [(Int, HomeSection)] = []
-            for await pair in group { out.append(pair) }
+            var sharedFailure: String?
+            for await pair in group {
+                out.append(pair)
+                if case .failed(let msg) = pair.1.status, let msg,
+                   YouTubeIdentity.isSharedDiscoveryFailure(msg) {
+                    sharedFailure = msg
+                    group.cancelAll()
+                }
+            }
+            if let sharedFailure {
+                out = out.map { idx, section in
+                    if case .failed(let msg) = section.status, msg == nil {
+                        return (idx, HomeSection(
+                            id: section.id, title: section.title, subtitle: section.subtitle,
+                            kind: section.kind, items: [], status: .failed(sharedFailure)))
+                    }
+                    return (idx, section)
+                }
+                let have = Set(out.map(\.0))
+                for (idx, plan) in plans.enumerated() where !have.contains(idx) {
+                    out.append((idx, HomeSection(
+                        id: plan.id, title: plan.title, subtitle: plan.subtitle,
+                        kind: .youTubeCarousel, items: [],
+                        status: .failed(sharedFailure))))
+                }
+            }
             return out
         }
-        return results.sorted { $0.0 < $1.0 }.map(\.1)
+        let sections = results.sorted { $0.0 < $1.0 }.map(\.1)
+        let failures = sections.compactMap { section -> HomeFetchFailure? in
+            guard case .failed(let message) = section.status else { return nil }
+            return HomeFetchFailure(
+                layer: .baseline,
+                code: .baselineUnavailable,
+                message: message)
+        }
+        return .baseline(
+            scope: input.scope,
+            sections: sections,
+            failures: failures)
+    }
+
+    func more(page: Int, input: HomeDiscoveryInput) async -> [HomeSection] {
+        let seeds = input.topArtistNames + input.likedArtistNames
+        let seed = seeds.isEmpty ? "music" : seeds[page % seeds.count]
+        let queries = [
+            "\(seed) mix",
+            "new music \(currentYear)",
+            "recommended \(seed)",
+            "playlist \(seed) radio"
+        ]
+        let query = queries[page % queries.count]
+        let plan = SectionPlan(
+            id: "more-\(page)",
+            title: tr("More for you", "更多推荐"),
+            subtitle: tr("From YouTube Music", "来自 YouTube Music"),
+            query: query)
+        return [await runSection(plan: plan, input: input)]
     }
 
     // MARK: - Section planning
@@ -55,68 +112,93 @@ final class YTDlpDiscoveryProvider: HomeDiscoveryProvider {
         let title: String
         let subtitle: String?
         let query: String
+        var url: String? = nil
     }
 
     private func sectionPlans(for input: HomeDiscoveryInput) -> [SectionPlan] {
-        var plans: [SectionPlan] = []
+        var plans: [SectionPlan] = [
+            SectionPlan(
+                id: "new-releases",
+                title: tr("New releases", "新发行"),
+                subtitle: tr("From YouTube Music", "来自 YouTube Music"),
+                query: "new music \(currentYear) official audio",
+                url: YouTubeMusicCatalog.newReleases
+            ),
+            SectionPlan(
+                id: "quick-picks",
+                title: tr("Quick picks", "快速精选"),
+                subtitle: tr("Play all", "全部播放"),
+                query: input.topArtistNames.first.map { "\($0) popular songs mix" }
+                    ?? "popular music mix",
+                url: YouTubeMusicCatalog.moods
+            ),
+            seasonalPlan()
+        ]
 
-        // (a) 最常听艺术家的 top songs —— 个性化锚点。
+        if let recent = input.recentlyPlayedArtistNames.first {
+            let seed = input.seedVideoIds.first
+            plans.append(SectionPlan(
+                id: "listen-again",
+                title: tr("Listen again", "再听一次"),
+                subtitle: tr("From YouTube Music", "来自 YouTube Music"),
+                query: "\(recent) mix",
+                url: seed.map { YouTubeMusicCatalog.mix(videoId: $0) }))
+        } else if let seed = input.seedVideoIds.first {
+            plans.append(SectionPlan(
+                id: "listen-again",
+                title: tr("Listen again", "再听一次"),
+                subtitle: tr("From YouTube Music", "来自 YouTube Music"),
+                query: "music mix",
+                url: YouTubeMusicCatalog.mix(videoId: seed)))
+        }
+
         if let artist = input.topArtistNames.first {
+            let mixSeed = input.seedVideoIds.dropFirst().first ?? input.seedVideoIds.first
             plans.append(SectionPlan(
                 id: "top-artist",
-                title: tr("Top songs by \(artist)", "\(artist) 的热门歌曲"),
-                subtitle: tr("From YouTube", "来自 YouTube"),
-                query: "\(artist) top songs"))
+                title: tr("Mixed for you · \(artist)", "为你精选 · \(artist)"),
+                subtitle: tr("From YouTube Music", "来自 YouTube Music"),
+                query: "\(artist) mix radio",
+                url: mixSeed.map { YouTubeMusicCatalog.mix(videoId: $0) }))
         }
 
-        // (b) 时段主题 —— 由 provider 据 timeBand 生成标题与查询。
-        let band = input.timeBand
-        let bandPlan: SectionPlan
-        switch band {
-        case .morning:
-            bandPlan = SectionPlan(
-                id: "time-of-day",
-                title: tr("Morning picks", "清晨精选"),
-                subtitle: tr("Ease into the day", "从容开启一天"),
-                query: "morning playlist chill")
-        case .afternoon:
-            bandPlan = SectionPlan(
-                id: "time-of-day",
-                title: tr("Afternoon rotation", "午后轮播"),
-                subtitle: tr("Keep moving", "保持节奏"),
-                query: "afternoon pop hits")
-        case .evening:
-            bandPlan = SectionPlan(
-                id: "time-of-day",
-                title: tr("Evening chill", "傍晚放松"),
-                subtitle: tr("Wind down", "慢下来"),
-                query: "evening chill music")
-        case .lateNight:
-            bandPlan = SectionPlan(
-                id: "time-of-day",
-                title: tr("Late-night picks", "深夜精选"),
-                subtitle: tr("For the quiet hours", "献给安静的时刻"),
-                query: "late night ambient music")
-        }
-        plans.append(bandPlan)
-
-        // (c) 收藏艺术家的 essentials —— 轻度历史信号驱动的发现。
         if let liked = input.likedArtistNames.first, liked != input.topArtistNames.first {
             plans.append(SectionPlan(
                 id: "from-liked",
                 title: tr("Because you like \(liked)", "因为你喜欢 \(liked)"),
-                subtitle: tr("From YouTube", "来自 YouTube"),
+                subtitle: tr("From YouTube Music", "来自 YouTube Music"),
                 query: "\(liked) essentials playlist"))
         }
 
-        // (d) 通用 trending —— 保底发现,始终存在以确保 Home 有远程内容。
         plans.append(SectionPlan(
             id: "trending",
-            title: tr("Trending now", "正在流行"),
-            subtitle: tr("From YouTube", "来自 YouTube"),
-            query: "trending music \(currentYear)"))
+            title: tr("Charts", "排行榜"),
+            subtitle: tr("From YouTube Music", "来自 YouTube Music"),
+            query: "trending charts \(currentYear)",
+            url: YouTubeMusicCatalog.charts))
 
         return plans
+    }
+
+    private func seasonalPlan(now: Date = .init()) -> SectionPlan {
+        switch Calendar.current.component(.month, from: now) {
+        case 6...8:
+            SectionPlan(id: "seasonal", title: tr("That summer feeling", "夏日氛围"),
+                        subtitle: tr("Soundtrack the season", "本季原声"),
+                        query: "summer music playlist")
+        case 9...11:
+            SectionPlan(id: "seasonal", title: tr("Autumn atmosphere", "秋日氛围"),
+                        subtitle: tr("Soundtrack the season", "本季原声"),
+                        query: "autumn music playlist")
+        case 12, 1, 2:
+            SectionPlan(id: "seasonal", title: tr("Winter listening", "冬日聆听"),
+                        subtitle: tr("Soundtrack the season", "本季原声"),
+                        query: "winter music playlist")
+        default:
+            SectionPlan(id: "seasonal", title: tr("Spring refresh", "春日焕新"),
+                        subtitle: tr("Soundtrack the season", "本季原声"),
+                        query: "spring music playlist")
+        }
     }
 
     private var currentYear: Int { Calendar.current.component(.year, from: Date()) }
@@ -125,25 +207,71 @@ final class YTDlpDiscoveryProvider: HomeDiscoveryProvider {
 
     private func runSection(plan: SectionPlan, input: HomeDiscoveryInput) async -> HomeSection {
         do {
-            let entries = try await search(plan.query, perSectionLimit)
-            let cards = entries.map(YouTubeDiscoveryCard.init(entry:))
+            let loaded = try await loadEntries(plan)
+            let trustedEntries = loaded.entries.filter {
+                loaded.fromMusicCatalog || YouTubeMusicTrust.isTrustedHomeEntry($0)
+            }
+            guard !trustedEntries.isEmpty else {
+                return HomeSection(
+                    id: plan.id,
+                    title: plan.title,
+                    subtitle: plan.subtitle,
+                    kind: .youTubeCarousel,
+                    items: [],
+                    status: .loaded)
+            }
+            let cards = trustedEntries.map(YouTubeDiscoveryCard.init(entry:))
             let ranked = lightlyRank(cards, input: input).prefix(displayLimit).map { $0 }
             return HomeSection(
                 id: plan.id,
                 title: plan.title,
                 subtitle: plan.subtitle,
-                kind: .youTubeCarousel,
+                kind: plan.id == "quick-picks" ? .quickPicks : .youTubeCarousel,
                 items: ranked.map { .youTube($0) },
                 status: .loaded)
+        } catch is CancellationError {
+            return HomeSection(
+                id: plan.id, title: plan.title, subtitle: plan.subtitle,
+                kind: .youTubeCarousel, items: [], status: .failed(nil))
         } catch {
+            if Task.isCancelled {
+                return HomeSection(
+                    id: plan.id, title: plan.title, subtitle: plan.subtitle,
+                    kind: .youTubeCarousel, items: [], status: .failed(nil))
+            }
+            let raw = error.localizedDescription
+            let clipped = raw.count > 180 ? String(raw.prefix(180)) + "…" : raw
             return HomeSection(
                 id: plan.id,
                 title: plan.title,
                 subtitle: plan.subtitle,
                 kind: .youTubeCarousel,
                 items: [],
-                status: .failed(nil))
+                status: .failed(clipped.isEmpty ? nil : clipped))
         }
+    }
+
+    private func loadEntries(_ plan: SectionPlan) async throws -> (
+        entries: [YTDlpBridge.YTDlpPlaylistEntry],
+        fromMusicCatalog: Bool
+    ) {
+        if let url = plan.url, let fetch = fetchPlaylist {
+            do {
+                let fromCatalog = try await fetch(url)
+                // Some public Music endpoints redirect guests to a generic
+                // page that yt-dlp flattens into one unrelated video. A real
+                // shelf needs enough entries to be credible; sparse output
+                // falls through to the section-specific public search.
+                let acceptsSingleMix = plan.id == "listen-again" || plan.id == "top-artist"
+                let minimumShelfCount = acceptsSingleMix ? 1 : min(4, displayLimit)
+                if fromCatalog.count >= minimumShelfCount {
+                    return (fromCatalog, true)
+                }
+            } catch {
+                // Fall through to ytsearch.
+            }
+        }
+        return (try await search(plan.query, perSectionLimit), false)
     }
 
     /// 轻度历史排序:uploader 命中用户 top/最近艺术家名的卡片稳定前置。

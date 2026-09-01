@@ -26,6 +26,16 @@
 	<string>AppIcon</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<!-- build-app.sh injects the project-owned Desktop OAuth client identifier. -->
+	<key>MusesGoogleOAuthClientID</key>
+	<string></string>
+	<key>MusesGoogleOAuthClientSecret</key>
+	<string></string>
+	<key>MusesGoogleOAuthRedirectURI</key>
+	<string>http://127.0.0.1:53682/</string>
+	<!-- Release kill switch; user consent remains a separate default-off preference. -->
+	<key>MusesWebHomeEnabled</key>
+	<true/>
 	<!-- 注册 muses:// URL scheme(Spotlight 命中 / 远程激活用)。Phase 24 修复此前缺失的 CFBundleURLTypes。 -->
 	<key>CFBundleURLTypes</key>
 	<array>

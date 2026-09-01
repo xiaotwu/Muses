@@ -10,17 +10,21 @@ import AppKit
 /// 频谱数据通过线程安全缓冲区从音频线程写入,MTKView 委托线程读取并做峰值衰减后渲染。
 struct MetalSpectrumView: NSViewRepresentable {
     @Environment(PlaybackService.self) private var playback
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeNSView(context: Context) -> MTKView {
         let mtkView = MTKView()
         let renderer = SpectrumRenderer()
         mtkView.device = renderer.device
         mtkView.delegate = renderer
-        mtkView.preferredFramesPerSecond = 60
+        mtkView.preferredFramesPerSecond = 30
         mtkView.framebufferOnly = true
-        mtkView.isPaused = false
+        mtkView.enableSetNeedsDisplay = true
+        mtkView.isPaused = reduceMotion || !playback.state.isPlaying
         mtkView.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
         mtkView.colorPixelFormat = .bgra8Unorm
+        mtkView.wantsLayer = true
+        mtkView.layer?.isOpaque = false
 
         // 频谱 handler:音频渲染线程调用 → 线程安全写入缓冲区
         playback.installSpectrumHandler { frame in
@@ -31,7 +35,12 @@ struct MetalSpectrumView: NSViewRepresentable {
         return mtkView
     }
 
-    func updateNSView(_ nsView: MTKView, context: Context) {}
+    func updateNSView(_ nsView: MTKView, context: Context) {
+        let shouldPause = reduceMotion || !playback.state.isPlaying
+        guard nsView.isPaused != shouldPause else { return }
+        nsView.isPaused = shouldPause
+        if shouldPause { nsView.setNeedsDisplay(nsView.bounds) }
+    }
 
     func dismantleNSView(_ nsView: MTKView, coordinator: Coordinator) {
         coordinator.renderer?.cleanup()

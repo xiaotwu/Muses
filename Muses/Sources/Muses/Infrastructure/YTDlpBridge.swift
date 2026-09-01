@@ -24,13 +24,13 @@ final class YTDlpBridge {
         var errorDescription: String? {
             switch self {
             case .notFound:
-                "yt-dlp 二进制未找到"
+                tr("yt-dlp binary not found", "yt-dlp 二进制未找到")
             case .exitCode(let code, let stderr):
-                "yt-dlp 退出码 \(code):\(stderr)"
+                tr("yt-dlp exit code \(code):\(stderr)", "yt-dlp 退出码 \(code):\(stderr)")
             case .timeout:
-                "yt-dlp 调用超时"
+                tr("yt-dlp timed out", "yt-dlp 调用超时")
             case .parseFailed(let m):
-                "yt-dlp 输出解析失败:\(m)"
+                tr("yt-dlp output parse failed: \(m)", "yt-dlp 输出解析失败:\(m)")
             }
         }
 
@@ -46,15 +46,34 @@ final class YTDlpBridge {
         let title: String
         let uploader: String?
         let duration: Double?
+        /// Parent playlist title from yt-dlp (`playlist_title` / `playlist`).
+        let playlistTitle: String?
+        /// Stable uploader/channel identity when yt-dlp exposes it.
+        let channelID: String?
+        /// YouTube Music metadata. These fields distinguish an official audio
+        /// song from a generic video without changing video identity.
+        let track: String?
+        let album: String?
+        let releaseYear: Int?
 
         init(id: String,
              title: String,
              uploader: String? = nil,
-             duration: Double? = nil) {
+             duration: Double? = nil,
+             playlistTitle: String? = nil,
+             channelID: String? = nil,
+             track: String? = nil,
+             album: String? = nil,
+             releaseYear: Int? = nil) {
             self.id = id
             self.title = title
             self.uploader = uploader
             self.duration = duration
+            self.playlistTitle = playlistTitle
+            self.channelID = channelID
+            self.track = track
+            self.album = album
+            self.releaseYear = releaseYear
         }
 
         init(from decoder: Decoder) throws {
@@ -63,6 +82,15 @@ final class YTDlpBridge {
             self.title = try c.decode(String.self, forKey: .title)
             self.uploader = try c.decodeIfPresent(String.self, forKey: .uploader)
             self.duration = try c.decodeIfPresent(Double.self, forKey: .duration)
+            let named = try c.decodeIfPresent(String.self, forKey: .playlistTitle)
+            let playlist = try c.decodeIfPresent(String.self, forKey: .playlist)
+            self.playlistTitle = Self.nonEmpty(named) ?? Self.nonEmpty(playlist)
+            let channelID = try c.decodeIfPresent(String.self, forKey: .channelID)
+            let uploaderID = try c.decodeIfPresent(String.self, forKey: .uploaderID)
+            self.channelID = Self.nonEmpty(channelID) ?? Self.nonEmpty(uploaderID)
+            self.track = Self.nonEmpty(try c.decodeIfPresent(String.self, forKey: .track))
+            self.album = Self.nonEmpty(try c.decodeIfPresent(String.self, forKey: .album))
+            self.releaseYear = try c.decodeIfPresent(Int.self, forKey: .releaseYear)
         }
 
         func encode(to encoder: Encoder) throws {
@@ -71,10 +99,38 @@ final class YTDlpBridge {
             try c.encode(title, forKey: .title)
             try c.encodeIfPresent(uploader, forKey: .uploader)
             try c.encodeIfPresent(duration, forKey: .duration)
+            try c.encodeIfPresent(playlistTitle, forKey: .playlistTitle)
+            try c.encodeIfPresent(channelID, forKey: .channelID)
+            try c.encodeIfPresent(track, forKey: .track)
+            try c.encodeIfPresent(album, forKey: .album)
+            try c.encodeIfPresent(releaseYear, forKey: .releaseYear)
+        }
+
+        private static func nonEmpty(_ value: String?) -> String? {
+            guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
+            }
+            return value
         }
 
         private enum CodingKeys: String, CodingKey {
             case id, title, uploader, duration
+            case playlistTitle = "playlist_title"
+            case playlist
+            case channelID = "channel_id"
+            case uploaderID = "uploader_id"
+            case track, album
+            case releaseYear = "release_year"
+        }
+
+        var inferredMediaKind: TrackMediaKind {
+            if track != nil || album != nil { return .song }
+            let normalized = title.lowercased()
+            let videoMarkers = [
+                "official music video", "official video", "music video", "m/v", " mv",
+                "官方mv", "音乐录像", "音樂錄影帶"
+            ]
+            return videoMarkers.contains(where: normalized.contains) ? .musicVideo : .song
         }
     }
 
@@ -98,7 +154,10 @@ final class YTDlpBridge {
         "bestaudio": "bestaudio[ext*=m4a]/bestaudio/best",
         "256k": "ba[abr<=256]/bestaudio[abr<=256]",
         "128k": "ba[abr<=128]",
-        "64k": "ba[abr<=64]"
+        "64k": "ba[abr<=64]",
+        "best": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        "1080p": "best[height<=1080][ext=mp4]/best[height<=1080]",
+        "720p": "best[height<=720][ext=mp4]/best[height<=720]"
     ]
 
     init(binaryPath: String? = nil,

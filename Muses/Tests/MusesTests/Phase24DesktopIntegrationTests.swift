@@ -13,8 +13,8 @@ struct Phase24DesktopIntegrationTests {
 
     private func snap(_ title: String, artist: String = "A", id: UUID = UUID()) -> TrackSnapshot {
         TrackSnapshot(id: id, title: title, artist: artist, albumTitle: nil,
-                      durationSeconds: 200, filePath: "/tmp/x.wav", youTubeId: nil,
-                      artworkHash: nil, artworkUrl: nil,
+                      durationSeconds: 200, youTubeId: "test-video",
+                      artworkUrl: nil,
                       sampleRate: nil, bitDepth: nil, codec: nil, isLossless: false)
     }
 

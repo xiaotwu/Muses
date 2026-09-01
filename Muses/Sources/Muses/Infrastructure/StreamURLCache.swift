@@ -60,32 +60,47 @@ final class StreamURLCache {
         try? data.write(to: path, options: .atomic)
     }
 
-    /// Returns the cached URL for `videoId` if present and unexpired.
+    static func cacheKey(videoId: String, quality: String) -> String {
+        "\(videoId)|\(quality)"
+    }
+
+    /// Returns the cached URL for `videoId`+`quality` if present and unexpired.
     /// Expired entries are evicted on read.
-    func get(videoId: String) -> URL? {
+    func get(videoId: String, quality: String = "bestaudio") -> URL? {
         ensureLoadedFromDisk()
-        guard let entry = entries[videoId] else { return nil }
+        let key = Self.cacheKey(videoId: videoId, quality: quality)
+        return liveURL(for: key)
+    }
+
+    /// Stores `url` for `videoId`+`quality` with the cache's default TTL (or a custom one).
+    func set(videoId: String, url: URL, quality: String = "bestaudio", ttl: TimeInterval? = nil) {
+        ensureLoadedFromDisk()
+        let effective = ttl ?? defaultTTL
+        let key = Self.cacheKey(videoId: videoId, quality: quality)
+        entries[key] = Entry(url: url, expiresAt: Date().addingTimeInterval(effective))
+        persistToDisk()
+    }
+
+    /// Removes a quality-specific entry, or every quality for `videoId` when `quality` is nil.
+    func invalidate(videoId: String, quality: String? = nil) {
+        ensureLoadedFromDisk()
+        if let quality {
+            entries.removeValue(forKey: Self.cacheKey(videoId: videoId, quality: quality))
+        } else {
+            let prefix = "\(videoId)|"
+            entries = entries.filter { key, _ in key != videoId && !key.hasPrefix(prefix) }
+        }
+        persistToDisk()
+    }
+
+    private func liveURL(for key: String) -> URL? {
+        guard let entry = entries[key] else { return nil }
         guard entry.expiresAt > Date() else {
-            entries.removeValue(forKey: videoId)
+            entries.removeValue(forKey: key)
             persistToDisk()
             return nil
         }
         return entry.url
-    }
-
-    /// Stores `url` for `videoId` with the cache's default TTL (or a custom one).
-    func set(videoId: String, url: URL, ttl: TimeInterval? = nil) {
-        ensureLoadedFromDisk()
-        let effective = ttl ?? defaultTTL
-        entries[videoId] = Entry(url: url, expiresAt: Date().addingTimeInterval(effective))
-        persistToDisk()
-    }
-
-    /// Removes a single entry. Used when a 403 indicates the URL went stale early.
-    func invalidate(videoId: String) {
-        ensureLoadedFromDisk()
-        entries.removeValue(forKey: videoId)
-        persistToDisk()
     }
 
     /// Removes a single entry (alias for `invalidate`).

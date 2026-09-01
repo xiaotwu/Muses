@@ -18,23 +18,21 @@ enum AutomationTrigger: String, Codable, Sendable, CaseIterable {
 
 /// 自动化条件集合(Final Spec §12)。所有非 nil 字段必须同时满足(AND 语义)。
 /// 对无上下文的事件(contextSummaryJSON 为 nil):app/时段时间条件视为不匹配,
-/// source 条件仍可匹配(来自快照)。绝不伪造上下文。
+/// 绝不伪造上下文。
 struct AutomationConditions: Codable, Sendable, Equatable {
     /// 前台应用 bundle id 精确匹配(需 contextTrackActiveApp 开启才有数据)。
     var appBundleId: String?
     /// 时段匹配(morning/afternoon/evening/lateNight)。
     var timeBand: ListeningContext.TimeBand?
-    /// 媒体来源匹配。
-    var source: TrackSource?
     /// 耳机连接匹配。
     var isHeadphones: Bool?
     /// 周末匹配。
     var isWeekend: Bool?
 
     init(appBundleId: String? = nil, timeBand: ListeningContext.TimeBand? = nil,
-         source: TrackSource? = nil, isHeadphones: Bool? = nil, isWeekend: Bool? = nil) {
+         isHeadphones: Bool? = nil, isWeekend: Bool? = nil) {
         self.appBundleId = appBundleId; self.timeBand = timeBand
-        self.source = source; self.isHeadphones = isHeadphones; self.isWeekend = isWeekend
+        self.isHeadphones = isHeadphones; self.isWeekend = isWeekend
     }
 }
 

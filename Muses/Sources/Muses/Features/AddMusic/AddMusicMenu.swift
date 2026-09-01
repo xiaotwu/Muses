@@ -1,30 +1,18 @@
 import SwiftUI
 
-/// 统一的「添加音乐」菜单,从工具栏 `+` 按钮展开(spec §1)。
-///
-/// 合并过去分散的入口:
-///  - Paste YouTube Link —— 粘贴 YouTube 链接,自动识别单曲/歌单(`AddYouTubeLinkSheet`)。
-///  - Add Local Folder —— 添加本地资料库文件夹(复用既有 `ImportSheet`)。
+/// Add-music control. YouTube links only — local folders are not part of the product.
 struct AddMusicMenu: View {
-    @Binding var showLocalFolder: Bool
     @Binding var showYouTubeLink: Bool
 
     var body: some View {
-        Menu {
-            Button {
-                showYouTubeLink = true
-            } label: {
-                Label(tr("Paste YouTube Link", "粘贴 YouTube 链接"), systemImage: "play.rectangle")
-            }
-            Button {
-                showLocalFolder = true
-            } label: {
-                Label(tr("Add Local Folder", "添加本地文件夹"), systemImage: "folder.badge.plus")
-            }
+        Button {
+            showYouTubeLink = true
         } label: {
-            Image(systemName: "plus")
+            YouTubeMark(size: 16)
         }
-        .accessibilityLabel(tr("Add Music", "添加音乐"))
+        .buttonStyle(.plain)
+        .help(tr("Paste YouTube Link", "粘贴 YouTube 链接"))
+        .accessibilityLabel(tr("Add YouTube music", "添加 YouTube 音乐"))
     }
 }
 
@@ -35,6 +23,7 @@ struct AddMusicMenu: View {
 struct AddYouTubeLinkSheet: View {
     @Environment(YouTubeImportService.self) private var importService
     @Environment(\.dismiss) private var dismiss
+    var isPresented: Binding<Bool>? = nil
     @State private var url: String = ""
     @State private var importing = false
     @State private var error: String?
@@ -63,7 +52,7 @@ struct AddYouTubeLinkSheet: View {
 
             HStack {
                 Spacer()
-                Button(tr("Cancel", "取消")) { dismiss() }.disabled(importing)
+                Button(tr("Cancel", "取消")) { close() }.disabled(importing)
                 Button(tr("Import", "导入")) { performImport() }
                     .buttonStyle(.borderedProminent)
                     .tint(BrandColors.magenta)
@@ -75,7 +64,7 @@ struct AddYouTubeLinkSheet: View {
         }
         .padding(20)
         .frame(width: 480)
-        .background(.ultraThinMaterial)
+        .musesFloatingChrome(cornerRadius: 16)
     }
 
     private enum DetectedKind { case video, playlist }
@@ -107,11 +96,19 @@ struct AddYouTubeLinkSheet: View {
                     throw YouTubeImportError.invalidURL
                 }
                 importing = false
-                dismiss()
+                close()
             } catch let err {
                 importing = false
                 error = "\(err.localizedDescription)"
             }
+        }
+    }
+
+    private func close() {
+        if let isPresented {
+            isPresented.wrappedValue = false
+        } else {
+            dismiss()
         }
     }
 }

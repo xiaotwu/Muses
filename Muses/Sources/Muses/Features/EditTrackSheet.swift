@@ -26,7 +26,7 @@ struct EditTrackSheet: View {
                     .foregroundStyle(BrandColors.textSecondary)
                 Button(tr("Save", "保存")) { save() }
                     .buttonStyle(.borderedProminent)
-                    .tint(BrandColors.cyan)
+                    .tint(BrandColors.magenta)
             }
             .padding(16)
 
@@ -54,7 +54,7 @@ struct EditTrackSheet: View {
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
         }
-        .background(.ultraThinMaterial)
+        .musesFloatingChrome(cornerRadius: 16)
         .frame(width: 480)
         .frame(maxHeight: 560)
         .onAppear { loadFields() }

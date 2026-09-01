@@ -25,7 +25,7 @@ struct EQEditorView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.ultraThinMaterial)
+        .musesFloatingChrome(cornerRadius: 16)
         .onAppear {
             if bands.count == 10, bands.allSatisfy({ $0.gain == 0 }) {
                 loadPreset(named: activePresetIdRaw)
@@ -46,7 +46,7 @@ struct EQEditorView: View {
                 activePresetIdRaw = "Flat"
             }
             .buttonStyle(.bordered)
-            .tint(BrandColors.cyan)
+            .tint(BrandColors.magenta)
         }
     }
 
@@ -103,7 +103,7 @@ struct EQEditorView: View {
             let y = midY - CGFloat(band.gain) / 24.0 * (size.height / 2)
             ctx.fill(
                 Circle().path(in: CGRect(x: x - 4, y: y - 4, width: 8, height: 8)),
-                with: .color(BrandColors.cyan)
+                with: .color(BrandColors.magenta)
             )
         }
     }
@@ -147,7 +147,7 @@ struct EQEditorView: View {
                     showSaveDialog = true
                 } label: { Label(tr("Save As", "另存为"), systemImage: "plus") }
                     .buttonStyle(.bordered)
-                    .tint(BrandColors.cyan)
+                    .tint(BrandColors.magenta)
             }
 
             ScrollView(.horizontal, showsIndicators: false) {

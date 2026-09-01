@@ -5,7 +5,7 @@ import SwiftUI
 /// 默认全部关闭(Final Spec §15 隐私/不打扰),开启即生效,关闭即注销对应系统资源。
 struct DesktopSettingsView: View {
     @AppStorage(PrefKey.ffGlobalHotkeys) private var globalHotkeys = false
-    @AppStorage(PrefKey.ffTray)            private var tray = false
+    @AppStorage(PrefKey.ffTray)            private var tray = true
     @AppStorage(PrefKey.ffMiniPlayer)     private var miniPlayer = false
     @AppStorage(PrefKey.ffDesktopLyrics)  private var desktopLyrics = false
 
@@ -19,8 +19,8 @@ struct DesktopSettingsView: View {
 
             Toggle(tr("Menu Bar Tray", "菜单栏托盘"), isOn: $tray)
                 .onChange(of: tray) { _, _ in notify() }
-            Text(tr("NSStatusItem tray with current track and quick controls. Off by default.",
-                    "菜单栏托盘显示当前曲目与快捷控制。默认关闭。"))
+            Text(tr("Menu bar icon matching the app mark, with current track and quick controls. On by default.",
+                    "菜单栏显示与应用图标一致的模板图标,以及当前曲目与快捷控制。默认开启。"))
                 .font(.caption).foregroundStyle(BrandColors.textSecondary)
 
             Toggle(tr("Mini Player Window", "迷你播放器窗口"), isOn: $miniPlayer)

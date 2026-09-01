@@ -2,8 +2,7 @@ import SwiftUI
 
 /// 侧边栏合并歌单行:本地歌单或 YouTube 导入歌单。
 ///
-/// YouTube 项在名称左侧显示一个克制的小型 YouTube 来源图标(单色 `play.rectangle`,
-/// 与侧边栏图标 baseline 对齐),不抢名称、不引入品牌红色块。
+/// YouTube 项在名称左侧显示一个克制的小型 `YouTubeMark`,与侧边栏图标 baseline 对齐。
 /// 点击通过既有通知路由:本地 → `.musesSelectPlaylist`;YouTube → `.musesNavigateYouTubeImport`。
 /// 路由所需的对象引用由持有 `@Model` 集合的父视图在点击时解析(此处仅按 id 触发),
 /// 以保持本行视图轻量、可在 `ForEach` 中复用且不持有 @Model 强引用。
@@ -14,9 +13,10 @@ struct PlaylistSidebarRow: View {
 
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 6) {
+            HStack(spacing: 10) {
                 if item.isYouTube {
                     YouTubeMark(size: 12)
+                        .frame(width: 18)
                         .accessibilityHidden(true)
                 }
                 Text(item.name)
@@ -25,7 +25,7 @@ struct PlaylistSidebarRow: View {
                 Spacer(minLength: 0)
             }
             .padding(.vertical, 6)
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, minHeight: AppleMusicTokens.navItemHeight, alignment: .leading)
             .contentShape(Rectangle())
             .background(

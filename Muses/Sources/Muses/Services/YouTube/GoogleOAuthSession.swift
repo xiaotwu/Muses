@@ -2,21 +2,52 @@ import Foundation
 import Security
 import CryptoKit
 import AuthenticationServices
+import AppKit
+import Network
 
-/// Google OAuth 客户端配置(用户在 Google Cloud Console 创建 Desktop OAuth 客户端后填入)。
-/// 存 Keychain(account "config"),不写 UserDefaults/明文(spec §4)。
+/// Application-owned Google Desktop OAuth configuration.
+///
+/// Production builds inject the client identifier into Info.plist. Local
+/// developer runs may use environment variables. Installed-app client secrets
+/// are not secrets and are optional; end users never edit this configuration.
 struct GoogleOAuthConfig: Codable, Sendable, Equatable {
     let clientID: String
     let clientSecret: String
-    /// 重定向 URI,需与 Google Console 一致。macOS 桌面端用自定义 scheme,如 "muses:/oauth"。
+    /// Loopback redirect registered by the Muses OAuth desktop client.
     let redirectURI: String
-    /// 请求的 scope 列表(空则用默认 youtube.readonly)。
+    /// Requested OAuth scopes (empty -> least-privilege read-only access).
     let scopes: [String]
 
-    static let defaultScopes = ["https://www.googleapis.com/auth/youtube.readonly"]
+    static let readOnlyScope = "https://www.googleapis.com/auth/youtube.readonly"
+    static let manageScope = "https://www.googleapis.com/auth/youtube"
+    static let defaultScopes = [readOnlyScope]
 
     var isValid: Bool {
-        !clientID.isEmpty && !clientSecret.isEmpty && !redirectURI.isEmpty
+        !clientID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !redirectURI.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func applicationOwned(
+        bundle: Bundle = .main,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> GoogleOAuthConfig? {
+        let info = bundle.infoDictionary ?? [:]
+        let clientID = environment["MUSES_GOOGLE_OAUTH_CLIENT_ID"]
+            ?? info["MusesGoogleOAuthClientID"] as? String
+            ?? ""
+        let clientSecret = environment["MUSES_GOOGLE_OAUTH_CLIENT_SECRET"]
+            ?? info["MusesGoogleOAuthClientSecret"] as? String
+            ?? ""
+        let redirectURI = environment["MUSES_GOOGLE_OAUTH_REDIRECT_URI"]
+            ?? info["MusesGoogleOAuthRedirectURI"] as? String
+            ?? "http://127.0.0.1:53682/"
+        let config = GoogleOAuthConfig(
+            clientID: clientID,
+            clientSecret: clientSecret,
+            redirectURI: redirectURI,
+            scopes: defaultScopes
+        )
+        return config.isValid && config.isLoopbackRedirect ? config : nil
     }
 
     /// 默认重定向 scheme(用于 ASWebAuthenticationSession 拦截)。
@@ -24,6 +55,19 @@ struct GoogleOAuthConfig: Codable, Sendable, Equatable {
         if let scheme = URL(string: redirectURI)?.scheme, !scheme.isEmpty { return scheme }
         // 回退:取 "muses" 这类自定义 scheme。
         return "muses"
+    }
+
+    /// Google Desktop clients use loopback (`http://127.0.0.1` / `localhost`), not custom schemes.
+    var isLoopbackRedirect: Bool {
+        guard let url = URL(string: redirectURI) else { return false }
+        let scheme = (url.scheme ?? "").lowercased()
+        guard scheme == "http" || scheme == "https" else { return false }
+        let host = (url.host ?? "").lowercased()
+        return host == "127.0.0.1" || host == "localhost"
+    }
+
+    var loopbackPort: UInt16 {
+        UInt16(URL(string: redirectURI)?.port ?? 53682)
     }
 }
 
@@ -48,12 +92,18 @@ enum OAuthError: LocalizedError, Equatable, Sendable {
 
     var errorDescription: String? {
         switch self {
-        case .notConfigured: "未配置 YouTube OAuth(Client ID/Secret/重定向)"
-        case .userCancelled: "用户取消登录"
-        case .authFailed(let m): "OAuth 授权失败:\(m)"
-        case .tokenExchangeFailed(let m): "OAuth 令牌交换失败:\(m)"
-        case .noRefreshToken: "无 refresh token,无法刷新(需重新登录)"
-        case .network(let m): "网络错误:\(m)"
+        case .notConfigured:
+            tr("This Muses build is missing its YouTube sign-in configuration", "此 Muses 构建缺少 YouTube 登录配置")
+        case .userCancelled:
+            tr("Sign-in cancelled", "用户取消登录")
+        case .authFailed(let m):
+            tr("OAuth authorization failed: \(m)", "OAuth 授权失败:\(m)")
+        case .tokenExchangeFailed(let m):
+            tr("OAuth token exchange failed: \(m)", "OAuth 令牌交换失败:\(m)")
+        case .noRefreshToken:
+            tr("No refresh token; sign in again", "无 refresh token,无法刷新(需重新登录)")
+        case .network(let m):
+            tr("Network error: \(m)", "网络错误:\(m)")
         }
     }
 
@@ -108,9 +158,13 @@ final class GoogleOAuthSession {
     private let keychain: KeychainStoring
     private let presenter: AuthSessionPresenting
     private let tokenExchange: @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)
+    private let configProvider: @Sendable () -> GoogleOAuthConfig?
 
     init(keychain: KeychainStoring,
          presenter: AuthSessionPresenting = ASWebAuthPresenter(),
+         configProvider: @escaping @Sendable () -> GoogleOAuthConfig? = {
+            GoogleOAuthConfig.applicationOwned()
+         },
          tokenExchange: @escaping @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse) = { request in
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else {
@@ -120,17 +174,23 @@ final class GoogleOAuthSession {
          }) {
         self.keychain = keychain
         self.presenter = presenter
+        self.configProvider = configProvider
         self.tokenExchange = tokenExchange
     }
 
     // MARK: - Config
 
     func loadConfig() -> GoogleOAuthConfig? {
+        if let applicationConfig = configProvider(), applicationConfig.isValid {
+            return applicationConfig
+        }
+        // One-release compatibility for existing development installs. The UI
+        // no longer exposes this value and production builds use app config.
         guard let data = keychain.data(for: Self.configAccount) else { return nil }
         return try? JSONDecoder().decode(GoogleOAuthConfig.self, from: data)
     }
 
-    /// 存 OAuth 客户端配置(Settings 页填入)。空值会被拒绝。
+    /// Test/development compatibility. Product UI never calls this method.
     func saveConfig(_ config: GoogleOAuthConfig) throws {
         guard config.isValid else { throw OAuthError.notConfigured }
         let data = try JSONEncoder().encode(config)
@@ -151,12 +211,15 @@ final class GoogleOAuthSession {
     }
 
     /// 发起授权码 + PKCE 流程,成功后存令牌。用户取消或失败抛错。
-    func connect() async throws {
+    func connect(requestedScopes: [String]? = nil,
+                 includeGrantedScopes: Bool = true) async throws {
         guard let config = loadConfig() else { throw OAuthError.notConfigured }
         let verifier = Self.generateCodeVerifier()
         let challenge = Self.codeChallenge(for: verifier)
         let state = Self.generateCodeVerifier()
-        let scopes = config.scopes.isEmpty ? GoogleOAuthConfig.defaultScopes : config.scopes
+        let configuredScopes = config.scopes.isEmpty
+            ? GoogleOAuthConfig.defaultScopes : config.scopes
+        let scopes = requestedScopes ?? configuredScopes
         var components = URLComponents(string: "https://accounts.google.com/o/oauth2/v2/auth")!
         components.queryItems = [
             .init(name: "client_id", value: config.clientID),
@@ -167,13 +230,25 @@ final class GoogleOAuthSession {
             .init(name: "code_challenge_method", value: "S256"),
             .init(name: "state", value: state),
             .init(name: "access_type", value: "offline"),
+            .init(name: "include_granted_scopes",
+                  value: includeGrantedScopes ? "true" : "false"),
             .init(name: "prompt", value: "consent")
         ]
         guard let authURL = components.url else { throw OAuthError.authFailed("构造授权 URL 失败") }
 
-        guard let callback = await presenter.present(
-            authURL: authURL, callbackScheme: config.redirectScheme) else {
-            throw OAuthError.userCancelled
+        let callback: URL
+        if config.isLoopbackRedirect {
+            let server = LoopbackCallbackServer()
+            async let accepted = server.listen(port: config.loopbackPort)
+            NSWorkspace.shared.open(authURL)
+            guard let url = await accepted else { throw OAuthError.userCancelled }
+            callback = url
+        } else {
+            guard let url = await presenter.present(
+                authURL: authURL, callbackScheme: config.redirectScheme) else {
+                throw OAuthError.userCancelled
+            }
+            callback = url
         }
         // 解析 code / state。
         let cbComps = URLComponents(url: callback, resolvingAgainstBaseURL: false)
@@ -194,14 +269,14 @@ final class GoogleOAuthSession {
         var req = URLRequest(url: URL(string: "https://oauth2.googleapis.com/token")!)
         req.httpMethod = "POST"
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        let body = [
+        var body = [
             "code": code,
             "client_id": config.clientID,
-            "client_secret": config.clientSecret,
             "redirect_uri": config.redirectURI,
             "code_verifier": verifier,
             "grant_type": "authorization_code"
         ]
+        if !config.clientSecret.isEmpty { body["client_secret"] = config.clientSecret }
         req.httpBody = Self.percentEncoded(body).data(using: .utf8)
 
         let (data, resp) = try await send(req)
@@ -212,11 +287,14 @@ final class GoogleOAuthSession {
         guard let p = parsed, !p.accessToken.isEmpty else {
             throw OAuthError.tokenExchangeFailed("解析令牌失败")
         }
+        let existing = loadTokens()
         let tokens = OAuthTokenSet(
             accessToken: p.accessToken,
-            refreshToken: p.refreshToken,
+            refreshToken: p.refreshToken ?? existing?.refreshToken,
             expiresAt: Date().addingTimeInterval(TimeInterval(p.expiresIn)),
-            scope: p.scope)
+            // Capabilities are derived only from scopes returned by Google.
+            // A missing scope never silently upgrades permissions.
+            scope: p.scope ?? existing?.scope)
         try storeTokens(tokens)
     }
 
@@ -229,12 +307,12 @@ final class GoogleOAuthSession {
         var req = URLRequest(url: URL(string: "https://oauth2.googleapis.com/token")!)
         req.httpMethod = "POST"
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        let body = [
+        var body = [
             "client_id": config.clientID,
-            "client_secret": config.clientSecret,
             "refresh_token": refresh,
             "grant_type": "refresh_token"
         ]
+        if !config.clientSecret.isEmpty { body["client_secret"] = config.clientSecret }
         req.httpBody = Self.percentEncoded(body).data(using: .utf8)
         let (data, resp) = try await send(req)
         guard resp.statusCode == 200 else {
@@ -272,10 +350,11 @@ final class GoogleOAuthSession {
         return try? JSONDecoder().decode(OAuthTokenSet.self, from: data)
     }
 
-    @discardableResult
-    func storeTokens(_ tokens: OAuthTokenSet) throws -> Bool {
+    func storeTokens(_ tokens: OAuthTokenSet) throws {
         let data = try JSONEncoder().encode(tokens)
-        return keychain.set(data, for: Self.tokensAccount)
+        guard keychain.set(data, for: Self.tokensAccount) else {
+            throw OAuthError.tokenExchangeFailed(tr("Keychain write failed", "Keychain 写入失败"))
+        }
     }
 
     // MARK: - Internal
@@ -339,5 +418,63 @@ private extension Data {
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
+    }
+}
+
+/// Local HTTP listener for Google Desktop OAuth loopback redirects.
+final class LoopbackCallbackServer: @unchecked Sendable {
+    private final class ResumeBox: @unchecked Sendable {
+        let lock = NSLock()
+        var resumed = false
+        var listener: NWListener?
+        let continuation: CheckedContinuation<URL?, Never>
+
+        init(_ continuation: CheckedContinuation<URL?, Never>) {
+            self.continuation = continuation
+        }
+
+        func finish(_ url: URL?) {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !resumed else { return }
+            resumed = true
+            listener?.cancel()
+            listener = nil
+            continuation.resume(returning: url)
+        }
+    }
+
+    func listen(port: UInt16, timeoutSeconds: TimeInterval = 180) async -> URL? {
+        await withCheckedContinuation { (cont: CheckedContinuation<URL?, Never>) in
+            let box = ResumeBox(cont)
+            do {
+                let listener = try NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: port)!)
+                box.listener = listener
+                listener.newConnectionHandler = { conn in
+                    conn.start(queue: .main)
+                    conn.receive(minimumIncompleteLength: 1, maximumLength: 8192) { data, _, _, _ in
+                        let text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                        let first = text.split(separator: "\r\n").first.map(String.init) ?? ""
+                        let path = first.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
+                        let url = URL(string: "http://127.0.0.1:\(port)\(path)")
+                        let body = "You can close this window and return to Muses."
+                        let resp = "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
+                        conn.send(content: resp.data(using: .utf8), completion: .contentProcessed { _ in
+                            conn.cancel()
+                            box.finish(url)
+                        })
+                    }
+                }
+                listener.stateUpdateHandler = { state in
+                    if case .failed = state { box.finish(nil) }
+                }
+                listener.start(queue: .main)
+                DispatchQueue.main.asyncAfter(deadline: .now() + timeoutSeconds) {
+                    box.finish(nil)
+                }
+            } catch {
+                box.finish(nil)
+            }
+        }
     }
 }
