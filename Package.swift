@@ -13,29 +13,29 @@ let package = Package(
         .executableTarget(
             name: "Muses",
             dependencies: ["MusesWebHomeProtocol"],
-            path: "Muses/Sources/Muses",
+            path: "Sources/Muses",
             resources: [
                 .copy("Resources"),
             ]
         ),
         .target(
             name: "MusesWebHomeProtocol",
-            path: "Muses/Sources/MusesWebHomeProtocol"
+            path: "Sources/MusesWebHomeProtocol"
         ),
         .target(
             name: "MusesWebHomeCore",
             dependencies: ["MusesWebHomeProtocol"],
-            path: "Muses/Sources/MusesWebHomeCore"
+            path: "Sources/MusesWebHomeCore"
         ),
         .executableTarget(
             name: "MusesWebHomeHelper",
             dependencies: ["MusesWebHomeProtocol", "MusesWebHomeCore"],
-            path: "Muses/Sources/MusesWebHomeHelper"
+            path: "Sources/MusesWebHomeHelper"
         ),
         .testTarget(
             name: "MusesTests",
             dependencies: ["Muses", "MusesWebHomeProtocol", "MusesWebHomeCore"],
-            path: "Muses/Tests/MusesTests",
+            path: "Tests/MusesTests",
             resources: [
                 .copy("Fixtures"),
             ]

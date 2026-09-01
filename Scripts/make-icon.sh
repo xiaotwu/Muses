@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # make-icon.sh — 从 logo-and-icon/icon.png (1024×1024 RGBA) 生成 AppIcon.icns。
 #
-# 产物:Muses/Sources/Muses/Resources/AppIcon.icns(由 Info.plist CFBundleIconFile=AppIcon 引用)。
+# 产物:Sources/Muses/Resources/AppIcon.icns(由 Info.plist CFBundleIconFile=AppIcon 引用)。
 # 幂等:若 .icns 存在且新于源 png 则跳过。
 #
 # 用法:./Scripts/make-icon.sh
@@ -10,7 +10,7 @@ set -euo pipefail
 
 SOURCE="logo-and-icon/icon.png"
 ICONSET="build/AppIcon.iconset"
-DEST="Muses/Sources/Muses/Resources/AppIcon.icns"
+DEST="Sources/Muses/Resources/AppIcon.icns"
 
 if [[ ! -f "$SOURCE" ]]; then
     echo "错误:源图标 $SOURCE 不存在" >&2

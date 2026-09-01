@@ -6,7 +6,33 @@ This file defines durable product, engineering, UX, design, performance, and ver
 
 Muses is a native macOS **YouTube-native music application**. The library is imported YouTube videos and playlists. Playback, queue, artwork-led browsing, a persistent PlayerBar, immersive Now Playing (video + vinyl), and native macOS integration remain the product. It is not a local-file media player and not a demo.
 
-As of 2026-08-20 the local-file era is retired: no folder scanning, no file import, no M3U workflow, no local additions to imported YouTube playlists, and no `LocalAudioEngine` in the running app. D1 in `docs/superpowers/specs/2026-08-20-muses-apple-music-web-reconstruction.md` approves a one-time logical snapshot/import into a clean V3 store. Build and validate the replacement store at a distinct URL. Do not delete a source store as part of pointer activation; after manifest-complete validation and a successful cold restart without the pre-V3 store, remove the legacy store family and its compatibility pipeline. The user explicitly chose no long-term migration capsule on 2026-08-24.
+As of 2026-08-20 the local-file era is retired: no folder scanning, no file import, no M3U workflow, no local additions to imported YouTube playlists, and no `LocalAudioEngine` in the running app. The approved store cutover decision (D1) chose a one-time logical snapshot/import into a clean versioned store. Build and validate the replacement store at a distinct URL. Do not delete a source store as part of pointer activation; after manifest-complete validation and a successful cold restart without the legacy store, remove the legacy store family and its compatibility pipeline. The user explicitly chose no long-term migration capsule on 2026-08-24.
+
+
+## Project Layout
+
+Standard SwiftPM application layout:
+
+- `Package.swift` — single package: executable `Muses`, executable `MusesWebHomeHelper`, targets `MusesWebHomeProtocol` / `MusesWebHomeCore`, test target `MusesTests`.
+- `Sources/Muses/` — application sources (`App/`, `Domain/`, `Features/`, `Infrastructure/`, `Persistence/`, `Services/`, `Resources/`).
+- `Sources/MusesWebHomeHelper|Core|Protocol/` — the isolated Web Session Home helper and its parser/protocol layers.
+- `Tests/MusesTests/` — Swift Testing suites; fixtures under `Tests/MusesTests/Fixtures/`.
+- `Scripts/` — packaging, DMG, icon, yt-dlp bootstrap, and a local run helper.
+- `docs/` — user-facing documentation that also powers GitHub Pages.
+
+Build and verification entry points: `make build`, `make test` (`swift test --no-parallel`), `make app`, `make dmg`, `./Scripts/build-app.sh --identity <identity>` (OAuth client injected via `MUSES_GOOGLE_OAUTH_CLIENT_ID[/SECRET]` build environment; never committed).
+
+## Isolated Web Session Home Boundary
+
+Web Session Home ("个性化首页") is a durable product boundary, not a task artifact:
+
+- Off by default; enabling requires an explicit dedicated consent with the detected Safari/Chrome/Firefox source pinned at confirmation time.
+- All web fetching happens in a separate one-shot `MusesWebHomeHelper` executable at a fixed bundle path, reached over versioned stdin/stdout IPC with signature verification, strict size limits, and timeouts/cancellation.
+- Browser cookies live only in a permission-restricted temporary jar (0700/0600) deleted when the helper exits. SAPISIDHASH is generated in memory per request. Continuation tokens live only in volatile memory.
+- Cookie, auth-hash, raw payloads, and continuation tokens are never logged, persisted to SwiftData, or written to ordinary caches. Web snapshots live in the partitioned `~/Library/Caches/Muses/home-feed/<scope>/web-v1` cache and are normalized, whitelisted-parsed values only.
+- The Web layer is read-only display data: it never participates in playback authority, Push, playlist writes, or user-data truth. Web channel identity must exactly match the connected OAuth channel (fail closed otherwise).
+- Preferred failure states degrade to baseline/public Home with an explicit recovery banner; never silently broaden capability.
+- Do not host playback in WKWebView and do not copy cookie/credential material into the app process beyond the in-memory jar handle lifecycle described above.
 
 ## Source of Truth
 
@@ -18,7 +44,7 @@ Use this hierarchy when sources disagree:
 4. Current tests.
 5. Historical documentation and plans.
 
-The approved reconstruction source is `docs/superpowers/specs/2026-08-20-muses-apple-music-web-reconstruction.md`. Tests that encode a superseded visual or product contract must be updated; they do not override that specification. Historical plans describe intent, not an active roadmap. Investigate uncertainty; do not guess. Distinguish confirmed facts, evidence-backed implications, and speculation.
+The approved visual reconstruction contract is encoded in the source and its guardrail tests; tests that encode a superseded visual or product contract must be updated. Historical plans were working documents; they are not kept in the repository. Investigate uncertainty; do not guess. Distinguish confirmed facts, evidence-backed implications, and speculation.
 
 ## Core Architecture
 
@@ -47,7 +73,7 @@ The approved reconstruction source is `docs/superpowers/specs/2026-08-20-muses-a
 - Preserve immutable `Sendable` value boundaries such as `TrackSnapshot` for playback, queueing, and detached computation.
 - Continue the established fresh-context, UUID re-fetch pattern when mutating persisted objects unless an explicitly scoped architectural change replaces it.
 - Persisted user truth—stable IDs, likes, playlists and item order, YouTube imports, history, queue state, notes/bookmarks, pins, and user metadata—must survive the approved D1 logical cutover.
-- Do not carry retired local rows, `ScanRoot`, scanner/M3U state, or rebuildable catalog caches into the clean store. Preserve the source during cutover validation, then delete the pre-V3 store family and old-schema compatibility code after the approved cleanup gate passes.
+- Do not carry retired local rows, `ScanRoot`, scanner/M3U state, or rebuildable catalog caches into the clean store. Preserve the source during cutover validation, then delete the legacy store family and old-schema compatibility code after the approved cleanup gate passes.
 - Releases and artists require stable YouTube Music browse/playlist or YouTube channel IDs; never merge catalog objects by display name alone. Music Videos are a `Track` media kind, not a parallel playable entity.
 - Keep expensive network, metadata, palette, and recommendation work out of SwiftUI `body`.
 - Large playlist screens must use lazy stacks and snapshot values. Do not eager-`VStack` hundreds of SwiftData relationships.
@@ -62,7 +88,7 @@ The approved reconstruction source is `docs/superpowers/specs/2026-08-20-muses-a
 
 ## Product Contracts
 
-Chrome (as of `docs/superpowers/specs/2026-08-20-muses-apple-music-web-reconstruction.md`; supersedes the old Apple Music draft and Sidra black/white/glow):
+Chrome (live Apple Music Web layout; supersedes the old Apple Music draft and Sidra black/white/glow):
 
 - Left nav (live Apple Music Web): liquid-glass rounded pane behind native `NSWindow` traffic lights, Muses wordmark, Search / Home / New (selected item is pink), then Library (Recently, Songs, History) and playlists. Standard window buttons remain AppKit-owned and are never reparented or manually positioned. Inbox is not a chrome destination. Collapse is an 88pt icon rail that reserves the same traffic-light clearance. Profile at the bottom opens Settings. No top-bar tabs. No Radio.
 - Library pane is always visible unless the user collapsed it.
