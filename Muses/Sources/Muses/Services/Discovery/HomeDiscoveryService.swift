@@ -15,6 +15,12 @@ final class HomeDiscoveryService {
     private(set) var sections: [HomeSection] = []
     /// 是否正在后台刷新远程发现。
     private(set) var isRefreshing: Bool = false
+    /// Account/input-scoped cache freshness shown by Home.
+    private(set) var lastUpdatedAt: Date?
+    private(set) var isShowingStale = false
+    private(set) var lastRefreshError: String?
+    private(set) var activeScope: HomeFeedScope = .guest
+    private(set) var webCapability: HomeWebCapability = .notConfigured
 
     private let provider: HomeDiscoveryProvider
     private let cache: HomeFeedCache
@@ -24,20 +30,25 @@ final class HomeDiscoveryService {
     /// YouTube 账号个性化信号(可选,P2 OAuth 接入后注入)。仅在后台 `refresh` 路径读取,
     /// 把账号点赞/订阅的艺术家名融合进发现种子;nil/未连接 → 无影响,发现回退本地信号。
     private let youTubeSignals: @Sendable () async -> PersonalizationSignals?
+    private let accountChannelIDProvider: () -> String?
     private var refreshTask: Task<Void, Never>?
+    private var morePage = 0
+    private(set) var isLoadingMore = false
 
     init(provider: HomeDiscoveryProvider,
          cache: HomeFeedCache = .default,
          library: LibraryService,
          historyService: HistoryService? = nil,
          enabledProvider: @escaping () -> Bool = { UserDefaults.standard.bool(forKey: PrefKey.ffDiscovery) },
-         youTubeSignals: @escaping @Sendable () async -> PersonalizationSignals? = { nil }) {
+         youTubeSignals: @escaping @Sendable () async -> PersonalizationSignals? = { nil },
+         accountChannelIDProvider: @escaping () -> String? = { nil }) {
         self.provider = provider
         self.cache = cache
         self.library = library
         self.historyService = historyService
         self.enabledProvider = enabledProvider
         self.youTubeSignals = youTubeSignals
+        self.accountChannelIDProvider = accountChannelIDProvider
     }
 
     var isEnabled: Bool { enabledProvider() }
@@ -51,21 +62,72 @@ final class HomeDiscoveryService {
     func load() {
         guard isEnabled else { return }
         let input = buildInput()
-        // 1. 立即上屏缓存。
-        if let cached = cache.get(for: input) {
-            sections = cached.value
+        activeScope = input.scope
+        let baselineCache = cache.get(for: input, layer: .baseline)
+        let webCache = provider.hasWebEnhancement
+            ? cache.get(for: input, layer: .webV1)
+            : nil
+        let baselineIsFresh = baselineCache.map {
+            cache.isFresh($0, layer: .baseline)
+        } ?? false
+        let webIsFresh = webCache.map {
+            cache.isFresh($0, layer: .webV1)
+        } ?? false
+
+        if let baselineCache {
+            let baselineReason = baselineIsFresh ? nil : "expired"
+            let baselineSections = baselineCache.value.sections.map {
+                $0.presentedFromCache(staleReason: baselineReason)
+            }
+            let webSections = webCache?.value.sections.map {
+                $0.presentedFromCache(staleReason: webIsFresh ? nil : "expired")
+            } ?? []
+            sections = compose(web: webSections, baseline: baselineSections)
+            lastUpdatedAt = [baselineCache.value.fetchedAt, webCache?.value.fetchedAt]
+                .compactMap { $0 }.max()
+            isShowingStale = !baselineIsFresh || (webCache != nil && !webIsFresh)
+
+            if case .account(let channelID) = input.scope, webCache != nil {
+                webCapability = .saved(
+                    accountChannelID: channelID,
+                    stale: !webIsFresh,
+                    reason: webIsFresh ? nil : "expired")
+            } else {
+                webCapability = initialWebCapability(for: input.scope)
+            }
             PerfTrace.event("home.discovery.cachedHit")
-            if cache.isFresh(cached) {
+            let webRequirementSatisfied = !provider.hasWebEnhancement
+                || input.scope == .guest
+                || webIsFresh
+            if baselineIsFresh && webRequirementSatisfied {
                 PerfTrace.event("home.discovery.fresh")
                 return
             }
         } else {
-            // 无缓存:置各 planned section 为 loading 占位(标题先填,内容后补)。
             sections = loadingPlaceholders(for: input)
             PerfTrace.event("home.discovery.cold")
+            isShowingStale = false
+            webCapability = initialWebCapability(for: input.scope)
         }
-        // 2. 后台刷新。
         refresh(input: input)
+    }
+
+    func loadMore() {
+        guard isEnabled, !isLoadingMore, !isRefreshing, morePage < 12 else { return }
+        morePage += 1
+        let page = morePage
+        let input = buildInput()
+        isLoadingMore = true
+        Task { [weak self] in
+            guard let self else { return }
+            let extra = await self.provider.more(page: page, input: input)
+            guard !Task.isCancelled, input.scope == self.buildInput().scope else {
+                self.isLoadingMore = false
+                return
+            }
+            self.sections.append(contentsOf: extra)
+            self.isLoadingMore = false
+        }
     }
 
     /// 取消在途刷新(页面切换取消,§23)。
@@ -73,6 +135,25 @@ final class HomeDiscoveryService {
         refreshTask?.cancel()
         refreshTask = nil
         isRefreshing = false
+        isLoadingMore = false
+    }
+
+    /// Called when OAuth identity changes. Visible account content is cleared
+    /// immediately; the previous account's on-disk cache remains dormant and
+    /// can only be reopened by that same channel scope.
+    func accountScopeDidChange() {
+        guard transitionToCurrentAccountScope() else { return }
+        load()
+    }
+
+    /// Clears the old account immediately but deliberately does not start the
+    /// new scope until the Web helper cancellation has completed.
+    func accountScopeWillChange() {
+        _ = transitionToCurrentAccountScope()
+    }
+
+    func resumeAfterAccountScopeChange() {
+        load()
     }
 
     /// 强制重新刷新(下拉刷新 / 设置变更后)。
@@ -89,7 +170,64 @@ final class HomeDiscoveryService {
         }
     }
 
+    /// Applies an opt-in/opt-out change without allowing a disabled Web layer
+    /// (or its saved partition) to remain visible in the current feed.
+    func webConfigurationDidChange() {
+        cancel()
+        sections.removeAll {
+            $0.source == .signedInWeb || $0.cachedOrigin == .signedInWeb
+        }
+        webCapability = initialWebCapability(for: buildInput().scope)
+        reload()
+    }
+
+    /// Deletes only the active OAuth account's normalized Web partition.
+    /// Baseline discovery and every other account partition remain untouched.
+    func clearSavedWebHomeForCurrentAccount() {
+        let input = buildInput()
+        guard case .account = input.scope else { return }
+        cache.invalidate(scope: input.scope, layer: .webV1)
+        sections.removeAll {
+            $0.source == .signedInWeb || $0.cachedOrigin == .signedInWeb
+        }
+        webCapability = initialWebCapability(for: input.scope)
+        lastRefreshError = nil
+        reload()
+    }
+
+    /// Adds a normalized, in-memory continuation page to one live Web shelf.
+    /// Continuation pages are not written to the durable cache because the
+    /// associated token chain is intentionally process-local.
+    func appendWebContinuation(_ items: [DiscoveryItem], to sectionID: String) {
+        guard let index = sections.firstIndex(where: {
+            $0.id == sectionID && $0.source == .signedInWeb
+        }) else { return }
+        let section = sections[index]
+        var seen = Set(section.items.compactMap(\.homeMediaIdentity))
+        let extra = items.filter { item in
+            guard let identity = item.homeMediaIdentity else { return false }
+            return seen.insert(identity).inserted
+        }
+        guard !extra.isEmpty else { return }
+        sections[index] = replacingItems(in: section, with: section.items + extra)
+    }
+
     // MARK: - Internals
+
+    @discardableResult
+    private func transitionToCurrentAccountScope() -> Bool {
+        let newScope = buildInput().scope
+        guard newScope != activeScope else { return false }
+        cancel()
+        activeScope = newScope
+        sections = []
+        webCapability = initialWebCapability(for: newScope)
+        lastUpdatedAt = nil
+        isShowingStale = false
+        lastRefreshError = nil
+        morePage = 0
+        return true
+    }
 
     private func refresh(input: HomeDiscoveryInput) {
         refreshTask?.cancel()
@@ -98,19 +236,127 @@ final class HomeDiscoveryService {
             guard let self else { return }
             // P2:融合 YouTube 账号个性化信号(后台路径,不影响同步缓存契约)。
             let enriched = await self.enrichedInput(input)
-            let result = await self.provider.sections(for: enriched)
-            guard !Task.isCancelled else { return }
-            self.sections = result
-            // 缓存仍以原始 input 为键(同步 load() 用同一 input 查缓存)。
-            self.cache.set(result, for: input)
+            let result = await self.provider.fetch(for: enriched)
+            guard !Task.isCancelled, input.scope == self.buildInput().scope else { return }
+            let cachedBaseline = self.cache.get(for: input, layer: .baseline)
+            let previousBaselineSections = cachedBaseline?.value.sections
+                ?? self.sections.filter {
+                    $0.source != .signedInWeb && $0.cachedOrigin != .signedInWeb
+                }
+            let previous = Dictionary(
+                uniqueKeysWithValues: previousBaselineSections.map { ($0.id, $0) })
+            var firstBaselineFailure: String?
+            let mergedBaseline = result.baselineSnapshot.sections.map { section -> HomeSection in
+                guard case .failed(let message) = section.status else { return section }
+                firstBaselineFailure = firstBaselineFailure ?? message
+                if let cached = previous[section.id], !cached.items.isEmpty {
+                    return HomeSection(id: cached.id, title: cached.title,
+                                       subtitle: cached.subtitle, kind: cached.kind,
+                                       items: cached.items, status: .loaded,
+                                       source: cached.source,
+                                       cachedOrigin: cached.cachedOrigin,
+                                       accountChannelID: cached.accountChannelID,
+                                       schemaVersion: cached.schemaVersion,
+                                       fetchedAt: cached.fetchedAt,
+                                       expiresAt: cached.expiresAt,
+                                       staleReason: message ?? cached.staleReason)
+                }
+                return section
+            }
+
+            if result.cacheDirectives.storeBaseline {
+                _ = self.cache.set(result.baselineSnapshot, for: input, layer: .baseline)
+            }
+
+            let webFailure = result.failures.first { $0.layer == .web }
+            let webSections: [HomeSection]
+            if let webSnapshot = result.webSnapshot {
+                if result.cacheDirectives.storeWeb {
+                    _ = self.cache.set(webSnapshot, for: input, layer: .webV1)
+                }
+                webSections = webSnapshot.sections
+                self.webCapability = result.webCapability
+            } else {
+                let savedWeb = self.cache.get(for: input, layer: .webV1)
+                let savedReason = webFailure?.message
+                    ?? result.failures.first(where: { $0.layer == .web })?.code.rawValue
+                webSections = savedWeb?.value.sections.map {
+                    $0.presentedFromCache(staleReason: savedReason)
+                } ?? []
+                if case .account(let channelID) = input.scope, savedWeb != nil {
+                    PerfTrace.event("home.web.stale")
+                    self.webCapability = .saved(
+                        accountChannelID: channelID,
+                        stale: true,
+                        reason: savedReason)
+                } else {
+                    self.webCapability = result.webCapability
+                }
+            }
+
+            self.sections = self.compose(web: webSections, baseline: mergedBaseline)
+            let baselineFailure = result.failures.first { $0.layer == .baseline }
+            self.lastRefreshError = baselineFailure?.message
+                ?? firstBaselineFailure
+                ?? webFailure?.message
+            self.isShowingStale = webSections.contains { $0.source == .cached }
+                || mergedBaseline.contains { $0.source == .cached || $0.staleReason != nil }
+            self.lastUpdatedAt = [
+                result.cacheDirectives.storeBaseline
+                    ? result.baselineSnapshot.fetchedAt : cachedBaseline?.value.fetchedAt,
+                result.webSnapshot?.fetchedAt,
+                self.cache.get(for: input, layer: .webV1)?.value.fetchedAt
+            ].compactMap { $0 }.max()
             self.isRefreshing = false
             PerfTrace.event("home.discovery.refreshed")
         }
     }
 
+    private func compose(web: [HomeSection], baseline: [HomeSection]) -> [HomeSection] {
+        let webIDs = Set(web.map(\.id))
+        let webMediaIDs = Set(web.flatMap(\.items).compactMap(\.homeMediaIdentity))
+        let remainingBaseline = baseline.compactMap { section -> HomeSection? in
+            guard !webIDs.contains(section.id) else { return nil }
+            let filtered = section.items.filter { item in
+                guard let identity = item.homeMediaIdentity else { return true }
+                return !webMediaIDs.contains(identity)
+            }
+            if !section.items.isEmpty, filtered.isEmpty { return nil }
+            return replacingItems(in: section, with: filtered)
+        }
+        return web + remainingBaseline
+    }
+
+    private func replacingItems(
+        in section: HomeSection,
+        with items: [DiscoveryItem]
+    ) -> HomeSection {
+        HomeSection(
+            id: section.id,
+            title: section.title,
+            subtitle: section.subtitle,
+            kind: section.kind,
+            items: items,
+            status: section.status,
+            source: section.source,
+            cachedOrigin: section.cachedOrigin,
+            accountChannelID: section.accountChannelID,
+            schemaVersion: section.schemaVersion,
+            fetchedAt: section.fetchedAt,
+            expiresAt: section.expiresAt,
+            staleReason: section.staleReason)
+    }
+
+    private func initialWebCapability(for scope: HomeFeedScope) -> HomeWebCapability {
+        guard provider.hasWebEnhancement else { return .notConfigured }
+        if scope == .guest { return .signedOut }
+        return .unavailable(reason: nil)
+    }
+
     /// 把 YouTube 账号信号(点赞/订阅的艺术家名)融合进 `input` 的种子列表。
     /// 仅在后台 refresh 调用;`youTubeSignals` 返回 nil → 原样返回。
     private func enrichedInput(_ input: HomeDiscoveryInput) async -> HomeDiscoveryInput {
+        guard case .account = input.scope else { return input }
         guard let signals = await youTubeSignals() else { return input }
         return input.enriched(with: signals)
     }
@@ -120,38 +366,56 @@ final class HomeDiscoveryService {
         // 复用 provider 的 plan 命名?provider 内部 plan 是 private。此处用 input 派生
         // 等价标题,保持与 provider 一致(标题生成逻辑集中在 provider,这里仅占位)。
         var placeholders: [HomeSection] = []
+        if let recent = input.recentlyPlayedArtistNames.first {
+            placeholders.append(HomeSection(
+                id: "listen-again",
+                title: tr("Listen again", "再听一次"),
+                subtitle: recent,
+                kind: .youTubeCarousel, items: [], status: .loading))
+        }
         if let artist = input.topArtistNames.first {
             placeholders.append(HomeSection(
                 id: "top-artist",
-                title: tr("Top songs by \(artist)", "\(artist) 的热门歌曲"),
-                subtitle: tr("From YouTube", "来自 YouTube"),
+                title: tr("Mixed for you · \(artist)", "为你精选 · \(artist)"),
+                subtitle: tr("From YouTube Music", "来自 YouTube Music"),
                 kind: .youTubeCarousel, items: [], status: .loading))
         }
-        placeholders.append(timeBandPlaceholder(for: input.timeBand))
+        placeholders.append(HomeSection(
+            id: "quick-picks",
+            title: tr("Quick picks", "快速精选"),
+            subtitle: nil,
+            kind: .youTubeCarousel, items: [], status: .loading))
+        placeholders.append(seasonalPlaceholder())
+        placeholders.append(HomeSection(
+            id: "new-releases",
+            title: tr("New releases", "新发行"),
+            subtitle: nil,
+            kind: .youTubeCarousel, items: [], status: .loading))
         if let liked = input.likedArtistNames.first, liked != input.topArtistNames.first {
             placeholders.append(HomeSection(
                 id: "from-liked",
                 title: tr("Because you like \(liked)", "因为你喜欢 \(liked)"),
-                subtitle: tr("From YouTube", "来自 YouTube"),
+                subtitle: tr("From YouTube Music", "来自 YouTube Music"),
                 kind: .youTubeCarousel, items: [], status: .loading))
         }
         placeholders.append(HomeSection(
             id: "trending",
-            title: tr("Trending now", "正在流行"),
-            subtitle: tr("From YouTube", "来自 YouTube"),
+            title: tr("Charts", "排行榜"),
+            subtitle: tr("From YouTube Music", "来自 YouTube Music"),
             kind: .youTubeCarousel, items: [], status: .loading))
         return placeholders
     }
 
-    private func timeBandPlaceholder(for band: ListeningContext.TimeBand) -> HomeSection {
-        let title: String, subtitle: String
-        switch band {
-        case .morning:   title = tr("Morning picks", "清晨精选"); subtitle = tr("Ease into the day", "从容开启一天")
-        case .afternoon: title = tr("Afternoon rotation", "午后轮播"); subtitle = tr("Keep moving", "保持节奏")
-        case .evening:   title = tr("Evening chill", "傍晚放松"); subtitle = tr("Wind down", "慢下来")
-        case .lateNight: title = tr("Late-night picks", "深夜精选"); subtitle = tr("For the quiet hours", "献给安静的时刻")
+    private func seasonalPlaceholder(now: Date = .init()) -> HomeSection {
+        let title: String
+        switch Calendar.current.component(.month, from: now) {
+        case 6...8: title = tr("That summer feeling", "夏日氛围")
+        case 9...11: title = tr("Autumn atmosphere", "秋日氛围")
+        case 12, 1, 2: title = tr("Winter listening", "冬日聆听")
+        default: title = tr("Spring refresh", "春日焕新")
         }
-        return HomeSection(id: "time-of-day", title: title, subtitle: subtitle,
+        return HomeSection(id: "seasonal", title: title,
+                           subtitle: tr("Soundtrack the season", "本季原声"),
                            kind: .youTubeCarousel, items: [], status: .loading)
     }
 
@@ -177,7 +441,9 @@ final class HomeDiscoveryService {
             recentlyPlayedArtistNames: recentArtists,
             likedArtistNames: likedArtists,
             timeBand: band,
-            hour: hour)
+            hour: hour,
+            seedVideoIds: seedVideoIds(),
+            scope: HomeFeedScope(accountChannelID: accountChannelIDProvider()))
     }
 
     private func topArtistNames(limit: Int) -> [String] {
@@ -197,6 +463,16 @@ final class HomeDiscoveryService {
 
     private func likedArtistNames(limit: Int) -> [String] {
         library.likedTracks().map(\.artist).deduplicated(limit: limit)
+    }
+
+    private func seedVideoIds(limit: Int = 4) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for id in library.recentlyPlayedTracks(limit: 20).compactMap(\.youTubeId) {
+            if seen.insert(id).inserted { out.append(id) }
+            if out.count >= limit { break }
+        }
+        return out
     }
 
     /// 异步版输入构建:在后台 `Task.detached` 聚合发现信号(单次 fetch 派生),
@@ -219,7 +495,9 @@ final class HomeDiscoveryService {
             recentlyPlayedArtistNames: signals.recentlyPlayedArtistNames,
             likedArtistNames: signals.likedArtistNames,
             timeBand: band,
-            hour: hour)
+            hour: hour,
+            seedVideoIds: seedVideoIds(),
+            scope: HomeFeedScope(accountChannelID: accountChannelIDProvider()))
     }
 }
 

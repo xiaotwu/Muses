@@ -20,9 +20,6 @@ final class RuntimeCapabilities {
     let headphoneDetection: Status
     let wordSyncedLyrics: Status
     let translationLyrics: Status
-    let localFilesystem: Status
-    let localAudioPlayback: Status
-    let audioMetadata: Status
     let audioAnalysis: Status
     let weatherContext: Status
 
@@ -43,9 +40,6 @@ final class RuntimeCapabilities {
         // 无免费 word-sync/翻译歌词提供商;结构支持,数据回退 line→plain。
         wordSyncedLyrics = .limited
         translationLyrics = .limited
-        localFilesystem = .supported
-        localAudioPlayback = .supported
-        audioMetadata = .supported
         audioAnalysis = .supported
         // 天气上下文需网络+定位,超出本地优先音乐 app 范围,本期不实现。
         weatherContext = .unsupported

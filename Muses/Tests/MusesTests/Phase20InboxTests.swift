@@ -18,8 +18,8 @@ struct Phase20InboxTests {
 
     private func snap(_ t: String, id: UUID = UUID()) -> TrackSnapshot {
         TrackSnapshot(id: id, title: t, artist: "A", albumTitle: nil,
-                      durationSeconds: 1, filePath: nil, youTubeId: nil,
-                      artworkHash: nil, artworkUrl: nil, sampleRate: nil,
+                      durationSeconds: 1, youTubeId: "test-video",
+                      artworkUrl: nil, sampleRate: nil,
                       bitDepth: nil, codec: nil, isLossless: false)
     }
 
@@ -41,8 +41,8 @@ struct Phase20InboxTests {
         let container = try makeContainer()
         let ctx = ModelContext(container)
         let item = InboxItem(trackId: UUID(), trackTitle: "T", artist: "A",
-                             albumTitle: nil, durationSeconds: 1, youTubeId: nil,
-                             artworkUrl: nil, filePath: nil, source: .youTubeImport,
+                             albumTitle: nil, durationSeconds: 1, youTubeId: "test-video",
+                             artworkUrl: nil, source: .youTubeImport,
                              state: .snoozed, snoozeUntil: Date().addingTimeInterval(3600))
         ctx.insert(item)
         try ctx.save()
@@ -172,13 +172,11 @@ struct Phase20InboxTests {
         let container = try makeContainer()
         let ctx = ModelContext(container)
         let trackId = UUID()
-        let track = Track(id: trackId, source: .local, title: "T", artist: "A")
+        let track = Track(id: trackId, title: "T", artist: "A", youTubeId: "test-video")
         ctx.insert(track)
         try ctx.save()
 
-        let artwork = ArtworkCache(directory: URL(fileURLWithPath: NSTemporaryDirectory())
-            .appending(path: "muses-test-artwork-\(UUID().uuidString)"))
-        let library = LibraryService(modelContainer: container, metadata: MetadataService(artworkCache: artwork))
+        let library = LibraryService(modelContainer: container)
         let inbox = makeInbox(container: container)
         let id = inbox.add(snap("T", id: trackId))!
 

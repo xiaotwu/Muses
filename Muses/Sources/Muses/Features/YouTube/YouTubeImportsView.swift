@@ -3,11 +3,10 @@ import SwiftData
 
 /// YouTube 歌单导入管理视图(spec §7.5)。
 ///
-/// 列出所有已导入的 YouTube 歌单,支持重新同步、在 YT 中打开、删除、播放;
-/// 可展开查看条目与本地附加区。顶部按钮弹出导入 sheet。
+/// Lists imported YouTube playlists. Remote inspection stays read-only until
+/// the user opens a playlist and explicitly chooses Pull or Push.
 struct YouTubeImportsView: View {
     @Environment(YouTubeImportService.self) private var importService
-    @Environment(PlaybackService.self) private var playback
     @Query(sort: \YouTubeImport.importedAt, order: .reverse) private var imports: [YouTubeImport]
 
     @State private var showImportSheet = false
@@ -15,6 +14,10 @@ struct YouTubeImportsView: View {
     @State private var error: String?
     /// 嵌入到 YouTubeMusicView 时为 true:隐藏重复的大标题与 navigationTitle。
     var embedded: Bool = false
+
+    private var activeImports: [YouTubeImport] {
+        imports.filter { $0.deletedAt == nil }
+    }
 
     var body: some View {
         ScrollView {
@@ -43,7 +46,7 @@ struct YouTubeImportsView: View {
                         .padding(.horizontal, 20)
                 }
 
-                if imports.isEmpty {
+                if activeImports.isEmpty {
                     VStack(spacing: 8) {
                         Image(systemName: "music.note.list")
                             .font(.system(size: 48))
@@ -57,7 +60,7 @@ struct YouTubeImportsView: View {
                     .padding(.vertical, 80)
                 } else {
                     LazyVStack(spacing: 12) {
-                        ForEach(imports, id: \.id) { imp in
+                        ForEach(activeImports, id: \.id) { imp in
                             YouTubeImportCard(imp: imp)
                         }
                     }
@@ -66,7 +69,6 @@ struct YouTubeImportsView: View {
             }
             .padding(.vertical, 24)
         }
-        .modifier(ConditionalNavTitle(title: tr("YouTube Imports", "YouTube 导入"), enabled: !embedded))
         .background(BrandColors.background)
         .sheet(isPresented: $showImportSheet) {
             YouTubeImportSheet { url in
@@ -76,7 +78,7 @@ struct YouTubeImportsView: View {
                     do {
                         _ = try await importService.importPlaylist(url: url)
                     } catch let err {
-                        error = "\(err)"
+                        error = err.localizedDescription
                     }
                     importing = false
                     showImportSheet = false
@@ -89,19 +91,16 @@ struct YouTubeImportsView: View {
 /// 单条 YouTube 导入卡片:封面 + 标题 + 元信息 + 操作按钮 + 可展开条目。
 struct YouTubeImportCard: View {
     let imp: YouTubeImport
-    @Environment(YouTubeImportService.self) private var importService
     @Environment(PlaybackService.self) private var playback
     @Environment(InboxService.self) private var inbox
+    @Environment(YouTubePlaylistSyncService.self) private var playlistSync
     @State private var expanded = false
     @State private var syncing = false
-    @State private var showAddLocalSheet = false
+    @State private var syncError: String?
     @State private var selectedItemID: UUID?
 
     private var items: [YouTubeImportItem] {
         (imp.items ?? []).sorted { $0.order < $1.order }
-    }
-    private var localAdditions: [Track] {
-        imp.localAdditions ?? []
     }
 
     var body: some View {
@@ -137,16 +136,12 @@ struct YouTubeImportCard: View {
                     // 操作按钮
                     HStack(spacing: 8) {
                         Button {
-                            Task {
-                                syncing = true
-                                _ = try? await importService.resync(importId: imp.id)
-                                syncing = false
-                            }
+                            Task { await checkRemote() }
                         } label: {
                             if syncing {
                                 ProgressView().controlSize(.small)
                             } else {
-                                Label(tr("Resync", "重新同步"), systemImage: "arrow.clockwise")
+                                Label(tr("Check Remote", "检查远端"), systemImage: "arrow.down.to.line")
                             }
                         }
                         .buttonStyle(.bordered).disabled(syncing)
@@ -157,7 +152,7 @@ struct YouTubeImportCard: View {
                         .buttonStyle(.bordered)
 
                         Button(role: .destructive) {
-                            importService.deleteImport(importId: imp.id)
+                            deleteImport()
                         } label: { Label(tr("Delete", "删除"), systemImage: "trash") }
                         .buttonStyle(.bordered)
 
@@ -167,6 +162,12 @@ struct YouTubeImportCard: View {
                         .buttonStyle(.borderedProminent).tint(BrandColors.magenta)
                     }
                     .padding(.top, 2)
+                    if let syncError {
+                        Text(syncError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .lineLimit(2)
+                    }
                 }
 
                 Spacer()
@@ -180,6 +181,7 @@ struct YouTubeImportCard: View {
                 .buttonStyle(.plain)
             }
             .padding(12)
+            .contextMenu { importContextMenu }
 
             // 展开条目
             if expanded {
@@ -224,59 +226,41 @@ struct YouTubeImportCard: View {
                                           })
                     }
 
-                    // 本地附加区
-                    Divider().background(BrandColors.textSecondary.opacity(0.1))
-                    HStack {
-                        Text(tr("Local additions (shown locally only, not synced back to YT)", "本地附加(仅本地显示,不同步回 YT)"))
-                            .font(.caption).fontWeight(.medium)
-                            .foregroundStyle(BrandColors.green)
-                        Spacer()
-                        Button {
-                            showAddLocalSheet = true
-                        } label: {
-                            Image(systemName: "plus.circle")
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(BrandColors.green)
-                        .help(tr("Add local tracks to this import", "添加本地曲目到此导入"))
-                    }
-                    .padding(.horizontal, 12).padding(.top, 8)
-
-                    if localAdditions.isEmpty {
-                        Text(tr("No local additions yet, tap + to add", "暂无本地附加,点 + 添加"))
-                            .font(.caption2)
-                            .foregroundStyle(BrandColors.textSecondary)
-                            .padding(.horizontal, 12).padding(.bottom, 8)
-                    } else {
-                        ForEach(localAdditions, id: \.id) { track in
-                            HStack {
-                                Image(systemName: "music.note").foregroundStyle(BrandColors.green)
-                                    .frame(width: 20)
-                                Text(track.title).foregroundStyle(BrandColors.textPrimary)
-                                Text(tr("Local", "本地")).font(.caption2)
-                                    .padding(.horizontal, 6).padding(.vertical, 2)
-                                    .background(BrandColors.green.opacity(0.2))
-                                    .cornerRadius(4)
-                                Spacer()
-                                Button {
-                                    importService.removeLocalAddition(importId: imp.id, trackId: track.id)
-                                } label: { Image(systemName: "minus.circle") }
-                                .buttonStyle(.plain).foregroundStyle(BrandColors.textSecondary)
-                            }
-                            .padding(.horizontal, 12).padding(.vertical, 6)
-                        }
-                    }
                 }
             }
         }
         .background(BrandColors.surface)
         .cornerRadius(12)
-        .sheet(isPresented: $showAddLocalSheet) {
-            LocalTrackPickerSheet(
-                importId: imp.id,
-                existingTrackIds: Set(localAdditions.map { $0.id })
-            )
-            .environment(importService)
+    }
+
+    @ViewBuilder
+    private var importContextMenu: some View {
+        Button(tr("Open Playlist", "打开歌单"), systemImage: "arrow.forward.circle") {
+            NotificationCenter.default.post(name: .musesNavigateYouTubeImport, object: imp)
+        }
+        if !visibleSnaps.isEmpty {
+            Button(tr("Play", "播放"), systemImage: "play.fill", action: playAll)
+        }
+        Button(tr("Check Remote", "检查远端"), systemImage: "arrow.down.to.line") {
+            Task { await checkRemote() }
+        }
+        .disabled(syncing)
+        if let url = URL(string: imp.url) {
+            Button {
+                NSWorkspace.shared.open(url)
+            } label: {
+                Label {
+                    Text(tr("Open on YouTube", "在 YouTube 打开"))
+                } icon: {
+                    YouTubeMark(size: 12)
+                        .accessibilityHidden(true)
+                }
+            }
+            .accessibilityLabel(tr("Open on YouTube", "在 YouTube 打开"))
+        }
+        Divider()
+        Button(tr("Delete Import", "删除导入"), systemImage: "trash", role: .destructive) {
+            deleteImport()
         }
     }
 
@@ -299,12 +283,35 @@ struct YouTubeImportCard: View {
     }
 
     private var visibleSnaps: [TrackSnapshot] {
-        items.compactMap { $0.track }.map { TrackSnapshot(from: $0) }
+        items.compactMap(\.track)
+            .filter { !$0.youTubeId.isEmpty }
+            .map(TrackSnapshot.init(from:))
     }
 
     private func playAll() {
         guard let first = visibleSnaps.first else { return }
         playback.playTrack(first, context: visibleSnaps, from: .import)
+    }
+
+    private func checkRemote() async {
+        guard !syncing else { return }
+        syncing = true
+        defer { syncing = false }
+        syncError = nil
+        do {
+            _ = try await playlistSync.checkRemote(importID: imp.id)
+        } catch {
+            syncError = error.localizedDescription
+        }
+    }
+
+    private func deleteImport() {
+        syncError = nil
+        do {
+            try playlistSync.moveToRecentlyDeleted(importID: imp.id)
+        } catch {
+            syncError = error.localizedDescription
+        }
     }
 
     private func relativeDate(_ d: Date) -> String {
@@ -322,93 +329,9 @@ struct YouTubeImportCard: View {
         if let t = item.track {
             return ArtworkSource.resolve(for: TrackSnapshot(from: t))
         }
-        if let url = URL(string: "https://i.ytimg.com/vi/\(item.youTubeId)/hqdefault.jpg") {
+        if let url = YouTubeThumbnail.url(videoId: item.youTubeId) {
             return .remote(url)
         }
         return .placeholder
-    }
-}
-
-/// 本地曲目选择 sheet:从本地 Track(source == .local)中多选,
-/// 确认后批量调 `addLocalAddition`。
-struct LocalTrackPickerSheet: View {
-    let importId: UUID
-    let existingTrackIds: Set<UUID>
-    @Environment(YouTubeImportService.self) private var importService
-    @Environment(\.dismiss) private var dismiss
-    @Query(filter: #Predicate<Track> { $0.sourceRaw == "local" },
-           sort: \Track.title)
-    private var localTracks: [Track]
-
-    @State private var selectedIds: Set<UUID> = []
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Text(tr("Add local tracks to this import", "添加本地曲目到此导入"))
-                .font(.headline)
-                .foregroundStyle(BrandColors.textPrimary)
-                .padding(.top, 16).padding(.bottom, 12)
-
-            if localTracks.isEmpty {
-                Text(tr("No local tracks in library", "资料库中暂无本地曲目"))
-                    .font(.caption)
-                    .foregroundStyle(BrandColors.textSecondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List {
-                    ForEach(localTracks, id: \.id) { track in
-                        HStack {
-                            Image(systemName: selectedIds.contains(track.id) || existingTrackIds.contains(track.id)
-                                  ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(BrandColors.magenta)
-                            VStack(alignment: .leading) {
-                                Text(track.title).foregroundStyle(BrandColors.textPrimary)
-                                Text(track.artist).font(.caption).foregroundStyle(BrandColors.textSecondary)
-                            }
-                            Spacer()
-                            if existingTrackIds.contains(track.id) {
-                                Text(tr("Added", "已添加")).font(.caption2).foregroundStyle(BrandColors.textSecondary)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            guard !existingTrackIds.contains(track.id) else { return }
-                            if selectedIds.contains(track.id) {
-                                selectedIds.remove(track.id)
-                            } else {
-                                selectedIds.insert(track.id)
-                            }
-                        }
-                    }
-                }
-            }
-
-            HStack {
-                Button(tr("Cancel", "取消")) { dismiss() }
-                    .buttonStyle(.bordered)
-                Spacer()
-                Button(tr("Add \(selectedIds.count) songs", "添加 \(selectedIds.count) 首")) {
-                    for id in selectedIds {
-                        importService.addLocalAddition(importId: importId, trackId: id)
-                    }
-                    dismiss()
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(BrandColors.magenta)
-                .disabled(selectedIds.isEmpty)
-            }
-            .padding(16)
-        }
-        .frame(width: 420, height: 480)
-        .background(.ultraThinMaterial)
-    }
-}
-
-/// 仅在 `enabled` 时应用 `.navigationTitle`,嵌入到合并视图时跳过。
-private struct ConditionalNavTitle: ViewModifier {
-    let title: String
-    let enabled: Bool
-    func body(content: Content) -> some View {
-        if enabled { content.navigationTitle(title) } else { content }
     }
 }

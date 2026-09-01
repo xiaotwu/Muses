@@ -29,7 +29,7 @@ struct FocusView: View {
         }
         .padding(20)
         .frame(width: 380)
-        .background(.regularMaterial)
+        .musesFloatingChrome(cornerRadius: 16)
     }
 
     // MARK: - 进行中

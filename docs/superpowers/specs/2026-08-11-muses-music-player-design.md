@@ -1,9 +1,11 @@
 # Muses — 音乐播放器设计
 
 - **日期**: 2026-08-11
-- **状态**: 已确认,待写实施计划
+- **状态**: 部分 superseded（2026-08-19）
 - **平台**: macOS 14+ (Sonoma),Apple Silicon 原生 (arm64),不构建 x86_64,不考虑移植或多平台
 - **分发**: 个人分发(GitHub Releases + Developer ID 签名 + 公证 + Sparkle 自动更新),**非 App Store**
+
+> **2026-08-19 addendum:** Local-library scanning/import, `LocalAudioEngine` as a production engine, and Albums/Artists as browse destinations are retired. Playback is YouTube IFrame (`YouTubeEmbedEngine`) with yt-dlp `AVPlayer` fallback. See `2026-08-19-muses-youtube-native-redesign.md` and current `AGENTS.md`. Chapters below that describe local files or dual AVAudioEngine remain historical.
 
 ## 1. 目标与范围
 

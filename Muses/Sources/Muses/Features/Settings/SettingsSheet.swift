@@ -19,18 +19,27 @@ enum SettingsCategory: String, Hashable, CaseIterable {
         }
     }
 
-    var icon: String {
+    var systemIcon: String? {
         switch self {
         case .general:      return "gear"
         case .playback:     return "play.circle"
         case .audioQuality: return "sparkles.tv"
         case .appearance:   return "paintbrush"
-        case .youtube:      return "play.rectangle.fill"
+        case .youtube:      return nil
         case .lyrics:       return "text.alignleft"
         case .desktop:      return "menubar.rectangle"
         case .updates:      return "arrow.triangle.2.circlepath"
         case .about:        return "info.circle"
         }
+    }
+}
+
+enum SettingsNavigationPolicy {
+    static func title(
+        selectedCategory: SettingsCategory,
+        showingDetail: Bool
+    ) -> String {
+        showingDetail ? selectedCategory.label : tr("Settings", "设置")
     }
 }
 
@@ -41,6 +50,8 @@ struct SettingsSheet: View {
     @State private var showingDetail: Bool
     @State private var escapeMonitor: Any?
     @Environment(YouTubeAccountService.self) private var youTubeAccount
+    /// 与 YouTubeSettingsView 的「高级」折叠开关共享同一偏好键。
+    @AppStorage(PrefKey.ytShowAdvanced) private var showYtAdvanced = false
 
     init(isPresented: Binding<Bool>, initialCategory: SettingsCategory? = nil) {
         _isPresented = isPresented
@@ -58,6 +69,13 @@ struct SettingsSheet: View {
                         accessibility: tr("Back", "返回")
                     ) { showingDetail = false }
                 }
+                Text(SettingsNavigationPolicy.title(
+                    selectedCategory: selectedCategory,
+                    showingDetail: showingDetail
+                ))
+                    .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
+                    .foregroundStyle(BrandColors.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
                 Spacer()
                 ChromeIconButton(
                     systemName: "xmark",
@@ -65,94 +83,33 @@ struct SettingsSheet: View {
                     accessibility: tr("Close Settings", "关闭设置")
                 ) { close() }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
+            // The main window uses a hidden title bar. Keep this non-interactive
+            // header as its native background-drag region while the panel is open.
 
             if showingDetail {
-                Text(selectedCategory.label)
-                    .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
-                    .foregroundStyle(BrandColors.textPrimary)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 8)
-                ScrollView {
-                    Form {
-                        switch selectedCategory {
-                        case .general:
-                            GPUSettingsView()
-                            NotificationsSettingsView()
-                            LanguageSettingsView()
-                            Section {
-                                Button(role: .destructive) {
-                                    NSApp.terminate(nil)
-                                } label: {
-                                    Label(tr("Quit Muses", "退出 Muses"), systemImage: "power")
-                                }
-                            }
-                        case .playback:
-                            PlaybackSettingsView()
-                        case .audioQuality:
-                            AudioQualitySettingsView()
-                        case .appearance:
-                            ThemeSettingsView()
-                        case .youtube:
-                            YouTubeSettingsView()
-                            YTDlpConfigWizard()
-                        case .lyrics:
-                            LyricsSettingsView()
-                        case .desktop:
-                            DesktopSettingsView()
-                        case .updates:
-                            UpdatesSettingsView()
-                        case .about:
-                            AboutSettingsView()
-                        }
-                    }
-                    .formStyle(.grouped)
-                    .scrollContentBackground(.hidden)
+                Form {
+                    detailForm
                 }
+                .formStyle(.grouped)
+                .scrollContentBackground(.hidden)
+                .blocksWindowDrag()
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
-                        Text(tr("Settings", "设置"))
-                            .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
-                            .foregroundStyle(BrandColors.textPrimary)
+                    VStack(alignment: .leading, spacing: 16) {
                         accountHeader
-                        VStack(spacing: 0) {
-                            ForEach(SettingsCategory.allCases, id: \.self) { cat in
-                                Button {
-                                    selectedCategory = cat
-                                    showingDetail = true
-                                } label: {
-                                    HStack(spacing: 12) {
-                                        Image(systemName: cat.icon)
-                                            .font(.system(size: 14, weight: .semibold))
-                                            .foregroundStyle(BrandColors.magenta)
-                                            .frame(width: 28, height: 28)
-                                        Text(cat.label)
-                                            .foregroundStyle(BrandColors.textPrimary)
-                                        Spacer()
-                                        Image(systemName: "chevron.right")
-                                            .font(.caption)
-                                            .foregroundStyle(BrandColors.textSecondary)
-                                    }
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 10)
-                                }
-                                .buttonStyle(.plain)
-                                if cat != SettingsCategory.allCases.last {
-                                    Divider().opacity(0.15)
-                                }
-                            }
-                        }
-                        .background(BrandColors.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        categoryList
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 100)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 24)
                 }
+                .blocksWindowDrag()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.clear)
+        .contentShape(Rectangle())
         .onExitCommand { handleEscape() }
         .onAppear {
             escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
@@ -168,6 +125,87 @@ struct SettingsSheet: View {
                 NSEvent.removeMonitor(escapeMonitor)
                 self.escapeMonitor = nil
             }
+        }
+    }
+
+    @ViewBuilder
+    private var detailForm: some View {
+        switch selectedCategory {
+        case .general:
+            GPUSettingsView()
+            NotificationsSettingsView()
+            LanguageSettingsView()
+            Section {
+                Button(role: .destructive) {
+                    NSApp.terminate(nil)
+                } label: {
+                    Label(tr("Quit Muses", "退出 Muses"), systemImage: "power")
+                }
+            }
+        case .playback:
+            PlaybackSettingsView()
+        case .audioQuality:
+            AudioQualitySettingsView()
+        case .appearance:
+            ThemeSettingsView()
+        case .youtube:
+            // 普通:仅 YouTubeSettingsView 一键面板;yt-dlp 配置与悬停预览
+            // 属技术细节,随「高级」折叠开关一起显示。
+            YouTubeSettingsView()
+            if showYtAdvanced {
+                YTDlpConfigWizard()
+            }
+        case .lyrics:
+            LyricsSettingsView()
+        case .desktop:
+            DesktopSettingsView()
+        case .updates:
+            UpdatesSettingsView()
+        case .about:
+            AboutSettingsView()
+        }
+    }
+
+    private var categoryList: some View {
+        VStack(spacing: 0) {
+            ForEach(SettingsCategory.allCases, id: \.self) { cat in
+                Button {
+                    selectedCategory = cat
+                    showingDetail = true
+                } label: {
+                    HStack(spacing: 12) {
+                        categoryIcon(cat)
+                            .frame(width: 28, height: 28)
+                        Text(cat.label)
+                            .foregroundStyle(BrandColors.textPrimary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(BrandColors.textSecondary)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if cat != SettingsCategory.allCases.last {
+                    Divider().opacity(0.12)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func categoryIcon(_ category: SettingsCategory) -> some View {
+        if category == .youtube {
+            YouTubeMark(size: 15)
+                .accessibilityHidden(true)
+        } else if let systemIcon = category.systemIcon {
+            Image(systemName: systemIcon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(BrandColors.magenta)
+                .accessibilityHidden(true)
         }
     }
 
@@ -192,14 +230,16 @@ struct SettingsSheet: View {
                     .buttonStyle(.bordered)
             } else {
                 Button(tr("Connect", "连接")) {
-                    Task { await youTubeAccount.connect() }
+                    selectedCategory = .youtube
+                    showingDetail = true
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(BrandColors.magenta)
+                .help(tr("Open YouTube connection settings", "打开 YouTube 连接设置"))
             }
         }
         .padding(16)
-        .background(BrandColors.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .contentShape(Rectangle())
     }
 
     private func handleEscape() {

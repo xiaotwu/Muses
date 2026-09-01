@@ -7,7 +7,7 @@ import SwiftData
 /// 状态机:`unheard → listening → (accepted | rejected | snoozed)`;
 /// `snoozed` 到期(`snoozeUntil <= now`)→ 回到 `unheard`。
 ///
-/// `trackId` + 反规范化快照字段(title/artist/album/duration/youTubeId/artwork/filePath)
+/// `trackId` + 反规范化快照字段(title/artist/album/duration/youTubeId/artwork)
 /// 使收件箱即使源 `Track` 被删除也能展示;`accept` 时按 `trackId` 回写 `Track.liked`。
 /// 索引同 `ListeningEvent` 暂不声明显式 `@Index`(与 autoschema 轻量迁移策略一致)。
 @Model
@@ -18,9 +18,8 @@ final class InboxItem {
     var artist: String
     var albumTitle: String?
     var durationSeconds: Double
-    var youTubeId: String?
+    var youTubeId: String
     var artworkUrl: String?
-    var filePath: String?
     var addedAt: Date
     var sourceRaw: String          // InboxSource.rawValue
     var stateRaw: String          // InboxState.rawValue
@@ -29,8 +28,8 @@ final class InboxItem {
     var notes: String?
 
     init(id: UUID = UUID(), trackId: UUID, trackTitle: String, artist: String,
-         albumTitle: String?, durationSeconds: Double, youTubeId: String?,
-         artworkUrl: String?, filePath: String?, addedAt: Date = .init(),
+         albumTitle: String?, durationSeconds: Double, youTubeId: String,
+         artworkUrl: String?, addedAt: Date = .init(),
          source: InboxSource = .manual, state: InboxState = .unheard,
          snoozeUntil: Date? = nil, listenedMs: Double? = nil, notes: String? = nil) {
         self.id = id
@@ -41,7 +40,6 @@ final class InboxItem {
         self.durationSeconds = durationSeconds
         self.youTubeId = youTubeId
         self.artworkUrl = artworkUrl
-        self.filePath = filePath
         self.addedAt = addedAt
         self.sourceRaw = source.rawValue
         self.stateRaw = state.rawValue

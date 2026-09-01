@@ -30,14 +30,12 @@ struct ArtistObjectView: View {
                 .frame(width: size, height: size, alignment: .bottom)
         }
         .onHover { hovering = $0 }
-        .offset(y: liftOffset)
+        .scaleEffect(showsHoverPlay && hovering && !reduceMotion ? 1.08 : 1.0)
         .animation(MusesMotion.hoverAnimation(reduceMotion: reduceMotion), value: hovering)
         .accessibilityLabel("\(name) — \(detail)")
     }
 
-    private var liftOffset: CGFloat {
-        (showsHoverPlay && hovering && !reduceMotion) ? -MusicObjectMetrics.hoverLift : 0
-    }
+
 
     @ViewBuilder
     private var nowPlayingBadge: some View {

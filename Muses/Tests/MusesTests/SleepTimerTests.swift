@@ -9,10 +9,9 @@ struct SleepTimerTests {
 
     @Test("start 设置 isActive + remainingSeconds")
     func startActivatesTimer() {
-        let bridge = StubYTDlpBridgeForTimer()
-        let engine = LocalAudioEngine()
+        let engine = RecordingEngine()
         let queue = QueueService()
-        let playback = PlaybackService(localEngine: engine, youtubeEngine: engine, queue: queue)
+        let playback = PlaybackService(youtubeEngine: engine, queue: queue)
         let timer = SleepTimerService(playbackService: playback)
 
         #expect(!timer.isActive)
@@ -24,9 +23,9 @@ struct SleepTimerTests {
 
     @Test("cancel 重置状态")
     func cancelResetsState() {
-        let engine = LocalAudioEngine()
+        let engine = RecordingEngine()
         let queue = QueueService()
-        let playback = PlaybackService(localEngine: engine, youtubeEngine: engine, queue: queue)
+        let playback = PlaybackService(youtubeEngine: engine, queue: queue)
         let timer = SleepTimerService(playbackService: playback)
 
         timer.start(minutes: 45)
@@ -39,9 +38,9 @@ struct SleepTimerTests {
 
     @Test("remainingFormatted 格式化正确")
     func remainingFormattedCorrect() {
-        let engine = LocalAudioEngine()
+        let engine = RecordingEngine()
         let queue = QueueService()
-        let playback = PlaybackService(localEngine: engine, youtubeEngine: engine, queue: queue)
+        let playback = PlaybackService(youtubeEngine: engine, queue: queue)
         let timer = SleepTimerService(playbackService: playback)
 
         timer.start(minutes: 1)

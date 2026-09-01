@@ -7,6 +7,19 @@ import SwiftUI
 /// 以及 AppTheme 到 ColorScheme 的映射。
 @Suite("Packaging")
 struct PackagingTests {
+    /// Resolve repository assets from this source file instead of relying on
+    /// SwiftPM's process working directory, which differs between runners.
+    private var repositoryRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // MusesTests
+            .deletingLastPathComponent() // Tests
+            .deletingLastPathComponent() // Muses package
+            .deletingLastPathComponent() // repository
+    }
+
+    private func repositoryPath(_ relativePath: String) -> String {
+        repositoryRoot.appending(path: relativePath).path
+    }
 
     // MARK: - 汇总:所有打包脚本存在且语法通过
 
@@ -20,8 +33,9 @@ struct PackagingTests {
             "Scripts/notarize.sh",
             "Scripts/make-dmg.sh",
         ]
-        for path in scripts {
-            try #require(FileManager.default.fileExists(atPath: path), "\(path) 不存在")
+        for relativePath in scripts {
+            let path = repositoryPath(relativePath)
+            try #require(FileManager.default.fileExists(atPath: path), "\(relativePath) 不存在")
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/bash")
             process.arguments = ["-n", path]
@@ -52,6 +66,7 @@ struct PackagingTests {
         #expect(plist["CFBundleVersion"] as? String != nil)
         #expect(plist["LSMinimumSystemVersion"] as? String == "14.0")
         #expect(plist["CFBundleIconFile"] as? String == "AppIcon")
+        #expect(plist["MusesWebHomeEnabled"] as? Bool == true)
 
         // Phase 14 起 Sparkle 已移除:Info.plist 不应再含任何 SU* 键。
         #expect(plist["SUFeedURL"] == nil, "SUFeedURL 应已移除")
@@ -88,11 +103,12 @@ struct PackagingTests {
     /// 所有打包脚本应通过 `bash -n` 语法检查。
     @Test("make-icon.sh 语法通过 bash -n")
     func makeIconScriptSyntax() throws {
-        try #require(FileManager.default.fileExists(atPath: "Scripts/make-icon.sh"),
+        let path = repositoryPath("Scripts/make-icon.sh")
+        try #require(FileManager.default.fileExists(atPath: path),
                      "make-icon.sh 不存在")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = ["-n", "Scripts/make-icon.sh"]
+        process.arguments = ["-n", path]
         let pipe = Pipe()
         process.standardError = pipe
         try process.run()
@@ -102,7 +118,7 @@ struct PackagingTests {
 
     @Test("build-app.sh 语法通过 bash -n 且可执行")
     func buildAppScriptSyntax() throws {
-        let path = "Scripts/build-app.sh"
+        let path = repositoryPath("Scripts/build-app.sh")
         try #require(FileManager.default.fileExists(atPath: path), "build-app.sh 不存在")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
@@ -116,23 +132,43 @@ struct PackagingTests {
         #expect(perm & 0o100 != 0, "build-app.sh 缺少可执行位")
     }
 
+    @Test("Web Home helper is built, embedded at a fixed path, and signed before the app")
+    func helperPackagingContract() throws {
+        let package = try String(
+            contentsOfFile: repositoryPath("Package.swift"), encoding: .utf8)
+        let script = try String(
+            contentsOfFile: repositoryPath("Scripts/build-app.sh"), encoding: .utf8)
+
+        #expect(package.contains("MusesWebHomeProtocol"))
+        #expect(package.contains("MusesWebHomeCore"))
+        #expect(package.contains("MusesWebHomeHelper"))
+        #expect(script.contains("$CONTENTS/Helpers"))
+        #expect(script.contains(".build/release/MusesWebHomeHelper"))
+        #expect(script.contains("codesign --verify --strict \"$CONTENTS/Helpers/MusesWebHomeHelper\""))
+        let helperSign = try #require(script.range(
+            of: "--sign \"$IDENTITY\" \"$CONTENTS/Helpers/MusesWebHomeHelper\""))
+        let appSign = try #require(script.range(
+            of: "--entitlements \"$ENTITLEMENTS\""))
+        #expect(helperSign.lowerBound < appSign.lowerBound)
+    }
+
     /// 若 AppIcon.icns 已生成(脚本运行过),断言非空。
     @Test("AppIcon.icns 若存在则非空")
     func appIconNonEmptyIfPresent() {
-        guard FileManager.default.fileExists(
-            atPath: "Muses/Sources/Muses/Resources/AppIcon.icns")
+        let path = repositoryPath("Muses/Sources/Muses/Resources/AppIcon.icns")
+        guard FileManager.default.fileExists(atPath: path)
         else {
             // CI/未跑 make-icon.sh 时跳过本断言。
             return
         }
         let size = (try? FileManager.default.attributesOfItem(
-            atPath: "Muses/Sources/Muses/Resources/AppIcon.icns")[.size] as? Int) ?? 0
+            atPath: path)[.size] as? Int) ?? 0
         #expect(size > 0, "AppIcon.icns 为空")
     }
 
     @Test("sign-update.sh 语法通过 bash -n 且可执行")
     func signUpdateScriptSyntax() throws {
-        let path = "Scripts/sign-update.sh"
+        let path = repositoryPath("Scripts/sign-update.sh")
         try #require(FileManager.default.fileExists(atPath: path), "sign-update.sh 不存在")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
@@ -159,7 +195,7 @@ struct PackagingTests {
 
     @Test("notarize.sh 语法通过 bash -n 且可执行")
     func notarizeScriptSyntax() throws {
-        let path = "Scripts/notarize.sh"
+        let path = repositoryPath("Scripts/notarize.sh")
         try #require(FileManager.default.fileExists(atPath: path), "notarize.sh 不存在")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
@@ -174,7 +210,7 @@ struct PackagingTests {
 
     @Test("make-dmg.sh 语法通过 bash -n 且可执行")
     func makeDmgScriptSyntax() throws {
-        let path = "Scripts/make-dmg.sh"
+        let path = repositoryPath("Scripts/make-dmg.sh")
         try #require(FileManager.default.fileExists(atPath: path), "make-dmg.sh 不存在")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
@@ -190,7 +226,7 @@ struct PackagingTests {
     /// 若 build/Muses-$VER.dmg 已生成,断言非空。
     @Test("DMG 若存在则非空")
     func dmgNonEmptyIfPresent() {
-        let dmg = "build/Muses-0.4.0.dmg"
+        let dmg = repositoryPath("build/Muses-0.4.0.dmg")
         guard FileManager.default.fileExists(atPath: dmg) else { return }
         let size = (try? FileManager.default.attributesOfItem(
             atPath: dmg)[.size] as? Int) ?? 0

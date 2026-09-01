@@ -20,6 +20,10 @@ final class YouTubeSearchService {
 
     /// 搜索 YouTube 视频。
     /// - Returns: 匹配条目列表(标题/频道/时长/videoId)。
+    func fetchPlaylist(url: String) async throws -> [YTDlpBridge.YTDlpPlaylistEntry] {
+        try await bridge.fetchPlaylist(url: url, timeout: 60)
+    }
+
     func search(query: String, limit: Int = 10) async throws -> [YTDlpBridge.YTDlpPlaylistEntry] {
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return []
@@ -47,15 +51,27 @@ final class YouTubeSearchService {
         } else {
             let durationMs = Int((entry.duration ?? 0) * 1000)
             let artist = entry.uploader ?? "Unknown"
+            let artistStableID = YouTubeCatalogIdentity.artist(
+                channelID: entry.channelID, browseID: nil)
             track = Track(
-                source: .youtube,
                 title: entry.title,
                 artist: artist,
                 durationMs: durationMs,
                 youTubeId: entry.id,
-                artworkUrl: "https://i.ytimg.com/vi/\(entry.id)/hqdefault.jpg"
+                artworkUrl: YouTubeThumbnail.urlString(videoId: entry.id),
+                mediaKind: entry.inferredMediaKind,
+                artistCatalogID: artistStableID
             )
             ctx.insert(track)
+            if let artistStableID {
+                let key = artistStableID
+                let descriptor = FetchDescriptor<CatalogArtist>(
+                    predicate: #Predicate { $0.stableID == key })
+                if (try? ctx.fetch(descriptor).first) == nil {
+                    ctx.insert(CatalogArtist(stableID: artistStableID, name: artist,
+                                             channelID: entry.channelID))
+                }
+            }
             try ctx.save()
             log.info("导入搜索结果 \(entry.id)(\(entry.title))")
         }

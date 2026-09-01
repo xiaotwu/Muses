@@ -74,7 +74,7 @@ struct ThemeTests {
         ]
         let tokens: [Color] = [
             BrandColors.background, BrandColors.surface, BrandColors.magenta,
-            BrandColors.cyan, BrandColors.green, BrandColors.textPrimary,
+            BrandColors.textPrimary,
             BrandColors.textSecondary, BrandColors.hairline, BrandColors.scrim,
         ]
         for appearance in appearances {

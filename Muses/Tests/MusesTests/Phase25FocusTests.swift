@@ -38,10 +38,8 @@ struct Phase25FocusTests {
     func flagDisabledNoOp() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
-        let playback = PlaybackService(localEngine: RecordingEngine(),
-                                         youtubeEngine: RecordingEngine(), queue: QueueService(),
-                                         library: LibraryService(modelContainer: container,
-                                                                 metadata: MetadataService(artworkCache: .default)))
+        let playback = PlaybackService(youtubeEngine: RecordingEngine(), queue: QueueService(),
+                                        library: LibraryService(modelContainer: container))
         var events: [PlaybackEvent] = []
         bus.subscribe { events.append($0) }
         let svc = FocusService(modelContainer: container, eventBus: bus, playback: playback,
@@ -142,9 +140,7 @@ struct Phase25FocusTests {
     // MARK: - helpers
 
     private func makePlayback(_ container: ModelContainer) -> PlaybackService {
-        PlaybackService(localEngine: RecordingEngine(), youtubeEngine: RecordingEngine(),
-                        queue: QueueService(),
-                        library: LibraryService(modelContainer: container,
-                                                metadata: MetadataService(artworkCache: .default)))
+        PlaybackService(youtubeEngine: RecordingEngine(), queue: QueueService(),
+                        library: LibraryService(modelContainer: container))
     }
 }

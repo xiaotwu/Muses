@@ -1,246 +1,426 @@
 import SwiftUI
 
-/// New 页面:本地推荐算法 — 基于播放历史 + 收藏曲目的离线推荐。
-///
-/// 三类推荐:
-/// - **因为你听过**(Because You Listened):播放最多艺术家的其他专辑
-/// - **未探索**(Unplayed Gems):尚未播放过的专辑
-/// - **基于收藏**(From Liked):收藏曲目艺术家的其他专辑
+/// Apple Music New composition: landscape editorial cards, an adaptive song
+/// matrix, and square discovery shelves.
 struct NewView: View {
-    @Binding var selectedAlbum: Album?
-    @Environment(RecommendationService.self) private var recommendation
     @Environment(SituationalRecommendationService.self) private var situational
-    @Environment(LibraryService.self) private var library
     @Environment(PlaybackService.self) private var playback
+    @Environment(LibraryService.self) private var library
     @Environment(FocusService.self) private var focus
-    /// nil = 尚未计算完成(显示占位);非 nil = 已计算。
-    @State private var recs: RecommendationService.Recommendations? = nil
-    @State private var computeTask: Task<Void, Never>?
-    // Phase D5 — 情境化推荐区段(ffSituationalNew 开启时使用)。
-    @State private var situationalSections: [SituationalSection] = []
-    @State private var situationalTask: Task<Void, Never>?
-    @State private var playingAlbumID: UUID?
-    @State private var playingArtistID: UUID?
+    @Environment(YouTubeAccountService.self) private var youTubeAccount
+    @Environment(YouTubeSearchService.self) private var youTubeSearch
+
+    @State private var sections: [SituationalSection] = []
+    @State private var newTracks: [TrackSnapshot] = []
+    @State private var personalSections: [HomeSection] = []
+    @State private var recommendationsLoading = true
+    @State private var recommendationTask: Task<Void, Never>?
+    @State private var personalTask: Task<Void, Never>?
+
+    private var featuredTracks: [TrackSnapshot] {
+        Array(newTracks.prefix(3))
+    }
+
+    private var bestNewTracks: [TrackSnapshot] {
+        let remainder = Array(newTracks.dropFirst(featuredTracks.count).prefix(12))
+        return remainder.isEmpty ? Array(newTracks.prefix(12)) : remainder
+    }
+
+    private var featuredPersonalCards: [YouTubeDiscoveryCard] {
+        personalSections
+            .flatMap(\.items)
+            .compactMap { item in
+                if case .youTube(let card) = item { return card }
+                return nil
+            }
+            .prefix(3)
+            .map { $0 }
+    }
+
+    private var hasContent: Bool {
+        !newTracks.isEmpty || !personalSections.isEmpty
+    }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 32) {
-                // Phase D6 — Apple Music 风格大标题(~30pt),与 Home 节奏一致。
-                // 保留 "New" 名称(用户确认决定,本阶段不改名 "For You")。
-                Text(tr("New", "发现"))
+            VStack(alignment: .leading, spacing: AppleMusicSpacing.section) {
+                Text(tr("New", "新发现"))
                     .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
                     .foregroundStyle(BrandColors.textPrimary)
                     .padding(.horizontal, AppleMusicTokens.contentPaddingX)
 
-                if situational.isEnabled {
-                    situationalBody
+                if focus.isActive {
+                    focusState
+                } else if recommendationsLoading && !hasContent {
+                    loadingState
+                } else if hasContent {
+                    editorialSection
+
+                    if !bestNewTracks.isEmpty {
+                        bestNewSongs
+                    }
+
+                    ForEach(personalSections) { section in
+                        personalShelf(section)
+                    }
+
+                    ForEach(Array(sections.dropFirst())) { section in
+                        trackShelf(section)
+                    }
                 } else {
-                    legacyBody
+                    emptyState
                 }
             }
-            .padding(.top, 8)
-            .padding(.bottom, 100)
+            .padding(.top, AppleMusicSpacing.browseTitleTop)
+            .padding(.bottom, AppleMusicTokens.scrollBottomInset)
         }
         .background(BrowseBackground())
-        .onAppear { scheduleCompute(); refreshPlayingCollection() }
+        .onAppear {
+            loadRecommendations()
+            loadPersonalDiscovery()
+        }
         .onDisappear {
-            computeTask?.cancel()
-            situationalTask?.cancel()
+            recommendationTask?.cancel()
+            recommendationTask = nil
+            personalTask?.cancel()
+            personalTask = nil
         }
-        .onChange(of: library.likedRevision) { _, _ in scheduleCompute() }
-        .onChange(of: library.metadataRevision) { _, _ in scheduleCompute() }
-        .onChange(of: library.playRevision) { _, _ in scheduleCompute() }
-        .onChange(of: playback.state.track?.id) { _, _ in refreshPlayingCollection() }
+        .onChange(of: library.likedRevision) { _, _ in loadRecommendations() }
+        .onChange(of: library.metadataRevision) { _, _ in loadRecommendations() }
+        .onChange(of: library.playRevision) { _, _ in loadRecommendations() }
+        .onChange(of: youTubeAccount.isConnected) { _, _ in loadPersonalDiscovery() }
     }
 
-    // MARK: - Phase D5/D6:情境化推荐(D4 原语呈现)
-
     @ViewBuilder
-    private var situationalBody: some View {
-        if situationalSections.isEmpty {
-            // 计算中或无足够信号:骨架占位(无 spinner,§15),与 Home 冷启一致。
-            VStack(alignment: .leading, spacing: 32) {
-                skeletonSection
-                skeletonSection
-            }
-        } else {
-            if let featured = NewFeaturedResolver.featured(
-                from: situationalSections.first.map { section in
-                    section.items.map { DiscoveryItem.track($0) }
-                } ?? []
-            ), case .track(let snap) = featured {
-                VStack(alignment: .leading, spacing: 12) {
-                    AlbumObjectView(
-                        title: snap.title,
-                        subtitle: snap.artist,
-                        artwork: ArtworkSource.resolve(for: snap),
-                        size: MusicObjectMetrics.albumHero,
-                        role: .play,
-                        nowPlayingID: snap.id,
-                        showsHoverPlay: true,
-                        onSelect: {},
-                        onPlay: {
-                            playback.playTrack(
-                                snap,
-                                context: situationalSections.first?.items ?? [snap],
-                                from: .songs)
+    private var editorialSection: some View {
+        if !featuredTracks.isEmpty || !featuredPersonalCards.isEmpty {
+            VStack(alignment: .leading, spacing: 13) {
+                SectionHeader(
+                    title: tr("Featured", "精选"),
+                    subtitle: tr("New music selected for you", "为你挑选的新音乐")
+                )
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 20) {
+                        ForEach(featuredTracks) { snapshot in
+                            EditorialCard(
+                                eyebrow: tr("Featured Song", "精选歌曲"),
+                                title: snapshot.title,
+                                subtitle: snapshot.artist,
+                                artwork: ArtworkSource.resolve(for: snapshot),
+                                onOpen: { play(snapshot, context: newTracks) },
+                                onPlay: { play(snapshot, context: newTracks) }
+                            )
+                            .trackContextMenu(snapshot: snapshot, onPlay: {
+                                play(snapshot, context: newTracks)
+                            })
                         }
-                    )
-                    .padding(.horizontal, 24)
+                        if featuredTracks.isEmpty {
+                            ForEach(featuredPersonalCards) { card in
+                                EditorialCard(
+                                    eyebrow: "YouTube Music",
+                                    title: card.title,
+                                    subtitle: card.uploader ?? "YouTube Music",
+                                    artwork: ArtworkSource.resolve(
+                                        remoteURL: card.thumbnailURL,
+                                        youTubeId: card.id),
+                                    onOpen: { Task { await play(card) } },
+                                    onPlay: { Task { await play(card) } }
+                                )
+                                .youTubeEntryContextMenu(card: card) {
+                                    Task { await play(card) }
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, AppleMusicTokens.contentPaddingX)
                 }
             }
-            ForEach(situationalSections) { section in
-                situationalSection(section)
-            }
         }
     }
 
-    private var skeletonSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SkeletonBlock(width: 200, height: 22)
-                .padding(.horizontal, 24)
-            ResponsiveCarousel(cardSize: 140) {
-                ForEach(0..<5, id: \.self) { _ in SkeletonCard(size: 140, aspect: .square) }
+    private var bestNewSongs: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            SectionHeader(
+                title: tr("Best New Songs", "最佳新歌"),
+                subtitle: tr("Play in this order", "按此顺序播放")
+            )
+            LazyVGrid(
+                columns: [GridItem(
+                    .adaptive(
+                        minimum: NewPagePolicy.compactSongColumnMinimum,
+                        maximum: 430
+                    ),
+                    spacing: 18,
+                    alignment: .top
+                )],
+                alignment: .leading,
+                spacing: 0
+            ) {
+                ForEach(bestNewTracks) { snapshot in
+                    CompactDiscoveryTrackRow(snapshot: snapshot) {
+                        play(snapshot, context: bestNewTracks)
+                    }
+                    .trackContextMenu(snapshot: snapshot, onPlay: {
+                        play(snapshot, context: bestNewTracks)
+                    })
+                }
             }
+            .padding(.horizontal, AppleMusicTokens.contentPaddingX)
         }
     }
 
-    @ViewBuilder
-    private func situationalSection(_ section: SituationalSection) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private func trackShelf(_ section: SituationalSection) -> some View {
+        VStack(alignment: .leading, spacing: 13) {
             SectionHeader(title: section.title, subtitle: section.subtitle)
-            ResponsiveCarousel(cardSize: MusicObjectMetrics.albumRail) {
-                ForEach(section.items, id: \.id) { snap in
+            ResponsiveCarousel(cardSize: MusicObjectMetrics.albumRail, spacing: 18) {
+                ForEach(section.items.filter { !$0.youTubeId.isEmpty }) { snapshot in
                     AlbumObjectView(
-                        title: snap.title,
-                        subtitle: snap.artist,
-                        artwork: ArtworkSource.resolve(for: snap),
+                        title: snapshot.title,
+                        subtitle: snapshot.artist,
+                        artwork: ArtworkSource.resolve(for: snapshot),
                         size: MusicObjectMetrics.albumRail,
                         role: .play,
-                        nowPlayingID: snap.id,
+                        nowPlayingID: snapshot.id,
                         showsHoverPlay: true,
                         onSelect: {},
-                        onPlay: { playback.playTrack(snap, context: section.items, from: .songs) }
+                        onPlay: { play(snapshot, context: section.items) }
                     )
+                    .trackContextMenu(snapshot: snapshot, onPlay: {
+                        play(snapshot, context: section.items)
+                    })
                 }
             }
         }
     }
 
-    // MARK: - Legacy(RecommendationService,ffSituationalNew 关闭时)
-
     @ViewBuilder
-    private var legacyBody: some View {
-        if focus.isActive {
-                    // 专注模式:抑制发现表面(Final Spec §10.9),展示专注提示而非推荐。
-                    EmptyStateView(
-                        icon: "brain.head.profile",
-                        title: tr("Focusing", "专注中"),
-                        subtitle: tr("Recommendations are hidden while you focus. End Focus Mode to see picks.",
-                                       "专注时隐藏推荐。结束专注模式以查看推荐。")
-                    )
-                    .padding(.top, 24)
-                } else if let r = recs, r.hasContent {
-                    if !r.becauseYouListened.isEmpty {
-                        recSection(
-                            title: tr("Because You Listened", "因为你听过"),
-                            subtitle: tr("More from your most-played artists",
-                                          "来自你播放最多的艺术家"),
-                            albums: r.becauseYouListened
+    private func personalShelf(_ section: HomeSection) -> some View {
+        let cards = section.items.compactMap { item -> YouTubeDiscoveryCard? in
+            if case .youTube(let card) = item { return card }
+            return nil
+        }
+        if !cards.isEmpty {
+            VStack(alignment: .leading, spacing: 13) {
+                SectionHeader(title: section.title, subtitle: section.subtitle)
+                ResponsiveCarousel(cardSize: MusicObjectMetrics.albumRail, spacing: 18) {
+                    ForEach(cards) { card in
+                        AlbumObjectView(
+                            title: card.title,
+                            subtitle: card.uploader ?? "YouTube Music",
+                            artwork: ArtworkSource.resolve(
+                                remoteURL: card.thumbnailURL,
+                                youTubeId: card.id),
+                            size: MusicObjectMetrics.albumRail,
+                            role: .play,
+                            showsHoverPlay: true,
+                            onSelect: {},
+                            onPlay: { Task { await play(card, siblings: cards) } }
                         )
+                        .youTubeEntryContextMenu(card: card) {
+                            Task { await play(card, siblings: cards) }
+                        }
                     }
-                    if !r.unplayedGems.isEmpty {
-                        recSection(
-                            title: tr("Unplayed Gems", "未探索"),
-                            subtitle: tr("Albums in your library you haven't played yet",
-                                          "资料库中尚未播放的专辑"),
-                            albums: r.unplayedGems
-                        )
-                    }
-                    if !r.fromLiked.isEmpty {
-                        recSection(
-                            title: tr("From Your Liked Songs", "基于收藏"),
-                            subtitle: tr("Artists you've liked, more to explore",
-                                          "你收藏的艺术家,更多探索"),
-                            albums: r.fromLiked
-                        )
-                    }
-                } else if recs == nil {
-                    // 计算中:轻量占位,不用 spinner 避免视觉跳动。
-                    EmptyStateView(
-                        icon: "sparkles",
-                        title: tr("Finding picks for you…", "正在为你挑选…"),
-                        subtitle: nil
-                    )
-                    .padding(.top, 24)
-                } else {
-                    EmptyStateView(
-                        icon: "sparkles",
-                        title: tr("Play More to Get Recommendations", "播放更多以获取推荐"),
-                        subtitle: tr("Recommendations are based on your play history and liked songs. Play and like some tracks to get personalized picks.",
-                                       "推荐基于你的播放历史与收藏。播放并收藏一些曲目以获得个性化推荐。")
-                    )
-                    .padding(.top, 24)
                 }
+            }
+        }
     }
 
-    /// 异步触发推荐计算(后台离线计算,完成后回主线程赋值)。
-    /// 重复调用会取消上一个进行中的任务,避免排队。
-    /// Phase D5:ffSituationalNew 开启时,并行计算情境化推荐。
-    private func scheduleCompute() {
-        computeTask?.cancel()
-        let service = recommendation
-        computeTask = Task { @MainActor in
-            let result = await service.compute()
+    private var loadingState: some View {
+        VStack(alignment: .leading, spacing: 32) {
+            VStack(alignment: .leading, spacing: 13) {
+                SectionHeader(title: tr("Featured", "精选"))
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 20) {
+                        ForEach(0..<2, id: \.self) { _ in
+                            SkeletonBlock(
+                                width: AppleMusicTokens.editorialWidth,
+                                height: AppleMusicTokens.editorialHeight
+                            )
+                        }
+                    }
+                    .padding(.horizontal, AppleMusicTokens.contentPaddingX)
+                }
+            }
+            VStack(alignment: .leading, spacing: 13) {
+                SectionHeader(title: tr("Best New Songs", "最佳新歌"))
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(
+                        minimum: NewPagePolicy.compactSongColumnMinimum,
+                        maximum: 430
+                    ), spacing: 18)],
+                    spacing: 10
+                ) {
+                    ForEach(0..<8, id: \.self) { _ in
+                        SkeletonBlock(width: 300, height: 56)
+                    }
+                }
+                .padding(.horizontal, AppleMusicTokens.contentPaddingX)
+            }
+        }
+    }
+
+    private var focusState: some View {
+        EmptyStateView(
+            icon: "brain.head.profile",
+            title: tr("Focusing", "专注中"),
+            subtitle: tr(
+                "New recommendations are hidden while Focus Mode is active.",
+                "专注模式开启时会隐藏新推荐。"
+            )
+        )
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 56)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 30, weight: .semibold))
+                .foregroundStyle(BrandColors.textSecondary)
+            Text(tr("Play more to shape New", "播放更多内容来塑造“新发现”"))
+                .font(.headline)
+                .foregroundStyle(BrandColors.textPrimary)
+            Text(tr(
+                "Recommendations use your YouTube library, likes, and listening history.",
+                "推荐内容基于你的 YouTube 资料库、喜欢和收听历史。"
+            ))
+            .font(.subheadline)
+            .foregroundStyle(BrandColors.textSecondary)
+            Button(tr("Open Search", "打开搜索")) {
+                NotificationCenter.default.post(name: .musesFocusSearch, object: nil)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(BrandColors.magenta)
+        }
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 70)
+    }
+
+    private func loadRecommendations() {
+        recommendationTask?.cancel()
+        recommendationsLoading = true
+        recommendationTask = Task {
+            let result = await situational.compute()
             guard !Task.isCancelled else { return }
-            recs = result
-        }
-        if situational.isEnabled {
-            situationalTask?.cancel()
-            let svc = situational
-            situationalTask = Task { @MainActor in
-                let sections = await svc.compute()
-                guard !Task.isCancelled else { return }
-                situationalSections = sections
-            }
-        } else {
-            situationalSections = []
+            sections = result
+            newTracks = deduplicatedYouTubeTracks(result.flatMap(\.items))
+            recommendationsLoading = false
         }
     }
 
-    // MARK: - 推荐区(D4 原语呈现;legacy 路径)
+    private func loadPersonalDiscovery() {
+        personalTask?.cancel()
+        let liked = youTubeAccount.account?.likedVideos ?? []
+        let subscriptions = youTubeAccount.account?.subscriptions.map(\.title) ?? []
+        guard youTubeAccount.isConnected, (!liked.isEmpty || !subscriptions.isEmpty) else {
+            personalSections = []
+            return
+        }
+        personalTask = Task {
+            let result = await YouTubePersonalDiscovery.sections(
+                liked: liked,
+                subscriptionTitles: subscriptions,
+                fetchMix: { url in try await youTubeSearch.fetchPlaylist(url: url) },
+                search: { query in try await youTubeSearch.search(query: query, limit: 12) }
+            )
+            guard !Task.isCancelled else { return }
+            personalSections = result
+        }
+    }
 
-    @ViewBuilder
-    private func recSection(title: String, subtitle: String, albums: [Album]) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: title, subtitle: subtitle)
-            ResponsiveCarousel(cardSize: MusicObjectMetrics.albumRail) {
-                ForEach(albums, id: \.id) { album in
-                    AlbumObjectView(
-                        title: album.title,
-                        subtitle: album.albumArtist,
-                        artwork: ArtworkSource.localHash(album.artworkHash),
-                        size: MusicObjectMetrics.albumRail,
-                        role: .browse,
-                        isNowPlaying: album.id == playingAlbumID,
-                        showsHoverPlay: true,
-                        onSelect: { selectedAlbum = album },
-                        onPlay: { playAlbum(album) }
-                    )
+    private func deduplicatedYouTubeTracks(_ tracks: [TrackSnapshot]) -> [TrackSnapshot] {
+        var seen = Set<String>()
+        return tracks.filter { snapshot in
+            guard !snapshot.youTubeId.isEmpty else { return false }
+            return seen.insert(snapshot.youTubeId).inserted
+        }
+    }
+
+    private func play(_ snapshot: TrackSnapshot, context: [TrackSnapshot]) {
+        let playable = deduplicatedYouTubeTracks(context)
+        playback.playTrack(
+            snapshot,
+            context: playable.isEmpty ? [snapshot] : playable,
+            from: .songs
+        )
+    }
+
+    private func play(_ card: YouTubeDiscoveryCard,
+                      siblings: [YouTubeDiscoveryCard]? = nil) async {
+        let entry = YTDlpBridge.YTDlpPlaylistEntry(
+            id: card.id,
+            title: card.title,
+            uploader: card.uploader,
+            duration: card.duration
+        )
+        do {
+            let snapshot = try await youTubeSearch.importAsTrack(entry: entry)
+            let entries = (siblings ?? featuredPersonalCards).map {
+                YTDlpBridge.YTDlpPlaylistEntry(
+                    id: $0.id,
+                    title: $0.title,
+                    uploader: $0.uploader,
+                    duration: $0.duration
+                )
+            }
+            let context = TrackSnapshot.playbackContext(
+                playing: snapshot,
+                youTubeEntries: entries
+            )
+            playback.playTrack(snapshot, context: context, from: .search)
+        } catch {
+            // Keep the discovery surface stable so the user can retry.
+        }
+    }
+}
+
+private struct CompactDiscoveryTrackRow: View {
+    let snapshot: TrackSnapshot
+    let onPlay: () -> Void
+
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: onPlay) {
+            HStack(spacing: 11) {
+                ArtworkView(
+                    source: ArtworkSource.resolve(for: snapshot),
+                    cornerRadius: 5,
+                    glyphSize: 16,
+                    targetSize: 42
+                )
+                .frame(width: 42, height: 42)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(snapshot.title)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(BrandColors.textPrimary)
+                        .lineLimit(1)
+                    Text(snapshot.artist)
+                        .font(.caption)
+                        .foregroundStyle(BrandColors.textSecondary)
+                        .lineLimit(1)
                 }
+                Spacer(minLength: 8)
+                NowPlayingMark(itemID: snapshot.id)
+                    .font(.caption)
+                YouTubeMark(size: 13)
+                    .accessibilityHidden(true)
             }
+            .padding(.horizontal, 8)
+            .frame(height: 58)
+            .background(hovering ? BrandColors.surface.opacity(0.7) : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(Rectangle())
         }
-    }
-
-    private func refreshPlayingCollection() {
-        let id = playback.state.track?.id
-        playingAlbumID = id.flatMap { library.track(by: $0)?.album?.id }
-        playingArtistID = id.flatMap { library.track(by: $0)?.artistRef?.id }
-    }
-
-    private func playAlbum(_ album: Album) {
-        let snaps = library.tracks(in: album).map { TrackSnapshot(from: $0) }
-        guard let first = snaps.first else { return }
-        playback.playTrack(first, context: snaps, from: .album)
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(MusesMotion.hoverAnimation(reduceMotion: reduceMotion), value: hovering)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(BrandColors.hairline).frame(height: 1)
+        }
+        .accessibilityLabel("\(snapshot.title), \(snapshot.artist)")
+        .accessibilityHint(tr("Play", "播放"))
     }
 }

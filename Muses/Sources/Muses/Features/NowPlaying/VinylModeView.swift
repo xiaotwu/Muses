@@ -1,88 +1,80 @@
 import SwiftUI
 import AppKit
 
-/// 唱片旋转模式: 圆形封面 + 中心唱片孔, 播放时以 33⅓ rpm 旋转, 暂停时停。
-/// Reduce Motion 下静止不转。
+/// Circular artwork that rotates clockwise at a calm visual pace while playing.
+/// No vinyl disc, grooves, or spindle. Reduce Motion: frozen.
 struct VinylModeView: View {
     let source: ArtworkSource
+    var size: CGFloat = 480
     @Environment(PlaybackService.self) private var playback
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var angle: Double = 0
-    @State private var lastDate: Date = .distantPast
+    @State private var accumulatedDegrees: Double = 0
+    @State private var activeSince: Date?
 
-    // 33⅓ rpm = 360° / 1.8s
-    private let rpm: Double = 33.0 + 1.0 / 3.0
-    private let discSize: CGFloat = 480
+    private var shouldRotate: Bool { playback.state.isPlaying && !reduceMotion }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { timeline in
-            let _ = updateAngle(date: timeline.date)
-            disc
-                .rotationEffect(.degrees(angle))
-        }
-        .frame(width: discSize, height: discSize)
-    }
-
-    private var disc: some View {
-        ZStack {
-            // 唱片底盘(深色)
-            Circle()
-                .fill(
-                    RadialGradient(colors: [Color.black, Color(white: 0.08)],
-                                   center: .center,
-                                   startRadius: discSize * 0.15,
-                                   endRadius: discSize * 0.5)
-                )
-                .overlay(
-                    // 唱片纹路(同心圆细线)
-                    Canvas { ctx, size in
-                        let center = CGPoint(x: size.width / 2, y: size.height / 2)
-                        let maxR = min(size.width, size.height) / 2
-                        let grooveCount = 40
-                        for i in 1...grooveCount {
-                            let r = maxR * CGFloat(i) / CGFloat(grooveCount + 1)
-                            ctx.stroke(
-                                Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r,
-                                                        width: r * 2, height: r * 2)),
-                                with: .color(BrandColors.textPrimary.opacity(0.05)),
-                                lineWidth: 0.5
-                            )
-                        }
-                    }
-                )
-
-            // 封面(圆形, 居中, 占唱片 60%)
-            artwork
-                .frame(width: discSize * 0.6, height: discSize * 0.6)
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0,
+                                paused: !shouldRotate)) { timeline in
+            ArtworkView(source: source, cornerRadius: size / 2,
+                        glyphSize: size * 0.17, targetSize: size)
                 .clipShape(Circle())
-
-            // 中心唱片孔
-            Circle()
-                .fill(Color.black)
-                .frame(width: 60, height: 60)
-            // 中心 magenta 标签点
-            Circle()
-                .fill(BrandColors.magenta)
-                .frame(width: 8, height: 8)
+                .rotationEffect(.degrees(VinylRotation.angle(
+                    accumulatedDegrees: accumulatedDegrees,
+                    activeSince: activeSince,
+                    at: timeline.date,
+                    isRotating: shouldRotate
+                )))
         }
-        .shadow(radius: 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .aspectRatio(1, contentMode: .fit)
+        .onAppear { synchronizeRotation(at: Date()) }
+        .onChange(of: playback.state.isPlaying) { _, _ in
+            synchronizeRotation(at: Date())
+        }
+        .onChange(of: reduceMotion) { _, _ in
+            synchronizeRotation(at: Date())
+        }
+        .onChange(of: playback.state.track?.id) { _, _ in
+            accumulatedDegrees = 0
+            activeSince = shouldRotate ? Date() : nil
+        }
     }
 
-    @ViewBuilder
-    private var artwork: some View {
-        ArtworkView(source: source, cornerRadius: 0, glyphSize: 60, targetSize: 288)
+    private func synchronizeRotation(at date: Date) {
+        if let activeSince {
+            accumulatedDegrees = VinylRotation.angle(
+                accumulatedDegrees: accumulatedDegrees,
+                activeSince: activeSince,
+                at: date,
+                isRotating: true
+            )
+        }
+        activeSince = shouldRotate ? date : nil
+    }
+}
+
+/// Pure elapsed-time rotation math. Rendering cadence never changes the speed.
+enum VinylRotation {
+    /// The large artwork uses a restrained ambient rotation rather than a
+    /// physical record speed, keeping lyrics and controls visually dominant.
+    static let secondsPerRevolution: Double = 16
+    static let rpm: Double = 60.0 / secondsPerRevolution
+    static let degreesPerSecond = rpm * 360.0 / 60.0
+
+    static func angle(accumulatedDegrees: Double,
+                      activeSince: Date?,
+                      at date: Date,
+                      isRotating: Bool) -> Double {
+        guard isRotating, let activeSince else {
+            return normalized(accumulatedDegrees)
+        }
+        let elapsed = max(0, date.timeIntervalSince(activeSince))
+        return normalized(accumulatedDegrees + elapsed * degreesPerSecond)
     }
 
-    /// 基于 TimelineView 的 date 累积旋转角度; 暂停或 Reduce Motion 时不增。
-    private func updateAngle(date: Date) {
-        guard !reduceMotion, playback.state.isPlaying else {
-            lastDate = date
-            return
-        }
-        let dt = max(0, min(1.0 / 10.0, date.timeIntervalSince(lastDate)))
-        // 每秒旋转度数 = rpm / 60 * 360
-        let degPerSec = rpm / 60.0 * 360.0
-        angle = (angle + dt * degPerSec).truncatingRemainder(dividingBy: 360)
-        lastDate = date
+    private static func normalized(_ angle: Double) -> Double {
+        let value = angle.truncatingRemainder(dividingBy: 360)
+        return value >= 0 ? value : value + 360
     }
 }

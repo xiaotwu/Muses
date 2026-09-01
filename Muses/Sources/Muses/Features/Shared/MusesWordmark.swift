@@ -1,25 +1,12 @@
 import SwiftUI
 import AppKit
 
-/// Apple Music–style wordmark: 20pt rounded mark + “Muses” text.
-struct MusesWordmark: View {
-    var body: some View {
-        HStack(spacing: 6) {
-            mark
-            if MusesWordmarkMetrics.showsText {
-                Text("Muses")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(BrandColors.textPrimary)
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Muses")
-    }
+/// Rounded Muses mark used by the idle player capsule.
+struct MusesMark: View {
+    var size: CGFloat = 20
 
-    @ViewBuilder
-    private var mark: some View {
-        let size = MusesWordmarkMetrics.icon
-        let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: max(4, size * 0.22), style: .continuous)
         if let url = Bundle.main.url(forResource: "logo", withExtension: "png")
             ?? Bundle.module.url(forResource: "logo", withExtension: "png"),
            let image = NSImage(contentsOf: url) {
@@ -34,7 +21,7 @@ struct MusesWordmark: View {
                 .frame(width: size, height: size)
                 .overlay {
                     Image(systemName: "music.note")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: size * 0.5, weight: .bold))
                         .foregroundStyle(BrandColors.background)
                 }
         }

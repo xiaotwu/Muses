@@ -1,6 +1,19 @@
 import SwiftUI
 import AppKit
 
+/// Semantic glass roles keep native glass behavior centralized instead of
+/// scattering material choices through feature views.
+enum MusesGlassRole: Equatable {
+    case persistentChrome
+    case player
+    case floatingPanel
+    case compactControl
+
+    var isInteractive: Bool {
+        self == .player || self == .compactControl
+    }
+}
+
 /// Muses 玻璃原语:统一「持久/浮动 chrome」表面的玻璃呈现。
 ///
 /// - macOS 26+:原生 `glassEffect(_:in:)`,系统提供真实 Liquid Glass。
@@ -12,6 +25,7 @@ import AppKit
 struct MusesGlass<S: Shape>: ViewModifier {
     let shape: S
     let tint: Color?
+    let role: MusesGlassRole
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     func body(content: Content) -> some View {
@@ -28,7 +42,8 @@ struct MusesGlass<S: Shape>: ViewModifier {
 
     @available(macOS 26.0, *)
     private var glassVariant: Glass {
-        tint.map { Glass.regular.tint($0) } ?? .regular
+        let base = tint.map { Glass.regular.tint($0) } ?? .regular
+        return role.isInteractive ? base.interactive() : base
     }
 }
 
@@ -53,19 +68,34 @@ private var supportsLiquidGlass: Bool {
 
 extension View {
     /// 以给定形状应用 Muses 玻璃表面。
-    func musesGlass<S: Shape>(in shape: S, tint: Color? = nil) -> some View {
-        modifier(MusesGlass(shape: shape, tint: tint))
+    func musesGlass<S: Shape>(in shape: S, tint: Color? = nil,
+                              role: MusesGlassRole = .floatingPanel) -> some View {
+        modifier(MusesGlass(shape: shape, tint: tint, role: role))
     }
 
     /// 便捷重载:连续圆角矩形(PlayerBar / 抽屉 / MiniPlayer 等常用形态)。
-    func musesGlass(cornerRadius: CGFloat = 16, tint: Color? = nil) -> some View {
+    func musesGlass(cornerRadius: CGFloat = 16, tint: Color? = nil,
+                    role: MusesGlassRole = .floatingPanel) -> some View {
         modifier(MusesGlass(shape: RoundedRectangle(cornerRadius: cornerRadius,
-                                                    style: .continuous), tint: tint))
+                                                    style: .continuous), tint: tint, role: role))
     }
 
-    /// 轻微发光(issue #5):深色主题下白色文字 + 白色阴影 = 柔光;浅色主题黑色文字 + 黑色阴影 = 暗辉。
-    /// 仅用于表达性表面的强调文字,静态、克制,不影响可读性。
-    func glow(_ color: Color, radius: CGFloat = 2.5) -> some View {
-        self.shadow(color: color, radius: radius)
+    /// Floating rounded panel used by the sidebar, Queue, Search, and sheets.
+    func musesFloatingChrome(cornerRadius: CGFloat = 18) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return self
+            .clipShape(shape)
+            .musesGlass(in: shape, role: .floatingPanel)
+            .overlay(shape.stroke(BrandColors.textPrimary.opacity(0.12), lineWidth: 1))
     }
+
+    /// Opaque black floating panel (Queue). Not glass.
+    func musesOpaquePanel(cornerRadius: CGFloat = 18) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return self
+            .background(Color.black, in: shape)
+            .clipShape(shape)
+            .overlay(shape.stroke(BrandColors.textPrimary.opacity(0.12), lineWidth: 1))
+    }
+
 }

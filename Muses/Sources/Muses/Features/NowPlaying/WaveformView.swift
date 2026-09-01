@@ -4,6 +4,7 @@ import SwiftUI
 /// 未播放部分用 textSecondary 30% 透明。支持拖动定位(DragGesture 实时预览, 松手 seek)。
 struct WaveformView: View {
     @Environment(PlaybackService.self) private var playback
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var peaks: [Float] = []
     @State private var trackId: UUID?
@@ -12,7 +13,8 @@ struct WaveformView: View {
 
     var body: some View {
         GeometryReader { geo in
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { _ in
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0,
+                                    paused: reduceMotion || !playback.state.isPlaying)) { _ in
                 Canvas { ctx, size in
                     drawWaveform(ctx: ctx, size: size)
                 }

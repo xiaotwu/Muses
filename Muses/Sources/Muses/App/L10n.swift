@@ -1,35 +1,38 @@
 import Foundation
 
-/// i18n 基础设施:基于用户语言偏好或系统语言自动选择英语或中文。
-///
-/// 使用 `tr(en, zh)` 函数替代硬编码字符串,无需 .strings 文件,
-/// 完美兼容 SPM(无 resource bundling 问题)。
-///
-/// 语言优先级:`@AppStorage(PrefKey.language)` > 系统语言
-///
-/// 用法:
-/// ```swift
-/// Text(tr("Home", "首页"))
-/// Label(tr("Albums", "专辑"), systemImage: "square.stack")
-/// .navigationTitle(tr("Albums", "专辑"))
-/// Button(tr("Play", "播放")) { ... }
-/// ```
+/// i18n: pick a localized string from user preference, then system locale.
+/// Call sites use `tr(en, zhHans)`; extra locales are optional.
 enum L10n {
-    /// 检测当前应使用中文:优先读用户语言偏好,回退系统语言。
+    /// True when the active locale is any Chinese variant.
     static var isChinese: Bool {
         let pref = UserDefaults.standard.string(forKey: PrefKey.language) ?? "system"
         if pref == "system" {
             return Locale.current.language.languageCode?.identifier.hasPrefix("zh") ?? false
         }
-        return pref == "zh"
+        return pref == "zh" || pref == "zh-Hans" || pref == "zh-Hant"
     }
 }
 
-/// 双语字符串:根据当前语言自动选择英语或中文。
-/// - Parameters:
-///   - en: 英语文案
-///   - zh: 中文文案
-/// - Returns: 当前语言对应的字符串
-func tr(_ en: String, _ zh: String) -> String {
-    L10n.isChinese ? zh : en
+/// Localized string. English is the default; Simplified Chinese is the current extra locale.
+/// Optional Traditional Chinese and Japanese fall back to Simplified Chinese, then English.
+func tr(_ en: String, _ zhHans: String, zhHant: String? = nil, ja: String? = nil) -> String {
+    let pref = UserDefaults.standard.string(forKey: PrefKey.language) ?? "system"
+    let code: String
+    if pref == "system" {
+        let id = Locale.current.language.languageCode?.identifier ?? "en"
+        if id == "zh" {
+            let script = Locale.current.language.script?.identifier
+            code = (script == "Hant") ? "zh-Hant" : "zh-Hans"
+        } else {
+            code = id
+        }
+    } else {
+        code = pref
+    }
+    switch code {
+    case "zh", "zh-Hans": return zhHans
+    case "zh-Hant": return zhHant ?? zhHans
+    case "ja": return ja ?? en
+    default: return en
+    }
 }

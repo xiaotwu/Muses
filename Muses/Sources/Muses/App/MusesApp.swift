@@ -1,9 +1,12 @@
 import SwiftUI
 import SwiftData
+import AppKit
 
 @main
 struct MusesApp: App {
     let modelContainer: ModelContainer
+    /// True when the on-disk library could not be opened and the session is empty in-memory.
+    let usedInMemoryFallback: Bool
     let libraryService: LibraryService
     let playbackService: PlaybackService
     let importService: YouTubeImportService
@@ -12,7 +15,6 @@ struct MusesApp: App {
     let sleepTimer: SleepTimerService
     let globalSearchService: GlobalSearchService
     let lyricsService: LyricsService
-    let recommendationService: RecommendationService
     let ytDlpBridge: YTDlpBridge
     let updateService: UpdateService
     let commandRegistry: CommandRegistry
@@ -27,14 +29,16 @@ struct MusesApp: App {
     let audioDeviceService: AudioDeviceService
     // Phase D3 — Home 动态发现:provider 抽象 + cache-first + per-section failure。
     let homeDiscoveryService: HomeDiscoveryService
+    /// Optional, isolated YouTube Music Web Home control plane. It is
+    /// build-gated, user-consented, and never participates in playback.
+    let webHomeSessionController: WebHomeSessionController
     // Phase D5 — New 情境化推荐:History/Context/Sessions/Focus/Inbox/Library 确定性打分。
     let situationalRecommendationService: SituationalRecommendationService
     // P2 — YouTube 账户(真实 Google OAuth 2.0 PKCE + Data API):用于 Home 个性化信号
     // (订阅频道/喜欢的视频→艺术家名),凭证与令牌存 Keychain,最小只读 scope,永不阻断播放。
     let youTubeAccountService: YouTubeAccountService
-    // P3 — 非持久化元数据富集投影层:统一 local + YouTube-derived 专辑/艺术家浏览;
-    // MusicBrainz 确认 + Cover Art 封面,不改 SwiftData schema。
-    let metadataEnrichmentService: MetadataEnrichmentService
+    let youTubePlaylistSyncService: YouTubePlaylistSyncService
+    let youTubeCatalogService: YouTubeCatalogService
     // Phase 24 — 原生桌面集成:全局热键 / 菜单栏托盘 / 桌面歌词 / 迷你播放器。
     let globalHotkeyService: GlobalHotkeyService
     let trayController: TrayController
@@ -43,49 +47,63 @@ struct MusesApp: App {
     private let spotlightIndexer: SpotlightIndexer
 
     init() {
+        MusesSingleInstance.yieldIfOtherInstanceRunning()
         // 品牌字标字体:尽早注册,使首屏 "Muses" wordmark 即用 MonteCarlo。
         FontLoader.registerMonteCarlo()
+        YTCookieSource.migrateChromeIfNeeded()
         // P5 issue #7 — 应用内功能标志默认开启(用户显式选择「全部启用」)。
         // 仅注册未显式设置的键:用户曾在设置中关闭的项保持关闭(不回退其选择)。
-        // 桌面集成 4 项(全局热键/托盘/迷你播放器/桌面歌词)仍默认关——占用系统资源、
-        // 不打扰;可在设置中按需开启。
+        // 全局热键 / 迷你播放器 / 桌面歌词仍默认关;菜单栏图标默认开。
         UserDefaults.standard.register(defaults: FeatureFlagDefaults.enabledByDefault)
-        let container = makeModelContainerWithFallback()
-        self.modelContainer = container
-        let meta = MetadataService(artworkCache: .default)
-        let library = LibraryService(modelContainer: container, metadata: meta)
+        UserDefaults.standard.register(defaults: WebHomePreferenceDefaults.values)
+        #if DEBUG
+        let storeLoad: MusesStoreLoadResult
+        if ProcessInfo.processInfo.environment["MUSES_IN_MEMORY_STORE"] == "1" {
+            storeLoad = MusesStoreLoadResult(
+                container: try! makeModelContainer(inMemory: true),
+                usedInMemoryFallback: false
+            )
+        } else {
+            storeLoad = makeYouTubeNativeModelContainerWithFallback()
+        }
+        #else
+        let storeLoad = makeYouTubeNativeModelContainerWithFallback()
+        #endif
+        self.modelContainer = storeLoad.container
+        self.usedInMemoryFallback = storeLoad.usedInMemoryFallback
+        let container = storeLoad.container
+        let library = LibraryService(modelContainer: container)
         self.libraryService = library
-        let localEngine = LocalAudioEngine()
+        let catalogService = YouTubeCatalogService(modelContainer: container)
+        self.youTubeCatalogService = catalogService
         let ytdlpBridge = YTDlpBridge()
         self.ytDlpBridge = ytdlpBridge
         let youtubeEngine = YouTubeStreamEngine(bridge: ytdlpBridge)
         let queue = QueueService()
         queue.modelContext = container.mainContext
         queue.restore()
-        self.playbackService = PlaybackService(localEngine: localEngine,
-                                                 youtubeEngine: youtubeEngine,
-                                                 queue: queue,
-                                                 library: library)
+        self.playbackService = PlaybackService(
+            youtubeEngine: youtubeEngine,
+            queue: queue,
+            library: library
+        )
         self.importService = YouTubeImportService(bridge: ytdlpBridge,
-                                                  modelContainer: container)
+                                                  modelContainer: container,
+                                                  catalog: catalogService)
         self.searchService = YouTubeSearchService(bridge: ytdlpBridge,
                                                   modelContainer: container)
         self.playlistService = PlaylistService(modelContainer: container)
         self.sleepTimer = SleepTimerService(playbackService: playbackService)
-        // 笔记 & 书签(Phase 21):TrackNote/TrackBookmark/AlbumNote 读写入口;
+        // 笔记 & 书签(Phase 21):TrackNote/TrackBookmark 读写入口;
         // 无事件总线订阅(笔记不与播放事件耦合),ffNotes 关 → 写入 no-op。
         self.notesService = NotesService(modelContainer: container)
         self.globalSearchService = GlobalSearchService(
-            library: library, youTubeSearch: searchService, notes: notesService)
+            library: library, catalog: catalogService,
+            youTubeSearch: searchService, notes: notesService)
         self.lyricsService = LyricsService(modelContainer: container)
-        self.recommendationService = RecommendationService(library: library)
-        let enricher = MetadataEnricherService(modelContainer: container)
-        library.enricher = enricher
-        library.backfillArtists()
-        library.triggerArtistEnrichment()
         self.nowPlayingManager = NowPlayingManager(playbackService, library: library, queue: queue)
-        // 上下文监听(Phase 23 §10.2):opt-in(ffContext 默认关),best-effort 捕获本地时间/
-        // 前台应用 bundle id(需 contextTrackActiveApp 再显式开启)/输出设备/耳机启发式。
+        // 上下文监听(Phase 23 §10.2):ffContext 默认开(P5),best-effort 捕获本地时间/
+        // 输出设备/耳机启发式。前台应用 bundle id 仍需 contextTrackActiveApp 显式开启。
         // 绝不记录窗口标题/URL/内容。capture() 关闭时返回 nil,HistoryService 存 nil。
         let contextService = ContextService()
         self.contextService = contextService
@@ -96,15 +114,14 @@ struct MusesApp: App {
                                              contextProvider: { [weak contextService] in
             contextService?.capture()
         })
-        // 收听会话 + 崩溃恢复(Phase 18):订阅事件总线,维护 ListeningSession 行 +
-        // 周期 checkpoint 到 QueueState 崩溃恢复槽;构造时检测可恢复会话供 RootView 弹对话框。
-        // 须在 queue.restore() 之后构造(已在上方执行),以读取恢复的 currentTrackId/位置。
+        // Listening-session crash recovery is constructed after queue.restore()
+        // so it can load the persisted current item and position while paused.
         self.sessionService = SessionService(modelContainer: container,
                                              eventBus: playbackService.eventBus,
                                              playback: playbackService,
                                              queue: queue)
         // 专注模式(Phase 25 §10.9):订阅无关,持运行态;关联回当前 ListeningSession(只读)。
-        // ffFocusMode 默认关 → start 为 no-op,isActive 保持 false,不抑制发现表面。
+        // ffFocusMode 默认开(P5);未开始会话时 isActive 保持 false,不抑制发现表面。
         self.focusService = FocusService(modelContainer: container,
                                          eventBus: playbackService.eventBus,
                                          playback: playbackService,
@@ -114,12 +131,12 @@ struct MusesApp: App {
         self.audioDeviceService = audioDevices
         Task { @MainActor in audioDevices.startPolling() }
         // 收件箱(Phase 20):订阅事件总线(.trackStarted→listening),维护 InboxItem 行;
-        // 启动时把到期 snooze 还原为 unheard。功能开关 ffInbox 默认关 → add 为 no-op。
+        // 启动时把到期 snooze 还原为 unheard。功能开关 ffInbox 默认开(P5)。
         self.inboxService = InboxService(modelContainer: container,
                                          eventBus: playbackService.eventBus)
         inboxService.restoreDueSnoozes()
         // 上下文自动化(Phase 23 §12):订阅事件总线,匹配 AutomationRule 触发器/条件/动作。
-        // ffAutomation 默认关 → handle 直接返回。动作处理器接入 library/inbox/playback。
+        // ffAutomation 默认开(P5)。动作处理器接入 library/inbox/playback。
         self.automationService = AutomationService(
             modelContainer: container,
             eventBus: playbackService.eventBus,
@@ -133,29 +150,54 @@ struct MusesApp: App {
 
         // Phase D3 — Home 动态发现服务:默认 provider 基于 yt-dlp 主题化 ytsearch,
         // 经 searchService.search 闭包注入(闭包内调用 @MainActor YTDlpBridge)。
-        // ffDiscovery 默认关 → load() no-op,HomeView 回退现有行为。
+        // ffDiscovery 默认开(P5);关闭时 load() no-op,HomeView 回退现有行为。
         // 注:struct init 中 escaping 闭包不可捕获未完全初始化的 self,故用本地绑定。
         let ytSearchSvc = searchService
-        let discoveryProvider = YTDlpDiscoveryProvider { query, limit in
-            try await ytSearchSvc.search(query: query, limit: limit)
-        }
+        let ytBridge = ytdlpBridge
+        let discoveryProvider = YTDlpDiscoveryProvider(
+            fetchPlaylist: { url in try await ytBridge.fetchPlaylist(url: url) },
+            search: { query, limit in try await ytSearchSvc.search(query: query, limit: limit) }
+        )
         // P2 — YouTube 账户服务:Google OAuth 2.0 PKCE + YouTube Data API v3。
-        // 凭证(Client ID/Secret/Redirect URI)与令牌均存 macOS Keychain;
-        // 最小只读 scope(youtube.readonly);OAuth 仅用于个性化信号,永不阻断播放。
-        // 用户需在设置中填入自己的 Google Cloud OAuth 凭证(产品不内置)。
+        // OAuth 客户端配置由应用构建持有，令牌存 macOS Keychain；用户只在
+        // 默认浏览器中授权。OAuth 永不阻断访客浏览、导入或播放。
         let youTubeAccount = YouTubeAccountService()
         self.youTubeAccountService = youTubeAccount
-        // P3 — 非持久化浏览投影 + 富集服务(只读 ModelContainer,off-main 构建)。
-        self.metadataEnrichmentService = MetadataEnrichmentService(container: container)
+        let playlistSync = YouTubePlaylistSyncService(
+            modelContainer: container, account: youTubeAccount)
+        self.youTubePlaylistSyncService = playlistSync
+        do {
+            try playlistSync.purgeExpiredRecentlyDeleted()
+        } catch {
+            AppLog.for("MusesApp").warning(
+                "Recently Deleted cleanup failed: \(error.localizedDescription)")
+        }
+        let accountHomeProvider = YouTubeAccountHomeProvider(
+            base: discoveryProvider,
+            snapshot: { [weak youTubeAccount] in youTubeAccount?.account })
+        let webHome = WebHomeSessionController(
+            currentChannelIDProvider: { [weak youTubeAccount] in
+                youTubeAccount?.activeChannelID
+            })
+        self.webHomeSessionController = webHome
+        // A+B Home: official-account/public discovery remains the stable
+        // baseline. The optional Web adapter has its own process, consent,
+        // normalized snapshot, and physical cache partition.
+        let layeredHomeProvider = LayeredHomeProvider(
+            baseline: accountHomeProvider,
+            webEnhancement: webHome.isBuildEnabled ? webHome : nil)
         self.homeDiscoveryService = HomeDiscoveryService(
-            provider: discoveryProvider,
+            provider: layeredHomeProvider,
             library: library,
             historyService: historyService,
             youTubeSignals: { [weak youTubeAccount] in
                 await youTubeAccount?.signals()
+            },
+            accountChannelIDProvider: { [weak youTubeAccount] in
+                youTubeAccount?.activeChannelID
             })
         // Phase D5 — New 情境化推荐(只读 History/Context/Focus/Inbox/Library + 已导入 YouTube)。
-        // ffSituationalNew 默认关 → compute() 返回空,NewView 回退 RecommendationService。
+        // ffSituationalNew 默认开(P5);关闭时 compute() 返回空,NewView 回退 RecommendationService。
         self.situationalRecommendationService = SituationalRecommendationService(
             library: library,
             historyService: historyService,
@@ -219,9 +261,7 @@ struct MusesApp: App {
             case GlobalHotkeyService.actionAddToInbox:
                 if let snap = playback?.state.track { inbox?.add(snap, source: .automation) }
             case GlobalHotkeyService.actionShowHidePlayer:
-                NSApp.activate(ignoringOtherApps: true)
-                NSApp.windows.first { $0.title.isEmpty || $0.frameAutosaveName == "MusesMainWindow" }?
-                    .makeKeyAndOrderFront(nil)
+                MusesSingleInstance.orderFrontMainWindow()
             case GlobalHotkeyService.actionShowMiniPlayer:
                 NotificationCenter.default.post(name: .musesOpenMiniPlayer, object: nil)
             case GlobalHotkeyService.actionShowLyrics:
@@ -249,8 +289,7 @@ struct MusesApp: App {
             },
             onOpenMini: { NotificationCenter.default.post(name: .musesOpenMiniPlayer, object: nil) },
             onOpenMain: {
-                NSApp.activate(ignoringOtherApps: true)
-                NSApp.windows.first?.makeKeyAndOrderFront(nil)
+                MusesSingleInstance.orderFrontMainWindow()
             },
             onQuit: { NSApp.terminate(nil) })
         self.trayController = tray
@@ -296,6 +335,24 @@ struct MusesApp: App {
                 }
             }
         }
+
+        // Repair / artist backfill / enrichment are library-wide walks. Keep
+        // them off the init path so the first window can appear.
+        let deferredImport = importService
+        let deferredCatalog = youTubeCatalogService
+        Task { @MainActor in
+            deferredImport.repairYouTubeLibrary()
+            deferredCatalog.rebuildFromTrackMetadata()
+        }
+
+        // Keychain tokens survive launch, while the account snapshot does not.
+        // Rehydrate it only after composition is complete; refresh is
+        // best-effort and never blocks the window or playback startup.
+        if youTubeAccount.isConnected {
+            Task { @MainActor [weak youTubeAccount] in
+                await youTubeAccount?.refreshPersistedConnectionIfNeeded()
+            }
+        }
     }
 
     var body: some Scene {
@@ -310,7 +367,6 @@ struct MusesApp: App {
                     .environment(sleepTimer)
                     .environment(globalSearchService)
                     .environment(lyricsService)
-                    .environment(recommendationService)
                     .environment(\.ytDlpBridge, ytDlpBridge)
                     .environment(updateService)
                     .environment(commandRegistry)
@@ -324,9 +380,12 @@ struct MusesApp: App {
                     .environment(focusService)
                     .environment(audioDeviceService)
                     .environment(homeDiscoveryService)
+                    .environment(webHomeSessionController)
                     .environment(situationalRecommendationService)
                     .environment(youTubeAccountService)
-                    .environment(metadataEnrichmentService)
+                    .environment(youTubePlaylistSyncService)
+                    .environment(youTubeCatalogService)
+                    .environment(\.libraryStoreFallback, usedInMemoryFallback)
                     .modelContainer(modelContainer)
                     .background(MiniPlayerOpener())
                     .onOpenURL { url in
@@ -345,8 +404,49 @@ struct MusesApp: App {
                     }
             }
         }
-        .windowStyle(.hiddenTitleBar)
+        // Keep the main scene on SwiftUI's standard window style. The
+        // idempotent AppKit bridge makes the titlebar transparent and extends
+        // content beneath it without letting scene updates replace the native
+        // traffic-light cluster.
         .defaultSize(width: 1280, height: 800)
+        Window(tr("Search Muses", "搜索 Muses"), id: SearchWindowPolicy.sceneID) {
+            ThemeApplier {
+                SearchWindowRoot()
+                    .environment(libraryService)
+                    .environment(playbackService)
+                    .environment(importService)
+                    .environment(searchService)
+                    .environment(playlistService)
+                    .environment(sleepTimer)
+                    .environment(globalSearchService)
+                    .environment(lyricsService)
+                    .environment(\.ytDlpBridge, ytDlpBridge)
+                    .environment(updateService)
+                    .environment(commandRegistry)
+                    .environment(runtimeCapabilities)
+                    .environment(historyService)
+                    .environment(contextService)
+                    .environment(automationService)
+                    .environment(sessionService)
+                    .environment(inboxService)
+                    .environment(notesService)
+                    .environment(focusService)
+                    .environment(audioDeviceService)
+                    .environment(homeDiscoveryService)
+                    .environment(webHomeSessionController)
+                    .environment(situationalRecommendationService)
+                    .environment(youTubeAccountService)
+                    .environment(youTubePlaylistSyncService)
+                    .environment(youTubeCatalogService)
+                    .modelContainer(modelContainer)
+            }
+        }
+        .windowStyle(.hiddenTitleBar)
+        .defaultPosition(.center)
+        .defaultSize(
+            width: SearchWindowPolicy.defaultWidth,
+            height: SearchWindowPolicy.defaultHeight
+        )
         // Phase 24 — 迷你播放器场景(独立 WindowGroup,按需 openWindow(id:))。共享同一 PlaybackService,无第二引擎。
         WindowGroup("MiniPlayer", id: "mini-player") {
             ThemeApplier {
@@ -366,6 +466,12 @@ struct MusesApp: App {
                 Button(tr("About Muses", "关于 Muses")) {
                     NSApp.orderFrontStandardAboutPanel(nil)
                 }
+            }
+            CommandGroup(replacing: .appSettings) {
+                Button(tr("Settings…", "设置…")) {
+                    NotificationCenter.default.post(name: .musesOpenSettings, object: nil)
+                }
+                .keyboardShortcut(",", modifiers: .command)
             }
             // 播放控制快捷键(经 CommandRegistry 集中处理,Phase 24 全局热键复用)
             CommandGroup(after: .toolbar) {

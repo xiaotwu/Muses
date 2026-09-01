@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Sidra / Apple Music Web top bar: lights, wordmark, Home/New/Library, search, avatar.
+/// Legacy top-bar implementation retained for source compatibility.
+/// The current Apple Music Web shell uses the left navigation pane instead.
 struct AppTopBar: View {
     @Binding var section: SidebarSection
     @Binding var showSettings: Bool
@@ -11,7 +12,6 @@ struct AppTopBar: View {
     var body: some View {
         HStack(spacing: 16) {
             TrafficLightsPad()
-                .frame(width: 72, height: 16)
             Text("Muses")
                 .font(BrandFont.muses(22))
                 .foregroundStyle(BrandColors.textPrimary)
@@ -24,7 +24,6 @@ struct AppTopBar: View {
         .padding(.horizontal, 12)
         .frame(height: 52)
         .background(BrandColors.background)
-        .focusEffectDisabled()
         .onReceive(NotificationCenter.default.publisher(for: .musesFocusSearch)) { _ in
             searchFocused = true
         }
@@ -39,7 +38,7 @@ struct AppTopBar: View {
                     case .home: section = .home
                     case .new: section = .new
                     case .library:
-                        if !section.isLibrary { section = .recently }
+                        if !section.isLibrary { section = .songs }
                     }
                 } label: {
                     Text(tab.label)

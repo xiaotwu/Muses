@@ -57,11 +57,9 @@ struct YouTubeImportServiceTests {
         let tracks = try verifyCtx.fetch(FetchDescriptor<Track>())
         #expect(tracks.count == 2)
         let v1Track = try #require(tracks.first { $0.youTubeId == "v1" })
-        #expect(v1Track.source == .youtube)
         #expect(v1Track.title == "Song A")
         #expect(v1Track.artworkUrl == "https://i.ytimg.com/vi/v1/hqdefault.jpg")
         let v2Track = try #require(tracks.first { $0.youTubeId == "v2" })
-        #expect(v2Track.source == .youtube)
         #expect(v2Track.artworkUrl == "https://i.ytimg.com/vi/v2/hqdefault.jpg")
 
         // import.artworkUrl 指向首条视频缩略图。
@@ -72,183 +70,7 @@ struct YouTubeImportServiceTests {
         #expect(sortedItems[1].track?.youTubeId == "v2")
     }
 
-    // MARK: - 2. resync 合并条目(新增/移除/更新)
-
-    @Test("resync 合并新增并移除消失的条目")
-    func resyncMergesEntries() async throws {
-        let container = try makeModelContainer(inMemory: true)
-        let bridge = MockImportBridge()
-        bridge.entries = [
-            YTDlpBridge.YTDlpPlaylistEntry(
-                id: "v1", title: "Song A", uploader: "Chan", duration: 201.5),
-            YTDlpBridge.YTDlpPlaylistEntry(
-                id: "v2", title: "Song B", uploader: "Chan", duration: 180.0),
-        ]
-
-        let service = makeService(bridge: bridge, container: container)
-
-        // 先导入 2 条。
-        let importId = try await service.importPlaylist(
-            url: "https://www.youtube.com/playlist?list=PLresync")
-        // 记录 v2 的 Track id,验证 resync 后 Track 仍存在。
-        let preCtx = ModelContext(container)
-        let preItems = try preCtx.fetch(FetchDescriptor<YouTubeImport>())
-        let v2ItemId = try #require(
-            (preItems.first?.items ?? []).first { $0.youTubeId == "v2" }?.id)
-        let v2TrackId = try #require(
-            (preItems.first?.items ?? []).first { $0.youTubeId == "v2" }?.track?.id)
-
-        // 改变 mock 条目:保留 v1,移除 v2,新增 v3。
-        bridge.entries = [
-            YTDlpBridge.YTDlpPlaylistEntry(
-                id: "v1", title: "Song A (Remaster)", uploader: "Chan2", duration: 205.0),
-            YTDlpBridge.YTDlpPlaylistEntry(
-                id: "v3", title: "Song C", uploader: "Chan", duration: 240.0),
-        ]
-
-        let ok = try await service.resync(importId: importId)
-        #expect(ok == true)
-        #expect(bridge.fetchCallCount == 2)
-
-        // 验证:items = 2(v1 + v3),v2 item 被删,但 v2 Track 仍在。
-        let verifyCtx = ModelContext(container)
-        let imports = try verifyCtx.fetch(FetchDescriptor<YouTubeImport>())
-        let imp = try #require(imports.first)
-        let items = imp.items ?? []
-        #expect(items.count == 2)
-        let youTubeIds = Set(items.map { $0.youTubeId })
-        #expect(youTubeIds == ["v1", "v3"])
-
-        // v1 条目字段被更新。
-        let v1Item = try #require(items.first { $0.youTubeId == "v1" })
-        #expect(v1Item.title == "Song A (Remaster)")
-        #expect(v1Item.artist == "Chan2")
-        #expect(v1Item.durationMs == 205000)
-        #expect(v1Item.track?.title == "Song A (Remaster)")
-
-        // v2 item 已删除。
-        let allItems = try verifyCtx.fetch(FetchDescriptor<YouTubeImportItem>())
-        #expect(allItems.contains { $0.id == v2ItemId } == false)
-
-        // v2 Track 仍在(nullify)。
-        let allTracks = try verifyCtx.fetch(FetchDescriptor<Track>())
-        #expect(allTracks.contains { $0.id == v2TrackId } == true)
-
-        // v3 是新增 Track。
-        let v3Track = try #require(allTracks.first { $0.youTubeId == "v3" })
-        #expect(v3Track.source == .youtube)
-    }
-
-    // MARK: - 3. deleteImport 默认保留 Track
-
-    @Test("deleteImport 默认保留 Track")
-    func deleteImportKeepsTracksByDefault() async throws {
-        let container = try makeModelContainer(inMemory: true)
-        let bridge = MockImportBridge()
-        bridge.entries = [
-            YTDlpBridge.YTDlpPlaylistEntry(
-                id: "d1", title: "Del A", uploader: "Chan", duration: 100.0),
-            YTDlpBridge.YTDlpPlaylistEntry(
-                id: "d2", title: "Del B", uploader: "Chan", duration: 120.0),
-        ]
-
-        let service = makeService(bridge: bridge, container: container)
-        let importId = try await service.importPlaylist(
-            url: "https://www.youtube.com/playlist?list=PLdelete")
-
-        service.deleteImport(importId: importId) // deleteTracks 默认 false
-
-        let verifyCtx = ModelContext(container)
-        let imports = try verifyCtx.fetch(FetchDescriptor<YouTubeImport>())
-        #expect(imports.isEmpty)
-        let items = try verifyCtx.fetch(FetchDescriptor<YouTubeImportItem>())
-        #expect(items.isEmpty)
-        // Track 保留。
-        let tracks = try verifyCtx.fetch(FetchDescriptor<Track>())
-        #expect(tracks.count == 2)
-        let ytIds = Set(tracks.compactMap { $0.youTubeId })
-        #expect(ytIds == ["d1", "d2"])
-    }
-
-    // MARK: - 3b. deleteImport deleteTracks=true 一并删除 Track
-
-    @Test("deleteImport(deleteTracks: true) 删除关联 Track")
-    func deleteImportWithTracks() async throws {
-        let container = try makeModelContainer(inMemory: true)
-        let bridge = MockImportBridge()
-        bridge.entries = [
-            YTDlpBridge.YTDlpPlaylistEntry(
-                id: "dt1", title: "T", uploader: "C", duration: 100.0),
-        ]
-
-        let service = makeService(bridge: bridge, container: container)
-        let importId = try await service.importPlaylist(
-            url: "https://www.youtube.com/playlist?list=PLdelT")
-
-        service.deleteImport(importId: importId, deleteTracks: true)
-
-        let verifyCtx = ModelContext(container)
-        let imports = try verifyCtx.fetch(FetchDescriptor<YouTubeImport>())
-        #expect(imports.isEmpty)
-        let items = try verifyCtx.fetch(FetchDescriptor<YouTubeImportItem>())
-        #expect(items.isEmpty)
-        let tracks = try verifyCtx.fetch(FetchDescriptor<Track>())
-        #expect(tracks.isEmpty)
-    }
-
-    // MARK: - 4. localAddition 添加与移除
-
-    @Test("localAddition 添加和移除")
-    func localAdditionAddAndRemove() async throws {
-        let container = try makeModelContainer(inMemory: true)
-        let bridge = MockImportBridge()
-        bridge.entries = [
-            YTDlpBridge.YTDlpPlaylistEntry(
-                id: "la1", title: "Song", uploader: "Chan", duration: 100.0),
-        ]
-
-        let service = makeService(bridge: bridge, container: container)
-        let importId = try await service.importPlaylist(
-            url: "https://www.youtube.com/playlist?list=PLla")
-
-        // 在容器里新建一个本地 Track。
-        let setupCtx = ModelContext(container)
-        let localTrack = Track(
-            source: .local, title: "Local Song", artist: "Me",
-            filePath: "/tmp/local.flac")
-        setupCtx.insert(localTrack)
-        try setupCtx.save()
-        let localTrackId = localTrack.id
-
-        // 添加。
-        let added = service.addLocalAddition(importId: importId, trackId: localTrackId)
-        #expect(added == true)
-
-        let verifyCtx1 = ModelContext(container)
-        let imp1 = try #require(verifyCtx1.fetch(FetchDescriptor<YouTubeImport>()).first)
-        #expect(imp1.localAdditions?.count == 1)
-        #expect(imp1.localAdditions?[0].id == localTrackId)
-
-        // 重复添加应去重(返回 true,数量不变)。
-        let addedAgain = service.addLocalAddition(importId: importId, trackId: localTrackId)
-        #expect(addedAgain == true)
-        let verifyCtx1b = ModelContext(container)
-        let imp1b = try #require(verifyCtx1b.fetch(FetchDescriptor<YouTubeImport>()).first)
-        #expect(imp1b.localAdditions?.count == 1)
-
-        // 移除。
-        let removed = service.removeLocalAddition(importId: importId, trackId: localTrackId)
-        #expect(removed == true)
-        let verifyCtx2 = ModelContext(container)
-        let imp2 = try #require(verifyCtx2.fetch(FetchDescriptor<YouTubeImport>()).first)
-        #expect(imp2.localAdditions?.count == 0)
-
-        // 本地 Track 仍保留(nullify)。
-        let tracks = try verifyCtx2.fetch(FetchDescriptor<Track>())
-        #expect(tracks.contains { $0.id == localTrackId } == true)
-    }
-
-    // MARK: - 边界:空歌单 / 无效 URL
+    // MARK: - 2. 边界:空歌单 / 无效 URL
 
     @Test("空歌单抛 emptyPlaylist")
     func emptyPlaylistThrows() async throws {
@@ -278,14 +100,129 @@ struct YouTubeImportServiceTests {
         }
     }
 
-    @Test("resync 未找到 import 返回 false")
-    func resyncNotFoundReturnsFalse() async throws {
+    @Test("再次导入同一 playlistId 复用本地状态且不隐式检查远端")
+    func reimportSamePlaylistReusesTracks() async throws {
         let container = try makeModelContainer(inMemory: true)
         let bridge = MockImportBridge()
+        bridge.entries = [
+            YTDlpBridge.YTDlpPlaylistEntry(
+                id: "v1", title: "Song A", uploader: "Chan", duration: 10),
+            YTDlpBridge.YTDlpPlaylistEntry(
+                id: "v2", title: "Song B", uploader: "Chan", duration: 12),
+        ]
         let service = makeService(bridge: bridge, container: container)
+        let url = "https://www.youtube.com/playlist?list=PLreuse"
+        let first = try await service.importPlaylist(url: url)
+        let second = try await service.importPlaylist(url: url)
+        #expect(first == second)
+        let verify = ModelContext(container)
+        #expect(try verify.fetch(FetchDescriptor<YouTubeImport>()).count == 1)
+        #expect(try verify.fetch(FetchDescriptor<Track>()).count == 2)
+        #expect(bridge.fetchCallCount == 1)
+    }
 
-        let ok = try await service.resync(importId: UUID())
-        #expect(ok == false)
+    @Test("oEmbed 失败时使用 yt-dlp playlist_title")
+    func importUsesPlaylistTitleFallback() async throws {
+        let container = try makeModelContainer(inMemory: true)
+        let bridge = MockImportBridge()
+        bridge.entries = [
+            YTDlpBridge.YTDlpPlaylistEntry(
+                id: "v1", title: "Song A", uploader: "Chan", duration: 10,
+                playlistTitle: "Triumph on the Ice"),
+        ]
+        let service = makeService(bridge: bridge, container: container)
+        _ = try await service.importPlaylist(
+            url: "https://www.youtube.com/playlist?list=PLtitle")
+        let imp = try #require(ModelContext(container).fetch(FetchDescriptor<YouTubeImport>()).first)
+        #expect(imp.title == "Triumph on the Ice")
+        #expect(try ModelContext(container).fetch(FetchDescriptor<CatalogRelease>()).isEmpty)
+        #expect(try ModelContext(container).fetch(FetchDescriptor<CatalogArtist>()).isEmpty)
+    }
+
+    @Test("repairYouTubeLibrary 合并同 youTubeId 且不按文本创建目录身份")
+    func repairMergesDuplicateYouTubeTracks() async throws {
+        let container = try makeModelContainer(inMemory: true)
+        let bridge = MockImportBridge()
+        bridge.entries = [
+            YTDlpBridge.YTDlpPlaylistEntry(
+                id: "v1", title: "Song A", uploader: "Chan", duration: 10),
+        ]
+        let service = makeService(bridge: bridge, container: container)
+        _ = try await service.importPlaylist(
+            url: "https://www.youtube.com/playlist?list=PLdup")
+
+        let ctx = ModelContext(container)
+        let original = try #require(ctx.fetch(FetchDescriptor<Track>()).first)
+        original.playCount = 2
+        let dupe1 = Track(title: "Song A", artist: "Chan",
+                          durationMs: 10000, youTubeId: "v1")
+        dupe1.playCount = 3
+        dupe1.liked = true
+        dupe1.lastPlayedAt = Date()
+        ctx.insert(dupe1)
+        let dupe2 = Track(title: "Song A", artist: "Chan",
+                          durationMs: 10000, youTubeId: "v1")
+        dupe2.playCount = 1
+        ctx.insert(dupe2)
+        try ctx.save()
+
+        service.repairYouTubeLibrary()
+
+        let verify = ModelContext(container)
+        let tracks = try verify.fetch(FetchDescriptor<Track>())
+        #expect(tracks.count == 1)
+        let kept = try #require(tracks.first)
+        #expect(kept.playCount == 6)
+        #expect(kept.liked == true)
+        #expect(kept.releaseCatalogID == nil)
+        #expect(try verify.fetch(FetchDescriptor<CatalogRelease>()).isEmpty)
+        #expect(try verify.fetch(FetchDescriptor<CatalogArtist>()).isEmpty)
+    }
+
+    @Test("YouTube Music OLAK5uy 通过稳定 ID 创建目录专辑和艺术家")
+    func musicAlbumPlaylistCreatesAlbum() async throws {
+        let container = try makeModelContainer(inMemory: true)
+        let bridge = MockImportBridge()
+        bridge.entries = [
+            YTDlpBridge.YTDlpPlaylistEntry(
+                id: "v1", title: "Song A", uploader: "Chan", duration: 10,
+                playlistTitle: "Ice Album", channelID: "UCice",
+                track: "Song A", album: "Ice Album", releaseYear: 2026),
+            YTDlpBridge.YTDlpPlaylistEntry(
+                id: "v2", title: "Song B (Official Music Video)", uploader: "Chan", duration: 12,
+                playlistTitle: "Ice Album", channelID: "UCice"),
+        ]
+        let service = makeService(bridge: bridge, container: container)
+        _ = try await service.importPlaylist(
+            url: "https://music.youtube.com/playlist?list=OLAK5uy_abc123")
+
+        let context = ModelContext(container)
+        let releases = try context.fetch(FetchDescriptor<CatalogRelease>())
+        let release = try #require(releases.first)
+        #expect(releases.count == 1)
+        #expect(release.stableID == "playlist:OLAK5uy_abc123")
+        #expect(release.title == "Ice Album")
+        #expect(release.artistName == "Chan")
+        #expect(release.artistStableID == "channel:UCice")
+
+        let artists = try context.fetch(FetchDescriptor<CatalogArtist>())
+        let artist = try #require(artists.first)
+        #expect(artists.count == 1)
+        #expect(artist.stableID == "channel:UCice")
+        #expect(artist.channelID == "UCice")
+        #expect(artist.name == "Chan")
+
+        let tracks = try context.fetch(FetchDescriptor<Track>())
+        let song = try #require(tracks.first { $0.youTubeId == "v1" })
+        let video = try #require(tracks.first { $0.youTubeId == "v2" })
+        #expect(song.releaseCatalogID == release.stableID)
+        #expect(video.releaseCatalogID == release.stableID)
+        #expect(song.artistCatalogID == artist.stableID)
+        #expect(video.artistCatalogID == artist.stableID)
+        #expect(song.releaseOrder == 0)
+        #expect(video.releaseOrder == 1)
+        #expect(song.mediaKind == .song)
+        #expect(video.mediaKind == .musicVideo)
     }
 
     // MARK: - 工厂
@@ -293,7 +230,8 @@ struct YouTubeImportServiceTests {
     /// 构造一个使用临时 ArtworkCache + 短超时 ephemeral session(无 stub 规则时
     /// 网络请求会快速失败,因此 artwork 下载不阻塞,也不会写入磁盘)的服务。
     private func makeService(bridge: MockImportBridge,
-                            container: ModelContainer) -> YouTubeImportService {
+                             container: ModelContainer,
+                             catalog: YouTubeCatalogService? = nil) -> YouTubeImportService {
         YouTubeImportServiceStub.reset()
         let stub = YouTubeImportServiceStub()
         // 对所有请求返回 404 —— 这样 artwork 下载会非 2xx 失败,不写入缓存。
@@ -308,7 +246,8 @@ struct YouTubeImportServiceTests {
             bridge: bridge,
             modelContainer: container,
             artworkCache: artworkCache,
-            session: session
+            session: session,
+            catalog: catalog
         )
     }
 }

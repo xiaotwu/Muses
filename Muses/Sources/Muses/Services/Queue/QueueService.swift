@@ -17,13 +17,24 @@ final class QueueService {
     var lastPositionMs: Double?
     /// Phase 19 Advanced Queue:队列分组(按 `order` 升序)。持久化进 `QueueState.groupsJSON`。
     var groups: [QueueGroup] = []
+    /// Focus Mode queue lock: `play()` must not replace the collection; manual next/edit still work.
+    var replacementLocked = false
 
     /// 由 `MusesApp` 在容器创建后注入,使 `persist()`/`restore()` 可访问 SwiftData。
     var modelContext: ModelContext?
 
     func play(_ track: TrackSnapshot, context: [TrackSnapshot], from: QueueSource) {
+        if replacementLocked {
+            if let idx = items.firstIndex(where: { $0.track.id == track.id }) {
+                currentIndex = idx
+                persist()
+                return
+            }
+            playNext(track)
+            return
+        }
         items = context.map { t in
-            QueueItem(id: UUID(), track: t, source: t.youTubeId != nil ? .youtube : .local,
+            QueueItem(id: UUID(), track: t,
                       queuedAt: .init(), fromContext: from)
         }
         originalOrder = items
@@ -33,13 +44,13 @@ final class QueueService {
     }
 
     func playNext(_ track: TrackSnapshot) {
-        let item = QueueItem(track: track, source: track.youTubeId != nil ? .youtube : .local)
+        let item = QueueItem(track: track)
         upNext.insert(item, at: 0)
         persist()
     }
 
     func addToQueue(_ track: TrackSnapshot) {
-        let item = QueueItem(track: track, source: track.youTubeId != nil ? .youtube : .local)
+        let item = QueueItem(track: track)
         upNext.append(item)
         persist()
     }
@@ -59,6 +70,7 @@ final class QueueService {
             if history.count > 200 { history.removeLast() }
         }
 
+        sortUpNextByPriority()
         if !upNext.isEmpty {
             let popped = upNext.removeFirst()
             persist()
@@ -96,6 +108,9 @@ final class QueueService {
     func previous() -> QueueItem? {
         if let h = history.first {
             history.removeFirst()
+            if let idx = items.firstIndex(where: { $0.id == h.id }) {
+                currentIndex = idx
+            }
             persist()
             return h
         }
@@ -114,16 +129,32 @@ final class QueueService {
         shuffle.toggle()
         if shuffle {
             originalOrder = items
-            let cur = currentIndex >= 0 ? items[currentIndex] : nil
-            items.shuffle()
+            let cur = currentIndex >= 0 && currentIndex < items.count ? items[currentIndex] : nil
+            shuffleUnlockedItems()
             if let cur = cur, let idx = items.firstIndex(where: { $0.id == cur.id }) {
                 currentIndex = idx
             }
         } else {
+            let cur = (currentIndex >= 0 && currentIndex < items.count) ? items[currentIndex] : nil
             items = originalOrder
-            currentIndex = 0
+            if let cur, let idx = items.firstIndex(where: { $0.id == cur.id }) {
+                currentIndex = idx
+            } else if !items.isEmpty {
+                currentIndex = min(max(currentIndex, 0), items.count - 1)
+            }
         }
         persist()
+    }
+
+    /// Next item that will play: Up Next head, else the following collection row, else wrap on Repeat All.
+    func peekNext() -> QueueItem? {
+        sortUpNextByPriority()
+        if let first = upNext.first { return first }
+        guard !items.isEmpty else { return nil }
+        let following = currentIndex + 1
+        if following < items.count { return items[following] }
+        if repeatMode == .all { return items.first }
+        return nil
     }
 
     /// 重排 `items`(当前播放队列)。`currentIndex` 随移动调整以保持当前曲目不变。
@@ -204,7 +235,7 @@ final class QueueService {
         let curGroupId = current()?.groupId
         guard let gid = curGroupId else { playNext(track); return }
         let lastIndex = items.lastIndex(where: { $0.groupId == gid }) ?? currentIndex
-        let item = QueueItem(track: track, source: track.youTubeId != nil ? .youtube : .local,
+        let item = QueueItem(track: track,
                              groupId: gid)
         let insertAt = min(lastIndex + 1, items.count)
         items.insert(item, at: insertAt)
@@ -217,10 +248,27 @@ final class QueueService {
     /// 使其在后续「按优先级排序」逻辑(若启用)中排在最前。
     func addToQueueWithPriority(_ track: TrackSnapshot) {
         let p = (upNext.compactMap(\.priority).max() ?? 0) + 1
-        let item = QueueItem(track: track, source: track.youTubeId != nil ? .youtube : .local,
+        let item = QueueItem(track: track,
                              priority: p)
         upNext.insert(item, at: 0)
+        sortUpNextByPriority()
         persist()
+    }
+
+    private func sortUpNextByPriority() {
+        guard upNext.contains(where: { $0.priority != nil }) else { return }
+        upNext.sort { ($0.priority ?? 0) > ($1.priority ?? 0) }
+    }
+
+    /// Shuffle unlocked rows in place; locked rows keep their indices.
+    private func shuffleUnlockedItems() {
+        var unlocked = items.filter { !$0.locked }
+        unlocked.shuffle()
+        var next = 0
+        for i in items.indices where !items[i].locked {
+            items[i] = unlocked[next]
+            next += 1
+        }
     }
 
     // MARK: Remove → history(.removed) + restore

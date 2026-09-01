@@ -17,7 +17,6 @@ enum PlaybackEvent: Sendable {
     /// 停止(暂停后切换到另一曲目 / 退出时仍在播放)。
     case trackStopped(TrackSnapshot, listenedMs: Double)
     case queueChanged
-    case playbackSourceChanged(source: TrackSource)
     case outputDeviceChanged
     case focusSessionStarted
     case focusSessionEnded

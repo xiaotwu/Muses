@@ -11,6 +11,10 @@
 #   --identity <id>   签名身份(默认 $MUSES_SIGN_IDENTITY 或 "-" = ad-hoc)
 #   MUSES_VERSION     覆盖 CFBundleShortVersionString(默认 0.4.0)
 #   MUSES_BUILD       覆盖 CFBundleVersion(默认 1)
+#   MUSES_GOOGLE_OAUTH_CLIENT_ID       Muses 项目持有的 Desktop OAuth client ID
+#   MUSES_GOOGLE_OAUTH_CLIENT_SECRET   可选；installed-app client 通常留空
+#   MUSES_GOOGLE_OAUTH_REDIRECT_URI    可选；默认 http://127.0.0.1:53682/
+#   MUSES_WEB_HOME_ENABLED             构建级 kill switch(默认 YES)
 #
 # 用法:
 #   ./Scripts/build-app.sh                        # ad-hoc dev 构建
@@ -50,9 +54,11 @@ swift build -c release
 # 3) 装配 .app 结构。
 echo "[2/5] 装配 $APP"
 rm -rf "$APP"
-mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
+mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources" "$CONTENTS/Helpers"
 
 cp ".build/release/Muses" "$CONTENTS/MacOS/Muses"
+cp ".build/release/MusesWebHomeHelper" "$CONTENTS/Helpers/MusesWebHomeHelper"
+chmod 700 "$CONTENTS/Helpers/MusesWebHomeHelper"
 
 # 4) 拷贝资源 + Info.plist。
 echo "[3/5] 拷贝 Resources / Info.plist"
@@ -67,6 +73,10 @@ echo "[4/5] 注入版本 $VERSION ($BUILD)"
 PLIST="/usr/libexec/PlistBuddy"
 "$PLIST" -c "Set :CFBundleShortVersionString $VERSION" "$CONTENTS/Info.plist"
 "$PLIST" -c "Set :CFBundleVersion $BUILD" "$CONTENTS/Info.plist"
+"$PLIST" -c "Set :MusesGoogleOAuthClientID ${MUSES_GOOGLE_OAUTH_CLIENT_ID:-}" "$CONTENTS/Info.plist"
+"$PLIST" -c "Set :MusesGoogleOAuthClientSecret ${MUSES_GOOGLE_OAUTH_CLIENT_SECRET:-}" "$CONTENTS/Info.plist"
+"$PLIST" -c "Set :MusesGoogleOAuthRedirectURI ${MUSES_GOOGLE_OAUTH_REDIRECT_URI:-http://127.0.0.1:53682/}" "$CONTENTS/Info.plist"
+"$PLIST" -c "Set :MusesWebHomeEnabled ${MUSES_WEB_HOME_ENABLED:-YES}" "$CONTENTS/Info.plist"
 
 # 6) 签名(entitlements 用源文件;--deep 覆盖 yt-dlp)。
 echo "[5/5] codesign (--deep --options runtime)"
@@ -75,12 +85,18 @@ ENTITLEMENTS="$RES_DIR/Muses.entitlements"
 if [[ -f "$CONTENTS/Resources/yt-dlp" ]] && ! codesign --verify "$CONTENTS/Resources/yt-dlp" 2>/dev/null; then
     codesign --force --sign - "$CONTENTS/Resources/yt-dlp" 2>/dev/null || true
 fi
+# Helper 必须先用与主 app 相同的身份签名；主进程会在每次启动前校验固定路径、
+# 严格签名和 TeamIdentifier，绝不从 PATH 加载同名程序。
+codesign --force --options runtime \
+    --sign "$IDENTITY" "$CONTENTS/Helpers/MusesWebHomeHelper"
 codesign --deep --force --options runtime \
     --entitlements "$ENTITLEMENTS" \
     --sign "$IDENTITY" "$APP"
 
 # 7) 验证。
 codesign --verify --deep --strict "$APP" && echo "      ✓ codesign 验证通过"
+codesign --verify --strict "$CONTENTS/Helpers/MusesWebHomeHelper" \
+    && echo "      ✓ Web Home helper 签名验证通过"
 if [[ "$IDENTITY" != "-" ]]; then
     codesign -dvvv "$APP" 2>&1 | grep -E "Authority|TeamIdentifier" || true
 fi

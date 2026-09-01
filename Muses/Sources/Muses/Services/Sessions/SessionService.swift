@@ -2,24 +2,11 @@ import Foundation
 import SwiftData
 import AppKit
 
-/// 收听会话服务(Final Spec §10.5 Feature 5 — Listening Sessions + Crash Recovery)。
+/// Listening-session checkpoints and crash recovery.
 ///
-/// 职责:
-/// - 订阅 `PlaybackEventBus`,把播放生命周期翻译成「会话」:`.trackStarted` 开启/继续一条
-///   `active` 会话(快照队列 + 记 currentTrack);`.trackPaused`/`.trackStopped`/`.trackSkipped`/
-///   `.trackCompleted`/`.trackSeeked` 触发 checkpoint(更新会话行的 position + 同步写入
-///   `QueueState` 崩溃恢复槽);队列耗尽时结束会话。
-/// - 周期 ~10s checkpoint(仅在播放中),保证崩溃后位置误差 ≤ 10s。
-/// - 启动恢复:构造时检测未结束会话,若满足恢复条件则暴露 `pendingRestore` 供 `RootView`
-///   弹「继续 / 重新开始」;**绝不**静默替换用户的队列。
-/// - 系统事件:`willSleep` 记住播放状态 + checkpoint;`didWake` 在睡眠前正在播放时恢复播放
-///   (best-effort 重新同步引擎);`willTerminate` 做最后一次 checkpoint。
-///
-/// 功能开关:`PrefKey.ffSessions`(默认关)。关闭时不创建/更新会话、不弹恢复对话框、
-/// 不安装系统观察的实际处理(观察器仍装着但 `handle*` 早退),保持现有「只 restore 队列、
-/// 不恢复位置」的行为不变。
-///
-/// 与 `HistoryService` 互补:History 记「单曲事件」,Session 记「连续时段」+ 崩溃恢复。
+/// An active session records the queue identity and current position. On the
+/// next launch the already-restored queue is loaded at that position without
+/// starting playback; the user remains in control of when audio resumes.
 @Observable
 @MainActor
 final class SessionService {
@@ -41,9 +28,6 @@ final class SessionService {
     var currentSessionId: UUID? { activeSessionId }
     /// 睡眠前的播放状态,供唤醒时判断是否需恢复播放。
     private var wasPlayingBeforeSleep = false
-
-    /// 启动时检测到的可恢复会话(供 `RootView` 弹恢复对话框)。nil = 无可恢复会话。
-    private(set) var pendingRestore: RestoreOffer?
 
     var isEnabled: Bool { enabledProvider() }
 
@@ -82,26 +66,6 @@ final class SessionService {
         var terminate: NSObjectProtocol?
     }
 
-    /// 启动恢复对话框的展示数据(标题/艺术家/恢复位置)。
-    struct RestoreOffer: Sendable {
-        let trackTitle: String
-        let artist: String
-        let positionMs: Double
-
-        /// 本地化展示文本,如「从 1:23 继续 "Track — Artist"」。
-        var displayText: String {
-            let pos = Self.format(positionMs / 1000.0)
-            return tr("Resume \"\(trackTitle) — \(artist)\" from \(pos)",
-                      "从 \(pos) 继续「\(trackTitle) — \(artist)」")
-        }
-
-        static func format(_ seconds: Double) -> String {
-            let total = max(0, Int(seconds))
-            let m = total / 60, s = total % 60
-            return String(format: "%d:%02d", m, s)
-        }
-    }
-
     // MARK: - 事件订阅
 
     private func subscribe() {
@@ -129,7 +93,7 @@ final class SessionService {
             checkpoint(positionMs: toMs)
         case .trackResumed:
             break  // 恢复播放不改变曲目/位置边界,周期 timer 会继续 checkpoint
-        case .queueChanged, .playbackSourceChanged, .outputDeviceChanged,
+        case .queueChanged, .outputDeviceChanged,
              .focusSessionStarted, .focusSessionEnded:
             break
         }
@@ -228,7 +192,8 @@ final class SessionService {
 
     // MARK: - 启动恢复
 
-    /// 构造时调用:检测未结束会话,满足条件则暴露 `pendingRestore`;陈旧会话自动结束。
+    /// Adopt the newest active session and restore its queue position paused.
+    /// QueueService.restore() runs before this service is constructed.
     private func checkForRestorableSession() {
         guard isEnabled else { return }
         let ctx = ModelContext(modelContainer)
@@ -243,43 +208,11 @@ final class SessionService {
             extra.statusRaw = SessionStatus.ended.rawValue
             extra.endedAt = Date()
         }
-        // 陈旧(> 2h 未更新)→ 自动结束,不弹对话框(对应「长时空闲结束会话」)。
-        if Date().timeIntervalSince(latest.updatedAt) > 2 * 3600 {
-            latest.statusRaw = SessionStatus.ended.rawValue
-            latest.endedAt = Date()
-            try? ctx.save()
-            return
-        }
         try? ctx.save()
-        // 需要队列里有当前曲目可恢复(`queue.restore()` 已在 MusesApp 中先于本服务执行)。
-        guard queue.current() != nil,
-              let snap = queue.current()?.track else { return }
-        let posMs = latest.currentPositionMs ?? queue.lastPositionMs ?? 0
-        activeSessionId = latest.id  // 接管这条会话,「继续」时在其上更新
-        pendingRestore = RestoreOffer(trackTitle: snap.title, artist: snap.artist,
-                                      positionMs: posMs)
-    }
-
-    /// 用户选择「继续」:在恢复位加载当前曲目并 seek。
-    func continuePendingSession() {
-        guard pendingRestore != nil else { return }
-        let posMs = queue.lastPositionMs ?? pendingRestore?.positionMs ?? 0
-        pendingRestore = nil
         guard queue.current() != nil else { return }
-        playback.resumeCurrent(atMs: posMs)
-    }
-
-    /// 用户选择「重新开始」:结束会话 + 清空崩溃恢复槽(下次启动不自动恢复)。
-    func discardPendingSession() {
-        pendingRestore = nil
-        endActiveSession()
-        queue.clearCrashRecoverySlots()
-    }
-
-    /// 仅供恢复对话框绑定 `set:false`(Escape / 失焦关闭)时清掉展示态。
-    /// 不结束会话、不清槽位——即「暂不决定」,下次启动仍会再次询问。
-    func clearPendingRestore() {
-        pendingRestore = nil
+        let posMs = queue.lastPositionMs ?? latest.currentPositionMs ?? 0
+        activeSessionId = latest.id
+        playback.restoreCurrentPaused(atMs: posMs)
     }
 
     // MARK: - 系统事件(sleep / wake / terminate)

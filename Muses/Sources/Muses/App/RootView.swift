@@ -4,26 +4,26 @@ import AppKit
 struct RootView: View {
     @Environment(LibraryService.self) private var library
     @Environment(PlaylistService.self) private var playlistService
-    @Environment(SessionService.self) private var sessions
     @Environment(PlaybackService.self) private var playback
-    @Environment(GlobalSearchService.self) private var search
+    @Environment(\.openWindow) private var openWindow
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var artworkWorld
     @State private var coverSlot: Anchor<CGRect>?
     @State private var section: SidebarSection = .home
-    @State private var selectedAlbum: Album?
     @State private var selectedPlaylist: Playlist?
-    @State private var selectedArtist: Artist?
     @State private var selectedYouTubeImport: YouTubeImport?
-    // P3 — 派生(YouTube-derived)浏览条目详情;本地条目仍走 selectedAlbum/selectedArtist。
-    @State private var selectedBrowsableAlbum: BrowsableAlbum?
-    @State private var selectedBrowsableArtist: BrowsableArtist?
-    @State private var showImport = false
+    @State private var selectedCatalogRelease: CatalogReleaseProjection?
+    @State private var selectedCatalogArtist: CatalogArtistProjection?
     @State private var showYouTubeLink = false
     @State private var showNowPlaying = false
-    /// Keeps `LiveCoverHost` mounted through the close morph so PlayerBar still has a pair.
-    @State private var liveCoverHostRetained = false
-    @State private var nowPlayingShowLyrics = true
+    /// The visual layer remains mounted only for the 300ms opacity dismissal;
+    /// logical presentation, hit testing, and accessibility stop immediately.
+    @State private var nowPlayingOverlayMounted = false
+    @State private var nowPlayingOverlayOpacity: Double = 0
+    @State private var nowPlayingDismissTask: Task<Void, Never>?
+    /// `true` means the dedicated lyrics-focus presentation is active after
+    /// Now Playing has already been opened from the current artwork.
+    @State private var nowPlayingShowLyrics = false
     @State private var windowWidth: CGFloat = 1440
     @State private var showQueue = false
     @State private var showLyricsDrawer = false
@@ -38,7 +38,6 @@ struct RootView: View {
     @Environment(\.libraryStoreFallback) private var libraryStoreFallback
     @State private var showStoreFallbackAlert = false
     @State private var showYouTubeVideo = false
-    @AppStorage(PrefKey.sidebarCollapsed) private var sidebarCollapsed = false
     @AppStorage(PrefKey.nowPlayingMode) private var nowPlayingModeRaw: String = NowPlayingMode.cover.rawValue
 
     private var lyricsFullscreen: Bool {
@@ -60,12 +59,15 @@ struct RootView: View {
     private var notificationWired: some View {
         navigationWired
             .onChange(of: showSettings) { _, open in
-                if !open {
+                if open {
+                    dismissTransientOverlaysForSettings()
+                } else {
                     showAbout = false
                     initialSettingsCategory = nil
                 }
             }
             .dropDestination(for: URL.self) { urls, _ in
+                guard !showSettings else { return false }
                 let text = urls.map(\.absoluteString).joined(separator: "\n")
                 if text.contains("youtu") {
                     showYouTubeLink = true
@@ -79,6 +81,7 @@ struct RootView: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .musesToggleQueue)) { _ in
+                guard !showSettings else { return }
                 if showNowPlaying {
                     showNowPlaying = false
                 }
@@ -86,7 +89,8 @@ struct RootView: View {
                 if showQueue { showLyricsDrawer = false }
             }
             .onReceive(NotificationCenter.default.publisher(for: .musesFocusSearch)) { _ in
-                section = .search
+                showSettings = false
+                openWindow(id: SearchWindowPolicy.sceneID)
             }
             .onReceive(NotificationCenter.default.publisher(for: .musesOpenSettings)) { note in
                 if let category = note.object as? SettingsCategory {
@@ -94,29 +98,22 @@ struct RootView: View {
                 }
                 showSettings = true
             }
-            .onReceive(NotificationCenter.default.publisher(for: .musesToggleSidebar)) { _ in
-                sidebarCollapsed.toggle()
-            }
             .onChange(of: section) { _, new in
                 showSettings = false
                 applySidebarSectionChange(new)
             }
             .onReceive(NotificationCenter.default.publisher(for: .musesToggleFocusMode)) { _ in
+                guard !showSettings else { return }
                 showFocus.toggle()
             }
             .onReceive(NotificationCenter.default.publisher(for: .musesToggleAudioInfo)) { _ in
+                guard !showSettings else { return }
                 showAudioInfo.toggle()
             }
     }
 
     private var navigationWired: some View {
         sheetHost
-            .onReceive(NotificationCenter.default.publisher(for: .musesNavigateArtist)) { note in
-                if let artist = note.object as? Artist { selectedArtist = artist }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .musesNavigateAlbum)) { note in
-                if let album = note.object as? Album { selectedAlbum = album }
-            }
             .onReceive(NotificationCenter.default.publisher(for: .musesSelectPlaylist)) { note in
                 if let playlist = note.object as? Playlist { selectedPlaylist = playlist }
             }
@@ -130,6 +127,26 @@ struct RootView: View {
                 selectedPlaylist = nil
                 selectedYouTubeImport = nil
                 section = .playlists
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .musesNavigateFromSearch)) { note in
+                guard let route = note.object as? GlobalSearchRoute else { return }
+                showSettings = false
+                selectedPlaylist = nil
+                selectedYouTubeImport = nil
+                switch route {
+                case .section(let destination):
+                    selectedCatalogRelease = nil
+                    selectedCatalogArtist = nil
+                    section = destination == .search ? .home : destination
+                case .release(let release):
+                    selectedCatalogArtist = nil
+                    selectedCatalogRelease = release
+                    section = .albums
+                case .artist(let artist):
+                    selectedCatalogRelease = nil
+                    selectedCatalogArtist = artist
+                    section = .artists
+                }
             }
     }
 
@@ -145,13 +162,6 @@ struct RootView: View {
             }
     }
 
-    private var sessionRestorePresented: Binding<Bool> {
-        Binding(
-            get: { sessions.pendingRestore != nil },
-            set: { if !$0 { sessions.clearPendingRestore() } }
-        )
-    }
-
     private var alertHost: some View {
         continuityChrome(splitView)
             .alert(
@@ -165,17 +175,6 @@ struct RootView: View {
                     "Muses 无法打开磁盘上的资料库,当前使用临时空白会话。原始库已备份为 Application Support 中的 muses-corrupt 副本,未被删除。请退出其他 Muses 实例后重新启动。若反复出现,请从备份恢复。"
                 ))
             }
-            .alert(tr("Continue previous session?", "继续上次的收听会话?"),
-                   isPresented: sessionRestorePresented) {
-                Button(tr("Continue", "继续")) { sessions.continuePendingSession() }
-                Button(tr("Start Fresh", "重新开始"), role: .destructive) {
-                    sessions.discardPendingSession()
-                }
-            } message: {
-                if let offer = sessions.pendingRestore {
-                    Text(offer.displayText)
-                }
-            }
     }
 
     private func handleAppear() {
@@ -183,33 +182,26 @@ struct RootView: View {
         DispatchQueue.main.async {
             MusesSingleInstance.orderFrontMainWindow()
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            MusesSingleInstance.orderFrontMainWindow()
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            MusesSingleInstance.setWindowToolbarVisible(false)
-            for window in NSApp.windows {
-                MusesSingleInstance.hideSystemSidebarButtons(in: window)
-            }
-        }
     }
 
-    private func rehideSidebarToggle() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            for window in NSApp.windows {
-                MusesSingleInstance.hideSystemSidebarButtons(in: window)
-            }
-        }
+    /// Settings is modal within the main window. Close transient chrome instead
+    /// of leaving hidden keyboard/VoiceOver targets behind the glass panel.
+    private func dismissTransientOverlaysForSettings() {
+        guard SettingsChromePolicy.dismissesTransientOverlaysOnPresentation else { return }
+        showQueue = false
+        showLyricsDrawer = false
+        showYouTubeVideo = false
+        showYouTubeLink = false
+        showFocus = false
+        showAudioInfo = false
     }
 
     /// Sidebar items must replace pushed album/artist/playlist detail. Playlist
     /// rows set `section` to `.playlists` *after* selecting a playlist, so that
     /// destination keeps playlist / YouTube-import context.
     private func applySidebarSectionChange(_ new: SidebarSection) {
-        selectedAlbum = nil
-        selectedBrowsableAlbum = nil
-        selectedArtist = nil
-        selectedBrowsableArtist = nil
+        if new != .albums { selectedCatalogRelease = nil }
+        if new != .artists { selectedCatalogArtist = nil }
         if SidebarDetailClearPolicy.policy(for: new) == .clearAll {
             selectedPlaylist = nil
             selectedYouTubeImport = nil
@@ -218,32 +210,26 @@ struct RootView: View {
 
     private let chromeTop: CGFloat = 0
     private let chromeSide: CGFloat = 0
-    private let chromeBottom: CGFloat = AppleMusicTokens.capsuleHeight + AppleMusicTokens.playerBottomMargin
-    private var showsLibrarySidebar: Bool {
-        LibraryChromePolicy.showsSidebar(section: section, collapsed: sidebarCollapsed)
+    private var chromeBottom: CGFloat {
+        if showYouTubeVideo { return 0 }
+        if showNowPlaying, NowPlayingChromePolicy.hidesDock { return 0 }
+        return AppleMusicTokens.capsuleHeight + AppleMusicTokens.playerBottomMargin
     }
-
     private var splitView: some View {
         HStack(spacing: 0) {
-            if showsLibrarySidebar {
-                SidebarView(selection: $section,
-                            showSettings: $showSettings,
-                            showAbout: $showAbout,
-                            initialSettingsCategory: $initialSettingsCategory,
-                            selectedPlaylist: $selectedPlaylist,
-                            selectedYouTubeImport: $selectedYouTubeImport,
-                            sidebarCollapsed: $sidebarCollapsed)
-                    .padding(.leading, AppleMusicTokens.sidebarInset)
-                    .padding(.top, AppleMusicTokens.sidebarInset)
-            }
-            VStack(spacing: 0) {
+            SidebarView(selection: $section,
+                        showSettings: $showSettings,
+                        showAbout: $showAbout,
+                        initialSettingsCategory: $initialSettingsCategory,
+                        selectedPlaylist: $selectedPlaylist,
+                        selectedYouTubeImport: $selectedYouTubeImport)
+            ZStack(alignment: .bottom) {
                 detailStack
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(BrowseBackground())
-                if !showYouTubeVideo {
-                    PlayerBar(showNowPlaying: showNowPlaying,
-                              skipArtworkMorph: skipArtworkMorph,
-                              lyricsActive: showNowPlaying && nowPlayingShowLyrics,
+                if !showYouTubeVideo, !showSettings,
+                   !(showNowPlaying && NowPlayingChromePolicy.hidesDock) {
+                    PlayerBar(lyricsActive: showLyricsDrawer,
                               queueActive: showQueue,
                               onArtworkTap: { openNowPlaying() },
                               onLyricsTap: { handleDockLyrics() },
@@ -252,30 +238,44 @@ struct RootView: View {
                                   showLyricsDrawer = false
                               },
                               onVideoTap: { showYouTubeVideo = true })
+                        .padding(.horizontal, AppleMusicTokens.playerHorizontalMargin)
                         .padding(.bottom, AppleMusicTokens.playerBottomMargin)
                 }
             }
         }
         .background(BrandColors.background)
-        .toolbar(.hidden)
+        .background {
+            MainWindowConfigurator()
+                .frame(width: 0, height: 0)
+        }
+        .ignoresSafeArea(edges: [.top, .bottom, .leading])
         .tint(BrandColors.magenta)
-        .animation(MusesMotion.drawerAnimation(reduceMotion: reduceMotion), value: showsLibrarySidebar)
-        .focusEffectDisabled()
+        // The centered Settings overlay owns pointer/trackpad input while it is
+        // visible. Disabling the browse tree also suspends the deck's AppKit
+        // scroll monitor, which otherwise sees coordinates through overlays.
+        .disabled(!SettingsChromePolicy.allowsBrowseInteraction(isPresented: showSettings))
+        .accessibilityHidden(showNowPlaying || showSettings)
     }
 
     private func openNowPlaying() {
+        guard NowPlayingChromePolicy.canOpen(hasTrack: playback.state.track != nil) else { return }
         showQueue = false
         showLyricsDrawer = false
-        showNowPlaying = true
+        nowPlayingShowLyrics = false
+        nowPlayingDismissTask?.cancel()
+        nowPlayingOverlayMounted = true
+        withAnimation(MusesMotion.morphAnimation(reduceMotion: reduceMotion)) {
+            nowPlayingOverlayOpacity = 1
+            showNowPlaying = true
+        }
     }
 
     private func handleDockLyrics() {
+        guard NowPlayingChromePolicy.canOpen(hasTrack: playback.state.track != nil) else { return }
         showQueue = false
-        showLyricsDrawer = false
         switch DockLyricsPolicy.action(nowPlayingOpen: showNowPlaying) {
-        case .openNowPlaying:
-            nowPlayingShowLyrics = true
-            showNowPlaying = true
+        case .toggleDrawer:
+            showLyricsDrawer.toggle()
         case .toggleLyricsFocus:
             nowPlayingShowLyrics.toggle()
         }
@@ -283,37 +283,26 @@ struct RootView: View {
 
     @ViewBuilder
     private var detailStack: some View {
-        if section == .search || SearchChromePolicy.occupiesContent(query: search.query) {
-            GlobalSearchView(isPresented: .constant(true),
-                             showLocalFolder: $showImport,
-                             showYouTubeLink: $showYouTubeLink)
-        } else if let album = selectedAlbum {
-            AlbumDetailView(album: album, selection: $selectedAlbum)
-        } else if let browsableAlbum = selectedBrowsableAlbum {
-            DerivedAlbumDetailView(browsable: browsableAlbum, selection: $selectedBrowsableAlbum)
-        } else if let artist = selectedArtist {
-            ArtistDetailView(artist: artist, selection: $selectedArtist,
-                             selectedAlbum: $selectedAlbum)
-        } else if let browsableArtist = selectedBrowsableArtist {
-            DerivedArtistDetailView(browsable: browsableArtist, selection: $selectedBrowsableArtist)
-        } else if let playlist = selectedPlaylist {
+        if let playlist = selectedPlaylist {
             PlaylistDetailView(playlist: playlist, selectedPlaylist: $selectedPlaylist)
         } else if let ytImport = selectedYouTubeImport {
             YouTubeAlbumDetailView(youTubeImport: ytImport)
+        } else if let release = selectedCatalogRelease {
+            CatalogReleaseDetailView(release: release, selection: $selectedCatalogRelease)
+        } else if let artist = selectedCatalogArtist {
+            CatalogArtistDetailView(artist: artist, selection: $selectedCatalogArtist)
         } else {
             switch section {
             case .home:
-                HomeView(selection: $section, selectedAlbum: $selectedAlbum)
+                HomeView()
             case .new:
-                NewView(selectedAlbum: $selectedAlbum)
+                NewView()
             case .search:
-                HomeView(selection: $section, selectedAlbum: $selectedAlbum)
-            case .pins:
-                RecentlyView(selection: $section, selectedAlbum: $selectedAlbum)
-            case .recently:
-                RecentlyView(selection: $section, selectedAlbum: $selectedAlbum)
-            case .albums, .artists:
-                SongsListView()
+                HomeView()
+            case .albums:
+                CatalogReleasesView(selection: $selectedCatalogRelease)
+            case .artists:
+                CatalogArtistsView(selection: $selectedCatalogArtist)
             case .songs:
                 SongsListView()
             case .playlists:
@@ -321,13 +310,18 @@ struct RootView: View {
             case .history:
                 HistoryView()
             case .inbox:
-                InboxView()
+                if LibraryChromePolicy.showsInbox {
+                    InboxView()
+                } else {
+                    SongsListView()
+                }
             }
         }
     }
 
     private func continuityChrome<Content: View>(_ content: Content) -> some View {
         content
+            .ignoresSafeArea(edges: .top)
             .environment(\.artworkWorldNamespace, artworkWorld)
             .background {
                 GeometryReader { geo in
@@ -336,34 +330,50 @@ struct RootView: View {
             }
             .onPreferenceChange(RootWindowWidthKey.self) { windowWidth = $0 }
             .overlay {
-                VStack(spacing: 0) {
-                    Color.clear.frame(height: chromeTop)
-                        .allowsHitTesting(false)
+                if nowPlayingOverlayMounted, NowPlayingChromePolicy.coversWindow {
                     nowPlayingLayers
-                    Color.clear.frame(height: showYouTubeVideo ? 0 : chromeBottom)
-                        .allowsHitTesting(false)
+                        .tint(BrandColors.magenta)
+                        .disabled(!SettingsChromePolicy.allowsUnderlyingInteraction(
+                            isPresented: showSettings
+                        ))
+                        .accessibilityHidden(showSettings)
+                } else {
+                    VStack(spacing: 0) {
+                        Color.clear.frame(height: chromeTop)
+                            .allowsHitTesting(false)
+                        nowPlayingLayers
+                            .disabled(!SettingsChromePolicy.allowsUnderlyingInteraction(
+                                isPresented: showSettings
+                            ))
+                            .accessibilityHidden(showSettings)
+                        Color.clear.frame(height: showYouTubeVideo ? 0 : chromeBottom)
+                            .allowsHitTesting(false)
+                    }
+                    .tint(BrandColors.magenta)
                 }
-                .tint(BrandColors.magenta)
             }
             .overlay {
-                if !showNowPlaying, showLyricsDrawer || showQueue {
+                if !showSettings, !showNowPlaying, showLyricsDrawer || showQueue {
                     ZStack(alignment: .trailing) {
                         Color.clear
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 showQueue = false
                                 showLyricsDrawer = false
-                            }
+                        }
                         HStack(alignment: .top, spacing: 8) {
+                            if showLyricsDrawer {
+                                LyricsDrawerView(isPresented: $showLyricsDrawer)
+                            }
                             if showQueue {
                                 QueueDrawerView(isPresented: $showQueue, showsScrim: false)
                             }
                         }
                         .padding(.top, chromeTop)
-                        .padding(.trailing, 12)
-                        .padding(.bottom, chromeBottom + 8)
+                        .padding(.bottom, chromeBottom)
                     }
                     .tint(BrandColors.magenta)
+                    .accessibilityHidden(showSettings)
                 }
             }
             .overlay {
@@ -378,13 +388,23 @@ struct RootView: View {
                             initialCategory: initialSettingsCategory ?? (showAbout ? .about : nil)
                         )
                         .frame(width: 520, height: 560)
+                        .background(
+                            BrandColors.surface.opacity(0.90),
+                            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        )
                         .musesGlass(cornerRadius: 18)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(BrandColors.hairline, lineWidth: 1)
+                        }
+                        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     }
+                    .zIndex(50)
                     .tint(BrandColors.magenta)
                 }
             }
             .overlay {
-                if showYouTubeLink {
+                if !showSettings, showYouTubeLink {
                     ZStack {
                         BrandColors.scrim
                             .ignoresSafeArea()
@@ -395,56 +415,63 @@ struct RootView: View {
                     .tint(BrandColors.magenta)
                 }
             }
-            .animation(MusesMotion.morphAnimation(reduceMotion: reduceMotion), value: showNowPlaying)
             .animation(MusesMotion.drawerAnimation(reduceMotion: reduceMotion), value: showQueue)
-            .animation(MusesMotion.overlayAnimation(reduceMotion: reduceMotion),
-                       value: SearchChromePolicy.occupiesContent(query: search.query))
             .animation(MusesMotion.overlayAnimation(reduceMotion: reduceMotion), value: showYouTubeVideo)
             .animation(MusesMotion.overlayAnimation(reduceMotion: reduceMotion), value: showSettings)
             .overlay {
-                if showYouTubeVideo, let videoId = playback.state.track?.youTubeId {
+                if !showSettings, showYouTubeVideo,
+                   let videoId = playback.state.track?.youTubeId {
                     YouTubeVideoOverlay(videoId: videoId, isPresented: $showYouTubeVideo)
                         .tint(BrandColors.magenta)
                 }
             }
             .onChange(of: showNowPlaying) { _, open in
-                if !open { nowPlayingShowLyrics = true }
                 if open {
+                    nowPlayingDismissTask?.cancel()
+                    nowPlayingOverlayMounted = true
+                    if nowPlayingOverlayOpacity < 1 {
+                        withAnimation(MusesMotion.morphAnimation(reduceMotion: reduceMotion)) {
+                            nowPlayingOverlayOpacity = 1
+                        }
+                    }
                     showQueue = false
                     showLyricsDrawer = false
-                    liveCoverHostRetained = !skipArtworkMorph
-                } else if liveCoverHostRetained {
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: UInt64(MusesMotion.nowPlayingMorph * 1_000_000_000))
-                        if !showNowPlaying {
-                            liveCoverHostRetained = false
+                } else {
+                    nowPlayingShowLyrics = false
+                    restorePlayerArtworkFocus()
+                    nowPlayingDismissTask?.cancel()
+                    if reduceMotion {
+                        nowPlayingOverlayOpacity = 0
+                        nowPlayingOverlayMounted = false
+                    } else {
+                        withAnimation(.easeOut(
+                            duration: NowPlayingPresentationPolicy.dismissDuration
+                        )) {
+                            nowPlayingOverlayOpacity = 0
+                        }
+                        nowPlayingDismissTask = Task { @MainActor in
+                            try? await Task.sleep(for: .seconds(
+                                NowPlayingPresentationPolicy.dismissDuration
+                            ))
+                            guard !Task.isCancelled, !showNowPlaying else { return }
+                            nowPlayingOverlayMounted = false
                         }
                     }
                 }
-                MusesSingleInstance.setWindowToolbarVisible(false)
             }
-            .onChange(of: showYouTubeVideo) { _, _ in
-                MusesSingleInstance.setWindowToolbarVisible(false)
-            }
-            .onChange(of: section) { _, _ in rehideSidebarToggle() }
-            .onChange(of: selectedAlbum?.id) { _, _ in rehideSidebarToggle() }
-            .onChange(of: selectedArtist?.id) { _, _ in rehideSidebarToggle() }
-            .onChange(of: selectedPlaylist?.id) { _, _ in rehideSidebarToggle() }
-            .onChange(of: selectedYouTubeImport?.id) { _, _ in rehideSidebarToggle() }
     }
 
     /// Back → middle → front: environment gradient, chrome, live-cover host.
     private var nowPlayingLayers: some View {
         GeometryReader { _ in
             ZStack {
-                if showNowPlaying {
+                if nowPlayingOverlayMounted {
                     NowPlayingEnvironmentLayer()
-                        .transition(.opacity)
                         .zIndex(0)
                     NowPlayingView(isPresented: $showNowPlaying,
                                    showLyrics: $nowPlayingShowLyrics,
-                                   coverHostedExternally: !skipArtworkMorph)
-                        .transition(.opacity)
+                                   settingsPresented: $showSettings,
+                                   coverHostedExternally: showNowPlaying && !skipArtworkMorph)
                         .zIndex(1)
                 }
             }
@@ -456,17 +483,30 @@ struct RootView: View {
                 .allowsHitTesting(false)
             }
         }
-        .allowsHitTesting(showNowPlaying)
+        .opacity(nowPlayingOverlayOpacity)
+        .allowsHitTesting(NowPlayingPresentationPolicy.acceptsInteraction(
+            isPresented: showNowPlaying,
+            settingsPresented: showSettings
+        ))
+        .accessibilityHidden(!NowPlayingPresentationPolicy.isAccessibilityVisible(
+            isPresented: showNowPlaying,
+            settingsPresented: showSettings
+        ))
     }
 
     @ViewBuilder
     private func liveCoverHost(proxy: GeometryProxy, anchor: Anchor<CGRect>?) -> some View {
-        if (showNowPlaying || liveCoverHostRetained), !skipArtworkMorph,
+        if showNowPlaying, !skipArtworkMorph,
            let trackID = playback.state.track?.id {
+            let resolvedSize = anchor.map { anchor in
+                let rect = proxy[anchor]
+                return min(rect.width, rect.height)
+            } ?? PlayerDockMetrics.art
             let host = LiveCoverHost(
                 source: ArtworkSource.resolve(for: playback.state.track),
                 trackID: trackID,
                 namespace: artworkWorld,
+                size: resolvedSize,
                 isSource: showNowPlaying,
                 isPresented: showNowPlaying
             )
@@ -478,9 +518,17 @@ struct RootView: View {
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.35),
                                value: playback.state.isPlaying)
                     .offset(x: rect.minX, y: rect.minY)
-            } else if liveCoverHostRetained, !showNowPlaying {
-                host.opacity(0)
             }
+        }
+    }
+
+    private func restorePlayerArtworkFocus() {
+        Task { @MainActor in
+            // PlayerBar re-enters the hierarchy when `showNowPlaying` flips.
+            // Yield once so its artwork button can receive the focus request.
+            await Task.yield()
+            guard !showNowPlaying, !showSettings else { return }
+            NotificationCenter.default.post(name: .musesRestorePlayerArtworkFocus, object: nil)
         }
     }
 }
@@ -507,7 +555,7 @@ private struct CoverSlotBinder: View {
 
 enum SidebarSection: String, Hashable, CaseIterable {
     case search, home, new
-    case pins, recently, artists, albums, songs  // Library subsections
+    case artists, albums, songs  // Library subsections
     case playlists
     case history  // Phase 17: Smart Listening History
     case inbox    // Phase 20: Music Inbox
@@ -538,11 +586,11 @@ extension EnvironmentValues {
 extension Notification.Name {
     static let musesToggleQueue = Notification.Name("muses.toggleQueue")
     static let musesFocusSearch = Notification.Name("muses.focusSearch")
+    static let musesNavigateFromSearch = Notification.Name("muses.navigateFromSearch")
     static let musesNavigateYouTubeImport = Notification.Name("muses.navigateYouTubeImport")
     static let musesCloseYouTubeAlbum = Notification.Name("muses.closeYouTubeAlbum")
     static let musesShowPlaylistsOverview = Notification.Name("muses.showPlaylistsOverview")
     static let musesOpenSettings = Notification.Name("muses.openSettings")
-    static let musesToggleSidebar = Notification.Name("muses.toggleSidebar")
     // Phase 24 — 桌面集成通知。
     static let musesOpenMiniPlayer = Notification.Name("muses.openMiniPlayer")
     static let musesToggleDesktopLyrics = Notification.Name("muses.toggleDesktopLyrics")
@@ -553,7 +601,7 @@ extension Notification.Name {
 }
 
 enum BrandColors {
-    /// 动态主题色:深色采用纯黑(Apple Music 风格),浅色用浅色调色板。
+    /// Dynamic theme colors: Apple Music near-black in dark mode and a restrained light palette.
     /// 用 `NSColor(name:dynamicProvider:)` 让所有调用零改动地随外观切换。
     private static func dynamic(_ dark: NSColor, _ light: NSColor) -> Color {
         Color(nsColor: NSColor(name: nil) { (appearance: NSAppearance) -> NSColor in
@@ -598,8 +646,6 @@ enum BrandColors {
             AppleMusicTokens.keyColorRGB.g,
             AppleMusicTokens.keyColorRGB.b)
     )
-    static let cyan = magenta
-    static let green = magenta
     static let textPrimary = dynamic(
         rgb(0.94, 0.94, 0.94),
         rgb(0.09, 0.09, 0.10)
@@ -609,10 +655,10 @@ enum BrandColors {
         rgb(0.45, 0.45, 0.48)
     )
 
-    /// 分隔线:透明(取消所有分割线,实现整体统一)。
+    /// Subtle structural rule used between major regions and around fields.
     static let hairline = dynamic(
-        rgb(1, 1, 1, 0),
-        rgb(0, 0, 0, 0)
+        rgb(1, 1, 1, 0.10),
+        rgb(0, 0, 0, 0.08)
     )
     /// 遮罩 scrim。深色 black 0.35,浅色 black 0.25。
     static let scrim = dynamic(

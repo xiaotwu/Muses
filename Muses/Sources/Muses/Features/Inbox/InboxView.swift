@@ -35,8 +35,7 @@ struct InboxView: View {
             .padding(.vertical, 24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(BrandColors.background)
-        .navigationSubtitle(enabled ? tr("Inbox", "收件箱") : "")
+        .background(BrowseBackground())
         .onAppear { if enabled { inbox.restoreDueSnoozes() } }
         .alert(tr("Add note", "添加备注"), isPresented: Binding(
             get: { noteTarget != nil },
@@ -154,8 +153,8 @@ struct InboxView: View {
     private func snapshot(for item: InboxItem) -> TrackSnapshot {
         TrackSnapshot(id: item.trackId, title: item.trackTitle, artist: item.artist,
                       albumTitle: item.albumTitle, durationSeconds: item.durationSeconds,
-                      filePath: item.filePath, youTubeId: item.youTubeId,
-                      artworkHash: nil, artworkUrl: item.artworkUrl,
+                      youTubeId: item.youTubeId,
+                      artworkUrl: item.artworkUrl,
                       sampleRate: nil, bitDepth: nil, codec: nil, isLossless: false)
     }
 
@@ -200,8 +199,8 @@ struct InboxView: View {
         VStack(alignment: .leading, spacing: 10) {
             Label(tr("Inbox is off", "收件箱已关闭"), systemImage: "tray")
                 .font(.headline).foregroundStyle(BrandColors.textPrimary)
-            Text(tr("Enable it in Settings to collect songs to revisit. Accept to like, reject to dismiss, snooze to defer. Stays on this Mac.",
-                    "在「设置」中开启即可收集待回看曲目:接受即收藏,拒绝即忽略,延后再提醒。数据仅保存在本机。"))
+            Text(tr("Inbox is off. When it is on, accept to like, reject to dismiss, snooze to defer. Stays on this Mac.",
+                    "收件箱已关闭。开启后:接受即收藏,拒绝即忽略,延后再提醒。数据仅保存在本机。"))
                 .font(.callout).foregroundStyle(BrandColors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }

@@ -1,7 +1,7 @@
 # Muses — Apple Music Web visual system
 
 - **Date:** 2026-08-20
-- **Status:** Draft pending user review
+- **Status:** Superseded by `2026-08-20-muses-apple-music-web-reconstruction.md`
 - **Supersedes (UI chrome + visual language):** `2026-08-20-muses-sidra-chrome.md`
 - **Does not supersede:** YouTube-native playback (`YouTubeStreamEngine` / yt-dlp), queue, OAuth, playlist Data API write-back, `2026-08-19-muses-youtube-native-redesign.md`
 

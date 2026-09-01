@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// 全屏歌词呈现(Phase 22 §10.8):
 /// - `.lyricsOnly`:居中大字滚动列表,点击行跳转,逐词高亮(回退链 word→line→plain)。
@@ -11,12 +12,19 @@ struct LyricsFullscreenView: View {
     let mode: NowPlayingLyricsMode
     @Environment(PlaybackService.self) private var playback
     @Environment(LyricsService.self) private var service
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @State private var lines: [LyricLine]?
     @State private var loadedTrackId: UUID?
     @State private var lrcOffsetMs: Int = 0
+    @FocusState private var focusedLineID: UUID?
+    @FocusState private var minimalLineFocused: Bool
 
     /// 有效偏移(秒)= 手动(@Observable,实时)+ LRC 自动。
     private var offsetSeconds: Double { Double(service.manualOffsetMs + lrcOffsetMs) / 1000.0 }
+    private var prioritizeLegibility: Bool {
+        reduceTransparency || NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+    }
 
     var body: some View {
         Group {
@@ -44,7 +52,8 @@ struct LyricsFullscreenView: View {
     // MARK: - lyricsOnly:居中大字滚动列表
 
     private func lyricsOnlyList(_ lines: [LyricLine]) -> some View {
-        TimelineView(.animation(minimumInterval: 0.1, paused: false)) { _ in
+        TimelineView(.animation(minimumInterval: 0.1,
+                                paused: !playback.state.isPlaying || reduceMotion)) { _ in
             let position = playback.state.position
             let idx = LyricsView.currentLineIndex(in: lines, at: position, offset: offsetSeconds)
             ScrollViewReader { proxy in
@@ -56,10 +65,13 @@ struct LyricsFullscreenView: View {
                                     wordRow(words: words, position: position)
                                 } else {
                                     Text(line.text)
-                                        .font(i == idx ? .largeTitle : .title3)
+                                        .font(i == idx
+                                            ? .system(size: 40, weight: .bold)
+                                            : .title3)
                                         .fontWeight(i == idx ? .bold : .regular)
-                                        .foregroundStyle(i == idx ? BrandColors.magenta : BrandColors.textSecondary)
+                                        .foregroundStyle(i == idx ? Color.white : BrandColors.textSecondary)
                                         .multilineTextAlignment(.center)
+                                        .currentLyricLaserIfNeeded(i == idx)
                                 }
                             }
                             .id(line.id)
@@ -68,6 +80,22 @@ struct LyricsFullscreenView: View {
                                 guard let t = line.time else { return }
                                 playback.seek(to: t + offsetSeconds)
                             }
+                            .focusable(line.time != nil)
+                            .focusEffectDisabled()
+                            .focused($focusedLineID, equals: line.id)
+                            .lyricKeyboardFocusHalo(
+                                focusedLineID == line.id,
+                                prioritizeLegibility: prioritizeLegibility
+                            )
+                            .onKeyPress(.return) {
+                                guard let t = line.time else { return .ignored }
+                                playback.seek(to: t + offsetSeconds)
+                                return .handled
+                            }
+                            .accessibilityAddTraits(line.time == nil ? [] : .isButton)
+                            .accessibilityHint(line.time == nil
+                                ? ""
+                                : tr("Jump to this lyric", "跳转到这句歌词"))
                             .help(line.time != nil ? tr("Jump to this line", "跳转到此行") : "")
                         }
                     }
@@ -77,7 +105,7 @@ struct LyricsFullscreenView: View {
                 }
                 .onChange(of: idx) { _, newIdx in
                     if let newIdx, newIdx < lines.count {
-                        withAnimation(.easeInOut(duration: 0.3)) {
+                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) {
                             proxy.scrollTo(lines[newIdx].id, anchor: .center)
                         }
                     }
@@ -93,30 +121,51 @@ struct LyricsFullscreenView: View {
             ForEach(Array(words.enumerated()), id: \.element.id) { wi, w in
                 Text(w.text)
                     .font(.largeTitle).fontWeight(.bold)
-                    .foregroundStyle(wi == activeWord ? BrandColors.magenta : BrandColors.textPrimary.opacity(0.55))
+                    .foregroundStyle(
+                        Color.white.opacity(activeWord == nil || wi == activeWord ? 1 : 0.68)
+                    )
             }
         }
         .multilineTextAlignment(.center)
+        .currentLyricLaser()
     }
 
     // MARK: - minimal:仅当前一行
 
     private func minimalSingleLine(_ lines: [LyricLine]) -> some View {
-        TimelineView(.animation(minimumInterval: 0.1, paused: false)) { _ in
+        TimelineView(.animation(minimumInterval: 0.1,
+                                paused: !playback.state.isPlaying || reduceMotion)) { _ in
             let position = playback.state.position
             let idx = LyricsView.currentLineIndex(in: lines, at: position, offset: offsetSeconds)
             let line = (idx.map { lines[$0] }) ?? lines.first
             Text(line?.text ?? "")
                 .font(.system(size: 40, weight: .bold))
-                .foregroundStyle(BrandColors.magenta)
+                .foregroundStyle(Color.white)
+                .currentLyricLaser()
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
                 .onTapGesture {
                     if let t = line?.time { playback.seek(to: t + offsetSeconds) }
                 }
+                .focusable(line?.time != nil)
+                .focusEffectDisabled()
+                .focused($minimalLineFocused)
+                .lyricKeyboardFocusHalo(
+                    minimalLineFocused,
+                    prioritizeLegibility: prioritizeLegibility
+                )
+                .onKeyPress(.return) {
+                    guard let t = line?.time else { return .ignored }
+                    playback.seek(to: t + offsetSeconds)
+                    return .handled
+                }
+                .accessibilityAddTraits(line?.time == nil ? [] : .isButton)
+                .accessibilityHint(line?.time == nil
+                    ? ""
+                    : tr("Jump to this lyric", "跳转到这句歌词"))
                 .id(line?.id)
-                .animation(.easeInOut(duration: 0.25), value: idx)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: idx)
         }
     }
 
@@ -134,8 +183,11 @@ struct LyricsFullscreenView: View {
             apply(cached)
             return
         }
+        let expectedTrackID = track.id
         Task {
-            if let result = await service.fetch(track: track) {
+            if let result = await service.fetch(track: track),
+               loadedTrackId == expectedTrackID,
+               playback.state.track?.id == expectedTrackID {
                 apply(result)
             }
         }

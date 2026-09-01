@@ -3,8 +3,9 @@ import SwiftData
 
 /// 一次 YouTube 歌单链接导入(独立管理实体)。
 ///
-/// 镜像 YT 侧的只读条目(`items: [YouTubeImportItem]`),并维护本地附加曲目
-/// (`localAdditions: [Track]`)——本地附加仅在本地显示,**绝不**同步回 YT。
+/// Local playlist state for an imported/connected YouTube playlist.
+/// Remote changes are represented separately by Base and Remote Shadow
+/// revisions; this row is never mutated by an unattended remote check.
 @Model
 final class YouTubeImport {
     @Attribute(.unique) var id: UUID
@@ -22,23 +23,36 @@ final class YouTubeImport {
     var importedAt: Date
     /// 上次重新同步时间。
     var lastSyncedAt: Date?
+    /// Owning YouTube channel. Nil means legacy/public import until reconciled.
+    var accountChannelID: String?
+    /// Latest time Remote Shadow was checked without applying it locally.
+    var remoteCheckedAt: Date?
+    /// Accepted common Base revision identifier.
+    var baseRevisionID: UUID?
+    /// Latest Remote Shadow revision identifier.
+    var remoteShadowRevisionID: UUID?
+    /// Soft deletion timestamp. Recently Deleted retains the row for 30 days.
+    var deletedAt: Date?
+    /// Whether the active owner/API identified this playlist as writable.
+    var remoteWritable: Bool?
 
     /// YT 侧只读条目(级联删除:删 import 时一并删 items)。
     @Relationship(deleteRule: .cascade, inverse: \YouTubeImportItem.import_)
     var items: [YouTubeImportItem]?
 
-    /// 本地附加到该歌单的曲目(仅本地显示,不同步回 YT)。
-    /// `nullify` 删除规则:删 import 时仅断开关联,不删 Track。
-    @Relationship(deleteRule: .nullify, inverse: \Track.youTubeImportLocalAddition)
-    var localAdditions: [Track]?
-
     init(id: UUID = UUID(), playlistId: String, url: String, title: String,
          channel: String, artworkUrl: String? = nil,
-         importedAt: Date = .init(), lastSyncedAt: Date? = nil) {
+         importedAt: Date = .init(), lastSyncedAt: Date? = nil,
+         accountChannelID: String? = nil) {
         self.id = id; self.playlistId = playlistId; self.url = url
         self.title = title; self.channel = channel; self.artworkUrl = artworkUrl
         self.importedAt = importedAt; self.lastSyncedAt = lastSyncedAt
+        self.accountChannelID = accountChannelID
+        self.remoteCheckedAt = nil
+        self.baseRevisionID = nil
+        self.remoteShadowRevisionID = nil
+        self.deletedAt = nil
+        self.remoteWritable = nil
         self.items = []
-        self.localAdditions = []
     }
 }
