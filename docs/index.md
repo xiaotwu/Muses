@@ -5,25 +5,25 @@ title: Introduction
 
 # Muses
 
-**A native macOS music app that treats YouTube as its catalog — and listens to it the Apple Music way.**
+**A native macOS music player — a real desktop app for the music you love online.**
 
-Muses turns YouTube — including YouTube Music — into a complete, elegant music application: import playlists, sign in to your account, personalize your Home, and enjoy a floating glass player with an immersive Now Playing and lyrics view, all built natively with SwiftUI + AVFoundation. It is not a web wrapper and not a downloader; it makes YouTube feel like a true native macOS music experience.
+Muses takes the music you already listen to on the web — imported playlists, your account, your recommendations — and gives it what it has always deserved: a genuine library with albums and artists, a floating glass player, an immersive Now Playing with lyrics, and deep macOS integration. Built entirely natively with SwiftUI + AVFoundation. Not a web wrapper, not a downloader — a true desktop music application.
 
 ## Key features
 
-### YouTube-native library
-Imported playlists become real catalog objects — albums and artists are built from stable YouTube IDs, never merged by display name. Likes, subscriptions, and owned playlists connect through a read-only OAuth sign-in; tokens are stored in the macOS Keychain and sync history stays on your Mac.
+### A real library
+Imported playlists become genuine catalog objects — albums and artists are built from stable identifiers, never merged by display name. Likes, subscriptions, and owned playlists connect through a read-only account sign-in; tokens are stored in the macOS Keychain and sync history stays on your Mac.
 
 ### Isolated personalized Home (optional · off by default)
-With your explicit consent, a separate one-shot helper reads your local YouTube Music browser session and produces a normalized local snapshot:
+With your explicit consent, a separate one-shot helper reads your local browser session and produces a normalized local snapshot:
 
 - It never participates in playback or playlist writes.
 - It never stores cookies, auth hashes, raw responses, or pagination tokens.
 - Snapshots are reused directly within a 15-minute freshness window; content up to 7 days old is shown explicitly as "saved" with recovery guidance.
-- The web channel identity must exactly match the connected OAuth channel — otherwise it fails closed.
+- The remote channel identity must exactly match the connected account — otherwise it fails closed.
 
 ### Floating player and immersive Now Playing
-A persistent glass capsule carries artwork, transport, volume, lyrics, and the queue across every browsing surface. Full-screen Now Playing offers cover and vinyl modes with synced lyrics. YouTube videos open as an on-demand overlay — audio pauses, and can resume when the overlay closes.
+A persistent glass capsule carries artwork, transport, volume, lyrics, and the queue across every browsing surface. Full-screen Now Playing offers cover and vinyl modes with synced lyrics. Videos open as an on-demand overlay — audio pauses, and can resume when the overlay closes.
 
 ### Song detail card deck
 A centered, draggable deck shares a single canonical focus across drag, trackpad, chevrons, keyboard, and a first-to-last scrubber. One tap expands it into the complete sortable track table inside the content pane; playlists keep their curated playlist order.
@@ -45,3 +45,7 @@ System media keys and Now Playing, notification policy, window restoration, inst
 - [Installation](installation.md)
 - [Privacy](privacy.md)
 - [Build from source](development.md)
+
+## References & license
+
+See [References and License on GitHub](https://github.com/xiaotwu/Muses#references) — Muses is MIT-licensed; the bundled yt-dlp binary is public-domain software ([Unlicense](https://github.com/yt-dlp/yt-dlp/blob/master/LICENSE)).
