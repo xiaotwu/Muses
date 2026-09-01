@@ -18,6 +18,7 @@ final class AudioDeviceService {
     }
 
     private let eventBus: PlaybackEventBus?
+    private let enabledProvider: () -> Bool
     private let pollProvider: () -> Bool
     private var pollTask: Task<Void, Never>?
     private(set) var revision: Int = 0
@@ -29,7 +30,7 @@ final class AudioDeviceService {
     /// 上次观察到的默认 id(用于变更检测)。
     private var lastObservedDefault: UInt32?
 
-    var isEnabled: Bool { pollProvider() }
+    var isEnabled: Bool { enabledProvider() }
 
     init(eventBus: PlaybackEventBus? = nil,
          enabledProvider: @escaping () -> Bool = {
@@ -37,6 +38,7 @@ final class AudioDeviceService {
     },
          pollProvider: @escaping () -> Bool = { true }) {
         self.eventBus = eventBus
+        self.enabledProvider = enabledProvider
         self.pollProvider = pollProvider
     }
 
@@ -44,12 +46,13 @@ final class AudioDeviceService {
     func refresh() {
         devices = Self.enumerate()
         defaultDeviceID = Self.defaultDeviceID()
+        restorePreferredDevice()
         revision &+= 1
     }
 
     /// 启动 2s 轻量轮询,检测默认设备变更并发事件。幂等。
     func startPolling() {
-        guard pollTask == nil, pollProvider() else { return }
+        guard pollTask == nil, isEnabled, pollProvider() else { return }
         refresh()
         pollTask = Task { @MainActor [weak self] in
             while !Task.isCancelled, let self {
@@ -91,6 +94,15 @@ final class AudioDeviceService {
     var preferredDeviceName: String? {
         let v = UserDefaults.standard.string(forKey: PrefKey.audioPreferredOutputDevice)
         return v?.isEmpty == false ? v : nil
+    }
+
+    /// Apply the remembered output device if it is still connected.
+    @discardableResult
+    func restorePreferredDevice() -> Bool {
+        guard let name = preferredDeviceName,
+              let match = devices.first(where: { $0.name == name }) else { return false }
+        if match.id == defaultDeviceID { return true }
+        return setDefault(match.id) == noErr
     }
 
     private func name(for id: UInt32) -> String? {

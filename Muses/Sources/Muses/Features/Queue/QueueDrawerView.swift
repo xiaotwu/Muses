@@ -1,10 +1,15 @@
 import SwiftUI
 
-/// 队列抽屉:从 trailing 滑入,展示当前队列 / Up Next / History 三段。
+private enum QueueFocusTarget: Hashable {
+    case drawer
+}
+
+/// Integrated trailing pane showing Current Queue / Up Next / History.
 /// 当前队列与 Up Next 支持拖拽重排(`.onMove`),History 只读。
 struct QueueDrawerView: View {
     @Environment(PlaybackService.self) private var playback
     @Binding var isPresented: Bool
+    var showsScrim: Bool = true
     /// Phase 19 Advanced Queue:关闭时维持既有 UI(分组/历史标签/还原/移除均隐藏)。
     @AppStorage(PrefKey.ffAdvancedQueue) private var advancedQueue = true
     /// 重命名分组 alert 的目标分组 id 与临时文本。
@@ -12,62 +17,76 @@ struct QueueDrawerView: View {
     @State private var renameText = ""
     /// Queue has no search field; keep the drawer itself key-focusable so
     /// Escape reaches `.onKeyPress` the way Search's focused field does.
-    @FocusState private var drawerFocused: Bool
+    @FocusState private var focusedTarget: QueueFocusTarget?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 0) {
-            // 点击左侧遮罩关闭
-            BrandColors.scrim
-                .ignoresSafeArea()
-                .onTapGesture { isPresented = false }
-
+            if showsScrim {
+                BrandColors.scrim
+                    .ignoresSafeArea()
+                    .onTapGesture { isPresented = false }
+            }
             drawer
-                .frame(width: 360)
-                .musesGlass(in: Rectangle())
-                .overlay(Rectangle().frame(width: 1).foregroundStyle(BrandColors.hairline),
-                         alignment: .leading)
+                .frame(width: QueueChromePolicy.width)
+                .frame(maxHeight: .infinity)
+                .background(BrandColors.surface)
+                .overlay(alignment: .leading) {
+                    Rectangle()
+                        .fill(BrandColors.hairline)
+                        .frame(width: 1)
+                }
+                .overlay {
+                    if focusedTarget == .drawer {
+                        QueueFocusRing()
+                    }
+                }
+                .focusable()
+                .focusEffectDisabled()
+                .focused($focusedTarget, equals: .drawer)
+                .onKeyPress(.escape) {
+                    guard renameTarget == nil else { return .ignored }
+                    isPresented = false
+                    return .handled
+                }
                 .transition(.move(edge: .trailing))
         }
         .onExitCommand { dismissUnlessRenaming() }
-        .onKeyPress(.escape) {
-            guard renameTarget == nil else { return .ignored }
-            isPresented = false
-            return .handled
-        }
-        .focusable()
-        .focused($drawerFocused)
-        .onAppear { drawerFocused = true }
+        .onAppear { focusedTarget = .drawer }
         .onChange(of: renameTarget) { _, target in
-            drawerFocused = (target == nil)
+            focusedTarget = target == nil ? .drawer : nil
         }
-        .animation(.easeInOut(duration: 0.25), value: isPresented)
+        .animation(MusesMotion.drawerAnimation(reduceMotion: reduceMotion), value: isPresented)
     }
 
     private func dismissUnlessRenaming() {
         if renameTarget == nil { isPresented = false }
     }
 
+    private var repeatAccessibilityValue: String {
+        switch playback.queue.repeatMode {
+        case .off: return tr("Off", "关闭")
+        case .one: return tr("One song", "单曲")
+        case .all: return tr("Current queue", "当前队列")
+        }
+    }
+
     private var drawer: some View {
         VStack(spacing: 0) {
             header
-            Divider().background(BrandColors.hairline)
             list
         }
     }
 
     private var header: some View {
         HStack {
-            Text(tr("Queue", "队列")).font(.headline).foregroundStyle(BrandColors.textPrimary)
+            Text(tr("Playing Next", "接下来播放"))
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(BrandColors.textPrimary)
             Spacer()
             // Repeat 模式循环
             Button {
-                let next: RepeatMode
-                switch playback.queue.repeatMode {
-                case .off:  next = .all
-                case .all:  next = .one
-                case .one:  next = .off
-                }
-                playback.queue.setRepeat(next)
+                playback.queue.setRepeat(playback.queue.repeatMode.next)
             } label: {
                 Image(systemName: playback.queue.repeatMode == .one ? "repeat.1" : "repeat")
                     .font(.callout)
@@ -75,7 +94,10 @@ struct QueueDrawerView: View {
             .foregroundStyle(playback.queue.repeatMode == .off
                              ? BrandColors.textSecondary : BrandColors.magenta)
             .buttonStyle(.plain)
+            .frame(width: 28, height: 28)
             .help(tr("Repeat mode", "循环模式"))
+            .accessibilityLabel(tr("Repeat mode", "循环模式"))
+            .accessibilityValue(repeatAccessibilityValue)
 
             // Shuffle 切换
             Button {
@@ -87,7 +109,10 @@ struct QueueDrawerView: View {
             .foregroundStyle(playback.queue.shuffle
                              ? BrandColors.magenta : BrandColors.textSecondary)
             .buttonStyle(.plain)
+            .frame(width: 28, height: 28)
             .help(tr("Shuffle", "随机播放"))
+            .accessibilityLabel(tr("Shuffle", "随机播放"))
+            .accessibilityValue(playback.queue.shuffle ? tr("On", "开启") : tr("Off", "关闭"))
 
             // Phase 19:新建分组(仅 Advanced Queue 开启时),自动命名 "Group N";
             // 重命名通过分组行内 alert(textField)完成。
@@ -101,15 +126,16 @@ struct QueueDrawerView: View {
                 }
                 .foregroundStyle(BrandColors.textSecondary)
                 .buttonStyle(.plain)
+                .frame(width: 28, height: 28)
                 .help(tr("Add group", "新建分组"))
+                .accessibilityLabel(tr("Add group", "新建分组"))
             }
 
-            Button { isPresented = false } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title3)
-                    .foregroundStyle(BrandColors.textSecondary)
-            }
-            .buttonStyle(.plain)
+            ChromeIconButton(
+                systemName: "xmark",
+                help: tr("Close", "关闭"),
+                accessibility: tr("Close queue", "关闭队列")
+            ) { isPresented = false }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -129,7 +155,13 @@ struct QueueDrawerView: View {
                                     .font(.caption2)
                                     .foregroundStyle(BrandColors.textSecondary)
                                     .frame(width: 14)
-                            }.buttonStyle(.plain)
+                            }
+                            .buttonStyle(.plain)
+                            .help(group.collapsed ? tr("Expand group", "展开分组")
+                                                  : tr("Collapse group", "折叠分组"))
+                            .accessibilityLabel(group.collapsed
+                                ? tr("Expand \(group.name)", "展开 \(group.name)")
+                                : tr("Collapse \(group.name)", "折叠 \(group.name)"))
                             Text(group.name).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
                             Spacer()
                             Text("\(itemsInGroup(group.id))")
@@ -149,7 +181,7 @@ struct QueueDrawerView: View {
             }
 
             Section(tr("Current Queue", "当前队列")) {
-                ForEach(playback.queue.items) { item in
+                ForEach(visibleQueueItems) { item in
                     QueueRow(item: item,
                              isCurrent: playback.queue.currentIndex ==
                                         playback.queue.items.firstIndex(where: { $0.id == item.id }),
@@ -157,6 +189,7 @@ struct QueueDrawerView: View {
                         .contextMenu { itemContextMenu(for: item, inUpNext: false) }
                 }
                 .onMove { indices, destination in
+                    guard playback.queue.groups.allSatisfy({ !$0.collapsed }) else { return }
                     guard let from = indices.first else { return }
                     playback.queue.move(from: from,
                                         to: destination > from ? destination - 1 : destination)
@@ -177,10 +210,18 @@ struct QueueDrawerView: View {
                 ForEach(playback.queue.history) { item in
                     QueueRow(item: item, isCurrent: false, showHistoryBadge: advancedQueue)
                         .contextMenu {
-                            if advancedQueue {
-                                Button(tr("Replay", "重新播放")) {
-                                    playback.playTrack(item.track, context: [item.track], from: .songs)
+                            TrackContextMenuItems(
+                                snapshot: item.track,
+                                onPlay: {
+                                    playback.playTrack(
+                                        item.track,
+                                        context: [item.track],
+                                        from: item.fromContext
+                                    )
                                 }
+                            )
+                            if advancedQueue {
+                                Divider()
                                 Button(tr("Restore to queue", "还原到队列")) {
                                     if let idx = playback.queue.history.firstIndex(where: { $0.id == item.id }) {
                                         playback.queue.restoreFromHistory(at: idx)
@@ -197,8 +238,10 @@ struct QueueDrawerView: View {
                 }
             }
         }
-        .listStyle(.sidebar)
+        .listStyle(.plain)
+        .listRowSeparator(.hidden)
         .scrollContentBackground(.hidden)
+        .background(.clear)
         .environment(\.defaultMinListRowHeight, 44)
         .alert(tr("Rename group", "重命名分组"), isPresented: Binding(
             get: { renameTarget != nil },
@@ -215,16 +258,35 @@ struct QueueDrawerView: View {
         }
     }
 
+    /// Hide members of collapsed groups, except the currently playing row.
+    private var visibleQueueItems: [QueueItem] {
+        let collapsed = Set(playback.queue.groups.filter(\.collapsed).map(\.id))
+        guard !collapsed.isEmpty else { return playback.queue.items }
+        let currentID = playback.queue.current()?.id
+        return playback.queue.items.filter { item in
+            guard let gid = item.groupId, collapsed.contains(gid) else { return true }
+            return item.id == currentID
+        }
+    }
+
     /// items + upNext 中归属某分组的条目数。
     private func itemsInGroup(_ id: QueueGroup.ID) -> Int {
         playback.queue.items.filter { $0.groupId == id }.count
         + playback.queue.upNext.filter { $0.groupId == id }.count
     }
 
-    /// items / upNext 条目的右键菜单(Advanced Queue):锁定 + 分组赋值 + 移除。
+    /// Queue rows always expose useful track actions. Advanced Queue adds the
+    /// lock and grouping operations without turning the basic menu into an empty shell.
     @ViewBuilder
     private func itemContextMenu(for item: QueueItem, inUpNext: Bool) -> some View {
+        TrackContextMenuItems(
+            snapshot: item.track,
+            onPlay: { playQueueItem(item) },
+            showsPlayNext: false,
+            showsAddToQueue: false
+        )
         if advancedQueue {
+            Divider()
             Button(item.locked ? tr("Unlock", "解锁") : tr("Lock", "锁定")) {
                 playback.queue.toggleLocked(itemId: item.id)
             }
@@ -236,6 +298,9 @@ struct QueueDrawerView: View {
                     }
                 }
             }
+        }
+        if canRemove(item: item, inUpNext: inUpNext) {
+            Divider()
             Button(tr("Remove", "移除"), role: .destructive) {
                 if inUpNext, let idx = playback.queue.upNext.firstIndex(where: { $0.id == item.id }) {
                     playback.queue.removeUpNext(at: idx)
@@ -246,6 +311,23 @@ struct QueueDrawerView: View {
         }
     }
 
+    private func playQueueItem(_ item: QueueItem) {
+        let context = playback.queue.items.map(\.track) + playback.queue.upNext.map(\.track)
+        playback.playTrack(
+            item.track,
+            context: context.isEmpty ? [item.track] : context,
+            from: item.fromContext
+        )
+    }
+
+    private func canRemove(item: QueueItem, inUpNext: Bool) -> Bool {
+        if inUpNext { return true }
+        guard let index = playback.queue.items.firstIndex(where: { $0.id == item.id }) else {
+            return false
+        }
+        return index != playback.queue.currentIndex
+    }
+
     /// 把 item 归入分组(在 items/upNext 中原地改写并持久化)。
     private func setGroupId(item: QueueItem, to gid: UUID?) {
         if let i = playback.queue.items.firstIndex(where: { $0.id == item.id }) {
@@ -253,6 +335,28 @@ struct QueueDrawerView: View {
         } else if let i = playback.queue.upNext.firstIndex(where: { $0.id == item.id }) {
             playback.queue.upNext[i].groupId = gid; playback.queue.persist()
         }
+    }
+}
+
+private struct QueueFocusRing: View {
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .strokeBorder(
+                    Color.white.opacity(colorSchemeContrast == .increased ? 0.24 : 0.12),
+                    lineWidth: colorSchemeContrast == .increased ? 6 : 4
+                )
+            Rectangle()
+                .strokeBorder(
+                    Color.white.opacity(colorSchemeContrast == .increased ? 1 : 0.88),
+                    lineWidth: colorSchemeContrast == .increased ? 2 : 1
+                )
+        }
+        .padding(2)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
@@ -268,7 +372,9 @@ private struct QueueRow: View {
                 .foregroundStyle(leadingTint)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.track.title).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
+                Text(item.track.title)
+                    .foregroundStyle(isCurrent ? BrandColors.magenta : BrandColors.textPrimary)
+                    .lineLimit(1)
                 Text(item.track.artist)
                     .font(.caption)
                     .foregroundStyle(BrandColors.textSecondary)

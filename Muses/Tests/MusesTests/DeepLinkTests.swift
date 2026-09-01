@@ -13,8 +13,8 @@ struct DeepLinkTests {
     private func makeContainerWithTrack() throws -> (ModelContainer, Track) {
         let container = try makeModelContainer(inMemory: true)
         let context = container.mainContext
-        let track = Track(source: .local, title: "Deep", artist: "Linker",
-                          durationMs: 180_000, filePath: "/tmp/deep.wav")
+        let track = Track(title: "Deep", artist: "Linker",
+                          durationMs: 180_000, youTubeId: "test-video")
         context.insert(track)
         try context.save()
         return (container, track)
@@ -37,15 +37,13 @@ struct DeepLinkTests {
         #expect(resolved.title == "Deep")
 
         // 3. 转 snapshot 喂给 PlaybackService,验证引擎收到 load。
-        let localMock = RecordingEngine()
-        let svc = PlaybackService(localEngine: localMock,
-                                  youtubeEngine: RecordingEngine(),
-                                  queue: QueueService())
+        let engine = RecordingEngine()
+        let svc = PlaybackService(youtubeEngine: engine, queue: QueueService())
         let snap = TrackSnapshot(from: resolved)
         svc.playTrack(snap, context: [snap], from: .songs)
         try await Task.sleep(for: .milliseconds(120))
-        #expect(localMock.loadCallCount == 1)
-        #expect(localMock.lastLoadedTrack?.title == "Deep")
+        #expect(engine.loadCallCount == 1)
+        #expect(engine.lastLoadedTrack?.title == "Deep")
     }
 
     @Test("非 muses scheme 或缺 trackId 返回 nil")

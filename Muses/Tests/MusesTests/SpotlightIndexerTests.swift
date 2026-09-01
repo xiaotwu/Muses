@@ -33,12 +33,12 @@ struct SpotlightIndexerTests {
     func indexWithTracks() {
         let container = try! makeModelContainer(inMemory: true)
         let ctx = ModelContext(container)
-        let track = Track(source: .local, title: "Test", artist: "Artist")
+        let track = Track(title: "Test", artist: "Artist", youTubeId: "test-video")
         ctx.insert(track)
         try? ctx.save()
 
         let indexer = SpotlightIndexer(modelContainer: container)
-        indexer.index(tracks: [track], albums: [])
+        indexer.index(tracks: [track])
         indexer.deindex(ids: [track.id])
     }
 }

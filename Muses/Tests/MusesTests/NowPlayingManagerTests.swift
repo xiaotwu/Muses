@@ -8,56 +8,89 @@ import MediaPlayer
 struct NowPlayingManagerTests {
     @Test("manager updates nowPlayingInfo title after load")
     func updatesInfoAfterLoad() async throws {
-        let wav = FileManager.default.temporaryDirectory
-            .appending(path: "muses-npm-\(UUID().uuidString).wav")
-        try makeSilentWav(at: wav, seconds: 1)
-        let engine = LocalAudioEngine()
+        let engine = RecordingEngine()
         let queue = QueueService()
-        let playback = PlaybackService(localEngine: engine,
-                                        youtubeEngine: RecordingEngine(),
-                                        queue: queue)
-        let manager = NowPlayingManager(playback)
+        let playback = PlaybackService(youtubeEngine: engine, queue: queue)
+        var published: [[String: Any]] = []
+        let manager = NowPlayingManager(
+            playback,
+            bindsRemoteCommands: false,
+            publishInfo: { published.append($0) }
+        )
 
         let snap = TrackSnapshot(id: UUID(), title: "MyTrack", artist: "Artist",
-            albumTitle: "Album", durationSeconds: 1, filePath: wav.path,
-            youTubeId: nil, artworkHash: nil, artworkUrl: nil,
+            albumTitle: "Album", durationSeconds: 1,             youTubeId: "test-video", artworkUrl: nil,
             sampleRate: 44100, bitDepth: 16, codec: "pcm", isLossless: false)
-        try await engine.load(snap)
-        engine.play()
+        playback.playTrack(snap, context: [snap], from: .songs)
 
-        // 给 manager 一点时间响应状态变化
-        try await Task.sleep(for: .milliseconds(400))
+        // Poll the injected publication seam instead of assuming an AV engine and
+        // the 250 ms observer both complete inside one fixed wall-clock delay.
+        let deadline = ContinuousClock.now + .seconds(2)
+        while published.last(where: { $0[MPMediaItemPropertyTitle] as? String == "MyTrack" }) == nil,
+              ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
 
-        let info = MPNowPlayingInfoCenter.default().nowPlayingInfo
+        let info = published.last { $0[MPMediaItemPropertyTitle] as? String == "MyTrack" }
         #expect(info?[MPMediaItemPropertyTitle] as? String == "MyTrack")
         #expect(info?[MPMediaItemPropertyArtist] as? String == "Artist")
 
-        engine.pause()
         _ = manager   // keep alive
     }
 
     @Test("manager init does not crash without track")
     func initNoTrack() async throws {
-        let engine = LocalAudioEngine()
+        let engine = RecordingEngine()
         let queue = QueueService()
-        let playback = PlaybackService(localEngine: engine,
-                                        youtubeEngine: RecordingEngine(),
-                                        queue: queue)
-        let manager = NowPlayingManager(playback)
+        let playback = PlaybackService(youtubeEngine: engine, queue: queue)
+        let manager = NowPlayingManager(
+            playback,
+            bindsRemoteCommands: false,
+            publishInfo: { _ in }
+        )
         // 给 manager 一点时间执行初始 updateInfo
         try await Task.sleep(for: .milliseconds(100))
         _ = manager
         // 断言能构造且不崩溃即可(nowPlayingInfo 是系统单例, 跨测试可能残留)
     }
 
+    @Test("remote play and pause remain idempotent when commands repeat")
+    func repeatedRemoteCommandsDoNotInvertPlayback() async throws {
+        let engine = RecordingEngine()
+        let playback = PlaybackService(youtubeEngine: engine, queue: QueueService())
+        let manager = NowPlayingManager(
+            playback,
+            bindsRemoteCommands: false,
+            publishInfo: { _ in }
+        )
+        let snap = TrackSnapshot(id: UUID(), title: "Remote", artist: "Artist",
+            albumTitle: nil, durationSeconds: 10,             youTubeId: "test-video", artworkUrl: nil,
+            sampleRate: 44_100, bitDepth: 16, codec: "pcm", isLossless: false)
+        playback.playTrack(snap, context: [snap], from: .songs)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(engine.playCallCount == 1)
+
+        manager.handleRemotePause()
+        manager.handleRemotePause()
+        #expect(!playback.state.isPlaying)
+        #expect(engine.playCallCount == 1)
+
+        manager.handleRemotePlay()
+        manager.handleRemotePlay()
+        #expect(playback.state.isPlaying)
+        #expect(engine.playCallCount == 2)
+    }
+
     @Test("rapid state changes keep one observation lifecycle")
     func rapidStateChangesKeepOneObservationLifecycle() async {
         let engine = RecordingEngine()
         let queue = QueueService()
-        let playback = PlaybackService(localEngine: engine,
-                                        youtubeEngine: RecordingEngine(),
-                                        queue: queue)
-        let manager = NowPlayingManager(playback)
+        let playback = PlaybackService(youtubeEngine: engine, queue: queue)
+        let manager = NowPlayingManager(
+            playback,
+            bindsRemoteCommands: false,
+            publishInfo: { _ in }
+        )
 
         // 直接重复启动也必须幂等。
         manager.startObserving()

@@ -12,6 +12,8 @@ struct StreamURLCacheTests {
         let url = URL(string: "https://example.com/audio.m4a")!
         cache.set(videoId: "vid1", url: url)
         #expect(cache.get(videoId: "vid1") == url)
+        cache.set(videoId: "vid1", url: URL(string: "https://example.com/lo.m4a")!, quality: "64k")
+        #expect(cache.get(videoId: "vid1", quality: "bestaudio") == url)
     }
 
     @Test("expired entry returns nil and is evicted")

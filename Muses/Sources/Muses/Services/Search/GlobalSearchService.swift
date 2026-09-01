@@ -1,100 +1,161 @@
 import Foundation
 import Observation
 
-/// 全局搜索服务:跨本地资料库(歌曲/专辑/艺术家)+ YouTube 并发搜索,带 debounce。
-/// 本地结果即时返回,YouTube 结果异步填充。
+enum GlobalSearchScope: String, CaseIterable, Identifiable, Sendable {
+    case all
+    case library
+    case youtube
+
+    var id: Self { self }
+    var searchesLibrary: Bool { self != .youtube }
+    var searchesYouTube: Bool { self != .library }
+}
+
+/// Search facade for the YouTube-native V3 library and rebuildable catalog.
+/// SwiftData models are projected to immutable values before reaching the UI.
 @Observable
 @MainActor
 final class GlobalSearchService {
     var query: String = "" { didSet { scheduleSearch() } }
+    var scope: GlobalSearchScope = .all {
+        didSet {
+            guard oldValue != scope else { return }
+            clearResultsExcluded(by: scope)
+            scheduleSearch()
+        }
+    }
 
-    private(set) var trackResults: [Track] = []
-    private(set) var albumResults: [Album] = []
-    private(set) var artistResults: [Artist] = []
+    private(set) var trackResults: [TrackSnapshot] = []
+    private(set) var releaseResults: [CatalogReleaseProjection] = []
+    private(set) var catalogArtistResults: [CatalogArtistProjection] = []
     private(set) var noteResults: [NotesService.NoteSearchHit] = []
     private(set) var youtubeResults: [YTDlpBridge.YTDlpPlaylistEntry] = []
     private(set) var isSearchingYouTube = false
 
     private let library: LibraryService
+    private let catalog: YouTubeCatalogService?
     let youTubeSearch: YouTubeSearchService?
     private let notes: NotesService?
     private var searchTask: Task<Void, Never>?
     private let debounceMs: UInt64
 
     init(library: LibraryService,
+         catalog: YouTubeCatalogService? = nil,
          youTubeSearch: YouTubeSearchService? = nil,
          notes: NotesService? = nil,
          debounceMs: UInt64 = 250) {
         self.library = library
+        self.catalog = catalog
         self.youTubeSearch = youTubeSearch
         self.notes = notes
         self.debounceMs = debounceMs
     }
 
-    /// 清除所有结果(关闭面板时调用)。
-    func reset() {
-        query = ""
-        trackResults = []
-        albumResults = []
-        artistResults = []
-        noteResults = []
-        youtubeResults = []
-        isSearchingYouTube = false
-        searchTask?.cancel()
-        searchTask = nil
+    var hasResults: Bool {
+        !trackResults.isEmpty
+            || !releaseResults.isEmpty
+            || !catalogArtistResults.isEmpty
+            || !noteResults.isEmpty
+            || !youtubeResults.isEmpty
     }
 
-    // MARK: - Debounced search
+    func reset() {
+        searchTask?.cancel()
+        searchTask = nil
+        query = ""
+        scope = .all
+        clearAllResults()
+    }
 
     private func scheduleSearch() {
         searchTask?.cancel()
-        let q = query
-        guard !q.trimmingCharacters(in: .whitespaces).isEmpty else {
-            trackResults = []
-            albumResults = []
-            artistResults = []
-            noteResults = []
-            youtubeResults = []
-            isSearchingYouTube = false
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            clearAllResults()
             return
         }
-        let ms = debounceMs
+        let milliseconds = debounceMs
         searchTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: ms * 1_000_000)
+            try? await Task.sleep(nanoseconds: milliseconds * 1_000_000)
             guard !Task.isCancelled else { return }
-            await self?.performSearch(query: q)
+            await self?.performSearch(query: trimmed)
         }
     }
 
     func performSearch(query: String) async {
-        // 本地搜索 — 即时
-        let tracks = library.allTracks(search: query)
-        let albums = library.allAlbums().filter {
-            $0.title.localizedCaseInsensitiveContains(query)
-            || $0.albumArtist.localizedCaseInsensitiveContains(query)
-        }
-        let artists = library.allArtists().filter {
-            $0.name.localizedCaseInsensitiveContains(query)
-        }
-        trackResults = tracks
-        albumResults = albums
-        artistResults = artists
-        // 笔记搜索(Phase 21):ffNotes 关时 searchNotes 仍可读已存数据;为空则不显示该区段。
-        if let notes {
-            noteResults = notes.searchNotes(query: query)
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            clearAllResults()
+            return
         }
 
-        // YouTube 搜索 — 异步
-        guard let youTubeSearch else { return }
-        isSearchingYouTube = true
-        do {
-            let yt = try await youTubeSearch.search(query: query)
-            if !Task.isCancelled {
-                youtubeResults = yt
+        let requestedScope = scope
+        if requestedScope.searchesLibrary {
+            let playable = library.allTracks(search: trimmed).filter {
+                !$0.youTubeId.isEmpty
             }
-        } catch {
-            // 静默 — YouTube 搜索失败不阻塞本地结果
+            // Every playable YouTube row belongs to the single Songs result group,
+            // including Tracks marked as music videos.
+            trackResults = playable.map(TrackSnapshot.init(from:))
+
+            let releases = catalog?.releases() ?? []
+            releaseResults = releases.filter {
+                $0.title.localizedCaseInsensitiveContains(trimmed)
+                    || $0.artistName.localizedCaseInsensitiveContains(trimmed)
+            }
+            catalogArtistResults = (catalog?.artists() ?? []).filter {
+                $0.name.localizedCaseInsensitiveContains(trimmed)
+            }
+
+            if let notes {
+                noteResults = notes.searchNotes(query: trimmed).filter { hit in
+                    guard case .trackNote = hit.kind,
+                          let track = library.track(by: hit.ownerId) else { return false }
+                    return !track.youTubeId.isEmpty
+                }
+            } else {
+                noteResults = []
+            }
+        } else {
+            clearLibraryResults()
         }
+
+        guard requestedScope.searchesYouTube, let youTubeSearch else {
+            youtubeResults = []
+            isSearchingYouTube = false
+            return
+        }
+
+        isSearchingYouTube = true
+        defer { isSearchingYouTube = false }
+        do {
+            let results = try await youTubeSearch.search(query: trimmed)
+            guard !Task.isCancelled, scope == requestedScope else { return }
+            youtubeResults = results
+        } catch {
+            guard !Task.isCancelled, scope == requestedScope else { return }
+            youtubeResults = []
+        }
+    }
+
+    private func clearResultsExcluded(by scope: GlobalSearchScope) {
+        if !scope.searchesLibrary { clearLibraryResults() }
+        if !scope.searchesYouTube {
+            youtubeResults = []
+            isSearchingYouTube = false
+        }
+    }
+
+    private func clearLibraryResults() {
+        trackResults = []
+        releaseResults = []
+        catalogArtistResults = []
+        noteResults = []
+    }
+
+    private func clearAllResults() {
+        clearLibraryResults()
+        youtubeResults = []
         isSearchingYouTube = false
     }
 }

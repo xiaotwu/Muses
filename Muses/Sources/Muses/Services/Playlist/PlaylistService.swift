@@ -2,6 +2,21 @@ import Foundation
 import SwiftData
 import Observation
 
+/// Complete local-only information needed to undo a playlist deletion during
+/// the current session. It deliberately stores identifiers rather than model
+/// objects so restoration can use a fresh SwiftData context.
+struct PlaylistDeletionSnapshot: Sendable, Equatable {
+    struct Item: Sendable, Equatable {
+        let order: Int
+        let trackID: UUID?
+    }
+
+    let name: String
+    let createdAt: Date
+    let pinned: Bool
+    let items: [Item]
+}
+
 /// 歌单 CRUD + 排序服务。
 ///
 /// 镜像 `YouTubeImportService` 模式:`@MainActor @Observable`,每次操作
@@ -11,6 +26,7 @@ import Observation
 final class PlaylistService {
     private let modelContainer: ModelContainer
     private let log = AppLog.for("PlaylistService")
+    private(set) var loadState: LoadState<[Playlist]> = .idle
 
     init(modelContainer: ModelContainer) {
         self.modelContainer = modelContainer
@@ -26,6 +42,7 @@ final class PlaylistService {
         ctx.insert(playlist)
         try? ctx.save()
         log.info("创建歌单 \(playlist.name)")
+        notifyPlaylistsChanged()
         return playlist
     }
 
@@ -35,6 +52,7 @@ final class PlaylistService {
         guard !trimmed.isEmpty else { return }
         playlist.name = trimmed
         try? playlist.modelContext?.save()
+        notifyPlaylistsChanged()
     }
 
     /// 删除歌单(级联删 items)。
@@ -48,17 +66,94 @@ final class PlaylistService {
             ctx.delete(p)
             try? ctx.save()
             log.info("删除歌单 \(id)")
+            notifyPlaylistsChanged()
         }
+    }
+
+    /// Deletes a local playlist and returns a one-session restore capsule.
+    /// The playlist's tracks remain untouched; detached item rows are restored
+    /// as such if their track was removed in the meantime.
+    func deleteWithUndoSnapshot(_ playlist: Playlist) -> PlaylistDeletionSnapshot? {
+        let ctx = ModelContext(modelContainer)
+        let id = playlist.id
+        let descriptor = FetchDescriptor<Playlist>(predicate: #Predicate { $0.id == id })
+        guard let stored = try? ctx.fetch(descriptor).first else { return nil }
+
+        let snapshot = PlaylistDeletionSnapshot(
+            name: stored.name,
+            createdAt: stored.createdAt,
+            pinned: stored.pinned,
+            items: (stored.items ?? []).sorted { $0.order < $1.order }.map {
+                .init(order: $0.order, trackID: $0.track?.id)
+            }
+        )
+        ctx.delete(stored)
+        do {
+            try ctx.save()
+            log.info("删除歌单 (id)，可在当前会话撤销")
+            notifyPlaylistsChanged()
+            return snapshot
+        } catch {
+            log.warning("删除歌单失败: (error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Restores a deletion capsule once. Missing tracks remain represented by
+    /// a detached playlist item, matching the model's existing nullify rule.
+    @discardableResult
+    func restore(_ snapshot: PlaylistDeletionSnapshot) -> Playlist? {
+        let ctx = ModelContext(modelContainer)
+        let restored = Playlist(name: snapshot.name, createdAt: snapshot.createdAt,
+                                pinned: snapshot.pinned)
+        ctx.insert(restored)
+        var restoredItems: [PlaylistItem] = []
+        for item in snapshot.items {
+            let track: Track?
+            if let id = item.trackID {
+                track = try? ctx.fetch(FetchDescriptor<Track>(
+                    predicate: #Predicate { $0.id == id }
+                )).first
+            } else {
+                track = nil
+            }
+            let restoredItem = PlaylistItem(order: item.order, playlist: restored, track: track)
+            ctx.insert(restoredItem)
+            restoredItems.append(restoredItem)
+        }
+        restored.items = restoredItems
+        do {
+            try ctx.save()
+            notifyPlaylistsChanged()
+            return restored
+        } catch {
+            log.warning("恢复已删除歌单失败: (error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func notifyPlaylistsChanged() {
+        NotificationCenter.default.post(name: .musesPlaylistsChanged, object: nil)
     }
 
     /// 查询所有歌单(按创建时间降序)。
     func fetchAll() -> [Playlist] {
+        let previous = loadState.value
+        loadState = .loading(previous: previous)
         let ctx = ModelContext(modelContainer)
         var descriptor = FetchDescriptor<Playlist>(
             sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
         )
         descriptor.fetchLimit = 200
-        return (try? ctx.fetch(descriptor)) ?? []
+        do {
+            let values = try ctx.fetch(descriptor)
+            loadState = values.isEmpty ? .empty : .content(values)
+            return values
+        } catch {
+            loadState = .failure(message: error.localizedDescription,
+                                 staleValue: previous)
+            return previous ?? []
+        }
     }
 
     // MARK: - 条目管理
@@ -139,6 +234,7 @@ final class PlaylistService {
         )).first else { return }
         p.pinned.toggle()
         try? ctx.save()
+        notifyPlaylistsChanged()
     }
 
     /// 获取已钉选歌单(按名称排序)。
@@ -151,73 +247,4 @@ final class PlaylistService {
         return (try? ctx.fetch(desc)) ?? []
     }
 
-    // MARK: - M3U 导入/导出
-
-    /// 从 M3U/M3U8 文件导入曲目到歌单。
-    /// 按 filePath 匹配已有 Track,未匹配的跳过(不自动扫描新文件)。
-    /// 返回成功匹配并添加的曲目数。
-    @discardableResult
-    func importM3U(_ playlist: Playlist, from url: URL) -> Int {
-        guard let paths = try? M3UService.parse(url: url) else { return 0 }
-        let ctx = ModelContext(modelContainer)
-        let playlistId = playlist.id
-
-        guard let p = try? ctx.fetch(FetchDescriptor<Playlist>(
-            predicate: #Predicate { $0.id == playlistId }
-        )).first else { return 0 }
-
-        // 预加载所有本地 Track,按 filePath 和文件名建立索引(M3U 导入是手动操作,全量 fetch 可接受)
-        let allTracks = (try? ctx.fetch(FetchDescriptor<Track>())) ?? []
-        let byPath: [String: Track] = Dictionary(uniqueKeysWithValues: allTracks.compactMap { t in
-            t.filePath.map { ($0, t) }
-        })
-        let byFilename: [String: Track] = Dictionary(allTracks.compactMap { t in
-            t.filePath.map { (( $0 as NSString).lastPathComponent, t) }
-        }, uniquingKeysWith: { first, _ in first })
-
-        let existingTrackIds = Set((p.items ?? []).compactMap { $0.track?.id })
-        var added = 0
-        var nextOrder = (p.items ?? []).map { $0.order }.max() ?? -1
-
-        for path in paths {
-            // 先按绝对路径匹配,再按文件名兜底
-            let track = byPath[path] ?? {
-                let fname = (path as NSString).lastPathComponent
-                return byFilename[fname]
-            }()
-            guard let track else { continue }
-            if existingTrackIds.contains(track.id) { continue }
-            nextOrder += 1
-            let item = PlaylistItem(order: nextOrder, playlist: p, track: track)
-            ctx.insert(item)
-            if var items = p.items { items.append(item); p.items = items }
-            else { p.items = [item] }
-            added += 1
-        }
-
-        try? ctx.save()
-        log.info("M3U 导入:从 \(url.lastPathComponent) 添加 \(added) 首到歌单 \(playlist.name)")
-        return added
-    }
-
-    /// 导出歌单为 M3U 文件。
-    /// `relativeTo` 非 nil 时,filePath 转为相对路径。
-    func exportM3U(_ playlist: Playlist, to url: URL, relativeTo: URL? = nil) {
-        let ctx = ModelContext(modelContainer)
-        let playlistId = playlist.id
-        guard let p = try? ctx.fetch(FetchDescriptor<Playlist>(
-            predicate: #Predicate { $0.id == playlistId }
-        )).first else { return }
-
-        let items = (p.items ?? []).sorted { $0.order < $1.order }
-        let entries: [(filePath: String, title: String, durationSeconds: Double)] = items.compactMap { item in
-            guard let track = item.track, let fp = track.filePath else { return nil }
-            let title = "\(track.artist) - \(track.title)"
-            return (filePath: fp, title: title, durationSeconds: track.durationSeconds)
-        }
-
-        let content = M3UService.export(entries: entries, relativeTo: relativeTo)
-        try? content.write(to: url, atomically: true, encoding: .utf8)
-        log.info("M3U 导出:\(entries.count) 首到 \(url.path)")
-    }
 }

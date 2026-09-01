@@ -4,10 +4,10 @@ import SwiftData
 
 /// 笔记 & 书签服务(Final Spec §10.7 Feature 7 — Notes & Bookmarks)。
 ///
-/// 持有 `TrackNote` / `TrackBookmark` / `AlbumNote` 三表的读写入口。
-/// - 曲目笔记 / 专辑笔记:按 ownerId upsert(每 owner 一条);空内容时删除行。
+/// 持有 `TrackNote` / `TrackBookmark` 两表的读写入口。
+/// - 曲目笔记按 ownerId upsert(每 owner 一条);空内容时删除行。
 /// - 曲目书签:CRUD,按 `timestampMs` 升序读取。
-/// - `searchNotes(query:)`:跨 TrackNote/AlbumNote 内容做大小写无关包含匹配,
+/// - `searchNotes(query:)`:对 TrackNote 内容做大小写无关包含匹配,
 ///   反规范化返回 `NoteSearchHit`(含 owner 标题),供 `GlobalSearchService` 渲染。
 ///
 /// 功能开关 `PrefKey.ffNotes`(默认关):关闭时写入方法为 no-op,读取仍可用(供已存数据展示);
@@ -96,33 +96,6 @@ final class NotesService {
         revision &+= 1
     }
 
-    // MARK: - 专辑笔记
-
-    func note(forAlbum albumId: UUID) -> AlbumNote? {
-        let ctx = modelContainer.mainContext
-        return (try? ctx.fetch(FetchDescriptor<AlbumNote>()))?
-            .first(where: { $0.albumId == albumId })
-    }
-
-    /// 写入专辑笔记(upsert)。空内容 → 删除。功能关闭时 no-op。
-    func setAlbumNote(albumId: UUID, content: String) {
-        guard isEnabled else { return }
-        let ctx = modelContainer.mainContext
-        let existing = (try? ctx.fetch(FetchDescriptor<AlbumNote>()))?
-            .first(where: { $0.albumId == albumId })
-        if content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            if let existing { ctx.delete(existing); try? ctx.save(); revision &+= 1 }
-            return
-        }
-        if let existing {
-            existing.content = content; existing.updatedAt = .init()
-        } else {
-            ctx.insert(AlbumNote(albumId: albumId, content: content))
-        }
-        try? ctx.save()
-        revision &+= 1
-    }
-
     // MARK: - 搜索
 
     /// 笔记搜索结果(反规范化:含 owner 标题供 UI 展示)。
@@ -132,10 +105,10 @@ final class NotesService {
         let ownerId: UUID
         let ownerTitle: String
         let snippet: String
-        enum Kind: Sendable { case trackNote, albumNote }
+        enum Kind: Sendable { case trackNote }
     }
 
-    /// 跨 TrackNote/AlbumNote 内容做包含匹配;`query` 为空返回空。解析 owner 标题(Track/Album 不存在则兜底)。
+    /// 对 TrackNote 内容做包含匹配;`query` 为空返回空。解析曲目标题。
     func searchNotes(query: String) -> [NoteSearchHit] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return [] }
@@ -147,14 +120,6 @@ final class NotesService {
             for n in trackNotes where n.content.lowercased().contains(needle) {
                 let title = tracks.first(where: { $0.id == n.trackId })?.title ?? tr("Unknown track", "未知曲目")
                 hits.append(.init(id: n.id, kind: .trackNote, ownerId: n.trackId,
-                                  ownerTitle: title, snippet: snippet(of: n.content, needle: needle)))
-            }
-        }
-        if let albumNotes = try? ctx.fetch(FetchDescriptor<AlbumNote>()) {
-            let albums = (try? ctx.fetch(FetchDescriptor<Album>())) ?? []
-            for n in albumNotes where n.content.lowercased().contains(needle) {
-                let title = albums.first(where: { $0.id == n.albumId })?.title ?? tr("Unknown album", "未知专辑")
-                hits.append(.init(id: n.id, kind: .albumNote, ownerId: n.albumId,
                                   ownerTitle: title, snippet: snippet(of: n.content, needle: needle)))
             }
         }

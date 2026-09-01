@@ -11,6 +11,18 @@ final class SpectrumTap {
     private var handler: ((SpectrumFrame) -> Void)?
     private var lastEmit: Double = 0
     private let bandCount = 64
+    // Reused on the render thread — do not allocate in `process`.
+    private var mixBuffer: [Float] = []
+    private var window: [Float] = []
+    private var windowed: [Float] = []
+    private var fftN = 0
+    private var fftSetup: vDSP.FFT<DSPSplitComplex>?
+    private var realIn: [Float] = []
+    private var imagIn: [Float] = []
+    private var realOut: [Float] = []
+    private var imagOut: [Float] = []
+    private var magnitudes: [Float] = []
+    private var bandScratch: [Float] = []
 
     func start(on node: AVAudioNode, bus: AVAudioNodeBus = 0,
                format: AVAudioFormat, handler: @escaping (SpectrumFrame) -> Void) {
@@ -44,16 +56,18 @@ final class SpectrumTap {
         let frameCount = Int(buffer.frameLength)
         guard frameCount > 0 else { return }
         guard let ch = buffer.floatChannelData else { return }
-        var samples = [Float](repeating: 0, count: frameCount)
-        // mono mix
+        if mixBuffer.count != frameCount {
+            mixBuffer = [Float](repeating: 0, count: frameCount)
+        }
         let channels = Int(buffer.format.channelCount)
+        let inv = channels > 0 ? 1 / Float(channels) : 1
         for i in 0..<frameCount {
             var s: Float = 0
             for c in 0..<channels { s += ch[c][i] }
-            samples[i] = s / Float(channels)
+            mixBuffer[i] = s * inv
         }
 
-        let bands = computeBands(samples: samples, sampleRate: Float(buffer.format.sampleRate), count: bandCount)
+        let bands = computeBands(samples: mixBuffer, sampleRate: Float(buffer.format.sampleRate), count: bandCount)
         handler(SpectrumFrame(bands: bands, timestamp: now))
     }
 
@@ -65,47 +79,79 @@ final class SpectrumTap {
     ///   - sampleRate: 采样率(Hz)。
     ///   - count: 输出频段数(内部固定为 bandCount=64,参数保留以兼容旧调用)。
     /// - Returns: 归一化到 0...1 的频段数组,长度为 bandCount。
+    private func ensureFFTCapacity(sampleCount n: Int) {
+        let nextN = 1 << (Int.bitWidth - n.leadingZeroBitCount)
+        if nextN != fftN {
+            fftN = nextN
+            let log2n = vDSP_Length(Int(log2(Double(max(fftN, 2)))))
+            fftSetup = vDSP.FFT(log2n: log2n, radix: .radix2, ofType: DSPSplitComplex.self)
+            realIn = [Float](repeating: 0, count: fftN)
+            imagIn = [Float](repeating: 0, count: fftN)
+            realOut = [Float](repeating: 0, count: fftN / 2)
+            imagOut = [Float](repeating: 0, count: fftN / 2)
+            magnitudes = [Float](repeating: 0, count: fftN / 2)
+        }
+        if window.count != n {
+            window = [Float](repeating: 0, count: n)
+            vDSP_hann_window(&window, vDSP_Length(n), Int32(vDSP_HANN_DENORM))
+            windowed = [Float](repeating: 0, count: n)
+        }
+        if bandScratch.count != bandCount {
+            bandScratch = [Float](repeating: 0, count: bandCount)
+        }
+    }
+
     private func computeBands(samples: [Float], sampleRate: Float, count: Int) -> [Float] {
         let n = samples.count
         guard n > 1 else { return [Float](repeating: 0, count: bandCount) }
+        ensureFFTCapacity(sampleCount: n)
+        guard let setup = fftSetup, fftN > 1 else {
+            return [Float](repeating: 0, count: bandCount)
+        }
 
-        // 1. Hann 窗(归一化到 0...1)
-        var window = [Float](repeating: 0, count: n)
-        vDSP_hann_window(&window, vDSP_Length(n), Int32(vDSP_HANN_DENORM))
-        var windowed = [Float](repeating: 0, count: n)
         vDSP_vmul(samples, 1, window, 1, &windowed, 1, vDSP_Length(n))
-
-        // 2. 补零到 2 的幂
-        let fftN: Int = 1 << (Int.bitWidth - n.leadingZeroBitCount)
-        var realIn = [Float](repeating: 0, count: fftN)
+        for i in 0..<fftN { realIn[i] = 0; imagIn[i] = 0 }
         realIn.withUnsafeMutableBufferPointer { dstBuf in
             windowed.withUnsafeBufferPointer { srcBuf in
                 dstBuf.baseAddress!.update(from: srcBuf.baseAddress!, count: n)
             }
         }
-        var imagIn = [Float](repeating: 0, count: fftN)
 
-        // 3. FFT
-        let log2n = vDSP_Length(Int(log2(Double(fftN))))
-        guard let setup = vDSP.FFT(log2n: log2n, radix: .radix2, ofType: DSPSplitComplex.self) else {
-            return [Float](repeating: 0, count: bandCount)
+        realIn.withUnsafeMutableBufferPointer { realInputBuffer in
+            imagIn.withUnsafeMutableBufferPointer { imaginaryInputBuffer in
+                realOut.withUnsafeMutableBufferPointer { realOutputBuffer in
+                    imagOut.withUnsafeMutableBufferPointer { imaginaryOutputBuffer in
+                        guard
+                            let realInput = realInputBuffer.baseAddress,
+                            let imaginaryInput = imaginaryInputBuffer.baseAddress,
+                            let realOutput = realOutputBuffer.baseAddress,
+                            let imaginaryOutput = imaginaryOutputBuffer.baseAddress
+                        else { return }
+
+                        let input = DSPSplitComplex(realp: realInput, imagp: imaginaryInput)
+                        var output = DSPSplitComplex(realp: realOutput, imagp: imaginaryOutput)
+                        setup.forward(input: input, output: &output)
+
+                        magnitudes.withUnsafeMutableBufferPointer { magnitudeBuffer in
+                            guard let magnitudeOutput = magnitudeBuffer.baseAddress else { return }
+                            vDSP_zvabs(
+                                &output,
+                                1,
+                                magnitudeOutput,
+                                1,
+                                vDSP_Length(fftN / 2)
+                            )
+                        }
+                    }
+                }
+            }
         }
-        var realOut = [Float](repeating: 0, count: fftN / 2)
-        var imagOut = [Float](repeating: 0, count: fftN / 2)
-        var input = DSPSplitComplex(realp: &realIn, imagp: &imagIn)
-        var output = DSPSplitComplex(realp: &realOut, imagp: &imagOut)
-        setup.forward(input: input, output: &output)
 
-        // 4. 幅度谱
-        var magnitudes = [Float](repeating: 0, count: fftN / 2)
-        vDSP_zvabs(&output, 1, &magnitudes, 1, vDSP_Length(fftN / 2))
-
-        // 5. 对数频段聚合 20Hz..20kHz, 64 段
-        var bands = [Float](repeating: 0, count: bandCount)
         let nyquist = sampleRate / 2
         let maxFreq: Float = min(20000, nyquist)
         let minFreq: Float = 20
         let ratio = maxFreq / minFreq
+        for b in 0..<bandCount { bandScratch[b] = 0 }
         for b in 0..<bandCount {
             let lo = minFreq * pow(ratio, Float(b) / Float(bandCount))
             let hi = minFreq * pow(ratio, Float(b + 1) / Float(bandCount))
@@ -117,15 +163,14 @@ final class SpectrumTap {
                 sum += magnitudes[i]
                 cnt += 1
             }
-            bands[b] = cnt > 0 ? sum / Float(cnt) : 0
+            bandScratch[b] = cnt > 0 ? sum / Float(cnt) : 0
         }
 
-        // 6. 归一化到 0...1(按帧最大值,避免不同音量下频谱条过满或太空)
-        if let maxBand = bands.max(), maxBand > 0 {
+        if let maxBand = bandScratch.max(), maxBand > 0 {
             let scale = 1.0 / maxBand
-            vDSP_vsmul(bands, 1, [scale], &bands, 1, vDSP_Length(bandCount))
+            vDSP_vsmul(bandScratch, 1, [scale], &bandScratch, 1, vDSP_Length(bandCount))
         }
-        return bands
+        return bandScratch
     }
 
     /// 测试入口:直接喂样本计算频段,跳过 AVAudioTap。

@@ -29,58 +29,6 @@ final class ImageLoader {
         memory.object(forKey: url.absoluteString as NSString)
     }
 
-    func cacheKey(url: URL, targetSize: CGFloat) -> String {
-        "\(url.absoluteString)#\(Int(targetSize.rounded()))"
-    }
-
-    func cachedImage(for url: URL, targetSize: CGFloat) -> NSImage? {
-        memory.object(forKey: cacheKey(url: url, targetSize: targetSize) as NSString)
-    }
-
-    /// 本地文件有界解码;不走 `URLSession`。同 key 合并,返回的 `Task` 可被取消。
-    func loadLocal(url: URL, targetSize: CGFloat) -> Task<NSImage?, Never> {
-        let key = cacheKey(url: url, targetSize: targetSize)
-        if let hit = memory.object(forKey: key as NSString) {
-            return Task { hit }
-        }
-        if let existing = inFlight[key] { return existing }
-        let task = Task<NSImage?, Never> { [self] in
-            defer { Task { @MainActor in self.inFlight[key] = nil } }
-            let img = await Task.detached(priority: .userInitiated) { () -> NSImage? in
-                guard let src = NSImage(contentsOf: url) else { return nil }
-                let scale: CGFloat = 2
-                let px = max(Int((targetSize * scale).rounded()), 1)
-                guard let bitmap = NSBitmapImageRep(
-                    bitmapDataPlanes: nil,
-                    pixelsWide: px,
-                    pixelsHigh: px,
-                    bitsPerSample: 8,
-                    samplesPerPixel: 4,
-                    hasAlpha: true,
-                    isPlanar: false,
-                    colorSpaceName: .deviceRGB,
-                    bytesPerRow: px * 4,
-                    bitsPerPixel: 32
-                ) else { return nil }
-                NSGraphicsContext.saveGraphicsState()
-                NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
-                src.draw(in: NSRect(x: 0, y: 0, width: px, height: px))
-                NSGraphicsContext.restoreGraphicsState()
-                let dest = NSImage(size: NSSize(width: px, height: px))
-                dest.addRepresentation(bitmap)
-                return dest
-            }.value
-            if let img {
-                await MainActor.run {
-                    self.memory.setObject(img, forKey: key as NSString, cost: Int(targetSize * targetSize * 4))
-                }
-            }
-            return img
-        }
-        inFlight[key] = task
-        return task
-    }
-
     /// 异步加载;请求合并 + 内存缓存。返回的 `Task` 可被取消。
     func load(_ url: URL) -> Task<NSImage?, Never> {
         let key = url.absoluteString as NSString
@@ -93,7 +41,8 @@ final class ImageLoader {
             defer { Task { @MainActor in self.inFlight[keyStr] = nil } }
             do {
                 let (data, _) = try await URLSession.shared.data(from: url)
-                guard !Task.isCancelled, let img = NSImage(data: data) else { return nil }
+                guard !Task.isCancelled, let decoded = NSImage(data: data) else { return nil }
+                let img = YouTubeThumbnail.cropLetterboxIfNeeded(decoded, url: url)
                 // 估算 cost 以辅助 NSCache 淘汰决策。
                 let cost = data.count
                 self.memory.setObject(img, forKey: key, cost: cost)
@@ -116,6 +65,11 @@ struct CachedAsyncImage: View {
     private let placeholderView: AnyView
 
     @State private var image: NSImage? = nil
+    @State private var loadedIdentity: String?
+
+    private var requestIdentity: String {
+        "\(url?.absoluteString ?? "nil")#\(lowResURL?.absoluteString ?? "nil")"
+    }
 
     init(url: URL?,
          lowResURL: URL? = nil,
@@ -129,23 +83,30 @@ struct CachedAsyncImage: View {
 
     var body: some View {
         Group {
-            if let img = image {
+            if loadedIdentity == requestIdentity, let img = image {
                 renderer(img)
             } else {
                 placeholderView
             }
         }
-        .task(id: url) {
+        .task(id: requestIdentity) {
             await loadImage()
         }
     }
 
     @MainActor
     private func loadImage() async {
-        guard let url else { image = nil; return }
+        let expectedIdentity = requestIdentity
+        loadedIdentity = nil
+        guard let url else {
+            image = nil
+            return
+        }
         // 内存命中:首帧立即可用。
         if let hit = ImageLoader.shared.cachedImage(for: url) {
+            guard requestIdentity == expectedIdentity, !Task.isCancelled else { return }
             image = hit
+            loadedIdentity = expectedIdentity
             PerfTrace.event("artwork.firstVisible")
             return
         }
@@ -153,14 +114,20 @@ struct CachedAsyncImage: View {
         if let low = lowResURL, low != url,
            ImageLoader.shared.cachedImage(for: low) == nil {
             let lowTask = ImageLoader.shared.load(low)
-            if let lowImg = await lowTask.value, !Task.isCancelled {
+            if let lowImg = await lowTask.value,
+               requestIdentity == expectedIdentity,
+               !Task.isCancelled {
                 image = lowImg
+                loadedIdentity = expectedIdentity
                 PerfTrace.event("artwork.firstVisible")
             }
         }
         let task = ImageLoader.shared.load(url)
-        if let img = await task.value, !Task.isCancelled {
+        if let img = await task.value,
+           requestIdentity == expectedIdentity,
+           !Task.isCancelled {
             image = img
+            loadedIdentity = expectedIdentity
             PerfTrace.event("artwork.firstVisible")
         }
     }

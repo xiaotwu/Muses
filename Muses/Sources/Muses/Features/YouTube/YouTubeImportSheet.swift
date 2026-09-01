@@ -31,6 +31,6 @@ struct YouTubeImportSheet: View {
         }
         .padding(20)
         .frame(width: 460)
-        .background(.ultraThinMaterial)
+        .musesFloatingChrome(cornerRadius: 16)
     }
 }

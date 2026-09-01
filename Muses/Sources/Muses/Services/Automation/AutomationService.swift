@@ -136,10 +136,6 @@ final class AutomationService {
     static func matches(_ conditions: AutomationConditions?, snapshot: TrackSnapshot,
                         context: ListeningContext?) -> Bool {
         guard let conditions else { return true }
-        if let src = conditions.source {
-            let snapSource: TrackSource = snapshot.youTubeId != nil ? .youtube : .local
-            if snapSource != src { return false }
-        }
         if let app = conditions.appBundleId {
             // 无上下文或未记录前台应用 → 应用条件不匹配(绝不伪造)。
             guard context?.frontmostAppBundleId == app else { return false }

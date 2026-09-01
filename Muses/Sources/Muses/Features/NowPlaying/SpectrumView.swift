@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 镜像柱状频谱可视化: 上半部分 64 段从 midline 向上(Magenta→Cyan 渐变),
+/// 镜像柱状频谱可视化: 上半部分 64 段从 midline 向上(Apple Music accent fade),
 /// 下半部分以 30% 透明度镜像反射。开启 Reduce Motion 时直接绘制原始频段,不做峰值衰减。
 ///
 /// 根据 `PrefKey.gpuAcceleration` 在 Metal(MTKView 硬件加速)与 Canvas(CPU 绘制)之间切换。
@@ -28,7 +28,8 @@ struct SpectrumView: View {
 
     /// Canvas(CPU)渲染的频谱。
     private var canvasSpectrum: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0,
+                                paused: reduceMotion || !playback.state.isPlaying)) { timeline in
             // 在 ViewBuilder 闭包里(主线程、渲染前)更新峰值,避免在 Canvas 绘制期间写 @State
             let decayed = updatePeaks(date: timeline.date)
             Canvas { ctx, size in
@@ -81,8 +82,9 @@ struct SpectrumView: View {
         let barWidth = unit * 0.8
         let gap = unit * 0.2
 
-        // 上半部分 Magenta→Cyan 竖直渐变(magenta 在底 midY, cyan 在顶 0)
-        let gradient = Gradient(colors: [BrandColors.magenta, BrandColors.cyan])
+        // 单一 Apple Music accent 的竖直透明度渐变。
+        let gradient = Gradient(colors: [BrandColors.magenta,
+                                         BrandColors.magenta.opacity(0.55)])
         let shading = GraphicsContext.Shading.linearGradient(
             gradient, startPoint: CGPoint(x: 0, y: midY), endPoint: CGPoint(x: 0, y: 0)
         )

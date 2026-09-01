@@ -1,8 +1,10 @@
 import Foundation
 
-enum TrackSource: String, Codable, Sendable {
-    case local
-    case youtube
+/// YouTube-backed playable media remains one Track model. The media kind only
+/// controls browsing and presentation; queue and playback semantics stay shared.
+enum TrackMediaKind: String, Codable, Sendable, CaseIterable {
+    case song
+    case musicVideo
 }
 
 enum AudioQuality: String, Codable, Sendable {
@@ -11,6 +13,15 @@ enum AudioQuality: String, Codable, Sendable {
 
 enum RepeatMode: String, Codable, Sendable {
     case off, all, one
+
+    /// Off → One (single track) → All (playlist/queue).
+    var next: RepeatMode {
+        switch self {
+        case .off: return .one
+        case .one: return .all
+        case .all: return .off
+        }
+    }
 }
 
 enum QueueSource: String, Codable, Sendable {

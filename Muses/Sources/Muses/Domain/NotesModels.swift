@@ -33,19 +33,3 @@ final class TrackBookmark {
         self.title = title; self.note = note; self.createdAt = createdAt
     }
 }
-
-/// 专辑笔记。每专辑一条(按 albumId upsert)。
-@Model
-final class AlbumNote {
-    @Attribute(.unique) var id: UUID
-    var albumId: UUID
-    var content: String
-    var createdAt: Date
-    var updatedAt: Date
-
-    init(id: UUID = UUID(), albumId: UUID, content: String = "",
-         createdAt: Date = .init(), updatedAt: Date? = nil) {
-        self.id = id; self.albumId = albumId; self.content = content
-        self.createdAt = createdAt; self.updatedAt = updatedAt ?? createdAt
-    }
-}

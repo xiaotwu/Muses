@@ -35,7 +35,8 @@ struct AboutView: View {
 
                 Divider()
 
-                Text(tr("Muses is a TIDAL-inspired macOS music player supporting local music and YouTube playlists.", "Muses 是一款受 TIDAL 启发的 macOS 音乐播放器, 支持本地音乐与 YouTube 歌单。"))
+                Text(tr("Muses is a native macOS, YouTube-native music player shaped by Apple Music's editorial hierarchy and Liquid Glass chrome.",
+                        "Muses 是一款原生 macOS、以 YouTube 为核心的音乐播放器，采用 Apple Music 式内容层级与 Liquid Glass 界面。"))
                     .font(.callout)
                     .foregroundStyle(BrandColors.textPrimary)
                     .lineSpacing(4)

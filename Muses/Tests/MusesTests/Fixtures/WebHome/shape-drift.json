@@ -1,0 +1,19 @@
+{
+  "contents": {
+    "sectionListRenderer": {
+      "contents": [{
+        "musicShelfRenderer": {
+          "title": {"runs": [{"text": "Changed shelf"}]},
+          "contents": [
+            {"musicResponsiveListItemRenderer": {"title": {"runs": [{"text": "No endpoint one"}]}}},
+            {"musicResponsiveListItemRenderer": {"title": {"runs": [{"text": "No endpoint two"}]}}},
+            {"musicResponsiveListItemRenderer": {
+              "title": {"runs": [{"text": "Valid song"}]},
+              "navigationEndpoint": {"watchEndpoint": {"videoId": "valid_video"}}
+            }}
+          ]
+        }
+      }]
+    }
+  }
+}

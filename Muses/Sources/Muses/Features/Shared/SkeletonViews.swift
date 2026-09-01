@@ -16,7 +16,11 @@ struct SkeletonBlock: View {
             .frame(width: width, height: height)
             .overlay(
                 LinearGradient(
-                    colors: [Color.white.opacity(0.0), Color.white.opacity(0.06), Color.white.opacity(0.0)],
+                    colors: [
+                        BrandColors.textPrimary.opacity(0.0),
+                        BrandColors.textPrimary.opacity(0.08),
+                        BrandColors.textPrimary.opacity(0.0)
+                    ],
                     startPoint: .leading, endPoint: .trailing)
                     .mask(RoundedRectangle(cornerRadius: cornerRadius))
             )

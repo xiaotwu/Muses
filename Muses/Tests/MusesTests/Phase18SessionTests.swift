@@ -7,10 +7,10 @@ import SwiftData
 /// - `ListeningSession` @Model 入库 + status 计算属性;
 /// - `SessionService` 订阅事件总线:`trackStarted` 开启/继续 active 会话 + checkpoint 崩溃恢复槽,
 ///   `trackSeeked` 更新位置,`trackCompleted`(队列耗尽)结束会话;
-/// - 功能开关闭合:`ffSessions` 关时不落库、不弹恢复;
-/// - 启动恢复:`checkForRestorableSession` 暴露 `pendingRestore`;陈旧(>2h)自动结束;
-///   `continuePendingSession` 调 `playback.resumeCurrent` seek 到恢复位;
-///   `discardPendingSession` 结束会话 + 清空崩溃恢复槽;绝不静默替换队列;
+/// - The feature flag prevents persistence and restoration when disabled.
+/// - Launch restoration loads the existing queue item, seeks to the persisted
+///   position, and stays paused without presenting a decision dialog.
+/// - Older active sessions remain restorable and never replace the saved queue.
 /// - 用桩引擎(RecordingEngine),避开 headless 下 AVAudioPlayerNode 的 IO-cycle 异常。
 @Suite("Phase 18 Sessions")
 @MainActor
@@ -24,8 +24,8 @@ struct Phase18SessionTests {
                       durationSec: Double = 200) -> TrackSnapshot {
         TrackSnapshot(id: id, title: title, artist: "Artist \(title)",
                       albumTitle: "Album \(title)", durationSeconds: durationSec,
-                      filePath: "/tmp/\(title).wav", youTubeId: nil,
-                      artworkHash: nil, artworkUrl: nil,
+                      youTubeId: "test-video",
+                      artworkUrl: nil,
                       sampleRate: 44100, bitDepth: 16, codec: "pcm", isLossless: false)
     }
 
@@ -37,9 +37,9 @@ struct Phase18SessionTests {
     }
 
     private func makePlayback(queue: QueueService) -> (PlaybackService, RecordingEngine) {
-        let local = RecordingEngine()
-        let svc = PlaybackService(localEngine: local, youtubeEngine: RecordingEngine(), queue: queue)
-        return (svc, local)
+        let engine = RecordingEngine()
+        let svc = PlaybackService(youtubeEngine: engine, queue: queue)
+        return (svc, engine)
     }
 
     private func fetchSessions(_ container: ModelContainer) -> [ListeningSession] {
@@ -152,7 +152,7 @@ struct Phase18SessionTests {
         let q = makeQueue(container: container)
         // 直接置队列为单曲目、末位、.off、upNext 空
         let a = snap("A")
-        q.items = [QueueItem(id: UUID(), track: a, source: .local, queuedAt: .init(), fromContext: .songs)]
+        q.items = [QueueItem(id: UUID(), track: a, queuedAt: .init(), fromContext: .songs)]
         q.currentIndex = 0
         q.upNext = []
         q.repeatMode = .off
@@ -179,8 +179,8 @@ struct Phase18SessionTests {
         let q = makeQueue(container: container)
         let a = snap("A"), b = snap("B")
         q.items = [
-            QueueItem(id: UUID(), track: a, source: .local, queuedAt: .init(), fromContext: .songs),
-            QueueItem(id: UUID(), track: b, source: .local, queuedAt: .init(), fromContext: .songs)
+            QueueItem(id: UUID(), track: a, queuedAt: .init(), fromContext: .songs),
+            QueueItem(id: UUID(), track: b, queuedAt: .init(), fromContext: .songs)
         ]
         q.currentIndex = 0
         q.upNext = []
@@ -198,18 +198,22 @@ struct Phase18SessionTests {
 
     // MARK: - 功能开关闭合
 
-    @Test("ffSessions 关闭:trackStarted 不落库、pendingRestore 仍为 nil")
-    func disabledFlagNoOps() throws {
+    @Test("ffSessions 关闭:trackStarted 不落库、不加载恢复曲目")
+    func disabledFlagNoOps() async throws {
         let container = try makeContainer()
+        let restored = snap("Restored")
+        seedRestorable(container: container, track: restored, positionMs: 12_000)
         let bus = PlaybackEventBus()
         let q = makeQueue(container: container)
-        let (playback, _) = makePlayback(queue: q)
+        q.restore()
+        let (playback, local) = makePlayback(queue: q)
         let svc = SessionService(modelContainer: container, eventBus: bus,
                                  playback: playback, queue: q, enabledProvider: { false })
 
         bus.post(.trackStarted(snap("A")))
-        #expect(fetchSessions(container).isEmpty)
-        #expect(svc.pendingRestore == nil)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(fetchSessions(container).count == 1)
+        #expect(local.loadCallCount == 0)
         _ = svc
     }
 
@@ -220,7 +224,7 @@ struct Phase18SessionTests {
         let ctx = ModelContext(container)
         // 队列单行:含该曲目、currentIndex 0 + 崩溃恢复槽
         let itemsJSON = (try? String(data: JSONEncoder().encode(
-            [QueueItem(id: UUID(), track: track, source: .local, queuedAt: .init(), fromContext: .songs)]),
+            [QueueItem(id: UUID(), track: track, queuedAt: .init(), fromContext: .songs)]),
             encoding: .utf8)) ?? "[]"
         let row = QueueState(itemsJSON: itemsJSON, currentIndex: 0,
                             upNextJSON: "[]", historyJSON: "[]",
@@ -235,11 +239,11 @@ struct Phase18SessionTests {
         try? ctx.save()
     }
 
-    @Test("启动恢复:检测到未结束会话 → pendingRestore 含标题/位置;接管 activeSessionId")
-    func restoreOffersPending() throws {
+    @Test("启动恢复:自动加载上次位置并保持暂停")
+    func restoreLoadsPausedAtPosition() async throws {
         let container = try makeContainer()
         let track = snap("LateNight", id: UUID())
-        try seedRestorable(container: container, track: track, positionMs: 65_000)
+        seedRestorable(container: container, track: track, positionMs: 65_000)
 
         let q = makeQueue(container: container)
         q.restore()  // 复刻 MusesApp:先 restore 队列
@@ -247,23 +251,25 @@ struct Phase18SessionTests {
         #expect(q.lastPositionMs == 65_000)
 
         let bus = PlaybackEventBus()
-        let (playback, _) = makePlayback(queue: q)
+        let (playback, local) = makePlayback(queue: q)
         let svc = SessionService(modelContainer: container, eventBus: bus,
                                  playback: playback, queue: q, enabledProvider: { true })
 
-        let offer = try #require(svc.pendingRestore)
-        #expect(offer.trackTitle == "LateNight")
-        #expect(offer.artist == "Artist LateNight")
-        #expect(offer.positionMs == 65_000)
-        #expect(offer.displayText.contains("1:05"))  // 65s
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(local.loadCallCount == 1)
+        #expect(local.lastLoadedTrack?.id == track.id)
+        #expect(abs((local.lastSeekTime ?? -1) - 65.0) < 0.01)
+        #expect(local.playCallCount == 0)
+        #expect(!playback.state.isPlaying)
+        #expect(svc.currentSessionId != nil)
         _ = svc
     }
 
-    @Test("continuePendingSession:加载当前曲目并 seek 到恢复位(clamp 到 duration-2s)")
-    func continueResumesAtPosition() async throws {
+    @Test("自动恢复位置不会启动播放历史生命周期")
+    func automaticRestoreDoesNotStartPlayback() async throws {
         let container = try makeContainer()
         let track = snap("Resume", id: UUID(), durationSec: 200)
-        try seedRestorable(container: container, track: track, positionMs: 65_000)
+        seedRestorable(container: container, track: track, positionMs: 65_000)
 
         let q = makeQueue(container: container)
         q.restore()
@@ -272,24 +278,20 @@ struct Phase18SessionTests {
         let svc = SessionService(modelContainer: container, eventBus: bus,
                                  playback: playback, queue: q, enabledProvider: { true })
 
-        #expect(svc.pendingRestore != nil)
-        svc.continuePendingSession()
-        // resumeCurrent 起一个 Task 执行 loadCurrent → load → seek 消费
         try await Task.sleep(for: .milliseconds(150))
 
-        #expect(svc.pendingRestore == nil)
         #expect(local.loadCallCount == 1)
-        #expect(local.lastLoadedTrack?.id == track.id)
-        // 65s 在 [0, 198s] 内,不被 clamp
-        #expect(local.lastSeekTime != nil)
-        #expect(abs((local.lastSeekTime ?? -1) - 65.0) < 0.01)
+        #expect(local.playCallCount == 0)
+        #expect(fetchSessions(container).count == 1)
+        #expect(fetchSessions(container).first?.status == .active)
+        _ = svc
     }
 
-    @Test("continuePendingSession:恢复位超出 duration-2s 时 clamp")
-    func continueClampsToDurationMinus2() async throws {
+    @Test("自动恢复位超出 duration-2s 时 clamp")
+    func automaticRestoreClampsToDurationMinus2() async throws {
         let container = try makeContainer()
         let track = snap("Resume", id: UUID(), durationSec: 200)
-        try seedRestorable(container: container, track: track, positionMs: 210_000)  // 210s > 198s
+        seedRestorable(container: container, track: track, positionMs: 210_000)  // 210s > 198s
 
         let q = makeQueue(container: container)
         q.restore()
@@ -302,65 +304,43 @@ struct Phase18SessionTests {
         let svc = SessionService(modelContainer: container, eventBus: bus,
                                  playback: playback, queue: q, enabledProvider: { true })
 
-        svc.continuePendingSession()
         try await Task.sleep(for: .milliseconds(150))
 
         // clamp 到 duration(200)-2 = 198s
         #expect(abs((local.lastSeekTime ?? -1) - 198.0) < 0.01)
-    }
-
-    @Test("discardPendingSession:结束会话 + 清空崩溃恢复槽")
-    func discardEndsAndClearsSlots() throws {
-        let container = try makeContainer()
-        let track = snap("Discard", id: UUID())
-        try seedRestorable(container: container, track: track, positionMs: 30_000)
-
-        let q = makeQueue(container: container)
-        q.restore()
-        let bus = PlaybackEventBus()
-        let (playback, _) = makePlayback(queue: q)
-        let svc = SessionService(modelContainer: container, eventBus: bus,
-                                 playback: playback, queue: q, enabledProvider: { true })
-
-        #expect(svc.pendingRestore != nil)
-        svc.discardPendingSession()
-        #expect(svc.pendingRestore == nil)
-
-        let sessions = fetchSessions(container)
-        #expect(sessions.first?.status == .ended)
-        let row = queueStateRow(container)
-        #expect(row?.currentTrackId == nil)
-        #expect(row?.lastPositionMs == nil)
         _ = svc
     }
 
-    @Test("陈旧会话(>2h 未更新)不弹恢复并自动结束")
-    func staleSessionNotOffered() throws {
+    @Test("陈旧会话仍恢复上次位置并保持暂停")
+    func olderSessionStillRestoresPaused() async throws {
         let container = try makeContainer()
         let track = snap("Stale", id: UUID())
         let stale = Date().addingTimeInterval(-3 * 3600)  // 3h ago
-        try seedRestorable(container: container, track: track, positionMs: 10_000, updatedAt: stale)
+        seedRestorable(container: container, track: track, positionMs: 10_000, updatedAt: stale)
 
         let q = makeQueue(container: container)
         q.restore()
         let bus = PlaybackEventBus()
-        let (playback, _) = makePlayback(queue: q)
+        let (playback, local) = makePlayback(queue: q)
         let svc = SessionService(modelContainer: container, eventBus: bus,
                                  playback: playback, queue: q, enabledProvider: { true })
 
-        #expect(svc.pendingRestore == nil)
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(local.loadCallCount == 1)
+        #expect(abs((local.lastSeekTime ?? -1) - 10.0) < 0.01)
+        #expect(local.playCallCount == 0)
         let sessions = fetchSessions(container)
-        #expect(sessions.first?.status == .ended)
+        #expect(sessions.first?.status == .active)
         _ = svc
     }
 
     @Test("崩溃遗留多条 active:仅保留最新,其余被结束")
-    func multipleActiveCollapsesToLatest() throws {
+    func multipleActiveCollapsesToLatest() async throws {
         let container = try makeContainer()
         let ctx = ModelContext(container)
         let track = snap("Multi", id: UUID())
         let itemsJSON = (try? String(data: JSONEncoder().encode(
-            [QueueItem(id: UUID(), track: track, source: .local, queuedAt: .init(), fromContext: .songs)]),
+            [QueueItem(id: UUID(), track: track, queuedAt: .init(), fromContext: .songs)]),
             encoding: .utf8)) ?? "[]"
         let row = QueueState(itemsJSON: itemsJSON, currentIndex: 0,
                             upNextJSON: "[]", historyJSON: "[]",
@@ -383,22 +363,26 @@ struct Phase18SessionTests {
         let svc = SessionService(modelContainer: container, eventBus: bus,
                                  playback: playback, queue: q, enabledProvider: { true })
 
-        #expect(svc.pendingRestore != nil)            // 最新的被 offered
+        try await Task.sleep(for: .milliseconds(150))
         let actives = fetchSessions(container).filter { $0.status == .active }
         #expect(actives.count == 1)
+        #expect(playback.state.track?.id == track.id)
+        #expect(!playback.state.isPlaying)
         _ = svc
     }
 
-    @Test("无可恢复会话:pendingRestore 为 nil")
-    func noRestorableSessionYieldsNil() throws {
+    @Test("无可恢复会话:不加载曲目")
+    func noRestorableSessionDoesNotLoad() async throws {
         let container = try makeContainer()
         let q = makeQueue(container: container)
         // 不 seed 任何会话/队列
         let bus = PlaybackEventBus()
-        let (playback, _) = makePlayback(queue: q)
+        let (playback, local) = makePlayback(queue: q)
         let svc = SessionService(modelContainer: container, eventBus: bus,
                                  playback: playback, queue: q, enabledProvider: { true })
-        #expect(svc.pendingRestore == nil)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(local.loadCallCount == 0)
+        #expect(playback.state.track == nil)
         _ = svc
     }
 }

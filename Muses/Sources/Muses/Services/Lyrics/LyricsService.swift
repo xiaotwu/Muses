@@ -3,7 +3,6 @@ import SwiftData
 
 /// 歌词来源。
 enum LyricsSource: String, Sendable {
-    case local       // 本地 .lrc 文件
     case lrclib      // LRCLIB API
     case musixmatch  // Musixmatch 公共 Web API
     case cached      // Track.lyrics 持久化缓存
@@ -70,7 +69,7 @@ struct LyricsResult: Sendable {
     }
 }
 
-/// 歌词服务:优先读取本地 `.lrc` 文件或查询 LRCLIB,返回带时间标签的同步歌词。
+/// 歌词服务:查询 LRCLIB / Musixmatch 并返回同步或纯文本歌词。
 ///
 /// 遵循 `MetadataEnricherService` 的模式:`@MainActor`、吞掉所有传输错误、
 /// 失败返回 `nil` 而不抛出。
@@ -131,33 +130,17 @@ final class LyricsService {
     }
 
     /// 根据用户偏好(`PrefKey.lyricsSource`)按优先级获取歌词。
-    /// - source == "local":先本地 .lrc,失败回退 LRCLIB
-    /// - source == "lrclib":先 LRCLIB,失败回退本地 .lrc
-    /// - source == "musixmatch":先 Musixmatch,失败回退 LRCLIB 再本地
-    /// - 默认:LRCLIB 再本地
+    /// - source == "musixmatch":先 Musixmatch,失败回退 LRCLIB
+    /// - 默认:LRCLIB
     /// 任一来源成功即返回;全部失败返回 nil。
     func fetch(track: TrackSnapshot) async -> LyricsResult? {
         let pref = UserDefaults.standard.string(forKey: PrefKey.lyricsSource) ?? "lrclib"
 
         switch pref {
-        case "local":
-            if let local = fetchLocal(track: track) {
-                persistLyrics(local, for: track.id)
-                return local
-            }
-            if let remote = await fetchLrclib(track: track) {
-                persistLyrics(remote, for: track.id)
-                return remote
-            }
-            return nil
         case "lrclib":
             if let remote = await fetchLrclib(track: track) {
                 persistLyrics(remote, for: track.id)
                 return remote
-            }
-            if let local = fetchLocal(track: track) {
-                persistLyrics(local, for: track.id)
-                return local
             }
             return nil
         case "musixmatch":
@@ -169,71 +152,61 @@ final class LyricsService {
                 persistLyrics(remote, for: track.id)
                 return remote
             }
-            if let local = fetchLocal(track: track) {
-                persistLyrics(local, for: track.id)
-                return local
-            }
             return nil
         default:
             if let remote = await fetchLrclib(track: track) {
                 persistLyrics(remote, for: track.id)
                 return remote
             }
-            if let local = fetchLocal(track: track) {
-                persistLyrics(local, for: track.id)
-                return local
-            }
-            return nil
-        }
-    }
-
-    // MARK: - Local .lrc
-
-    /// 读取音轨同目录下的同名 `.lrc` 文件。YouTube 音轨无本地文件,直接返回 nil。
-    private func fetchLocal(track: TrackSnapshot) -> LyricsResult? {
-        guard let filePath = track.filePath, !filePath.isEmpty else {
-            return nil
-        }
-
-        let audioURL = URL(fileURLWithPath: filePath)
-        let lrcURL = audioURL
-            .deletingPathExtension()
-            .appendingPathExtension("lrc")
-
-        guard FileManager.default.fileExists(atPath: lrcURL.path) else {
-            log.info("fetchLocal: no .lrc at \(lrcURL.path)")
-            return nil
-        }
-
-        do {
-            let content = try String(contentsOf: lrcURL, encoding: .utf8)
-            return LyricsResult(plainLyrics: nil, syncedLyrics: content, source: .local)
-        } catch {
-            log.error("fetchLocal: read error for \(lrcURL.path): \(error)")
             return nil
         }
     }
 
     // MARK: - LRCLIB
 
+    /// Strip YouTube/MV decorations so LRCLIB / Musixmatch can match (Better Lyrics style).
+    static func sanitizedTitle(_ raw: String) -> String {
+        var s = raw
+        let patterns = [
+            #"\s*[\(\[【]\s*official\s*(music\s*)?(video|audio|lyric(s)?(\s*video)?)\s*[\)\]】]"#,
+            #"\s*[\(\[【]\s*lyric(s)?(\s*video)?\s*[\)\]】]"#,
+            #"\s*[\(\[【]\s*(official\s*)?audio\s*[\)\]】]"#,
+            #"\s*[\(\[【]\s*mv\s*[\)\]】]"#,
+            #"\s*[\(\[【]\s*4k\s*[\)\]】]"#,
+            #"\s*\|\s*.*$"#
+        ]
+        for pattern in patterns {
+            s = s.replacingOccurrences(of: pattern, with: "", options: [.regularExpression, .caseInsensitive])
+        }
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// 查询 LRCLIB `/api/get`;404 或无匹配时回退到 `/api/search` 取首条结果。
     private func fetchLrclib(track: TrackSnapshot) async -> LyricsResult? {
-        let getURL = LyricsEndpoint.lrclib(
-            track: track.title,
-            artist: track.artist,
-            album: track.albumTitle
-        )
-
-        if let data = await get(getURL) {
-            if let result = parseLrclibGet(data: data) {
+        let titles = Self.queryTitles(track.title)
+        for title in titles {
+            let getURL = LyricsEndpoint.lrclib(
+                track: title,
+                artist: track.artist,
+                album: track.albumTitle
+            )
+            if let data = await get(getURL), let result = parseLrclibGet(data: data) {
                 return result
             }
         }
+        for title in titles {
+            let searchURL = LyricsEndpoint.lrclibSearch(track: title, artist: track.artist)
+            if let data = await get(searchURL), let result = parseLrclibSearch(data: data) {
+                return result
+            }
+        }
+        return nil
+    }
 
-        // 回退到搜索接口,取第一个非空条目。
-        let searchURL = LyricsEndpoint.lrclibSearch(track: track.title, artist: track.artist)
-        guard let data = await get(searchURL) else { return nil }
-        return parseLrclibSearch(data: data)
+    static func queryTitles(_ raw: String) -> [String] {
+        let cleaned = sanitizedTitle(raw)
+        if cleaned.isEmpty || cleaned == raw { return [raw] }
+        return [raw, cleaned]
     }
 
     /// 解析 `/api/get` 的单对象响应。
@@ -274,8 +247,9 @@ final class LyricsService {
     /// 任一步失败返回 nil(由 `fetch` 回退到 LRCLIB)。
     private func fetchMusixmatch(track: TrackSnapshot) async -> LyricsResult? {
         // 1. 搜索曲目,取首个带 track_id 的条目。
+        let searchTitle = Self.queryTitles(track.title).last ?? track.title
         let searchURL = LyricsEndpoint.musixmatchSearch(
-            track: track.title, artist: track.artist
+            track: searchTitle, artist: track.artist
         )
         guard let searchData = await get(searchURL),
               let trackId = parseMusixmatchTrackId(data: searchData)

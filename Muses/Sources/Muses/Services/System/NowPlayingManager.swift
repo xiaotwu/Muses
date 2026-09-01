@@ -14,14 +14,24 @@ final class NowPlayingManager {
     private let library: LibraryService?
     private let queue: QueueService?
     private var updateTask: Task<Void, Never>?
+    private let publishInfo: ([String: Any]) -> Void
     private(set) var observationLifecycleStartCount = 0
     private var lastNotifiedTrackId: UUID?
 
-    init(_ playback: PlaybackService, library: LibraryService? = nil, queue: QueueService? = nil) {
+    init(_ playback: PlaybackService,
+         library: LibraryService? = nil,
+         queue: QueueService? = nil,
+         bindsRemoteCommands: Bool = true,
+         publishInfo: @escaping ([String: Any]) -> Void = {
+             MPNowPlayingInfoCenter.default().nowPlayingInfo = $0
+         }) {
         self.playback = playback
         self.library = library
         self.queue = queue
-        bindCommands()
+        self.publishInfo = publishInfo
+        if bindsRemoteCommands {
+            bindCommands()
+        }
         startObserving()
     }
 
@@ -60,16 +70,12 @@ final class NowPlayingManager {
             if let album = track.albumTitle {
                 info[MPMediaItemPropertyAlbumTitle] = album
             }
-            if let h = track.artworkHash, let data = ArtworkCache.default.data(forHash: h),
-               let nsImage = NSImage(data: data) {
-                info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: nsImage.size) { _ in nsImage }
-            }
             info[MPMediaItemPropertyPlaybackDuration] = state.duration
             info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = state.position
             info[MPNowPlayingInfoPropertyPlaybackRate] = state.isPlaying ? 1.0 : 0.0
         }
 
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        publishInfo(info)
 
         // 换歌通知(opt-in)
         if let track = state.track, track.id != lastNotifiedTrackId {
@@ -106,15 +112,15 @@ final class NowPlayingManager {
         let center = MPRemoteCommandCenter.shared()
 
         center.playCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.playback.toggle() }
+            Task { @MainActor in self?.handleRemotePlay() }
             return .success
         }
         center.pauseCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.playback.toggle() }
+            Task { @MainActor in self?.handleRemotePause() }
             return .success
         }
         center.togglePlayPauseCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.playback.toggle() }
+            Task { @MainActor in self?.handleRemoteToggle() }
             return .success
         }
         center.nextTrackCommand.addTarget { [weak self] _ in
@@ -181,6 +187,20 @@ final class NowPlayingManager {
                 return .success
             }
         }
+    }
+
+    /// Explicit remote actions are deliberately separate from toggle. Media
+    /// services may repeat play/pause commands, and both must remain idempotent.
+    func handleRemotePlay() {
+        playback.play()
+    }
+
+    func handleRemotePause() {
+        playback.pause()
+    }
+
+    func handleRemoteToggle() {
+        playback.toggle()
     }
 
     // MARK: - Phase 24 远程命令处理

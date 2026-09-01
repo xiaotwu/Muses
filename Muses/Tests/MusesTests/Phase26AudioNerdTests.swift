@@ -32,7 +32,7 @@ struct Phase26AudioNerdTests {
 
     @Test("nil device name → Output Device Unknown (绝不伪造)")
     func nilDeviceNameFallback() {
-        let t = makeLocalTrack()
+        let t = makeYouTubeTrack()
         let rows = AudioInfoModel.rows(track: t, defaultDeviceName: nil,
                                        eqPresetId: "Flat", volume: 0.5)
         let byLabel = Dictionary(uniqueKeysWithValues: rows.map { ($0.label, $0.value) })
@@ -44,9 +44,9 @@ struct Phase26AudioNerdTests {
 
     // MARK: - 填充字段
 
-    @Test("本地无损 FLAC 快照 → 全字段填充")
-    func populatedLocalLossless() {
-        let t = makeLocalTrack() // 96kHz/24-bit/5000kbps/2ch/FLAC/lossless/replayGain -6.3
+    @Test("YouTube 高保真快照 → 全字段填充")
+    func populatedYouTubeSnapshot() {
+        let t = makeYouTubeTrack() // 96kHz/24-bit/5000kbps/2ch/FLAC/lossless/replayGain -6.3
         let rows = AudioInfoModel.rows(track: t, defaultDeviceName: "Built-in Speakers",
                                        eqPresetId: "Flat", volume: 0.73)
         let byLabel = Dictionary(uniqueKeysWithValues: rows.map { ($0.label, $0.value) })
@@ -56,7 +56,7 @@ struct Phase26AudioNerdTests {
         #expect(byLabel[tr("Bit Depth", "位深")] == "24-bit")
         #expect(byLabel[tr("Bit Rate", "比特率")] == "5000 kbps")
         #expect(byLabel[tr("Channels", "声道")] == tr("Stereo", "立体声"))
-        #expect(byLabel[tr("Source", "来源")] == "Local")
+        #expect(byLabel[tr("Source", "来源")] == "YouTube")
         #expect(byLabel[tr("Output Device", "输出设备")] == "Built-in Speakers")
         #expect(byLabel[tr("ReplayGain", "回放增益")] == "-6.3 dB")
         #expect(byLabel[tr("EQ Preset", "EQ 预设")] == "Flat")
@@ -68,8 +68,8 @@ struct Phase26AudioNerdTests {
         let t = TrackSnapshot(
             id: UUID(), title: "YT", artist: "A",
             albumTitle: nil, durationSeconds: 180,
-            filePath: nil, youTubeId: "vid123",
-            artworkHash: nil, artworkUrl: "https://i.ytimg.com/vi/vid123/hqdefault.jpg",
+            youTubeId: "vid123",
+            artworkUrl: "https://i.ytimg.com/vi/vid123/hqdefault.jpg",
             sampleRate: 44100, bitDepth: nil, codec: "opus", isLossless: false,
             liked: false, lyrics: nil, replayGain: nil,
             bitRate: 128_000, channels: 1, lyricsOffsetMs: nil)
@@ -92,8 +92,8 @@ struct Phase26AudioNerdTests {
         let t = TrackSnapshot(
             id: UUID(), title: "Surround", artist: "A",
             albumTitle: nil, durationSeconds: 100,
-            filePath: "/x", youTubeId: nil,
-            artworkHash: nil, artworkUrl: nil,
+            youTubeId: "test-video",
+            artworkUrl: nil,
             sampleRate: 48000, bitDepth: 24, codec: "FLAC", isLossless: true,
             liked: false, lyrics: nil, replayGain: 0.0,
             bitRate: 4_600_000, channels: 6, lyricsOffsetMs: nil)
@@ -106,7 +106,7 @@ struct Phase26AudioNerdTests {
 
     @Test("空 EQ 预设 id → Unknown")
     func emptyEQPresetFallback() {
-        let t = makeLocalTrack()
+        let t = makeYouTubeTrack()
         let rows = AudioInfoModel.rows(track: t, defaultDeviceName: nil,
                                        eqPresetId: "", volume: 0.0)
         let byLabel = Dictionary(uniqueKeysWithValues: rows.map { ($0.label, $0.value) })
@@ -136,12 +136,12 @@ struct Phase26AudioNerdTests {
 
     // MARK: - helpers
 
-    private func makeLocalTrack() -> TrackSnapshot {
+    private func makeYouTubeTrack() -> TrackSnapshot {
         TrackSnapshot(
             id: UUID(), title: "Song", artist: "Artist",
             albumTitle: "Album", durationSeconds: 240,
-            filePath: "/music/song.flac", youTubeId: nil,
-            artworkHash: nil, artworkUrl: nil,
+            youTubeId: "test-video",
+            artworkUrl: nil,
             sampleRate: 96000, bitDepth: 24, codec: "FLAC", isLossless: true,
             liked: true, lyrics: nil, replayGain: -6.3,
             bitRate: 5_000_000, channels: 2, lyricsOffsetMs: nil)

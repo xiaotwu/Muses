@@ -8,8 +8,8 @@ import SwiftData
 struct QueueServicePersistenceTests {
     private func snap(_ t: String) -> TrackSnapshot {
         TrackSnapshot(id: UUID(), title: t, artist: "a", albumTitle: nil,
-                      durationSeconds: 1, filePath: nil, youTubeId: nil,
-                      artworkHash: nil, artworkUrl: nil, sampleRate: nil,
+                      durationSeconds: 1, youTubeId: "test-video",
+                      artworkUrl: nil, sampleRate: nil,
                       bitDepth: nil, codec: nil, isLossless: false)
     }
 

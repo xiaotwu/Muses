@@ -15,7 +15,7 @@ extension YTDlpBridge: YTDlpBridgeProtocol {}
 
 /// YouTube 流播放引擎:`PlayerEngine` 协议实现。
 ///
-/// 播放图与 `LocalAudioEngine` 一致:**双 AVAudioPlayerNode** → preMixer →
+/// 播放图使用双 `AVAudioPlayerNode` → preMixer →
 /// AVAudioUnitEQ(32 bands) → mainMixerNode,支持队列下一首的无缝切换。
 ///
 /// 三种播放路径:
@@ -47,6 +47,13 @@ final class YouTubeStreamEngine: PlayerEngine {
     private var posTimer: Timer?
     /// 调度代次:每次 schedule 递增,过滤 stop() 触发的过期完成回调。
     private var scheduleGen = 0
+    /// Async load identity. URL resolution and download can ignore cooperative
+    /// cancellation, so every continuation must also prove it still belongs to
+    /// the newest requested track before touching a backend or observable state.
+    private var loadGeneration: UInt64 = 0
+    private var currentLoadTrackId: UUID?
+    /// File-seconds at the start of the currently scheduled segment.
+    private var segmentStartSec: Double = 0
 
     // 预加载状态(为队列下一首提前解码到 AVAudioFile)
     private var prefetchedFile: AVAudioFile?
@@ -63,19 +70,25 @@ final class YouTubeStreamEngine: PlayerEngine {
     private var isStreamingMode = false
     /// 混合切换任务(后台下载+解码+淡入切换),可被取消。
     private var swapTask: Task<Void, Never>?
+    /// Playback intent is independent from `state.isPlaying`: the latter may be
+    /// false while a backend is loading or being swapped. Every backend handoff
+    /// must consult this value before it is allowed to emit audio.
+    private var playbackRequested = false
 
     private let bridge: any YTDlpBridgeProtocol
     private let cache: StreamURLCache
     private let session: URLSession
+    private let downloadOverride: ((URL, URL) async -> Bool)?
     private let log = AppLog.for("YouTubeStreamEngine")
     /// 预加载任务(为队列下一首在后台下载+解码)。
     private var preloadTask: Task<Void, Never>?
+    private var prefetchGeneration: UInt64 = 0
 
     /// 测试可见的降级状态查询:仅当下载/解码彻底失败常驻 AVPlayer 时为 true。
     /// 混合流式阶段(意图性 AVPlayer 起播)不算 fallback。
     var isInFallbackMode: Bool { useAVPlayerFallback }
 
-    // MARK: - 测试可见的内部状态(与 LocalAudioEngine 对齐,便于双节点切换断言)
+    // MARK: - 测试可见的内部状态(便于双节点切换断言)
 
     /// 当前 active 节点是否为 playerA(双节点切换断言用)。
     var _activeIsPlayerA: Bool { activePlayer === playerA }
@@ -83,15 +96,21 @@ final class YouTubeStreamEngine: PlayerEngine {
     var _isPrefetched: Bool { prefetchedFile != nil }
     /// 是否处于混合流式阶段(AVPlayer 即时起播,等待后台下载完成切换)。
     var _isStreamingMode: Bool { isStreamingMode }
+    /// Regression-test seam for detecting a backend that outlives paused state.
+    var _hasActivePlayback: Bool {
+        playerA.isPlaying || playerB.isPlaying || (avPlayer?.rate ?? 0) > 0
+    }
 
     var onCompletion: (@MainActor () -> Void)?
 
     init(bridge: any YTDlpBridgeProtocol,
          cache: StreamURLCache = .default,
-         session: URLSession = .shared) {
+         session: URLSession = .shared,
+         downloadOverride: ((URL, URL) async -> Bool)? = nil) {
         self.bridge = bridge
         self.cache = cache
         self.session = session
+        self.downloadOverride = downloadOverride
         activePlayer = playerA
         engine.attach(playerA)
         engine.attach(playerB)
@@ -106,7 +125,7 @@ final class YouTubeStreamEngine: PlayerEngine {
 
     // MARK: - 运行时 IO 周期门禁
 
-    /// 运行时 IO 周期就绪信号(见 LocalAudioEngine.ensureEngineRunning 注释)。
+    /// 运行时 IO 周期就绪信号。
     /// 仅在为真且 `hasAudioOutput` 时调用 `player.play()`,避免 headless 进程崩溃。
     private var ioCycleReady = false
 
@@ -139,19 +158,16 @@ final class YouTubeStreamEngine: PlayerEngine {
     /// 为保证 `playPrepared()` 可确定性命中,`prepare` 会等待预加载完成再返回
     /// (PlaybackService 已在 `Task` 中调用本方法,UI 不会阻塞)。
     func prepare(_ track: TrackSnapshot) async {
-        guard let videoId = track.youTubeId else { return }
+        let videoId = track.youTubeId
+        guard !videoId.isEmpty else { return }
         if prefetchedTrack?.youTubeId == videoId, prefetchedFile != nil { return }
-        preloadTask?.cancel()
-        prefetchedFile = nil
+        cancelAndClearPrefetch()
+        let generation = prefetchGeneration
         prefetchedTrack = track
-        prefetchedFrames = 0
-        let bridge = self.bridge
-        let cache = self.cache
-        let session = self.session
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.preloadAndDecode(videoId: videoId, track: track,
-                                        bridge: bridge, cache: cache, session: session)
+                                        generation: generation)
         }
         preloadTask = task
         _ = await task.value
@@ -169,6 +185,7 @@ final class YouTubeStreamEngine: PlayerEngine {
 
         scheduleGen += 1
         let next = inactivePlayer
+        next.stop()
         next.scheduleFile(file, at: nil) { }
         ensureEngineRunning()
         next.volume = currentTargetVolume()
@@ -185,31 +202,39 @@ final class YouTubeStreamEngine: PlayerEngine {
         prefetchedFile = nil
         prefetchedTrack = nil
         prefetchedFrames = 0
+        preparedVideoId = nil
+        preparedTempURL = nil
 
+        playbackRequested = true
         state.isPlaying = true
         startPosTimer()
         return true
     }
 
     func load(_ track: TrackSnapshot) async throws {
+        loadGeneration &+= 1
+        let generation = loadGeneration
+        currentLoadTrackId = track.id
+
         // 1. 取消进行中的下载 / 预加载 / 混合切换
         downloadTask?.cancel()
         downloadTask = nil
-        cancelStreamingSwap()
+        cancelAndClearPrefetch()
+        resetPlaybackForNewLoad()
 
         // 2. 校验 videoId
-        guard let videoId = track.youTubeId else {
+        let videoId = track.youTubeId
+        guard !videoId.isEmpty else {
             state.error = .sourceUnavailable
+            state.buffering = false
             throw PlayerError.sourceUnavailable
         }
 
-        // 3. 拆除既有 AVPlayer
-        tearDownAVPlayer()
-
-        // 4. 进入缓冲态
+        // 3. 进入缓冲态。所有旧后端已在 resetPlaybackForNewLoad 中静音。
         state.buffering = true
         state.track = track
         currentTrack = track
+        state.error = nil
 
         // 5. 优先复用磁盘上的临时文件 → AVAudioFile 主路径(瞬时,EQ/频谱可用)。
         if let cachedURL = existingTempFile(for: videoId),
@@ -218,38 +243,51 @@ final class YouTubeStreamEngine: PlayerEngine {
         }
 
         // 6. 解析流 URL(缓存优先,失败重试一次)
-        let resolvedURL: URL = try await resolveStreamURL(for: videoId)
+        let resolvedURL: URL
+        do {
+            resolvedURL = try await resolveStreamURL(for: videoId)
+        } catch {
+            guard loadIsCurrent(generation: generation, trackId: track.id) else { return }
+            state.error = .sourceUnavailable
+            state.buffering = false
+            throw PlayerError.sourceUnavailable
+        }
+        guard loadIsCurrent(generation: generation, trackId: track.id),
+              !Task.isCancelled else { return }
 
-        // 7a. 本地文件 URL:直接下载(瞬时)→ AVAudioFile 主路径。
+        // 7a. 已解析到文件 URL：直接复制到 YouTube 流缓存后走 AVAudioFile 主路径。
         if resolvedURL.isFileURL {
-            let tempURL = streamsDir().appendingPathComponent(
-                "\(videoId).\(guessExt(from: resolvedURL))")
+            let tempURL = cacheFileURL(videoId: videoId, from: resolvedURL)
             let downloadOK = await downloadTo(url: resolvedURL, tempURL: tempURL)
+            guard loadIsCurrent(generation: generation, trackId: track.id),
+                  !Task.isCancelled else { return }
             if downloadOK, decodeAndScheduleOnInactive(tempURL: tempURL, track: track, fromFrame: 0) {
                 return
             }
-            // 本地文件下载/解码失败:降级 AVPlayer 播放该 file URL
-            startAVPlayer(url: resolvedURL, fallback: true)
+            // 文件 URL 的缓存/解码失败时，降级为 AVPlayer。
+            startAVPlayer(url: resolvedURL, fallback: true,
+                          loadGeneration: generation, trackId: track.id)
             return
         }
 
         // 7b. 远端 URL(未缓存):混合流式 — AVPlayer 即时起播,后台下载后切换。
-        startAVPlayer(url: resolvedURL, fallback: false)
+        startAVPlayer(url: resolvedURL, fallback: false,
+                      loadGeneration: generation, trackId: track.id)
         isStreamingMode = true
         state.buffering = false
-        state.source = .youtube
         state.error = nil
         state.quality = AudioQualityInfo(
             sampleRate: 0, bitDepth: 0, codec: "native", isLossless: false)
 
-        let tempURL = streamsDir().appendingPathComponent(
-            "\(videoId).\(guessExt(from: resolvedURL))")
+        let tempURL = cacheFileURL(videoId: videoId, from: resolvedURL)
         let downloadTaskRef = Task { @MainActor [weak self] in
             guard let self else { return }
             let ok = await self.downloadTo(url: resolvedURL, tempURL: tempURL)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled,
+                  self.loadIsCurrent(generation: generation, trackId: track.id) else { return }
             if ok {
-                self.beginStreamingSwap(to: tempURL, track: track)
+                self.beginStreamingSwap(to: tempURL, track: track,
+                                        loadGeneration: generation)
             } else {
                 // 下载失败:常驻 AVPlayer 降级
                 self.isStreamingMode = false
@@ -258,13 +296,19 @@ final class YouTubeStreamEngine: PlayerEngine {
             }
         }
         downloadTask = downloadTaskRef
+        // Return immediately so PlaybackService.play() can start AVPlayer while
+        // the download continues. Awaiting here delayed first sound until the
+        // entire file was on disk.
+    }
 
-        // 等待下载结果以决定 fallback 状态(保持与测试/调用方的同步语义)。
-        // AVPlayer 已在起播,音频不中断;此 await 让主 actor 让出,不阻塞 UI。
-        _ = await downloadTaskRef.value
+    /// Test hook: wait until the hybrid download (and swap kickoff) finishes.
+    func awaitHybridWorkForTests() async {
+        await downloadTask?.value
+        await swapTask?.value
     }
 
     func play() {
+        playbackRequested = true
         if useAVPlayerFallback || isStreamingMode {
             avPlayer?.play()
             state.isPlaying = true
@@ -277,17 +321,17 @@ final class YouTubeStreamEngine: PlayerEngine {
     }
 
     func pause() {
-        if useAVPlayerFallback || isStreamingMode {
-            avPlayer?.pause()
-            state.isPlaying = false
-            return
-        }
-        activePlayer.pause()
+        playbackRequested = false
+        // A hybrid handoff briefly owns both backends. Pause all of them rather
+        // than trusting mode flags that may change at the next suspension point.
+        avPlayer?.pause()
+        playerA.pause()
+        playerB.pause()
         state.isPlaying = false
         posTimer?.invalidate()
     }
 
-    func toggle() { state.isPlaying ? pause() : play() }
+    func toggle() { (playbackRequested || state.isPlaying) ? pause() : play() }
 
     func seek(to time: Double) {
         if useAVPlayerFallback || isStreamingMode {
@@ -307,6 +351,7 @@ final class YouTubeStreamEngine: PlayerEngine {
             ensureEngineRunning()
             if state.isPlaying && ioCycleReady && hasAudioOutput { activePlayer.play() }
             state.position = time
+            segmentStartSec = time
         }
     }
 
@@ -349,7 +394,9 @@ final class YouTubeStreamEngine: PlayerEngine {
     /// 开始从 AVPlayer 流式起播切换到本地 AVAudioFile:后台解码 + ~200ms 淡入。
     /// 解码在 `Task` 中进行(AVPlayer 仍在播放,不阻塞 UI —— 后台解码),
     /// 解码完成后转入 async 淡入步进。
-    private func beginStreamingSwap(to tempURL: URL, track: TrackSnapshot) {
+    private func beginStreamingSwap(to tempURL: URL, track: TrackSnapshot,
+                                    loadGeneration: UInt64) {
+        guard loadIsCurrent(generation: loadGeneration, trackId: track.id) else { return }
         let gen = scheduleGen
         swapTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -357,10 +404,14 @@ final class YouTubeStreamEngine: PlayerEngine {
             let file: AVAudioFile?
             do { file = try AVAudioFile(forReading: tempURL) }
             catch { self.log.error("流式切换解码失败:\(error.localizedDescription)"); file = nil }
-            guard let file, !Task.isCancelled, gen == self.scheduleGen else { return }
+            guard let file,
+                  !Task.isCancelled,
+                  gen == self.scheduleGen,
+                  self.loadIsCurrent(generation: loadGeneration,
+                                     trackId: track.id) else { return }
             // 在主线程完成淡入切换(async,每步 Task.sleep 让出 actor)
-            await self.performStreamingSwap(file: file, tempURL: tempURL,
-                                            track: track, gen: gen)
+            await self.performStreamingSwap(file: file, track: track,
+                                            loadGeneration: loadGeneration)
         }
     }
 
@@ -369,8 +420,10 @@ final class YouTubeStreamEngine: PlayerEngine {
     /// 以 async 形式执行淡入步进(每步 `Task.sleep`),避免 Timer 闭包跨
     /// actor 捕获带来的 Sendable/数据竞争问题。每步检查 `Task.isCancelled`
     /// 与 `scheduleGen` 代次,被 `load()`/`seek()` 取消时立即终止。
-    private func performStreamingSwap(file: AVAudioFile, tempURL: URL,
-                                      track: TrackSnapshot, gen: Int) async {
+    private func performStreamingSwap(file: AVAudioFile,
+                                      track: TrackSnapshot,
+                                      loadGeneration: UInt64) async {
+        guard loadIsCurrent(generation: loadGeneration, trackId: track.id) else { return }
         let sr = file.processingFormat.sampleRate
         let posSec = avPlayer?.currentTime().seconds ?? 0
         let startFrame = max(0, AVAudioFramePosition(posSec * sr))
@@ -386,26 +439,40 @@ final class YouTubeStreamEngine: PlayerEngine {
         scheduleGen += 1
         let myGen = scheduleGen
         let next = inactivePlayer
+        next.stop()
         let count = AVAudioFrameCount(min(remaining, AVAudioFramePosition(UInt32.max)))
         next.scheduleSegment(file, startingFrame: startFrame, frameCount: count, at: nil) { }
         ensureEngineRunning()
 
         let targetVol = currentTargetVolume()
         next.volume = 0
-        if ioCycleReady && hasAudioOutput { next.play() }
+        if playbackRequested, ioCycleReady, hasAudioOutput { next.play() }
 
         // ~200ms 淡入(10 步 × 20ms):AVPlayer 音量 →0,AVAudioPlayerNode →target
         let steps = 10
         for step in 1...steps {
-            if Task.isCancelled || gen != self.scheduleGen || myGen != self.scheduleGen {
+            if Task.isCancelled
+                || myGen != self.scheduleGen
+                || !loadIsCurrent(generation: loadGeneration, trackId: track.id) {
                 return
+            }
+            if playbackRequested {
+                avPlayer?.play()
+                if !next.isPlaying, ioCycleReady, hasAudioOutput { next.play() }
+            } else {
+                avPlayer?.pause()
+                next.pause()
             }
             let progress = Float(step) / Float(steps)
             avPlayer?.volume = targetVol * (1 - progress)
             next.volume = targetVol * progress
             try? await Task.sleep(for: .milliseconds(20))
         }
-        if Task.isCancelled || gen != self.scheduleGen { return }
+        if Task.isCancelled
+            || myGen != self.scheduleGen
+            || !loadIsCurrent(generation: loadGeneration, trackId: track.id) {
+            return
+        }
 
         // 切换完成:拆除 AVPlayer,交换 active 节点,EQ/频谱随即生效
         tearDownAVPlayer()
@@ -417,13 +484,63 @@ final class YouTubeStreamEngine: PlayerEngine {
         currentTrack = track
         state.track = track
         fileFrames = totalFrames
-        applyFileState(file: file, track: track)
-        startPosTimer()
+        let pos = Double(startFrame) / sr
+        applyFileState(file: file, track: track, position: pos)
+        if playbackRequested {
+            if !next.isPlaying, ioCycleReady, hasAudioOutput { next.play() }
+            state.isPlaying = true
+            startPosTimer()
+        } else {
+            next.pause()
+            state.isPlaying = false
+            posTimer?.invalidate()
+        }
     }
 
     private func cancelStreamingSwap() {
         swapTask?.cancel()
         swapTask = nil
+    }
+
+    private func loadIsCurrent(generation: UInt64, trackId: UUID) -> Bool {
+        loadGeneration == generation
+            && currentLoadTrackId == trackId
+            && state.track?.id == trackId
+    }
+
+    private func cancelAndClearPrefetch() {
+        prefetchGeneration &+= 1
+        preloadTask?.cancel()
+        preloadTask = nil
+        prefetchedFile = nil
+        prefetchedTrack = nil
+        prefetchedFrames = 0
+        preparedVideoId = nil
+        preparedTempURL = nil
+    }
+
+    private func prefetchIsCurrent(generation: UInt64, trackId: UUID) -> Bool {
+        prefetchGeneration == generation && prefetchedTrack?.id == trackId
+    }
+
+    /// Establish one silent, normalized backend state before loading a new
+    /// source. This prevents an old decoded node from continuing underneath a
+    /// new AVPlayer and makes later pause calls independent of stale mode flags.
+    private func resetPlaybackForNewLoad() {
+        scheduleGen += 1
+        cancelStreamingSwap()
+        posTimer?.invalidate()
+        posTimer = nil
+        playerA.stop()
+        playerB.stop()
+        tearDownAVPlayer()
+        isStreamingMode = false
+        useAVPlayerFallback = false
+        playbackRequested = false
+        state.isPlaying = false
+        currentFile = nil
+        fileFrames = 0
+        segmentStartSec = 0
     }
 
     // MARK: - AVAudioFile 主路径
@@ -436,6 +553,7 @@ final class YouTubeStreamEngine: PlayerEngine {
             let file = try AVAudioFile(forReading: tempURL)
             scheduleGen += 1
             let next = inactivePlayer
+            next.stop()
             if fromFrame > 0 {
                 let remaining = file.length - fromFrame
                 guard remaining > 0 else { return false }
@@ -456,7 +574,9 @@ final class YouTubeStreamEngine: PlayerEngine {
             currentFile = file
             currentTrack = track
             fileFrames = file.length
-            applyFileState(file: file, track: track)
+            let pos = fromFrame > 0
+                ? Double(fromFrame) / file.processingFormat.sampleRate : 0
+            applyFileState(file: file, track: track, position: pos)
             preparedTempURL = tempURL
             preparedVideoId = track.youTubeId
             return true
@@ -467,11 +587,12 @@ final class YouTubeStreamEngine: PlayerEngine {
     }
 
     /// 把 AVAudioFile 的时长/质量信息写入 `state`(AVAudioFile 主路径共用)。
-    private func applyFileState(file: AVAudioFile, track: TrackSnapshot) {
+    private func applyFileState(file: AVAudioFile, track: TrackSnapshot,
+                                position: Double = 0) {
         let sr = file.processingFormat.sampleRate
         state.duration = Double(file.length) / sr
-        state.position = 0
-        state.source = .youtube
+        state.position = position
+        segmentStartSec = position
         state.quality = AudioQualityInfo(
             sampleRate: Int(sr),
             bitDepth: 16,
@@ -493,12 +614,12 @@ final class YouTubeStreamEngine: PlayerEngine {
 
     /// 后台:解析+下载到临时文件,再打开 AVAudioFile 存入 prefetch 槽。
     private func preloadAndDecode(videoId: String, track: TrackSnapshot,
-                                  bridge: any YTDlpBridgeProtocol,
-                                  cache: StreamURLCache,
-                                  session: URLSession) async {
+                                  generation: UInt64) async {
+        guard prefetchIsCurrent(generation: generation, trackId: track.id) else { return }
         // 文件已在磁盘:直接打开
         if let cached = existingTempFile(for: videoId) {
-            if let file = try? AVAudioFile(forReading: cached) {
+            if let file = try? AVAudioFile(forReading: cached),
+               prefetchIsCurrent(generation: generation, trackId: track.id) {
                 prefetchedFile = file
                 prefetchedTrack = track
                 prefetchedFrames = file.length
@@ -509,11 +630,15 @@ final class YouTubeStreamEngine: PlayerEngine {
         }
         do {
             let resolvedURL = try await resolveStreamURL(for: videoId)
-            let tempURL = streamsDir().appendingPathComponent(
-                "\(videoId).\(guessExt(from: resolvedURL))")
+            guard !Task.isCancelled,
+                  prefetchIsCurrent(generation: generation, trackId: track.id) else { return }
+            let tempURL = cacheFileURL(videoId: videoId, from: resolvedURL)
             let ok = await downloadTo(url: resolvedURL, tempURL: tempURL)
-            guard ok, !Task.isCancelled else { return }
-            if let file = try? AVAudioFile(forReading: tempURL) {
+            guard ok,
+                  !Task.isCancelled,
+                  prefetchIsCurrent(generation: generation, trackId: track.id) else { return }
+            if let file = try? AVAudioFile(forReading: tempURL),
+               prefetchIsCurrent(generation: generation, trackId: track.id) {
                 prefetchedFile = file
                 prefetchedTrack = track
                 prefetchedFrames = file.length
@@ -528,7 +653,8 @@ final class YouTubeStreamEngine: PlayerEngine {
     // MARK: - AVPlayer 路径(流式起播 + 降级共用)
 
     /// 启动 AVPlayer 播放 `url`。`fallback` 为 true 表示常驻降级(下载/解码失败)。
-    private func startAVPlayer(url: URL, fallback: Bool) {
+    private func startAVPlayer(url: URL, fallback: Bool,
+                               loadGeneration: UInt64, trackId: UUID) {
         useAVPlayerFallback = fallback
         let item = AVPlayerItem(url: url)
         avPlayer = AVPlayer(playerItem: item)
@@ -538,7 +664,9 @@ final class YouTubeStreamEngine: PlayerEngine {
         timeObserver = avPlayer?.addPeriodicTimeObserver(
             forInterval: interval, queue: .main) { [weak self] cmTime in
             Task { @MainActor [weak self] in
-                guard let self, let p = self.avPlayer else { return }
+                guard let self,
+                      self.loadIsCurrent(generation: loadGeneration, trackId: trackId),
+                      let p = self.avPlayer else { return }
                 self.state.position = cmTime.seconds
                 if let dur = p.currentItem?.duration,
                    dur.seconds.isFinite, dur.seconds > 0 {
@@ -549,7 +677,13 @@ final class YouTubeStreamEngine: PlayerEngine {
         endTimeObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: item, queue: .main) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.handleCompletion() }
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.loadIsCurrent(generation: loadGeneration, trackId: trackId) else {
+                    return
+                }
+                self.handleCompletion()
+            }
         }
     }
 
@@ -567,21 +701,28 @@ final class YouTubeStreamEngine: PlayerEngine {
 
     private var downloadTask: Task<Void, Never>?
 
-    /// 下载 `url` 到 `tempURL`(本地 file URL 直接拷贝)。成功返回 true。
+    /// 下载 `url` 到 `tempURL`(本地 file URL 直接拷贝)。远端走 `download(from:)` 落盘,不把整文件读进 Data。
     private func downloadTo(url: URL, tempURL: URL) async -> Bool {
+        if let downloadOverride {
+            return await downloadOverride(url, tempURL)
+        }
         do {
-            let data: Data
             if url.isFileURL {
-                data = try Data(contentsOf: url)
-            } else {
-                let (d, resp) = try await session.data(from: url)
-                guard let http = resp as? HTTPURLResponse,
-                      (200..<300).contains(http.statusCode) else {
-                    throw PlayerError.networkError("非 2xx 响应")
+                if FileManager.default.fileExists(atPath: tempURL.path) {
+                    try FileManager.default.removeItem(at: tempURL)
                 }
-                data = d
+                try FileManager.default.copyItem(at: url, to: tempURL)
+                return true
             }
-            try data.write(to: tempURL, options: .atomic)
+            let (tmp, resp) = try await session.download(from: url)
+            if let http = resp as? HTTPURLResponse,
+               !(200..<300).contains(http.statusCode) {
+                throw PlayerError.networkError("非 2xx 响应")
+            }
+            if FileManager.default.fileExists(atPath: tempURL.path) {
+                try FileManager.default.removeItem(at: tempURL)
+            }
+            try FileManager.default.moveItem(at: tmp, to: tempURL)
             return true
         } catch {
             log.error("下载失败:\(error.localizedDescription)")
@@ -591,17 +732,17 @@ final class YouTubeStreamEngine: PlayerEngine {
 
     // MARK: - 临时文件 / URL 解析
 
-    /// 在 streamsDir 中查找已存在的临时文件(按 videoId 前缀匹配任意扩展名)。
-    /// 返回首个 > 4KB 的文件(过小视为半下载损坏)。
+    private func currentQuality() -> String {
+        UserDefaults.standard.string(forKey: PrefKey.ytAudioQuality) ?? "bestaudio"
+    }
+
+    private func cacheFileURL(videoId: String, from url: URL) -> URL {
+        MediaFileCache.file(videoId: videoId, quality: currentQuality(), ext: guessExt(from: url))
+    }
+
+    /// Cached file for this video at the current quality (> 4 KB).
     private func existingTempFile(for videoId: String) -> URL? {
-        let dir = streamsDir()
-        guard let candidates = try? FileManager.default.contentsOfDirectory(
-            at: dir, includingPropertiesForKeys: [.fileSizeKey]) else { return nil }
-        for url in candidates where url.lastPathComponent.hasPrefix("\(videoId).") {
-            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-            if size > 4096 { return url }
-        }
-        return nil
+        MediaFileCache.existing(videoId: videoId, quality: currentQuality())
     }
 
     /// 已预加载(后台下载完成)的 videoId / 文件 URL,供外部查询。
@@ -610,26 +751,24 @@ final class YouTubeStreamEngine: PlayerEngine {
 
     /// 解析流 URL:缓存优先,首次失败则失效缓存并重试一次(15s 超时)。
     private func resolveStreamURL(for videoId: String) async throws -> URL {
-        if let cached = cache.get(videoId: videoId) {
+        let quality = currentQuality()
+        if let cached = cache.get(videoId: videoId, quality: quality) {
             return cached
         }
-        let quality = UserDefaults.standard.string(forKey: PrefKey.ytAudioQuality) ?? "bestaudio"
         do {
             let url = try await bridge.resolveStreamURL(
                 videoId: videoId, quality: quality, timeout: 15)
-            cache.set(videoId: videoId, url: url)
+            cache.set(videoId: videoId, url: url, quality: quality)
             return url
         } catch {
             log.error("首次解析失败:\(error.localizedDescription),将重试一次")
-            cache.invalidate(videoId: videoId)
+            cache.invalidate(videoId: videoId, quality: quality)
             do {
                 let url = try await bridge.resolveStreamURL(
                     videoId: videoId, quality: quality, timeout: 15)
-                cache.set(videoId: videoId, url: url)
+                cache.set(videoId: videoId, url: url, quality: quality)
                 return url
             } catch {
-                state.error = .sourceUnavailable
-                state.buffering = false
                 log.error("重试仍失败:\(error.localizedDescription)")
                 throw PlayerError.sourceUnavailable
             }
@@ -640,12 +779,20 @@ final class YouTubeStreamEngine: PlayerEngine {
 
     private func startPosTimer() {
         posTimer?.invalidate()
+        let generation = scheduleGen
+        let trackId = state.track?.id
         posTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self, let file = self.currentFile else { return }
+                guard let self,
+                      generation == self.scheduleGen,
+                      self.state.track?.id == trackId,
+                      let file = self.currentFile else { return }
                 let sr = file.processingFormat.sampleRate
-                self.state.position = Double(self.activePlayer.lastRenderTime?.sampleTime ?? 0) / sr
-                if self.state.position >= self.state.duration {
+                self.state.position = PlayerPosition.seconds(
+                    player: self.activePlayer,
+                    segmentStart: self.segmentStartSec,
+                    fileSampleRate: sr)
+                if self.state.duration > 0, self.state.position >= self.state.duration {
                     self.handleCompletion()
                 }
             }
@@ -654,21 +801,14 @@ final class YouTubeStreamEngine: PlayerEngine {
 
     private func handleCompletion() {
         posTimer?.invalidate()
+        playbackRequested = false
         state.isPlaying = false
         onCompletion?()
     }
 
     // MARK: - 工具
 
-    /// `~/Library/Caches/Muses/streams/`,按需创建。
-    private func streamsDir() -> URL {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let dir = home
-            .appendingPathComponent("Library/Caches/Muses/streams", isDirectory: true)
-        try? FileManager.default.createDirectory(
-            at: dir, withIntermediateDirectories: true)
-        return dir
-    }
+    private func streamsDir() -> URL { MediaFileCache.directory }
 
     private func guessExt(from url: URL) -> String {
         let e = url.pathExtension
