@@ -1,22 +1,27 @@
+# SwiftPM
 .build/
 .swiftpm/
+
+# 本地工作区
 .worktrees/
 .DS_Store
-.superpowers/
+build/
+*.dmg
+client_secret*.json
+
 # AI 代理工作目录与本地工具链,不入库
 .agents/
 .codex/
 .claude/
+.zcode/
+.remember/
+.superpowers/
 .artifacts/
 artifacts/
 shot/
 node_modules/
-# 打包产物与敏感凭据文件
-*.dmg
-client_secret*.json
-Muses/Sources/Muses/Resources/yt-dlp
-Muses/Sources/Muses/Resources/yt-dlp-LICENSE
-Muses/Sources/Muses/Resources/AppIcon.icns
-Muses/main
-Muses/.build
-build/
+
+# 拷入的二进制资源(copy-ytdlp.sh / make-icon.sh 生成)
+Sources/Muses/Resources/yt-dlp
+Sources/Muses/Resources/yt-dlp-LICENSE
+Sources/Muses/Resources/AppIcon.icns
