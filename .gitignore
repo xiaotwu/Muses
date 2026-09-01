@@ -3,6 +3,15 @@
 .worktrees/
 .DS_Store
 .superpowers/
+# AI 代理工作目录与本地工具链,不入库
+.agents/
+.codex/
+.claude/
+.artifacts/
+node_modules/
+# 打包产物与敏感凭据文件
+*.dmg
+client_secret*.json
 Muses/Sources/Muses/Resources/yt-dlp
 Muses/Sources/Muses/Resources/yt-dlp-LICENSE
 Muses/Sources/Muses/Resources/AppIcon.icns
