@@ -299,3 +299,6 @@ The following findings are candidates for separately scoped investigation. They 
 - Artwork cache propagation, eviction, and asynchronous identity checks.
 - Accessibility labeling and focus behavior.
 - Reduce Transparency and complete Reduce Motion coverage.
+
+## Commit attribution
+
