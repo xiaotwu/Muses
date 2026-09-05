@@ -299,3 +299,7 @@ The following findings are candidates for separately scoped investigation. They 
 - Artwork cache propagation, eviction, and asynchronous identity checks.
 - Accessibility labeling and focus behavior.
 - Reduce Transparency and complete Reduce Motion coverage.
+
+## Commit attribution
+
+Never add Co-Authored-By, Generated with Claude Code, or any Anthropic/Claude trailer to git commits, tags, or PR bodies.

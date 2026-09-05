@@ -12,7 +12,8 @@ client_secret*.json
 # AI 代理工作目录与本地工具链,不入库
 .agents/
 .codex/
-.claude/
+.claude/*
+!.claude/settings.json
 .zcode/
 .remember/
 .superpowers/
