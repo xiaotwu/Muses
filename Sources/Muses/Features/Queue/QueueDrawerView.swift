@@ -30,16 +30,11 @@ struct QueueDrawerView: View {
             drawer
                 .frame(width: QueueChromePolicy.width)
                 .frame(maxHeight: .infinity)
-                .background(BrandColors.surface)
+                .musesGlass(in: Rectangle(), role: .persistentChrome)
                 .overlay(alignment: .leading) {
                     Rectangle()
                         .fill(BrandColors.hairline)
                         .frame(width: 1)
-                }
-                .overlay {
-                    if focusedTarget == .drawer {
-                        QueueFocusRing()
-                    }
                 }
                 .focusable()
                 .focusEffectDisabled()
@@ -89,12 +84,14 @@ struct QueueDrawerView: View {
                 playback.queue.setRepeat(playback.queue.repeatMode.next)
             } label: {
                 Image(systemName: playback.queue.repeatMode == .one ? "repeat.1" : "repeat")
-                    .font(.callout)
+                    .font(.body.weight(.semibold))
             }
             .foregroundStyle(playback.queue.repeatMode == .off
                              ? BrandColors.textSecondary : BrandColors.magenta)
             .buttonStyle(.plain)
             .frame(width: 28, height: 28)
+            .background(playback.queue.repeatMode == .off ? Color.clear : BrandColors.magenta.opacity(0.12), in: Circle())
+            .overlay(Circle().stroke(playback.queue.repeatMode == .off ? Color.clear : BrandColors.magenta.opacity(0.25), lineWidth: 1))
             .help(tr("Repeat mode", "循环模式"))
             .accessibilityLabel(tr("Repeat mode", "循环模式"))
             .accessibilityValue(repeatAccessibilityValue)
@@ -104,12 +101,14 @@ struct QueueDrawerView: View {
                 playback.queue.toggleShuffle()
             } label: {
                 Image(systemName: "shuffle")
-                    .font(.callout)
+                    .font(.body.weight(.semibold))
             }
             .foregroundStyle(playback.queue.shuffle
                              ? BrandColors.magenta : BrandColors.textSecondary)
             .buttonStyle(.plain)
             .frame(width: 28, height: 28)
+            .background(playback.queue.shuffle ? BrandColors.magenta.opacity(0.12) : Color.clear, in: Circle())
+            .overlay(Circle().stroke(playback.queue.shuffle ? BrandColors.magenta.opacity(0.25) : Color.clear, lineWidth: 1))
             .help(tr("Shuffle", "随机播放"))
             .accessibilityLabel(tr("Shuffle", "随机播放"))
             .accessibilityValue(playback.queue.shuffle ? tr("On", "开启") : tr("Off", "关闭"))
@@ -122,7 +121,7 @@ struct QueueDrawerView: View {
                     playback.queue.addGroup(tr("Group \(n)", "分组 \(n)"))
                 } label: {
                     Image(systemName: "rectangle.group.badge.plus")
-                        .font(.callout)
+                        .font(.body.weight(.semibold))
                 }
                 .foregroundStyle(BrandColors.textSecondary)
                 .buttonStyle(.plain)
@@ -138,7 +137,8 @@ struct QueueDrawerView: View {
             ) { isPresented = false }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.top, WindowChromeMetrics.trafficLightClearanceHeight + 8)
+        .padding(.bottom, 12)
     }
 
     private var list: some View {

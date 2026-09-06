@@ -9,7 +9,7 @@ struct PlaylistSidebarAdapterTests {
 
     // MARK: - PlaylistSidebarAdapter.merged
 
-    @Test("merged: 本地与 YouTube 合并,钉选置顶,其余按时间倒序")
+    @Test("merged: Local and YouTube merged, pinned on top, remainder in reverse chronological order")
     func mergedSortsPinnedFirstThenDateDesc() {
         let now = Date()
         let localOld = Playlist(name: "Old", createdAt: now.addingTimeInterval(-3600), pinned: false)
@@ -28,7 +28,7 @@ struct PlaylistSidebarAdapterTests {
         #expect(merged[3].name == "Old")
     }
 
-    @Test("merged: YouTube 项标记 origin=.youtube 且 isYouTube")
+    @Test("merged: YouTube items mark origin=.youtube and isYouTube=true")
     func mergedYouTubeOriginFlag() {
         let yt = YouTubeImport(playlistId: "PL1", url: "u", title: "YT", channel: "c", importedAt: Date())
         let merged = PlaylistSidebarAdapter.merged(local: [], youTube: [yt])
@@ -39,7 +39,7 @@ struct PlaylistSidebarAdapterTests {
         #expect(merged[0].playlistId == nil)
     }
 
-    @Test("merged: 本地项标记 origin=.local 且携带 playlistId")
+    @Test("merged: Local items mark origin=.local and carry playlistId")
     func mergedLocalOriginFlag() {
         let p = Playlist(name: "Local", createdAt: Date())
         let merged = PlaylistSidebarAdapter.merged(local: [p], youTube: [])
@@ -50,7 +50,7 @@ struct PlaylistSidebarAdapterTests {
         #expect(!merged[0].isYouTube)
     }
 
-    @Test("merged: id 跨类型唯一(前缀区分,无碰撞)")
+    @Test("merged: IDs unique across origins with prefix separation")
     func mergedIdsUniqueAcrossOrigins() {
         let p = Playlist(name: "Local", createdAt: Date())
         let yt = YouTubeImport(playlistId: "PL1", url: "u", title: "YT", channel: "c", importedAt: Date())
@@ -63,14 +63,14 @@ struct PlaylistSidebarAdapterTests {
 
     // MARK: - YouTubeLinkKind.detect
 
-    @Test("detect: playlist 链接(list= 参数)")
+    @Test("detect: Playlist links with list= parameter")
     func detectPlaylist() {
         #expect(YouTubeLinkKind.detect("https://www.youtube.com/playlist?list=PLxxx") == .playlist)
         #expect(YouTubeLinkKind.detect("https://www.youtube.com/watch?v=abc&list=PLyyy") == .playlist)
         #expect(YouTubeLinkKind.detect("https://youtu.be/abc?list=PLzzz") == .playlist)
     }
 
-    @Test("detect: 单曲链接")
+    @Test("detect: Single video links")
     func detectVideo() {
         #expect(YouTubeLinkKind.detect("https://www.youtube.com/watch?v=abc123") == .video)
         #expect(YouTubeLinkKind.detect("https://youtu.be/abc123") == .video)
@@ -78,7 +78,7 @@ struct PlaylistSidebarAdapterTests {
         #expect(YouTubeLinkKind.detect("https://www.youtube.com/embed/abc123") == .video)
     }
 
-    @Test("detect: 非法/空/非 YouTube 链接 → unknown")
+    @Test("detect: Invalid, empty, or non-YouTube link returns unknown")
     func detectUnknown() {
         #expect(YouTubeLinkKind.detect("") == .unknown)
         #expect(YouTubeLinkKind.detect("not a url") == .unknown)

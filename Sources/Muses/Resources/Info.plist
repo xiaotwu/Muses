@@ -36,7 +36,7 @@
 	<!-- Release kill switch; user consent remains a separate default-off preference. -->
 	<key>MusesWebHomeEnabled</key>
 	<true/>
-	<!-- 注册 muses:// URL scheme(Spotlight 命中 / 远程激活用)。Phase 24 修复此前缺失的 CFBundleURLTypes。 -->
+	<!-- Register muses:// URL scheme for Spotlight hits and external activation. -->
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

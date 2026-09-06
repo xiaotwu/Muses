@@ -20,7 +20,7 @@ struct DesktopIntegrationTests {
 
     // MARK: - HotkeyShortcut encoding + collision detection
 
-    @Test("HotkeyShortcut Codable 往返")
+    @Test("HotkeyShortcut Codable round-trip")
     func shortcutCodable() throws {
         let sc = HotkeyShortcut(keyCode: 49, modifiers: 0x0100 | 0x2000)   // space + cmd|control
         let data = try JSONEncoder().encode(sc)
@@ -28,7 +28,7 @@ struct DesktopIntegrationTests {
         #expect(back == sc)
     }
 
-    @Test("conflicts:无冲突返回空;同一快捷键两动作报冲突")
+    @Test("conflicts: returns empty when no conflict; reports conflict when same key assigned to two actions")
     func conflictsDetection() {
         let none: [String: HotkeyShortcut] = [
             "a": HotkeyShortcut(keyCode: 1, modifiers: 0),
@@ -47,12 +47,12 @@ struct DesktopIntegrationTests {
         #expect(Set(actions) == Set(["a", "b"]))
     }
 
-    @Test("默认绑定无内部冲突(出厂配置可注册)")
+    @Test("Default bindings have no conflicts")
     func defaultsHaveNoConflicts() {
         #expect(GlobalHotkeyService.conflicts(GlobalHotkeyService.defaults).isEmpty)
     }
 
-    @Test("loadShortcuts:无存储时回退默认;有存储时用用户值")
+    @Test("loadShortcuts falls back to defaults when empty and loads user values when stored")
     func loadShortcutsFallback() {
         let key = PrefKey.globalHotkeys
         UserDefaults.standard.removeObject(forKey: key)
@@ -70,7 +70,7 @@ struct DesktopIntegrationTests {
 
     // MARK: - TrayMenuModel
 
-    @Test("TrayMenuModel:无曲目时控制项禁用;有曲目时启用")
+    @Test("TrayMenuModel: controls disabled when no track, enabled when playing")
     func trayMenuEnabledStates() {
         let empty = TrayMenuModel.items(track: nil, isPlaying: false)
         #expect(empty.first(where: { $0.kind == .header })?.title == tr("Muses", "Muses"))
@@ -92,7 +92,7 @@ struct DesktopIntegrationTests {
         #expect(paused.first { $0.kind == .playPause }?.title == tr("Play", "播放"))
     }
 
-    @Test("TrayMenuModel:tag/kind 往返")
+    @Test("TrayMenuModel tag/kind round-trip")
     func trayMenuTagRoundTrip() {
         for kind in [TrayMenuModel.Item.Kind.playPause, .next, .previous, .like,
                      .addToInbox, .openMini, .openMain, .quit] {
@@ -110,7 +110,7 @@ struct DesktopIntegrationTests {
         #expect(SpotlightIndexer.trackId(from: url) == id)
     }
 
-    @Test("SpotlightIndexer.trackId(from:):非法 scheme/host 返回 nil")
+    @Test("SpotlightIndexer.trackId(from:) returns nil for invalid scheme or host")
     func deepLinkRejects() {
         let id = UUID()
         #expect(SpotlightIndexer.trackId(from: URL(string: "http://play?trackId=\(id.uuidString)")!) == nil)
@@ -120,7 +120,7 @@ struct DesktopIntegrationTests {
 
     // MARK: - NowPlayingManager.repeatMode mapping (pure function)
 
-    @Test("repeatMode(from:):off/all/one 直映;未知保持当前")
+    @Test("repeatMode(from:) maps off/all/one directly and preserves current on unknown")
     func repeatModeMapping() {
         #expect(NowPlayingManager.repeatMode(from: .off, current: .all) == .off)
         #expect(NowPlayingManager.repeatMode(from: .all, current: .off) == .all)

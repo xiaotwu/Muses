@@ -29,7 +29,7 @@ struct ListeningHistoryTests {
 
     // MARK: - Model
 
-    @Test("ListeningEvent 持久化往返 + outcome/source 计算属性")
+    @Test("ListeningEvent persistence round trip and outcome/source computed properties")
     func eventRoundTrip() throws {
         let container = try makeContainer()
         let ctx = ModelContext(container)
@@ -47,7 +47,7 @@ struct ListeningHistoryTests {
         #expect(fetched?.endedAt != nil)
     }
 
-    @Test("ListeningEvent 表已加入 schema(空查询成功)")
+    @Test("ListeningEvent table included in schema (empty query succeeds)")
     func schemaIncludesListeningEvent() throws {
         let container = try makeContainer()
         let ctx = ModelContext(container)
@@ -56,7 +56,7 @@ struct ListeningHistoryTests {
 
     // MARK: - HistoryService event persistence
 
-    @Test("trackStarted→trackCompleted 落库一条 completed 事件")
+    @Test("trackStarted to trackCompleted persists one completed event")
     func completedPersists() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
@@ -75,7 +75,7 @@ struct ListeningHistoryTests {
         _ = svc
     }
 
-    @Test("trackSkipped 落库 skipped;trackStopped 落库 stopped")
+    @Test("trackSkipped persists skipped and trackStopped persists stopped")
     func skippedStoppedClassify() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
@@ -93,7 +93,7 @@ struct ListeningHistoryTests {
         _ = svc
     }
 
-    @Test("新 trackStarted 覆盖未终结事件 → 旧事件以 interrupted 兜底落库")
+    @Test("New trackStarted overwrites unfinalized event falling back to interrupted")
     func interruptedFallback() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
@@ -109,7 +109,7 @@ struct ListeningHistoryTests {
         _ = svc
     }
 
-    @Test("功能关闭时不落库;开启后落库")
+    @Test("Does not persist when feature disabled; persists when enabled")
     func featureFlagGating() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
@@ -129,7 +129,7 @@ struct ListeningHistoryTests {
         _ = svc
     }
 
-    @Test("pause/resume/seek/queueChanged 不产生事件行")
+    @Test("pause/resume/seek/queueChanged do not generate event rows")
     func nonFinalizingEventsNoRow() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
@@ -146,7 +146,7 @@ struct ListeningHistoryTests {
 
     // MARK: - End to end (PlaybackService → event bus → HistoryService, stub engine)
 
-    @Test("播放→切下一首:HistoryService 记录 skipped")
+    @Test("Play then skip to next: HistoryService records skipped")
     func endToEndSkipRecords() async throws {
         let container = try makeContainer()
         let library = LibraryService(modelContainer: container)
@@ -169,7 +169,7 @@ struct ListeningHistoryTests {
         _ = svc
     }
 
-    @Test("引擎自然完成回调:HistoryService 记录 completed")
+    @Test("Engine natural completion callback: HistoryService records completed")
     func endToEndCompletionRecords() async throws {
         let container = try makeContainer()
         let library = LibraryService(modelContainer: container)
@@ -263,7 +263,7 @@ struct ListeningHistoryTests {
         #expect(dashboard.recent.isEmpty)
     }
 
-    @Test("clearAll 清空全部事件并 bump revision")
+    @Test("clearAll clears all events and bumps revision")
     func clearAll() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()

@@ -46,7 +46,7 @@ struct DeepLinkTests {
         #expect(engine.lastLoadedTrack?.title == "Deep")
     }
 
-    @Test("非 muses scheme 或缺 trackId 返回 nil")
+    @Test("Non-muses scheme or missing trackId returns nil")
     func invalidDeepLinkReturnsNil() {
         #expect(SpotlightIndexer.trackId(from: URL(string: "https://example.com")!) == nil)
         #expect(SpotlightIndexer.trackId(from: URL(string: "muses://play")!) == nil)

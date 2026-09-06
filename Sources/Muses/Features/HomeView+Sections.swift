@@ -6,10 +6,7 @@ extension HomeView {
     var topPicks: some View {
         if !topPickItems.isEmpty {
             VStack(alignment: .leading, spacing: 13) {
-                SectionHeader(
-                    title: tr("Top Picks", "精选推荐"),
-                    subtitle: tr("Made for you", "为你打造")
-                )
+                SectionHeader(title: tr("Top Picks", "精选推荐"))
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 18) {
                         ForEach(topPickItems) { item in
@@ -86,8 +83,32 @@ extension HomeView {
     @ViewBuilder
     var discoveryShelves: some View {
         if discovery.isEnabled {
-            ForEach(discovery.sections) { section in
-                discoveryShelf(section)
+            let sections = discovery.sections
+            let hasLoadedAny = sections.contains { section in
+                if case .loaded = section.status { return true }
+                return false
+            }
+            let failedSections = sections.filter { section in
+                if case .failed = section.status { return true }
+                return false
+            }
+
+            if !failedSections.isEmpty && !hasLoadedAny {
+                DiscoveryFailureStrip(
+                    message: tr("Could not load recommendations right now.", "暂时无法加载推荐内容。"),
+                    onRetry: discovery.reload
+                )
+                .padding(.horizontal, AppleMusicTokens.contentPaddingX)
+            } else if !failedSections.isEmpty && hasLoadedAny {
+                DiscoveryFailureStrip(
+                    message: tr("Some recommendations could not be loaded.", "部分推荐未能加载。"),
+                    onRetry: discovery.reload
+                )
+                .padding(.horizontal, AppleMusicTokens.contentPaddingX)
+            }
+
+            ForEach(sections) { section in
+                discoveryShelf(section, suppressFailureStrip: !failedSections.isEmpty)
             }
         } else if let fallbackError, fallbackEntries.isEmpty {
             DiscoveryFailureStrip(message: fallbackError, onRetry: loadFallback)
@@ -98,17 +119,19 @@ extension HomeView {
     }
 
     @ViewBuilder
-    func discoveryShelf(_ section: HomeSection) -> some View {
+    func discoveryShelf(_ section: HomeSection, suppressFailureStrip: Bool = false) -> some View {
         let items = section.items.filter(isPresentableDiscoveryItem)
         switch section.status {
         case .loading:
             squareShelfSkeleton(title: section.title)
         case .failed(let message):
-            DiscoveryFailureStrip(
-                message: message ?? tr("This section could not be loaded.", "无法加载此区段。"),
-                onRetry: discovery.reload
-            )
-            .padding(.horizontal, AppleMusicTokens.contentPaddingX)
+            if !suppressFailureStrip {
+                DiscoveryFailureStrip(
+                    message: message ?? tr("This section could not be loaded.", "无法加载此区段。"),
+                    onRetry: discovery.reload
+                )
+                .padding(.horizontal, AppleMusicTokens.contentPaddingX)
+            }
         case .idle, .loaded:
             if !items.isEmpty {
                 if section.kind == .quickPicks {
@@ -125,8 +148,6 @@ extension HomeView {
                         }
                     }
                 }
-            } else {
-                DiscoveryUnavailableShelf(title: section.title, onRetry: discovery.reload)
             }
         }
     }
@@ -356,25 +377,15 @@ extension HomeView {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
                 ForEach(YouTubeHomeMood.all) { mood in
-                    Button(mood.localizedTitle) {
+                    MoodChipButton(title: mood.localizedTitle) {
                         globalSearch.scope = .youtube
                         globalSearch.query = mood.searchQuery
                         NotificationCenter.default.post(name: .musesFocusSearch, object: nil)
                     }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(BrandColors.textPrimary)
-                    .padding(.horizontal, 14)
-                    .frame(height: 34)
-                    .background(BrandColors.textPrimary.opacity(0.08),
-                                in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(BrandColors.hairline, lineWidth: 1)
-                    }
                 }
             }
             .padding(.horizontal, AppleMusicTokens.contentPaddingX)
+            .padding(.vertical, 2)
         }
         .accessibilityLabel(tr("Moods and activities", "心情与活动"))
     }
@@ -862,3 +873,45 @@ extension HomeView {
         return "\(subtitle) · \(source)"
     }
 }
+
+private struct MoodChipButton: View {
+    let title: String
+    let action: () -> Void
+
+    @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(BrandColors.textPrimary)
+                .padding(.horizontal, 16)
+                .frame(height: 34)
+                .background {
+                    if reduceTransparency {
+                        BrandColors.surface
+                    } else {
+                        Capsule()
+                            .fill(.ultraThinMaterial)
+                            .overlay(
+                                Capsule()
+                                    .fill(isHovered ? BrandColors.textPrimary.opacity(0.10) : BrandColors.textPrimary.opacity(0.04))
+                            )
+                    }
+                }
+                .clipShape(Capsule())
+                .overlay {
+                    Capsule()
+                        .stroke(isHovered ? BrandColors.textPrimary.opacity(0.28) : BrandColors.hairline, lineWidth: 1)
+                }
+                .scaleEffect(isHovered && !reduceMotion ? 1.03 : 1.0)
+                .offset(y: isHovered && !reduceMotion ? -1 : 0)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .animation(MusesMotion.hoverAnimation(reduceMotion: reduceMotion), value: isHovered)
+    }
+}
+

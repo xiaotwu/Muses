@@ -36,7 +36,7 @@ struct InboxFeatureTests {
 
     // MARK: - Model
 
-    @Test("InboxItem 持久化往返 + state/source 计算属性")
+    @Test("InboxItem persistence round-trip and state/source computed properties")
     func inboxRoundTrip() throws {
         let container = try makeContainer()
         let ctx = ModelContext(container)
@@ -52,7 +52,7 @@ struct InboxFeatureTests {
         #expect(fetched?.snoozeUntil != nil)
     }
 
-    @Test("InboxItem 表已加入 schema(空查询成功)")
+    @Test("InboxItem table is included in schema (empty query succeeds)")
     func schemaIncludesInbox() throws {
         let container = try makeContainer()
         let ctx = ModelContext(container)
@@ -62,7 +62,7 @@ struct InboxFeatureTests {
 
     // MARK: - add / dedupe / flag
 
-    @Test("add 新建 .unheard 条目;同 trackId 未终态时去重")
+    @Test("add creates unheard entry; deduplicates active trackId")
     func addAndDedupe() throws {
         let container = try makeContainer()
         let inbox = makeInbox(container: container)
@@ -78,7 +78,7 @@ struct InboxFeatureTests {
         #expect(fetchInbox(container).count == 1)
     }
 
-    @Test("ffInbox 关闭:add 为 no-op,不落库")
+    @Test("ffInbox disabled: add is no-op and does not persist")
     func addNoOpWhenDisabled() throws {
         let container = try makeContainer()
         let inbox = makeInbox(container: container, enabled: false)
@@ -89,7 +89,7 @@ struct InboxFeatureTests {
 
     // MARK: - State machine
 
-    @Test("reject → .rejected;remove 删除条目")
+    @Test("reject transitions to .rejected; remove deletes entry")
     func rejectAndRemove() throws {
         let container = try makeContainer()
         let inbox = makeInbox(container: container)
@@ -101,7 +101,7 @@ struct InboxFeatureTests {
         #expect(fetchInbox(container).isEmpty)
     }
 
-    @Test("snooze → .snoozed;到期 restoreDueSnoozes → .unheard;未到期保持")
+    @Test("snooze transitions to .snoozed; restoreDueSnoozes restores to .unheard when due")
     func snoozeAndRestore() throws {
         let container = try makeContainer()
         let inbox = makeInbox(container: container)
@@ -121,7 +121,7 @@ struct InboxFeatureTests {
         #expect(row?.snoozeUntil == nil)
     }
 
-    @Test("addNote 写入并清空")
+    @Test("addNote writes and clears note")
     func addNote() throws {
         let container = try makeContainer()
         let inbox = makeInbox(container: container)
@@ -134,7 +134,7 @@ struct InboxFeatureTests {
 
     // MARK: - Event bus → listening
 
-    @Test("trackStarted 命中 unheard 条目 → .listening;不匹配则不动")
+    @Test("trackStarted matches unheard entry and updates to .listening; does not touch non-matching")
     func trackStartedMarksListening() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
@@ -151,7 +151,7 @@ struct InboxFeatureTests {
         #expect(fetchInbox(container).first?.state == .listening)
     }
 
-    @Test("已终态(accepted)条目不被 trackStarted 改回 listening")
+    @Test("Terminal (accepted) entry is not reverted to listening by trackStarted")
     func acceptedNotReopened() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
@@ -167,7 +167,7 @@ struct InboxFeatureTests {
 
     // MARK: - accept → like
 
-    @Test("accept 置 .accepted 并把对应 Track.liked 置 true")
+    @Test("accept sets .accepted and sets corresponding Track.liked to true")
     func acceptLikesTrack() throws {
         let container = try makeContainer()
         let ctx = ModelContext(container)

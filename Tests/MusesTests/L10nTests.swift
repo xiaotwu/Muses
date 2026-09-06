@@ -7,7 +7,7 @@ import AppKit
 @Suite("L10n + Theme")
 struct L10nThemeTests {
 
-    @Test("tr() 根据系统语言返回正确文案")
+    @Test("tr() returns correct text based on system language")
     func trReturnsCorrectLanguage() {
         // tr() always dispatches on Locale.current; here we just verify the function exists and is callable
         let result = tr("Home", "首页")
@@ -15,14 +15,14 @@ struct L10nThemeTests {
         #expect(result == "Home" || result == "首页")
     }
 
-    @Test("L10n.isChinese 检测中文环境")
+    @Test("L10n.isChinese detects Chinese locale")
     func isChineseDetection() {
         // Verify the property is accessible and returns a Bool
         let isZh = L10n.isChinese
         #expect(isZh == true || isZh == false)
     }
 
-    @Test("BrandColors.hairline 可在动态主题下解析")
+    @Test("BrandColors.hairline resolves under dynamic appearance")
     func hairlineResolves() {
         // The hairline is deliberately subtle, but remains visible in both
         // appearances. This smoke assertion guards dynamic-color construction.
@@ -34,7 +34,7 @@ struct L10nThemeTests {
         #expect(resolvesInDarkAppearance)
     }
 
-    @Test("PrefKey.gpuAcceleration 存在")
+    @Test("PrefKey.gpuAcceleration exists")
     func gpuPrefKeyExists() {
         #expect(PrefKey.gpuAcceleration == "muses.gpuAcceleration")
     }

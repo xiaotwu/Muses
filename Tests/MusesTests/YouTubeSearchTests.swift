@@ -8,7 +8,7 @@ import SwiftData
 @Suite("YouTubeSearch")
 struct YouTubeSearchTests {
 
-    @Test("search 返回 bridge 结果")
+    @Test("search returns bridge results")
     func searchReturnsResults() async throws {
         let container = try makeModelContainer(inMemory: true)
         let bridge = MockImportBridge()
@@ -24,7 +24,7 @@ struct YouTubeSearchTests {
         #expect(bridge.searchCallCount == 1)
     }
 
-    @Test("search 空查询返回空数组(不调 bridge)")
+    @Test("search with empty query returns empty array without calling bridge")
     func searchEmptyQuerySkipsBridge() async throws {
         let container = try makeModelContainer(inMemory: true)
         let bridge = MockImportBridge()
@@ -35,7 +35,7 @@ struct YouTubeSearchTests {
         #expect(bridge.searchCallCount == 0)
     }
 
-    @Test("importAsTrack 创建 .youtube Track + 去重")
+    @Test("importAsTrack creates .youtube Track and deduplicates")
     func importAsTrackCreatesAndDeduplicates() async throws {
         let container = try makeModelContainer(inMemory: true)
         let bridge = MockImportBridge()
@@ -58,6 +58,6 @@ struct YouTubeSearchTests {
         let snap2 = try await service.importAsTrack(entry: entry)
         #expect(snap2.id == snap1.id)
         let tracks2 = try ctx.fetch(FetchDescriptor<Track>())
-        #expect(tracks2.count == 1, "去重:不应创建第二个 Track")
+        #expect(tracks2.count == 1, "Deduplication: duplicate track should not be created")
     }
 }

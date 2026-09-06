@@ -59,9 +59,9 @@ enum YouTubeIdentity {
     }
 }
 
-/// YouTube Music album playlists use `OLAK5uy_…`. Regular `PL…` lists stay playlists.
+/// YouTube Music album playlists use `OLAK5uy_…` / `OLAK…`. Regular `PL…` / `LL…` lists stay playlists.
 enum YouTubePlaylistID {
     static func isMusicAlbum(_ playlistId: String) -> Bool {
-        playlistId.hasPrefix("OLAK5uy")
+        playlistId.hasPrefix("OLAK")
     }
 }

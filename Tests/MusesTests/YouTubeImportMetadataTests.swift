@@ -12,13 +12,13 @@ struct YouTubeImportMetadataTests {
 
     // MARK: - oEmbed success
 
-    @Test("importPlaylist oEmbed 成功 → 真实标题/频道/封面")
+    @Test("importPlaylist with successful oEmbed populates title, channel, and artwork")
     func oEmbedSuccessPopulatesMetadata() async throws {
         let container = try makeModelContainer(inMemory: true)
         let bridge = MockImportBridge()
         bridge.entries = [
             YTDlpBridge.YTDlpPlaylistEntry(
-                id: "v1", title: "Song A", uploader: "Some Channel", duration: 200),
+                id: "track_oembed_1", title: "Song A", uploader: "Some Channel", duration: 200),
         ]
 
         YouTubeImportMetadataStub.reset()
@@ -51,21 +51,21 @@ struct YouTubeImportMetadataTests {
         #expect(imps.count == 1)
         let imp = try #require(imps.first)
         #expect(imp.id == importId)
-        #expect(imp.title == "My Awesome Playlist", "oEmbed 标题应填入")
-        #expect(imp.channel == "Awesome Creator", "oEmbed 频道应填入")
+        #expect(imp.title == "My Awesome Playlist", "oEmbed title should be populated")
+        #expect(imp.channel == "Awesome Creator", "oEmbed channel should be populated")
         #expect(imp.artworkUrl == "https://i.ytimg.com/vi/playlist/thumb.jpg",
-                "oEmbed 封面 URL 应填入")
+                "oEmbed artwork URL should be populated")
     }
 
     // MARK: - oEmbed failure fallback
 
-    @Test("importPlaylist oEmbed 404 → 回退占位标题/频道")
+    @Test("importPlaylist with oEmbed 404 falls back to placeholder title and channel")
     func oEmbedFailureFallsBack() async throws {
         let container = try makeModelContainer(inMemory: true)
         let bridge = MockImportBridge()
         bridge.entries = [
             YTDlpBridge.YTDlpPlaylistEntry(
-                id: "v1", title: "Song A", uploader: "Fallback Channel", duration: 200),
+                id: "track_oembed_1", title: "Song A", uploader: "Fallback Channel", duration: 200),
         ]
 
         YouTubeImportMetadataStub.reset()
@@ -88,10 +88,10 @@ struct YouTubeImportMetadataTests {
         let ctx = ModelContext(container)
         let imp = try #require(try ctx.fetch(FetchDescriptor<YouTubeImport>()).first)
         // Fallback: placeholder title, channel taken from the first entry's uploader.
-        #expect(imp.title == "YouTube Playlist", "oEmbed 失败应回退占位标题")
-        #expect(imp.channel == "Fallback Channel", "oEmbed 失败应回退首条 uploader")
+        #expect(imp.title == "YouTube Playlist", "Failed oEmbed should fall back to placeholder title")
+        #expect(imp.channel == "Fallback Channel", "Failed oEmbed should fall back to first entry's uploader")
         // Fallback artwork: the first video's hqdefault.
-        #expect(imp.artworkUrl == "https://i.ytimg.com/vi/v1/hqdefault.jpg")
+        #expect(imp.artworkUrl == "https://i.ytimg.com/vi/track_oembed_1/hqdefault.jpg")
     }
 }
 final class YouTubeImportMetadataStub: StubURLProtocolBase, @unchecked Sendable {

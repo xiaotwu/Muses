@@ -1,6 +1,6 @@
 import Foundation
 
-/// Writes owned YouTube playlist edits back through Data API v3.
+/// Writes owned YouTube playlist edits back through YouTube Data API.
 /// Liked / system playlists are not writable; callers must check ownership first.
 struct YouTubePlaylistWriteService: Sendable {
     let client: YouTubeDataAPIClient

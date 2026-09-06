@@ -8,7 +8,7 @@ import SwiftData
 struct YouTubeImportModelTests {
 
     /// Creates a YouTubeImport + items + linked .youtube Tracks, verifying the relationships.
-    @Test("创建 import + items + 关联 .youtube Track")
+    @Test("create import with items and associate .youtube Track")
     func createImportWithItems() throws {
         let c = try makeModelContainer(inMemory: true)
         let ctx = c.mainContext
@@ -43,7 +43,7 @@ struct YouTubeImportModelTests {
     }
 
     /// Deleting an import cascades to items but keeps the lazily created .youtube Tracks.
-    @Test("删除 import 级联 items 但保留 Track")
+    @Test("deleting import cascades items but preserves Track")
     func deleteImportCascadesItemsKeepsTrack() throws {
         let c = try makeModelContainer(inMemory: true)
         let ctx = c.mainContext
@@ -51,9 +51,9 @@ struct YouTubeImportModelTests {
         let imp = YouTubeImport(playlistId: "PLdel", url: "https://youtube.com/playlist?list=PLdel",
                                 title: "Del", channel: "C")
         ctx.insert(imp)
-        let item = YouTubeImportItem(youTubeId: "v1", title: "S", artist: "C", order: 0)
+        let item = YouTubeImportItem(youTubeId: "yt_track_del", title: "S", artist: "C", order: 0)
         ctx.insert(item)
-        let t = Track(title: "S", artist: "C", youTubeId: "v1")
+        let t = Track(title: "S", artist: "C", youTubeId: "yt_track_del")
         ctx.insert(t)
         item.track = t
         imp.items = [item]
@@ -70,7 +70,7 @@ struct YouTubeImportModelTests {
         // Tracks survive (nullify)
         let tracksLeft = try ctx.fetch(FetchDescriptor<Track>())
         #expect(tracksLeft.count == 1)
-        #expect(tracksLeft[0].youTubeId == "v1")
+        #expect(tracksLeft[0].youTubeId == "yt_track_del")
         // The inverse relationship is nullified
         #expect((tracksLeft[0].youTubeImportItems ?? []).isEmpty)
     }

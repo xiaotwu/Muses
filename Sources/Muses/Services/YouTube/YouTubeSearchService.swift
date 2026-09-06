@@ -31,7 +31,7 @@ final class YouTubeSearchService {
         do {
             return try await bridge.searchYouTube(query: query, limit: limit, timeout: 30)
         } catch {
-            log.error("searchYouTube 失败:\(error.localizedDescription)")
+            log.error("searchYouTube failed: \(error.localizedDescription)")
             throw YouTubeImportError.networkError(error.localizedDescription)
         }
     }
@@ -73,7 +73,7 @@ final class YouTubeSearchService {
                 }
             }
             try ctx.save()
-            log.info("导入搜索结果 \(entry.id)(\(entry.title))")
+            log.info("Imported search result \(entry.id) (\(entry.title))")
         }
         return TrackSnapshot(from: track)
     }

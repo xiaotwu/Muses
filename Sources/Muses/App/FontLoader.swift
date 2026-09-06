@@ -15,14 +15,14 @@ enum FontLoader {
         guard !didRegister else { return }
         didRegister = true
         guard let url = MusesResources.monteCarloFontURL else {
-            AppLog.for("FontLoader").warning("MonteCarlo.ttf 资源未找到,字标回退系统字体")
+            AppLog.for("FontLoader").warning("MonteCarlo.ttf resource not found, wordmark falling back to system font")
             return
         }
         var error: Unmanaged<CFError>?
         let ok = CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error)
         if !ok {
-            let desc = error?.takeRetainedValue().localizedDescription ?? "未知错误"
-            AppLog.for("FontLoader").warning("MonteCarlo 注册失败:\(desc)")
+            let desc = error?.takeRetainedValue().localizedDescription ?? "Unknown error"
+            AppLog.for("FontLoader").warning("MonteCarlo registration failed: \(desc)")
         }
     }
 }

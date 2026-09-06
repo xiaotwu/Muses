@@ -1,13 +1,13 @@
 import AppKit
 import Foundation
+import SwiftUI
 
 /// Menu-bar/tray controller (Final Spec §10.1 Feature 1 — NSStatusItem tray).
 ///
 /// Owns an `NSStatusItem`; menu content refreshes the current track on
 /// `PlaybackEventBus.trackStarted`. Feature flag `PrefKey.ffTray` (off by default):
-/// off → hides and releases the status item. All actions dispatch through injected
-/// closures (production wires CommandRegistry/PlaybackService; tests inject recorders),
-/// enabling AppKit-free unit testing.
+/// off → hides and releases the status item. Left-click opens the modern Figure 2 Liquid Glass
+/// player card popover (`MenuBarPlayerView`), while right-click opens the fast standard menu.
 @MainActor
 final class TrayController {
     private let trackProvider: () -> TrackSnapshot?
@@ -20,7 +20,11 @@ final class TrayController {
     private let onOpenMini: () -> Void
     private let onOpenMain: () -> Void
     private let onQuit: () -> Void
+    private weak var playbackService: PlaybackService?
+    private weak var audioDevices: AudioDeviceService?
+
     private var statusItem: NSStatusItem?
+    private var popover: NSPopover?
     private(set) var revision: Int = 0
 
     init(trackProvider: @escaping () -> TrackSnapshot?,
@@ -32,7 +36,9 @@ final class TrayController {
          onAddToInbox: @escaping () -> Void,
          onOpenMini: @escaping () -> Void,
          onOpenMain: @escaping () -> Void,
-         onQuit: @escaping () -> Void) {
+         onQuit: @escaping () -> Void,
+         playback: PlaybackService? = nil,
+         audioDevices: AudioDeviceService? = nil) {
         self.trackProvider = trackProvider
         self.isPlayingProvider = isPlayingProvider
         self.onPlayPause = onPlayPause
@@ -43,6 +49,8 @@ final class TrayController {
         self.onOpenMini = onOpenMini
         self.onOpenMain = onOpenMain
         self.onQuit = onQuit
+        self.playbackService = playback
+        self.audioDevices = audioDevices
     }
 
     /// Toggles the tray: enabled → create and build the menu; disabled → release it. Idempotent.
@@ -54,6 +62,8 @@ final class TrayController {
             }
             rebuild()
         } else {
+            popover?.performClose(nil)
+            popover = nil
             if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
             statusItem = nil
         }
@@ -70,12 +80,29 @@ final class TrayController {
     private func rebuild() {
         guard let item = statusItem else { return }
         let track = trackProvider()
-        let playing = isPlayingProvider()
         item.button?.title = ""
         item.button?.image = TrayIcon.templateImage()
         item.button?.imagePosition = .imageOnly
         item.button?.imageScaling = .scaleProportionallyDown
         item.button?.toolTip = track.map { "\($0.title) — \($0.artist)" } ?? tr("Muses", "Muses")
+        item.button?.target = self
+        item.button?.action = #selector(statusItemClicked(_:))
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        item.menu = nil
+    }
+
+    @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        let event = NSApp.currentEvent
+        if event?.type == .rightMouseUp {
+            showContextMenu(sender)
+        } else {
+            togglePopover(sender)
+        }
+    }
+
+    private func showContextMenu(_ sender: NSStatusBarButton) {
+        let track = trackProvider()
+        let playing = isPlayingProvider()
         let menu = NSMenu()
         menu.autoenablesItems = false
         for spec in TrayMenuModel.items(track: track, isPlaying: playing) {
@@ -87,10 +114,46 @@ final class TrayController {
             mi.target = self
             mi.tag = TrayMenuModel.tag(for: spec.kind)
             mi.isEnabled = spec.enabled
-            mi.target = self
             menu.addItem(mi)
         }
-        item.menu = menu
+        statusItem?.popUpMenu(menu)
+    }
+
+    private func togglePopover(_ sender: NSStatusBarButton) {
+        if let popover, popover.isShown {
+            popover.performClose(nil)
+            return
+        }
+
+        guard let playback = playbackService else {
+            showContextMenu(sender)
+            return
+        }
+
+        let p = NSPopover()
+        p.behavior = .transient
+        p.animates = true
+
+        let cardView = MenuBarPlayerView(
+            onOpenMain: { [weak self] in
+                self?.popover?.performClose(nil)
+                self?.onOpenMain()
+            },
+            onQuit: { [weak self] in
+                self?.popover?.performClose(nil)
+                self?.onQuit()
+            }
+        )
+        .environment(playback)
+        .environment(audioDevices)
+
+        let hosting = NSHostingController(rootView: cardView)
+        p.contentViewController = hosting
+        p.contentSize = NSSize(width: 310, height: 185)
+
+        self.popover = p
+        p.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
+        p.contentViewController?.view.window?.makeKey()
     }
 
     @objc private func menuAction(_ sender: NSMenuItem) {

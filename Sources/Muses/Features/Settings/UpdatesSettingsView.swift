@@ -22,6 +22,7 @@ struct UpdatesSettingsView: View {
     var body: some View {
         Section(tr("Updates", "更新")) {
             Toggle(tr("Check for Updates Automatically", "自动检查更新"), isOn: $checkAutomatically)
+                .tint(BrandColors.magenta)
 
             HStack {
                 Button {
@@ -70,9 +71,5 @@ struct UpdatesSettingsView: View {
             .buttonStyle(.borderedProminent)
             .tint(BrandColors.magenta)
         }
-        Text(tr("Checks for updates via GitHub Releases API. New versions open the GitHub release page for manual download.",
-                "通过 GitHub Releases API 检查更新。发现新版本时打开 GitHub Release 页手动下载。"))
-            .font(.caption2)
-            .foregroundStyle(BrandColors.textSecondary.opacity(0.7))
     }
 }

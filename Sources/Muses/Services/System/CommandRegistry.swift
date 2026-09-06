@@ -16,6 +16,7 @@ final class CommandRegistry {
     static let previous = "player.previous"
     static let likeCurrent = "library.likeCurrent"
     static let toggleQueue = "ui.toggleQueue"
+    static let toggleNowPlaying = "ui.toggleNowPlaying"
     static let focusSearch = "ui.focusSearch"
 
     private var handlers: [String: () -> Void] = [:]

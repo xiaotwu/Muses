@@ -12,30 +12,68 @@ struct MiniPlayerView: View {
     @Environment(PlaybackService.self) private var playback
     @Environment(LibraryService.self) private var library
     @AppStorage(PrefKey.theme) private var theme = "auto"
-    @State private var alwaysOnTop = false
+    @State private var alwaysOnTop = true
+    @State private var isHovered = false
+
+    private var progressFraction: CGFloat {
+        guard playback.state.duration > 0 else { return 0 }
+        return CGFloat(min(1.0, max(0.0, playback.state.position / playback.state.duration)))
+    }
 
     var body: some View {
         ThemeApplier {
-            VStack(spacing: 14) {
-                ArtworkView(source: ArtworkSource.resolve(for: playback.state.track),
-                             cornerRadius: 10, glyphSize: 48, targetSize: 180)
-                    .frame(width: 180, height: 180)
+            let shape = Capsule()
+            HStack(spacing: 12) {
+                // Left: Circular Play/Pause button with circular progress ring (Figure 1)
+                playWithProgressRing
 
-                Text(title)
-                    .font(.headline).lineLimit(1)
-                    .foregroundStyle(BrandColors.textPrimary)
-                Text(artist)
-                    .font(.subheadline).lineLimit(1)
-                    .foregroundStyle(BrandColors.textSecondary)
+                // Center: Track Title & Artist
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 13.5, weight: .bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
 
-                progressView
-                controls
-                volumeRow
+                    Text(artist)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(BrandColors.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                // Right: Frosted circular Prev & Next buttons + Pin toggle (Figure 1)
+                HStack(spacing: 6) {
+                    circularFrostedButton("backward.fill", help: tr("Previous", "上一首")) {
+                        playback.previous()
+                    }
+
+                    circularFrostedButton("forward.fill", help: tr("Next", "下一首")) {
+                        playback.next()
+                    }
+
+                    Button {
+                        alwaysOnTop.toggle()
+                    } label: {
+                        Image(systemName: alwaysOnTop ? "pin.fill" : "pin")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(alwaysOnTop ? BrandColors.magenta : BrandColors.textSecondary)
+                            .frame(width: 22, height: 22)
+                    }
+                    .buttonStyle(.plain)
+                    .help(tr("Keep on top", "常驻置顶"))
+                }
             }
-            .padding(18)
-            .frame(width: 240)
-            .musesGlass(cornerRadius: 16)
-            .overlay(alignment: .topTrailing) { topRightControls }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .frame(width: 340, height: 60)
+            .musesGlass(in: shape, role: .player)
+            .overlay(
+                shape.stroke(isHovered ? Color.white.opacity(0.28) : BrandColors.hairline, lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
+            .onHover { isHovered = $0 }
         }
         .windowLevel(alwaysOnTop ? .floating : .normal)
         .background(WindowAccessor { win in
@@ -45,72 +83,67 @@ struct MiniPlayerView: View {
 
     // MARK: - Subviews
 
-    private var progressView: some View {
-        TimelineView(.animation(minimumInterval: 0.25, paused: !playback.state.isPlaying)) { ctx in
-            let pos = playback.state.position
-            let dur = max(playback.state.duration, 0.001)
-            ProgressView(value: min(pos / dur, 1.0))
-                .tint(BrandColors.magenta)
+    private var playWithProgressRing: some View {
+        TimelineView(.animation(minimumInterval: 0.25, paused: !playback.state.isPlaying)) { _ in
+            Button {
+                playback.toggle()
+            } label: {
+                ZStack {
+                    // Background track ring
+                    Circle()
+                        .stroke(Color.white.opacity(0.18), lineWidth: 2.5)
+                        .frame(width: 38, height: 38)
+
+                    // Active progress ring (Figure 1)
+                    Circle()
+                        .trim(from: 0, to: progressFraction)
+                        .stroke(
+                            BrandColors.magenta,
+                            style: StrokeStyle(lineWidth: 2.5, lineCap: .round)
+                        )
+                        .rotationEffect(.degrees(-90))
+                        .frame(width: 38, height: 38)
+
+                    // Center Play/Pause button
+                    Circle()
+                        .fill(BrandColors.magenta)
+                        .frame(width: 30, height: 30)
+
+                    Image(systemName: playback.state.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white)
+                        .offset(x: playback.state.isPlaying ? 0 : 1)
+                }
+                .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help(playback.state.isPlaying ? tr("Pause", "暂停") : tr("Play", "播放"))
         }
     }
 
-    private var controls: some View {
-        HStack(spacing: 22) {
-            Button { playback.previous() } label: {
-                Image(systemName: "backward.fill")
-            }.buttonStyle(.borderless).help(tr("Previous", "上一首"))
-
-            Button { playback.toggle() } label: {
-                Image(systemName: playback.state.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.title2)
-            }.buttonStyle(.borderless).help(tr("Play / Pause", "播放/暂停"))
-
-            Button { playback.next() } label: {
-                Image(systemName: "forward.fill")
-            }.buttonStyle(.borderless).help(tr("Next", "下一首"))
-
-            Button { toggleLike() } label: {
-                Image(systemName: isLiked ? "heart.fill" : "heart")
-            }.buttonStyle(.borderless).help(tr("Like", "收藏"))
+    private func circularFrostedButton(_ systemName: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .fill(.ultraThinMaterial)
+                    .frame(width: 30, height: 30)
+                Circle()
+                    .stroke(Color.white.opacity(0.20), lineWidth: 0.75)
+                    .frame(width: 30, height: 30)
+                Image(systemName: systemName)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(BrandColors.textPrimary)
+            }
+            .contentShape(Circle())
         }
-        .font(.title3)
-        .foregroundStyle(BrandColors.textPrimary)
+        .buttonStyle(.plain)
+        .help(help)
     }
 
-    private var volumeRow: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "speaker.fill").foregroundStyle(BrandColors.textSecondary)
-            Slider(value: Binding(get: { Double(playback.volume) },
-                                    set: { playback.setVolume(Float($0)) }), in: 0...1)
-                .tint(BrandColors.magenta)
-            Image(systemName: "speaker.wave.3.fill").foregroundStyle(BrandColors.textSecondary)
-        }
-        .font(.caption)
-    }
+    // MARK: - Helpers
 
-    private var topRightControls: some View {
-        Button { alwaysOnTop.toggle() } label: {
-            Image(systemName: alwaysOnTop ? "pin.fill" : "pin")
-                .font(.caption)
-                .foregroundStyle(BrandColors.textSecondary)
-        }
-        .buttonStyle(.borderless)
-        .padding(8)
-        .help(tr("Keep on top", "常驻置顶"))
-    }
-
-    // MARK: - helpers
-
-    private var title: String { playback.state.track?.title ?? tr("Not Playing", "未播放") }
-    private var artist: String { playback.state.track?.artist ?? "—" }
-    private var isLiked: Bool {
-        guard let id = playback.state.track?.id, let t = library.track(by: id) else { return false }
-        return t.liked
-    }
-    private func toggleLike() {
-        guard let id = playback.state.track?.id else { return }
-        library.toggleLike(id: id)
-    }
+    private var title: String { playback.state.track?.title ?? tr("Not Playing", "未在播放") }
+    private var artist: String { playback.state.track?.artist ?? "Muses" }
 }
 
 /// SwiftUI window accessor: gets the underlying `NSWindow` so native properties like autosave/level can be set.

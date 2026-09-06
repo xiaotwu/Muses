@@ -68,6 +68,21 @@ final class LibraryService {
         track.year = year
         track.genre = genre
         track.lyrics = lyrics
+
+        let cleanArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        if track.artistCatalogID == nil || track.artistCatalogID?.hasPrefix("artist:") == true {
+            let resolved = !cleanArtist.isEmpty ? cleanArtist : "Unknown Artist"
+            track.artistCatalogID = "artist:\(resolved.lowercased())"
+        }
+        if track.releaseCatalogID == nil || track.releaseCatalogID?.hasPrefix("album:") == true || track.releaseCatalogID?.hasPrefix("single:") == true {
+            let artistKey = (!cleanArtist.isEmpty ? cleanArtist : "Unknown Artist").lowercased()
+            if let a = albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !a.isEmpty {
+                track.releaseCatalogID = "album:\(artistKey):\(a.lowercased())"
+            } else {
+                track.releaseCatalogID = "single:\(track.youTubeId)"
+            }
+        }
+
         do {
             try context.save()
             metadataRevision &+= 1

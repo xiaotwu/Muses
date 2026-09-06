@@ -68,7 +68,7 @@ final class UpdateService {
 
         let urlString = "https://api.github.com/repos/\(repo)/releases/latest"
         guard let url = URL(string: urlString) else {
-            lastError = "无效的仓库地址"
+            lastError = "Invalid repository URL"
             return
         }
         var req = URLRequest(url: url)
@@ -81,30 +81,30 @@ final class UpdateService {
         do {
             let (data, resp) = try await session.data(for: req)
             guard let http = resp as? HTTPURLResponse else {
-                lastError = "非 HTTP 响应"; return
+                lastError = "Non-HTTP response"; return
             }
             guard (200..<300).contains(http.statusCode) else {
-                lastError = "GitHub API 返回 \(http.statusCode)"
-                log.error("更新检查失败:\(self.lastError ?? "")")
+                lastError = "GitHub API returned \(http.statusCode)"
+                log.error("Update check failed: \(self.lastError ?? "")")
                 return
             }
             guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                lastError = "响应解析失败"; return
+                lastError = "Failed to parse response"; return
             }
             let tag = obj["tag_name"] as? String ?? ""
             let clean = tag.hasPrefix("v") || tag.hasPrefix("V")
                 ? String(tag.dropFirst())
                 : tag
-            guard !clean.isEmpty else { lastError = "tag_name 为空"; return }
+            guard !clean.isEmpty else { lastError = "tag_name is empty"; return }
 
             latestVersion = clean
             releaseURL = (obj["html_url"] as? String).flatMap(URL.init(string:))
             defaults.set(clean, forKey: PrefKey.latestKnownVersion)
             defaults.set(Date(), forKey: PrefKey.lastUpdateCheckAt)
-            log.info("更新检查完成:最新 \(clean),当前 \(self.currentVersion),有更新=\(self.hasUpdate)")
+            log.info("Update check completed: latest \(clean), current \(self.currentVersion), hasUpdate=\(self.hasUpdate)")
         } catch {
             lastError = error.localizedDescription
-            log.error("更新检查网络错误:\(error.localizedDescription)")
+            log.error("Update check network error: \(error.localizedDescription)")
         }
     }
 

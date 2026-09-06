@@ -501,13 +501,13 @@ struct ChromeLayoutTests {
 
     @Test("All Playlists uses the measured hero-card grid")
     func playlistOverviewHeroMetrics() {
-        #expect(PlaylistOverviewMetrics.minimumColumnWidth == 216)
-        #expect(PlaylistOverviewMetrics.maximumColumnWidth == 220)
-        #expect(PlaylistOverviewMetrics.cardWidth == 218)
-        #expect(PlaylistOverviewMetrics.artworkHeight == 188)
-        #expect(PlaylistOverviewMetrics.footerHeight == 104)
-        #expect(PlaylistOverviewMetrics.cardHeight == 292)
-        #expect(PlaylistOverviewMetrics.cornerRadius == 16)
+        #expect(PlaylistOverviewMetrics.minimumColumnWidth == 250)
+        #expect(PlaylistOverviewMetrics.maximumColumnWidth == 280)
+        #expect(PlaylistOverviewMetrics.cardWidth == 260)
+        #expect(PlaylistOverviewMetrics.artworkHeight == 230)
+        #expect(PlaylistOverviewMetrics.footerHeight == 100)
+        #expect(PlaylistOverviewMetrics.cardHeight == 330)
+        #expect(PlaylistOverviewMetrics.cornerRadius == 20)
         #expect(PlaylistOverviewMetrics.columnSpacing == 24)
         #expect(PlaylistOverviewMetrics.rowSpacing == 30)
         #expect(PlaylistOverviewMetrics.hoverLift == 5)
@@ -565,10 +565,10 @@ struct ChromeLayoutTests {
 
     @Test("personal discovery: liked plus mix")
     func personalDiscoveryLikedAndMix() async {
-        let liked = [YouTubeVideo(id: "v1", title: "Song A", channelTitle: "Ch", thumbnailURL: nil)]
+        let liked = [YouTubeVideo(id: "yt_sample_1", title: "Song A", channelTitle: "Ch", thumbnailURL: nil)]
         let mix = [YTDlpBridge.YTDlpPlaylistEntry(id: "m1", title: "Mix Song", uploader: "U")]
         let sections = await YouTubePersonalDiscovery.sections(liked: liked) { url in
-            #expect(url.contains("RDv1"))
+            #expect(url.contains("RDyt_sample_1"))
             return mix
         }
         #expect(sections.count == 2)
@@ -579,7 +579,7 @@ struct ChromeLayoutTests {
 
     @Test("personal discovery: mix failure still returns liked")
     func personalDiscoveryMixFailureKeepsLiked() async {
-        let liked = [YouTubeVideo(id: "v1", title: "Song A", channelTitle: "Ch", thumbnailURL: nil)]
+        let liked = [YouTubeVideo(id: "yt_sample_1", title: "Song A", channelTitle: "Ch", thumbnailURL: nil)]
         let sections = await YouTubePersonalDiscovery.sections(liked: liked) { _ in
             throw NSError(domain: "test", code: 1)
         }

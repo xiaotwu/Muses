@@ -13,7 +13,7 @@ struct YouTubeOAuthTests {
 
     // MARK: - Keychain (InMemory)
 
-    @Test("InMemoryKeychain: set/get/delete 往返")
+    @Test("InMemoryKeychain: set/get/delete round trip")
     func keychainRoundtrip() {
         let kc = InMemoryKeychain()
         let payload = Data("secret".utf8)
@@ -23,7 +23,7 @@ struct YouTubeOAuthTests {
         #expect(kc.data(for: "a") == nil)
     }
 
-    @Test("InMemoryKeychain: 覆盖写入 + 删除不存在返回 true")
+    @Test("InMemoryKeychain: overwrite and deleting non-existent key returns true")
     func keychainOverwriteAndMissingDelete() {
         let kc = InMemoryKeychain()
         _ = kc.set(Data([1]), for: "k")
@@ -34,7 +34,7 @@ struct YouTubeOAuthTests {
 
     // MARK: - OAuth config / tokens
 
-    @Test("GoogleOAuthSession: saveConfig/loadConfig 往返;空值拒绝")
+    @Test("GoogleOAuthSession: saveConfig/loadConfig round trip; rejects empty values")
     func configRoundtrip() throws {
         let kc = InMemoryKeychain()
         let session = GoogleOAuthSession(keychain: kc, presenter: StubPresenter(), tokenExchange: stubExchange)
@@ -50,7 +50,7 @@ struct YouTubeOAuthTests {
         }
     }
 
-    @Test("OAuthTokenSet: isAccessExpired 60s 边界")
+    @Test("OAuthTokenSet: isAccessExpired 60s margin")
     func tokenExpiry() {
         let now = Date()
         let fresh = OAuthTokenSet(accessToken: "a", refreshToken: "r",
@@ -66,7 +66,7 @@ struct YouTubeOAuthTests {
 
     // MARK: - PKCE helpers (pure)
 
-    @Test("PKCE: codeChallenge 可复现(SHA256 base64url);verifier 唯一")
+    @Test("PKCE: codeChallenge is reproducible (SHA256 base64url); verifier is unique")
     func pkceDeterministic() {
         let verifier = "test-verifier-12345"
         let ch1 = GoogleOAuthSession.codeChallenge(for: verifier)
@@ -89,7 +89,7 @@ struct YouTubeOAuthTests {
 
     // MARK: - connect() flow (stub presenter + stub token exchange)
 
-    @Test("connect(): 成功存令牌(refresh token 非空,isConnected=true)")
+    @Test("connect(): successfully stores tokens (refresh token non-empty, isConnected is true)")
     func connectSuccess() async throws {
         let kc = InMemoryKeychain()
         let presenter = StubPresenter()
@@ -159,7 +159,7 @@ struct YouTubeOAuthTests {
         #expect(account.playlistWriter() != nil)
     }
 
-    @Test("connect(): 用户取消(presenter 返回 nil)抛 userCancelled")
+    @Test("connect(): user cancellation (presenter returns nil) throws userCancelled")
     func connectCancelled() async throws {
         let kc = InMemoryKeychain()
         let presenter = StubPresenter(returnsURL: false)
@@ -173,7 +173,7 @@ struct YouTubeOAuthTests {
         #expect(session.isConnected == false)
     }
 
-    @Test("connect(): 未配置凭证抛 notConfigured")
+    @Test("connect(): unconfigured credentials throws notConfigured")
     func connectNotConfigured() async {
         let kc = InMemoryKeychain()
         let session = GoogleOAuthSession(keychain: kc, presenter: StubPresenter(), tokenExchange: stubExchange)
@@ -184,7 +184,7 @@ struct YouTubeOAuthTests {
 
     // MARK: - refresh()
 
-    @Test("refresh(): 刷新令牌;响应缺 refresh_token 时沿用旧值")
+    @Test("refresh(): refreshes token; reuses old refresh_token when missing in response")
     func refreshPreservesRefreshToken() async throws {
         let kc = InMemoryKeychain()
         // Pre-seed stored tokens (including a refresh token).
@@ -207,7 +207,7 @@ struct YouTubeOAuthTests {
         #expect(after?.refreshToken == "RT") // keeps the old refresh token
     }
 
-    @Test("refresh(): 无 refresh token 抛 noRefreshToken")
+    @Test("refresh(): missing refresh token throws noRefreshToken")
     func refreshNoRefreshToken() async throws {
         let kc = InMemoryKeychain()
         let session = GoogleOAuthSession(keychain: kc, presenter: StubPresenter(), tokenExchange: stubExchange)
@@ -225,7 +225,7 @@ struct YouTubeOAuthTests {
 
     // MARK: - Data API parsing (stub http)
 
-    @Test("DataAPI: channel() 解析 snippet.title;subscriptions 解析 resourceId.channelId")
+    @Test("DataAPI: channel() parses snippet.title; subscriptions parses resourceId.channelId")
     func dataApiChannelAndSubs() async throws {
         let client = YouTubeDataAPIClient(
             accessTokenProvider: { "AT" },
@@ -250,7 +250,7 @@ struct YouTubeOAuthTests {
         #expect(subs.first?.title == "Artist X")
     }
 
-    @Test("DataAPI: likedVideos 解析 channelTitle;myPlaylists 解析 itemCount")
+    @Test("DataAPI: likedVideos parses channelTitle; myPlaylists parses itemCount")
     func dataApiLikedAndPlaylists() async throws {
         let client = YouTubeDataAPIClient(
             accessTokenProvider: { "AT" },
@@ -272,7 +272,7 @@ struct YouTubeOAuthTests {
         #expect(pls.first?.itemCount == 7)
     }
 
-    @Test("DataAPI: playlistItems 解析 playlistItemId;insert 发送 POST")
+    @Test("DataAPI: playlistItems parses playlistItemId; insert sends POST")
     func dataApiPlaylistWrite() async throws {
         let client = YouTubeDataAPIClient(
             accessTokenProvider: { "AT" },
@@ -298,7 +298,7 @@ struct YouTubeOAuthTests {
         try await writer.addVideo(playlistId: "PL1", videoId: "vid2")
     }
 
-    @Test("DataAPI: 401 → unauthorized;分页合并两页")
+    @Test("DataAPI: 401 maps to unauthorized; pagination merges pages")
     func dataApiUnauthorizedAndPaging() async throws {
         let client = YouTubeDataAPIClient(
             accessTokenProvider: { "AT" },
@@ -328,7 +328,7 @@ struct YouTubeOAuthTests {
 
     // MARK: - AccountService.refresh() partial failures + signal derivation
 
-    @Test("AccountService: refresh 分项失败容忍;unauthorized → 断开;signals 派生去重")
+    @Test("AccountService: refresh partial failure tolerance; unauthorized disconnects; signals deduplication")
     func accountRefreshTolerance() async throws {
         let kc = InMemoryKeychain()
         let session = GoogleOAuthSession(keychain: kc, presenter: StubPresenter(), tokenExchange: stubExchange)
@@ -374,7 +374,7 @@ struct YouTubeOAuthTests {
         #expect(signals?.likedArtistNames == ["Artist B"])
     }
 
-    @Test("AccountService: 持久 token 重启后自动刷新账号快照")
+    @Test("AccountService: persisted token auto-rehydrates account snapshot after restart")
     func persistedTokenRestartRehydratesAccount() async throws {
         let kc = InMemoryKeychain()
         let originalSession = GoogleOAuthSession(
@@ -425,7 +425,7 @@ struct YouTubeOAuthTests {
         #expect(restarted.lastError == nil)
     }
 
-    @Test("AccountService: refresh 遇 unauthorized → 断开连接")
+    @Test("AccountService: refresh on unauthorized disconnects session")
     func accountRefreshUnauthorizedDisconnects() async throws {
         let kc = InMemoryKeychain()
         let session = GoogleOAuthSession(keychain: kc, presenter: StubPresenter(), tokenExchange: stubExchange)
@@ -446,7 +446,7 @@ struct YouTubeOAuthTests {
         #expect(account.account == nil)
     }
 
-    @Test("AccountService: 无快照 → signals() 返回 nil")
+    @Test("AccountService: signals() returns nil without snapshot")
     func signalsNilWithoutSnapshot() {
         let account = YouTubeAccountService()
         #expect(account.signals() == nil)
@@ -454,7 +454,7 @@ struct YouTubeOAuthTests {
 
     // MARK: - HomeDiscoveryInput.enriched signal merging
 
-    @Test("enriched: 合并去重保序,限 5;top←liked,liked←subs")
+    @Test("enriched: merges and deduplicates preserving order up to 5")
     func enrichedMerge() {
         let base = HomeDiscoveryInput(
             topArtistNames: ["LocalA"],
@@ -468,7 +468,7 @@ struct YouTubeOAuthTests {
         let enriched = base.enriched(with: signals)
         // top: LocalA + YTA + YTB (deduped; LocalA is not added twice).
         #expect(enriched.topArtistNames == ["LocalA", "YTA", "YTB"])
-        // liked: LocalB + Sub1 + Sub2。
+        // liked: LocalB + Sub1 + Sub2.
         #expect(enriched.likedArtistNames == ["LocalB", "Sub1", "Sub2"])
         // Unchanged fields.
         #expect(enriched.recentlyPlayedArtistNames == ["Recent"])
@@ -476,7 +476,7 @@ struct YouTubeOAuthTests {
         #expect(enriched.hour == 19)
     }
 
-    @Test("enriched: 合并上限 5")
+    @Test("enriched: merge upper limit is 5")
     func enrichedLimit5() {
         let base = HomeDiscoveryInput(
             topArtistNames: [], recentlyPlayedArtistNames: [],

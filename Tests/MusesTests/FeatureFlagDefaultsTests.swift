@@ -9,7 +9,7 @@ import Foundation
 @MainActor
 struct FeatureFlagDefaultsTests {
 
-    @Test("应用内功能标志与菜单栏图标默认开启")
+    @Test("In-app feature flags and menu bar icon default on")
     func inAppFlagsDefaultOn() {
         let on = FeatureFlagDefaults.enabledByDefault
         #expect(on[PrefKey.ffSmartHistory] == true)
@@ -27,7 +27,7 @@ struct FeatureFlagDefaultsTests {
         #expect(on[PrefKey.ffTray] == true)
     }
 
-    @Test("全局热键/迷你播放器/桌面歌词不在默认开启清单")
+    @Test("Global hotkeys, mini player, and desktop lyrics are not enabled by default")
     func desktopFlagsNotInDefaultOn() {
         let on = FeatureFlagDefaults.enabledByDefault
         #expect(on[PrefKey.ffGlobalHotkeys] == nil)
@@ -35,7 +35,7 @@ struct FeatureFlagDefaultsTests {
         #expect(on[PrefKey.ffDesktopLyrics] == nil)
     }
 
-    @Test("清单含 12 个键(含菜单栏图标,不含退役的本地音乐强化)")
+    @Test("Inventory contains 12 keys including tray icon, excluding retired local flags")
     func exactlyTwelveFlags() {
         #expect(FeatureFlagDefaults.enabledByDefault.count == 12)
     }

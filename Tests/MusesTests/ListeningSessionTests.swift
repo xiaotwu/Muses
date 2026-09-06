@@ -55,7 +55,7 @@ struct ListeningSessionTests {
 
     // MARK: - Model
 
-    @Test("ListeningSession 持久化往返 + status 计算属性")
+    @Test("ListeningSession persistence round trip and status computed property")
     func sessionRoundTrip() throws {
         let container = try makeContainer()
         let ctx = ModelContext(container)
@@ -71,7 +71,7 @@ struct ListeningSessionTests {
         #expect(fetched?.endedAt == nil)
     }
 
-    @Test("ListeningSession 表已加入 schema(空查询成功)")
+    @Test("ListeningSession table included in schema (empty query succeeds)")
     func schemaIncludesListeningSession() throws {
         let container = try makeContainer()
         let ctx = ModelContext(container)
@@ -80,7 +80,7 @@ struct ListeningSessionTests {
 
     // MARK: - Events → session lifecycle
 
-    @Test("trackStarted 开启 active 会话 + checkpoint 崩溃恢复槽(位置 0)")
+    @Test("trackStarted opens active session and checkpoints crash-recovery slot at position 0")
     func trackStartedOpensSession() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
@@ -104,7 +104,7 @@ struct ListeningSessionTests {
         _ = svc
     }
 
-    @Test("后续 trackStarted 继续同一会话(更新曲目,不新建行)")
+    @Test("Subsequent trackStarted continues same session updating track without inserting new row")
     func subsequentTrackStartedContinuesSession() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
@@ -124,7 +124,7 @@ struct ListeningSessionTests {
         _ = svc
     }
 
-    @Test("trackSeeked 更新会话位置 + 崩溃恢复槽")
+    @Test("trackSeeked updates session position and crash recovery slot")
     func seekCheckpointsPosition() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
@@ -145,7 +145,7 @@ struct ListeningSessionTests {
         _ = svc
     }
 
-    @Test("trackCompleted + 队列耗尽(.off 末位、无插队)→ 结束会话")
+    @Test("trackCompleted with queue exhaustion ends session")
     func completionWithExhaustionEndsSession() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
@@ -172,7 +172,7 @@ struct ListeningSessionTests {
         _ = svc
     }
 
-    @Test("trackCompleted 但仍有下一首 → 会话保持 active")
+    @Test("trackCompleted keeps session active when queue has next track")
     func completionWithoutExhaustionKeepsActive() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
@@ -198,7 +198,7 @@ struct ListeningSessionTests {
 
     // MARK: - Feature flag gating
 
-    @Test("ffSessions 关闭:trackStarted 不落库、不加载恢复曲目")
+    @Test("ffSessions disabled: trackStarted does not persist or load restore track")
     func disabledFlagNoOps() async throws {
         let container = try makeContainer()
         let restored = snap("Restored")
@@ -239,7 +239,7 @@ struct ListeningSessionTests {
         try? ctx.save()
     }
 
-    @Test("启动恢复:自动加载上次位置并保持暂停")
+    @Test("Startup restore: loads last position paused")
     func restoreLoadsPausedAtPosition() async throws {
         let container = try makeContainer()
         let track = snap("LateNight", id: UUID())
@@ -265,7 +265,7 @@ struct ListeningSessionTests {
         _ = svc
     }
 
-    @Test("自动恢复位置不会启动播放历史生命周期")
+    @Test("Automatic restore does not trigger playback history lifecycle")
     func automaticRestoreDoesNotStartPlayback() async throws {
         let container = try makeContainer()
         let track = snap("Resume", id: UUID(), durationSec: 200)
@@ -287,7 +287,7 @@ struct ListeningSessionTests {
         _ = svc
     }
 
-    @Test("自动恢复位超出 duration-2s 时 clamp")
+    @Test("Automatic restore position clamps when exceeding duration minus 2s")
     func automaticRestoreClampsToDurationMinus2() async throws {
         let container = try makeContainer()
         let track = snap("Resume", id: UUID(), durationSec: 200)
@@ -311,7 +311,7 @@ struct ListeningSessionTests {
         _ = svc
     }
 
-    @Test("陈旧会话仍恢复上次位置并保持暂停")
+    @Test("Stale session still restores last position paused")
     func olderSessionStillRestoresPaused() async throws {
         let container = try makeContainer()
         let track = snap("Stale", id: UUID())
@@ -334,7 +334,7 @@ struct ListeningSessionTests {
         _ = svc
     }
 
-    @Test("崩溃遗留多条 active:仅保留最新,其余被结束")
+    @Test("Crash recovery with multiple active sessions keeps only latest and ends remainder")
     func multipleActiveCollapsesToLatest() async throws {
         let container = try makeContainer()
         let ctx = ModelContext(container)
@@ -371,7 +371,7 @@ struct ListeningSessionTests {
         _ = svc
     }
 
-    @Test("无可恢复会话:不加载曲目")
+    @Test("No restorable session does not load track")
     func noRestorableSessionDoesNotLoad() async throws {
         let container = try makeContainer()
         let q = makeQueue(container: container)

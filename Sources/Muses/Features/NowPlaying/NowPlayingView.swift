@@ -305,55 +305,8 @@ struct NowPlayingView: View {
     }
 
     private var outputAndVolume: some View {
-        HStack(spacing: 8) {
-            outputMenu
-
-            Rectangle()
-                .fill(BrandColors.hairline)
-                .frame(width: 1, height: 16)
-
-            Slider(
-                value: Binding(
-                    get: { Double(playback.volume) },
-                    set: { value in
-                        let volume = Float(value)
-                        rememberedAudibleVolume = NowPlayingVolumePolicy.rememberedAudibleVolume(
-                            current: volume,
-                            previous: rememberedAudibleVolume
-                        )
-                        playback.setVolume(volume)
-                    }
-                ),
-                in: 0...1
-            )
-            .controlSize(.mini)
-            .tint(BrandColors.textPrimary)
-            .frame(width: 88)
+        LiquidGlassVolumeBar(width: 220, height: 32)
             .blocksWindowDrag()
-            .accessibilityLabel(tr("Volume", "音量"))
-            .accessibilityValue("\(Int((playback.volume * 100).rounded()))%")
-
-            Button(action: toggleMute) {
-                Image(systemName: volumeSymbol)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(BrandColors.textPrimary.opacity(0.78))
-                    .frame(width: 24, height: 24)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .blocksWindowDrag()
-            .help(NowPlayingVolumePolicy.isMuted(playback.volume)
-                ? tr("Restore volume", "恢复音量")
-                : tr("Mute", "静音"))
-            .accessibilityLabel(NowPlayingVolumePolicy.isMuted(playback.volume)
-                ? tr("Restore volume", "恢复音量")
-                : tr("Mute", "静音"))
-            .accessibilityValue("\(Int((playback.volume * 100).rounded()))%")
-        }
-        .padding(.horizontal, 10)
-        .frame(height: 32)
-        .musesGlass(in: Capsule(), role: .compactControl)
-        .overlay(Capsule().stroke(BrandColors.hairline, lineWidth: 1))
     }
 
     private var outputMenu: some View {
@@ -387,12 +340,12 @@ struct NowPlayingView: View {
             Image(systemName: "airplayaudio")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(BrandColors.magenta)
-                .frame(width: 24, height: 24)
+                .frame(width: 28, height: 28)
                 .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .frame(width: 24, height: 24)
+        .frame(width: 28, height: 28)
         .help(tr("Audio output", "音频输出"))
         .accessibilityLabel(tr("Choose audio output", "选择音频输出"))
     }
@@ -454,14 +407,14 @@ struct NowPlayingView: View {
 
     private var trackIdentity: some View {
         HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(playback.state.track?.title ?? "—")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(BrandColors.textPrimary)
-                    .lineLimit(1)
+                    .lineLimit(2)
 
                 Text(subtitleLine)
-                    .font(.system(size: 12, weight: .regular))
+                    .font(.system(size: 14, weight: .regular))
                     .foregroundStyle(BrandColors.textPrimary.opacity(0.7))
                     .lineLimit(1)
             }
@@ -470,7 +423,7 @@ struct NowPlayingView: View {
             likeButton
             moreMenu
         }
-        .frame(height: 32, alignment: .top)
+        .frame(minHeight: 48, alignment: .top)
     }
 
     private var moreMenu: some View {
@@ -498,15 +451,15 @@ struct NowPlayingView: View {
             }
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(BrandColors.textPrimary.opacity(0.78))
-                .frame(width: 24, height: 24)
+                .frame(width: 28, height: 28)
                 .background(BrandColors.textPrimary.opacity(0.12), in: Circle())
                 .contentShape(Circle())
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .frame(width: 24, height: 24)
+        .frame(width: 28, height: 28)
         .disabled(playback.state.track == nil)
         .help(tr("More", "更多"))
         .accessibilityLabel(tr("More playback actions", "更多播放操作"))
@@ -519,9 +472,9 @@ struct NowPlayingView: View {
             if let id = playback.state.track?.id { library.toggleLike(id: id) }
         } label: {
             Image(systemName: liked ? "star.fill" : "star")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(liked ? BrandColors.magenta : BrandColors.textPrimary.opacity(0.78))
-                .frame(width: 24, height: 24)
+                .frame(width: 28, height: 28)
                 .background(BrandColors.textPrimary.opacity(0.12), in: Circle())
                 .contentShape(Circle())
         }
@@ -567,12 +520,12 @@ struct NowPlayingView: View {
             .overlay {
                 if let qualityLabel {
                     Label(qualityLabel, systemImage: "waveform")
-                        .font(.system(size: 8, weight: .medium))
+                        .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(BrandColors.textPrimary.opacity(0.42))
                 }
             }
-            .font(.system(size: 8, weight: .regular).monospacedDigit())
-            .foregroundStyle(BrandColors.textPrimary.opacity(0.5))
+            .font(.system(size: 11, weight: .regular).monospacedDigit())
+            .foregroundStyle(BrandColors.textPrimary.opacity(0.6))
         }
     }
 

@@ -30,6 +30,7 @@ enum AppleMusicTokens {
     static let pageTitleSize: CGFloat = 34
     static let sectionTitleSize: CGFloat = 22
     static let sidebarWidth: CGFloat = 244
+    static let sidebarCollapsedWidth: CGFloat = 88
     static let sidebarCorner: CGFloat = 20
     static let sidebarInset: CGFloat = AppleMusicSpacing.chromeOuter
     static let cardCorner: CGFloat = 12
@@ -37,6 +38,7 @@ enum AppleMusicTokens {
     static let editorialHeight: CGFloat = 309
     static let editorialAspect: CGFloat = editorialWidth / editorialHeight
     static let contentPaddingX: CGFloat = AppleMusicSpacing.pageHorizontal
+    static let maxContentWidth: CGFloat = 1560
     static let scrollBottomInset: CGFloat = OverlayChromeMetrics.scrollBottomInset
     static let navItemHeight: CGFloat = 34
     static let playerBottomMargin: CGFloat = 20
@@ -44,13 +46,13 @@ enum AppleMusicTokens {
     static let capsuleWidth: CGFloat = 668
     static let capsuleHeight: CGFloat = 56
     static let capsuleCorner: CGFloat = 1000
-    static let collectionDeckRoomyCardWidth: CGFloat = 156
-    static let collectionDeckCompactCardWidth: CGFloat = 126
-    static let collectionDeckRoomyFooterHeight: CGFloat = 56
-    static let collectionDeckCompactFooterHeight: CGFloat = 48
-    static let collectionDeckRoomySpread: CGFloat = 86
-    static let collectionDeckMediumSpread: CGFloat = 78
-    static let collectionDeckCompactSpread: CGFloat = 72
+    static let collectionDeckRoomyCardWidth: CGFloat = 220
+    static let collectionDeckCompactCardWidth: CGFloat = 175
+    static let collectionDeckRoomyFooterHeight: CGFloat = 68
+    static let collectionDeckCompactFooterHeight: CGFloat = 56
+    static let collectionDeckRoomySpread: CGFloat = 110
+    static let collectionDeckMediumSpread: CGFloat = 96
+    static let collectionDeckCompactSpread: CGFloat = 84
     static let collectionDeckWideBreakpoint: CGFloat = 810
     static let collectionDeckCompactBreakpoint: CGFloat = 620
     static let collectionDeckCompactHeight: CGFloat = 680
@@ -71,6 +73,7 @@ enum AppleMusicChrome {
 
 enum LibraryChromePolicy {
     static let sidebarIsPermanent = true
+    static let collapsedWidth: CGFloat = AppleMusicTokens.sidebarCollapsedWidth
 
     /// Music Inbox was a revisit/triage queue. Hidden from chrome; tables remain.
     static let showsInbox = false
@@ -117,13 +120,13 @@ enum SearchWindowPolicy {
 
 /// Open Design measurements for the All Playlists hero-card overview.
 enum PlaylistOverviewMetrics {
-    static let minimumColumnWidth: CGFloat = 216
-    static let maximumColumnWidth: CGFloat = 220
-    static let cardWidth: CGFloat = 218
-    static let artworkHeight: CGFloat = 188
-    static let footerHeight: CGFloat = 104
+    static let minimumColumnWidth: CGFloat = 250
+    static let maximumColumnWidth: CGFloat = 280
+    static let cardWidth: CGFloat = 260
+    static let artworkHeight: CGFloat = 230
+    static let footerHeight: CGFloat = 100
     static let cardHeight: CGFloat = artworkHeight + footerHeight
-    static let cornerRadius: CGFloat = 16
+    static let cornerRadius: CGFloat = 20
     static let columnSpacing: CGFloat = 24
     static let rowSpacing: CGFloat = 30
     static let hoverLift: CGFloat = 5

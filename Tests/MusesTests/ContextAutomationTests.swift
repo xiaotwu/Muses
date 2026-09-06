@@ -21,7 +21,7 @@ struct ContextAutomationTests {
 
     // MARK: - ContextService
 
-    @Test("ContextService: ffContext 关闭 → capture 返回 nil(隐私默认关)")
+    @Test("ContextService: ffContext disabled → capture returns nil")
     func captureDisabledReturnsNil() {
         let svc = ContextService(
             trackActiveAppProvider: { true },
@@ -34,7 +34,7 @@ struct ContextAutomationTests {
         #expect(svc.capture() == nil)
     }
 
-    @Test("ContextService: 开启 + 注入提供者 → 正确 ListeningContext;trackActiveApp 关 → bundleId nil")
+    @Test("ContextService: enabled with providers returns ListeningContext; trackActiveApp off keeps bundleId nil")
     func captureWithProviders() throws {
         // Do not record the frontmost app: even when frontmostAppProvider has a value, bundleId must stay nil.
         let svcNoApp = ContextService(
@@ -64,7 +64,7 @@ struct ContextAutomationTests {
         #expect(ctx2.timeBand == .morning)
     }
 
-    @Test("ListeningContext encode/decode 往返")
+    @Test("ListeningContext encode/decode round trip")
     func contextCodableRoundTrip() {
         let ctx = ListeningContext(hour: 9, dayOfWeek: 3, isWeekend: false,
                                     frontmostAppBundleId: "com.apple.Mail",
@@ -78,7 +78,7 @@ struct ContextAutomationTests {
 
     // MARK: - HistoryService context attachment
 
-    @Test("HistoryService:终结事件携带 contextSummaryJSON(来自注入的 contextProvider)")
+    @Test("HistoryService: terminal event carries contextSummaryJSON from contextProvider")
     func historyAttachesContext() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
@@ -99,7 +99,7 @@ struct ContextAutomationTests {
         #expect(history.eventCount() == 1)
     }
 
-    @Test("HistoryService.contextProfiles:聚合 per-app / late-night / headphone / weekend")
+    @Test("HistoryService.contextProfiles: aggregates per-app, late-night, headphone, weekend")
     func contextProfilesAggregate() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
@@ -128,7 +128,7 @@ struct ContextAutomationTests {
 
     // MARK: - AutomationRule model
 
-    @Test("AutomationRule:trigger/conditions/action 往返 + conditionsJSON 编解码")
+    @Test("AutomationRule: trigger/conditions/action round trip and conditionsJSON coding")
     func ruleRoundTrip() throws {
         let container = try makeContainer()
         let ctx = ModelContext(container)
@@ -176,7 +176,7 @@ struct ContextAutomationTests {
 
     // MARK: - AutomationService.cooldownAllows (pure function)
 
-    @Test("cooldownAllows:nil 冷却恒通过;冷却期内 false;过后 true")
+    @Test("cooldownAllows: nil cooldown passes; false inside cooldown; true after")
     func cooldownAllowsLogic() throws {
         let container = try makeContainer()
         let ctx = ModelContext(container)
@@ -202,7 +202,7 @@ struct ContextAutomationTests {
 
     // MARK: - AutomationService end to end (event → trigger → action + cooldown)
 
-    @Test("端到端:匹配规则触发动作并写 lastFiredAt;冷却期内不重复;非匹配/禁用规则不触发")
+    @Test("End to end: matching rule triggers action, records lastFiredAt, enforces cooldown, ignores disabled rules")
     func endToEndFiring() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
@@ -251,7 +251,7 @@ struct ContextAutomationTests {
         #expect(fired.count == 2)
     }
 
-    @Test("ffAutomation 关闭:handle 直接返回,不触发任何动作")
+    @Test("ffAutomation disabled: handle returns immediately without triggering actions")
     func flagDisabledNoFire() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
@@ -266,7 +266,7 @@ struct ContextAutomationTests {
         #expect(svc.isEnabled == false)
     }
 
-    @Test("条件匹配:app 条件需上下文;无上下文的事件不触发 app 规则")
+    @Test("Condition matching: app condition requires context; event without context does not trigger rule")
     func conditionalFiring() throws {
         // Use separate containers to isolate the two rules, so services sharing one container cannot fetch each other's rules.
         let bus = PlaybackEventBus()

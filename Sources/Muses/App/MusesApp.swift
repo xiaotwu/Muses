@@ -76,10 +76,13 @@ struct MusesApp: App {
         let container = storeLoad.container
         let library = LibraryService(modelContainer: container)
         self.libraryService = library
-        let catalogService = YouTubeCatalogService(modelContainer: container)
-        self.youTubeCatalogService = catalogService
         let ytdlpBridge = YTDlpBridge()
         self.ytDlpBridge = ytdlpBridge
+        let catalogService = YouTubeCatalogService(modelContainer: container, bridge: ytdlpBridge)
+        self.youTubeCatalogService = catalogService
+        Task { @MainActor in
+            catalogService.rebuildFromTrackMetadata()
+        }
         let youtubeEngine = YouTubeStreamEngine(bridge: ytdlpBridge)
         let queue = QueueService()
         queue.modelContext = container.mainContext
@@ -161,7 +164,7 @@ struct MusesApp: App {
             fetchPlaylist: { url in try await ytBridge.fetchPlaylist(url: url) },
             search: { query, limit in try await ytSearchSvc.search(query: query, limit: limit) }
         )
-        // YouTube account service: Google OAuth 2.0 PKCE + YouTube Data API v3.
+        // YouTube account service: Google OAuth 2.0 PKCE + YouTube Data API.
         // OAuth client configuration is held by the app build and tokens live in the macOS
         // Keychain; the user only authorizes in the default browser. OAuth never blocks
         // guest browsing, imports, or playback.
@@ -238,6 +241,9 @@ struct MusesApp: App {
         registry.register(CommandRegistry.toggleQueue) {
             NotificationCenter.default.post(name: .musesToggleQueue, object: nil)
         }
+        registry.register(CommandRegistry.toggleNowPlaying) {
+            NotificationCenter.default.post(name: .musesToggleNowPlaying, object: nil)
+        }
         registry.register(CommandRegistry.focusSearch) {
             NotificationCenter.default.post(name: .musesFocusSearch, object: nil)
         }
@@ -295,7 +301,9 @@ struct MusesApp: App {
             onOpenMain: {
                 MusesSingleInstance.orderFrontMainWindow()
             },
-            onQuit: { NSApp.terminate(nil) })
+            onQuit: { NSApp.terminate(nil) },
+            playback: playback,
+            audioDevices: audioDevices)
         self.trayController = tray
         let desktopLyrics = DesktopLyricsController()
         self.desktopLyricsController = desktopLyrics
@@ -506,6 +514,11 @@ struct MusesApp: App {
                     commandRegistry.execute(CommandRegistry.toggleQueue)
                 }
                 .keyboardShortcut("k", modifiers: .command)
+
+                Button(tr("Now Playing", "正在播放")) {
+                    commandRegistry.execute(CommandRegistry.toggleNowPlaying)
+                }
+                .keyboardShortcut("o", modifiers: .command)
 
                 Button(tr("Search", "搜索")) {
                     commandRegistry.execute(CommandRegistry.focusSearch)

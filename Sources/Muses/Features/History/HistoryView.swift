@@ -51,18 +51,10 @@ struct HistoryView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .bottom) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(tr("History", "历史"))
-                    .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
-                    .foregroundStyle(BrandColors.textPrimary)
-                Text(tr(
-                    "Your listening rhythm, favorites, and recent activity — private to this Mac.",
-                    "你的收听节奏、偏好和最近活动，仅保存在此 Mac。"
-                ))
-                .font(.callout)
-                .foregroundStyle(BrandColors.textSecondary)
-            }
+        HStack(alignment: .center) {
+            Text(tr("History", "历史"))
+                .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
+                .foregroundStyle(BrandColors.textPrimary)
             Spacer()
             if dashboard?.totalEventCount ?? 0 > 0 {
                 ChromeIconButton(

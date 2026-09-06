@@ -19,10 +19,6 @@ struct LanguageSettingsView: View {
                 }
             }
             .pickerStyle(.radioGroup)
-            Text(tr("Changes take effect immediately.",
-                    "更改后立即生效。"))
-                .font(.caption)
-                .foregroundStyle(BrandColors.textSecondary)
         }
     }
 }

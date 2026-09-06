@@ -14,7 +14,7 @@ struct YTDlpConfigWizard: View {
             case .safari: return "Safari"
             case .chrome: return "Chrome"
             case .firefox: return "Firefox"
-            case .none: return tr("None (public videos only)", "无（仅公开视频）")
+            case .none: return tr("None", "无")
             }
         }
     }
@@ -28,13 +28,10 @@ struct YTDlpConfigWizard: View {
                 status = writeConfig()
             }
             .buttonStyle(.bordered)
+            .tint(BrandColors.magenta)
             if let status {
                 Text(status).font(.caption).foregroundStyle(BrandColors.textSecondary)
             }
-            Text(tr("Muses writes ~/.config/yt-dlp/config. yt-dlp then uses that file on every run.",
-                    "Muses 会写入 ~/.config/yt-dlp/config，之后每次运行都由 yt-dlp 自己读取。"))
-                .font(.caption)
-                .foregroundStyle(BrandColors.textSecondary)
         }
     }
 
@@ -46,7 +43,6 @@ struct YTDlpConfigWizard: View {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             var lines = [
                 "# Written by Muses",
-                "--no-playlist",
                 "--geo-bypass"
             ]
             let cookieSource: YTCookieSource

@@ -18,7 +18,7 @@ struct LyricsTimingTests {
 
     // MARK: - Word-level parsing
 
-    @Test("增强 LRC 内联 `<mm:ss.xx>` 解析为 LyricWord,末词 end=nil")
+    @Test("Enhanced LRC inline `<mm:ss.xx>` parses to LyricWord with last word end=nil")
     func wordTimingParsed() throws {
         // Line starts at 1.0s; "Hello " starts at 1.0, "world " at 1.5, "foo" at 2.0 (last word).
         let lrc = "[00:01.00]Hello <00:01.50>world <00:02.00>foo"
@@ -40,7 +40,7 @@ struct LyricsTimingTests {
         #expect(words[2].end == nil)        // last word has end = nil
     }
 
-    @Test("普通行级 LRC(无内联标签)words=nil,回退行级高亮")
+    @Test("Plain line-level LRC without inline tags has words=nil and falls back to line highlighting")
     func plainLineLevelWordsNil() {
         let lrc = "[00:10.00]a plain line\n[00:20.00]another"
         let lines = LyricsService.parseLRC(lrc)
@@ -51,7 +51,7 @@ struct LyricsTimingTests {
 
     // MARK: - offset parsing
 
-    @Test("parseOffsetMs 提取 [offset:±ms],无标签返回 nil")
+    @Test("parseOffsetMs extracts [offset:+-ms], returning nil when absent")
     func offsetParsed() {
         #expect(LyricsService.parseOffsetMs("[offset:250]abc") == 250)
         #expect(LyricsService.parseOffsetMs("[offset:-500]\n[00:01.00]hi") == -500)
@@ -59,7 +59,7 @@ struct LyricsTimingTests {
         #expect(LyricsService.parseOffsetMs("") == nil)
     }
 
-    @Test("fetchCached 从含 [offset:] 的 LRC 缓存填充 LyricsResult.offsetMs")
+    @Test("fetchCached populates LyricsResult.offsetMs from LRC cache containing [offset:]")
     func cachedOffsetPropagated() {
         let lrc = "[offset:-300]\n[00:01.00]line"
         let snap = TrackSnapshot(id: UUID(), title: "T", artist: "A",
@@ -74,7 +74,7 @@ struct LyricsTimingTests {
 
     // MARK: - Offset applied to current-line detection
 
-    @Test("currentLineIndex offset 正值→歌词更晚激活;负值→更早")
+    @Test("currentLineIndex: positive offset delays line activation, negative advances it")
     func offsetShiftsCurrentLine() {
         let lrc = "[00:10.00]first\n[00:20.00]second"
         let lines = LyricsService.parseLRC(lrc)
@@ -94,7 +94,7 @@ struct LyricsTimingTests {
 
     // MARK: - Active word index
 
-    @Test("currentWordIndex 取当前行内最近一词 start+offset<=position")
+    @Test("currentWordIndex selects closest word in line where start+offset <= position")
     func currentWordIndexPicksActive() {
         let words = [
             LyricWord(id: UUID(), text: "a", start: 1.0, end: 1.5),
@@ -109,7 +109,7 @@ struct LyricsTimingTests {
 
     // MARK: - Manual offset persistence + observability
 
-    @Test("setOffset 持久化到 Track.lyricsOffsetMs 并更新 manualOffsetMs;0 → 清除存 nil")
+    @Test("setOffset persists to Track.lyricsOffsetMs and updates manualOffsetMs, clearing on 0")
     func setOffsetPersistsAndObservable() throws {
         let container = try makeContainer()
         let ctx = ModelContext(container)
@@ -132,7 +132,7 @@ struct LyricsTimingTests {
         #expect(after.lyricsOffsetMs == nil)
     }
 
-    @Test("TrackSnapshot(from:) 携带 lyricsOffsetMs")
+    @Test("TrackSnapshot(from:) carries lyricsOffsetMs")
     func snapshotFromTrackCarriesOffset() throws {
         let container = try makeContainer()
         let ctx = ModelContext(container)
@@ -145,7 +145,7 @@ struct LyricsTimingTests {
 
     // MARK: - Fallback chain word → line → plain (existing behavior preserved)
 
-    @Test("既有 parseLRC 行为保持:多时间标签/元数据跳过/无时间行置末")
+    @Test("Existing parseLRC behavior preserved: multiple tags, metadata skip, untimed lines last")
     func existingParseLRCPreserved() {
         let lrc = """
         [ti:Title]

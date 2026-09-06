@@ -17,7 +17,7 @@ struct PerfCacheTests {
 
     // MARK: - SWRCache
 
-    @Test("SWRCache: set 后 get 命中,携带 fetchedAt 与 age")
+    @Test("SWRCache: set then get hits, preserving fetchedAt and age")
     func swrSetGet() {
         let cache = SWRCache<[String]>(directory: tmpDir())
         cache.set("k", value: ["a", "b"])
@@ -28,13 +28,13 @@ struct PerfCacheTests {
         #expect((cached?.age ?? 1) < 1)
     }
 
-    @Test("SWRCache: 未写入的 key 返回 nil")
+    @Test("SWRCache: unwritten key returns nil")
     func swrMiss() {
         let cache = SWRCache<[String]>(directory: tmpDir())
         #expect(cache.get("missing") == nil)
     }
 
-    @Test("SWRCache: isFresh 在窗口内为真,过期后为假")
+    @Test("SWRCache: isFresh is true within window and false after expiration")
     func swrFreshness() {
         let cache = SWRCache<[String]>(directory: tmpDir())
         let old = Date().addingTimeInterval(-120)
@@ -44,7 +44,7 @@ struct PerfCacheTests {
         #expect(cache.isFresh(cached!, freshWindow: 60) == false)
     }
 
-    @Test("SWRCache: 落盘后跨实例复用(模拟冷启动)")
+    @Test("SWRCache: disk persistence across instances simulates cold start")
     func swrDiskPersistence() {
         let dir = tmpDir()
         let cache1 = SWRCache<[String]>(directory: dir)
@@ -65,7 +65,7 @@ struct PerfCacheTests {
         #expect(cached?.value == ["persisted"])
     }
 
-    @Test("SWRCache: invalidate 移除内存与磁盘")
+    @Test("SWRCache: invalidate removes from memory and disk")
     func swrInvalidate() {
         let dir = tmpDir()
         let cache = SWRCache<[String]>(directory: dir)
@@ -77,29 +77,29 @@ struct PerfCacheTests {
 
     // MARK: - YTDlpSearchCache
 
-    @Test("YTDlpSearchCache: 新鲜命中跳过 spawn 的判定")
+    @Test("YTDlpSearchCache: fresh hit skips process spawn determination")
     func searchCacheFreshness() {
         let cache = YTDlpSearchCache(directory: tmpDir(), freshWindow: 60)
         cache.set(query: "q", limit: 10,
-                  entries: [YTDlpBridge.YTDlpPlaylistEntry(id: "v1", title: "t")])
+                  entries: [YTDlpBridge.YTDlpPlaylistEntry(id: "yt_track_1", title: "t")])
         #expect(cache.get(query: "q", limit: 10)?.value.count == 1)
         #expect(cache.isFresh(query: "q", limit: 10) == true)
         #expect(cache.isFresh(query: "other", limit: 10) == false)
     }
 
-    @Test("YTDlpSearchCache: stale 仍可读但 isFresh 为假(SWR 语义)")
+    @Test("YTDlpSearchCache: stale is still readable but isFresh is false (SWR semantics)")
     func searchCacheStaleWhileRevalidate() {
         let cache = YTDlpSearchCache(directory: tmpDir(), freshWindow: 60)
         let old = Date().addingTimeInterval(-120)
         cache.set(query: "q", limit: 5,
-                  entries: [YTDlpBridge.YTDlpPlaylistEntry(id: "v1", title: "t")],
+                  entries: [YTDlpBridge.YTDlpPlaylistEntry(id: "yt_track_1", title: "t")],
                   fetchedAt: old)
         // Stale but still immediately displayable.
         #expect(cache.get(query: "q", limit: 5) != nil)
         #expect(cache.isFresh(query: "q", limit: 5) == false)
     }
 
-    @Test("YTDlpSearchCache: invalidate 与 clearAll")
+    @Test("YTDlpSearchCache: invalidate and clearAll")
     func searchCacheInvalidate() {
         let cache = YTDlpSearchCache(directory: tmpDir())
         cache.set(query: "q", limit: 10, entries: [])
@@ -110,7 +110,7 @@ struct PerfCacheTests {
 
     // MARK: - PerfTrace
 
-    @Test("PerfTrace: event 记录瞬时事件,dumpText 包含名称")
+    @Test("PerfTrace: event records instantaneous event and dumpText contains name")
     func perfTraceEvent() {
         PerfTrace.clear()
         PerfTrace.event("home.appear")
@@ -125,7 +125,7 @@ struct PerfCacheTests {
         PerfTrace.clear()
     }
 
-    @Test("PerfTrace: begin/end 区间记录耗时")
+    @Test("PerfTrace: begin/end interval records duration")
     func perfTraceInterval() {
         PerfTrace.clear()
         let token = PerfTrace.begin("home.refreshTotal")
@@ -138,11 +138,11 @@ struct PerfCacheTests {
 
     // MARK: - Baseline: order of magnitude of a cache hit vs a cold spawn (spec §25 metrics)
 
-    @Test("基准:YTDlpSearchCache 命中路径耗时(微秒级)")
+    @Test("Benchmark: YTDlpSearchCache hit path latency (microsecond scale)")
     func benchmarkCacheHitLatency() {
         let cache = YTDlpSearchCache(directory: tmpDir(), freshWindow: 60)
         let entries = (0..<12).map {
-            YTDlpBridge.YTDlpPlaylistEntry(id: "v\($0)", title: "t\($0)")
+            YTDlpBridge.YTDlpPlaylistEntry(id: "yt_track_\($0)", title: "t\($0)")
         }
         cache.set(query: "seed", limit: 12, entries: entries)
         // Warm up once (fills the in-memory cache).

@@ -10,19 +10,19 @@ import Foundation
 @MainActor
 struct GlassSurfaceTests {
 
-    @Test("无障碍关闭 + macOS26 → .glass")
+    @Test("Accessibility off + supportsGlass -> .glass")
     func glassWhenSupported() {
         #expect(GlassMode.mode(reduceTransparency: false, increaseContrast: false,
                               supportsGlass: true) == .glass)
     }
 
-    @Test("无障碍关闭 + 旧系统 → .material")
+    @Test("Accessibility off + older system -> .material")
     func materialFallback() {
         #expect(GlassMode.mode(reduceTransparency: false, increaseContrast: false,
                               supportsGlass: false) == .material)
     }
 
-    @Test("降低透明度 → .opaque(无论是否支持玻璃)")
+    @Test("Reduce transparency -> .opaque regardless of glass support")
     func reduceTransparencyOverrides() {
         #expect(GlassMode.mode(reduceTransparency: true, increaseContrast: false,
                               supportsGlass: true) == .opaque)
@@ -30,7 +30,7 @@ struct GlassSurfaceTests {
                               supportsGlass: false) == .opaque)
     }
 
-    @Test("增强对比度 → .opaque(无论是否支持玻璃)")
+    @Test("Increase contrast -> .opaque regardless of glass support")
     func increaseContrastOverrides() {
         #expect(GlassMode.mode(reduceTransparency: false, increaseContrast: true,
                               supportsGlass: true) == .opaque)
@@ -38,13 +38,13 @@ struct GlassSurfaceTests {
                               supportsGlass: false) == .opaque)
     }
 
-    @Test("两项无障碍同时开启 → .opaque(优先无障碍,不回退材质)")
+    @Test("Both accessibility flags enabled -> .opaque")
     func bothAccessibilityFlags() {
         #expect(GlassMode.mode(reduceTransparency: true, increaseContrast: true,
                               supportsGlass: true) == .opaque)
     }
 
-    @Test("降低透明度优先于玻璃,但材质系统在无玻璃时仍受无障碍覆盖")
+    @Test("Material system respects accessibility flags when glass is unsupported")
     func materialRespectsAccessibility() {
         #expect(GlassMode.mode(reduceTransparency: true, increaseContrast: false,
                               supportsGlass: false) == .opaque)

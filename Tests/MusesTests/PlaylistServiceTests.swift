@@ -20,7 +20,7 @@ struct PlaylistServiceTests {
         return track
     }
 
-    @Test("create 创建空歌单")
+    @Test("create creates empty playlist")
     func createPlaylist() throws {
         let container = try makeContainer()
         let service = PlaylistService(modelContainer: container)
@@ -36,7 +36,7 @@ struct PlaylistServiceTests {
         #expect(playlists.first?.name == "My Playlist")
     }
 
-    @Test("addTrack 追加曲目 + 去重")
+    @Test("addTrack appends track and deduplicates")
     func addTrackAndDedup() throws {
         let container = try makeContainer()
         let service = PlaylistService(modelContainer: container)
@@ -56,10 +56,10 @@ struct PlaylistServiceTests {
         // Adding the same track again → deduped
         service.addTrack(playlist, track: track)
         let items2 = (p.items ?? [])
-        #expect(items2.count == 1, "去重:不应添加重复 track")
+        #expect(items2.count == 1, "Deduplication: duplicate track should not be added")
     }
 
-    @Test("moveItem 拖拽重排 order")
+    @Test("moveItem reorders items")
     func moveItemReorders() throws {
         let container = try makeContainer()
         let service = PlaylistService(modelContainer: container)
@@ -85,7 +85,7 @@ struct PlaylistServiceTests {
         #expect(items.map { $0.order } == [0, 1, 2])
     }
 
-    @Test("delete 歌单级联删 items")
+    @Test("delete cascades playlist items")
     func deleteCascadesItems() throws {
         let container = try makeContainer()
         let service = PlaylistService(modelContainer: container)
@@ -104,7 +104,7 @@ struct PlaylistServiceTests {
         // Playlist + items must disappear; the Track survives (nullify)
         #expect(try ctx.fetch(FetchDescriptor<Playlist>()).count == 0)
         #expect(try ctx.fetch(FetchDescriptor<PlaylistItem>()).count == 0)
-        #expect(try ctx.fetch(FetchDescriptor<Track>()).count == 1, "Track 应保留(nullify)")
+        #expect(try ctx.fetch(FetchDescriptor<Track>()).count == 1, "Track should be preserved (nullify)")
     }
 
     @Test("deleteWithUndoSnapshot restores order and pinned state")

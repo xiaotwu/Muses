@@ -160,6 +160,7 @@ final class YouTubeImportService {
 
         // 10. Save.
         try ctx.save()
+        catalog?.rebuildFromTrackMetadata()
 
         log.info("Imported playlist \(playlistId) (\(title)) with \(items.count) entries")
         return imp.id
@@ -208,6 +209,7 @@ final class YouTubeImportService {
         }
 
         try ctx.save()
+        catalog?.rebuildFromTrackMetadata()
         log.info("Imported single video \(videoId) (\(title))")
         return track.id
     }
@@ -233,6 +235,7 @@ final class YouTubeImportService {
             attachCatalogMetadata(for: imp, context: ctx)
         }
         try? ctx.save()
+        catalog?.rebuildFromTrackMetadata()
     }
 
     // MARK: - Remote item edits (owned playlists)
@@ -375,7 +378,7 @@ final class YouTubeImportService {
             }
             return data
         } catch {
-            log.error("GET \(url) 传输错误:\(error)")
+            log.error("GET \(url) transport error: \(error)")
             return nil
         }
     }

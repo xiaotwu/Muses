@@ -41,7 +41,7 @@ struct AdvancedQueueTests {
 
     // MARK: - Groups
 
-    @Test("分组 addGroup/toggleCollapsed 持久化往返")
+    @Test("addGroup and toggleCollapsed persistence round trip")
     func groupRoundTrip() throws {
         let container = try makeContainer()
         let q = makeQueue(container: container)
@@ -61,7 +61,7 @@ struct AdvancedQueueTests {
         #expect(q2.groups.first(where: { $0.id == g2 })?.collapsed == false)
     }
 
-    @Test("removeGroup 解除条目 groupId 关联")
+    @Test("removeGroup detaches entry groupId associations")
     func removeGroupClearsMembership() throws {
         let container = try makeContainer()
         let q = makeQueue(container: container)
@@ -78,7 +78,7 @@ struct AdvancedQueueTests {
         #expect(q.items.allSatisfy { $0.groupId == nil })
     }
 
-    @Test("moveGroup 重排并按新下标重写 order")
+    @Test("moveGroup reorders and rewrites order by new index")
     func moveGroupReindexes() throws {
         let container = try makeContainer()
         let q = makeQueue(container: container)
@@ -89,7 +89,7 @@ struct AdvancedQueueTests {
         #expect(q.groups.first(where: { $0.id == gC })?.order == 0)
     }
 
-    @Test("renameGroup 改名并持久化")
+    @Test("renameGroup renames group and persists")
     func renameGroup() throws {
         let container = try makeContainer()
         let q = makeQueue(container: container)
@@ -103,7 +103,7 @@ struct AdvancedQueueTests {
 
     // MARK: - Locked
 
-    @Test("locked 贯穿 persist/restore")
+    @Test("locked state survives persist and restore")
     func lockedSurvivesPersist() throws {
         let container = try makeContainer()
         let q = makeQueue(container: container)
@@ -118,7 +118,7 @@ struct AdvancedQueueTests {
         #expect(q2.items.first(where: { $0.track.title == "b" })?.locked == false)
     }
 
-    @Test("toggleLocked 在 items 与 upNext 中切换")
+    @Test("toggleLocked toggles locked in items and upNext")
     func toggleLockedById() {
         let q = QueueService()
         let ctx = [snap("a")]
@@ -136,7 +136,7 @@ struct AdvancedQueueTests {
 
     // MARK: - Insert modes
 
-    @Test("playAfterCurrentGroup 插到当前分组最后成员之后;无分组降级 playNext")
+    @Test("playAfterCurrentGroup inserts after last member of current group; falls back to playNext when ungrouped")
     func playAfterCurrentGroup() {
         let q = QueueService()
         let g = UUID()
@@ -156,7 +156,7 @@ struct AdvancedQueueTests {
         #expect(q.upNext.first?.track.title == "ins2")
     }
 
-    @Test("addToQueueWithPriority 递增 priority 并插到 upNext 头")
+    @Test("addToQueueWithPriority increments priority and inserts at head of upNext")
     func addToQueueWithPriority() {
         let q = QueueService()
         q.addToQueueWithPriority(snap("x"))
@@ -167,7 +167,7 @@ struct AdvancedQueueTests {
 
     // MARK: - History state tags
 
-    @Test("next(as:) 默认 .played;传 .skipped 记 skipped")
+    @Test("next(as:) defaults to played; records skipped when specified")
     func nextHistoryStateTag() {
         let q = QueueService()
         let ctx = [snap("a"), snap("b")]
@@ -181,7 +181,7 @@ struct AdvancedQueueTests {
         #expect(q.history.first?.historyState == .skipped)
     }
 
-    @Test("removeUpNext / removeItem 推入 history 并记 removed")
+    @Test("removeUpNext and removeItem push to history and record removed")
     func removeRecordsRemoved() {
         let q = QueueService()
         let ctx = [snap("a"), snap("b")]
@@ -199,7 +199,7 @@ struct AdvancedQueueTests {
         #expect(q.history.first?.historyState == .removed)
     }
 
-    @Test("removeItem 拒绝移除当前播放项")
+    @Test("removeItem refuses to remove currently playing item")
     func removeItemRefusesCurrent() {
         let q = QueueService()
         let ctx = [snap("a")]
@@ -210,7 +210,7 @@ struct AdvancedQueueTests {
         #expect(q.history.isEmpty)
     }
 
-    @Test("restoreFromHistory 还原到 upNext 末尾并清掉历史标签")
+    @Test("restoreFromHistory restores to end of upNext and clears history tags")
     func restoreFromHistory() {
         let q = QueueService()
         let ctx = [snap("a"), snap("b")]
@@ -224,7 +224,7 @@ struct AdvancedQueueTests {
         #expect(q.upNext.last?.historyState == nil)
     }
 
-    @Test("restore: groupsJSON 为空 → groups 为空")
+    @Test("restore: empty groupsJSON yields empty groups")
     func restoreNilGroupsJSON() throws {
         let container = try makeContainer()
         let ctx = ModelContext(container)
@@ -240,7 +240,7 @@ struct AdvancedQueueTests {
         #expect(q.groups.isEmpty)
     }
 
-    @Test("next() 默认路径不改变既有行为:历史条目无标签时按 played 处理")
+    @Test("next() default path preserves behavior: untagged history items treated as played")
     func defaultNextPreservesBehavior() {
         let q = QueueService()
         let ctx = [snap("a"), snap("b")]
