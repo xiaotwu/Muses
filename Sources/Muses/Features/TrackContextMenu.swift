@@ -178,6 +178,26 @@ struct TrackContextMenuItems: View {
             .accessibilityLabel(tr("Open on YouTube", "在 YouTube 打开"))
         }
 
+        Divider()
+        if !snapshot.artist.isEmpty && snapshot.artist != "Unknown" {
+            Button(tr("Go to Artist", "前往艺人"), systemImage: "person.circle") {
+                let artistID = resolvedTrack?.artistCatalogID
+                NotificationCenter.default.post(
+                    name: .musesNavigateToArtist,
+                    object: artistID ?? snapshot.artist
+                )
+            }
+        }
+        if let album = resolvedTrack?.albumTitle ?? snapshot.albumTitle, !album.isEmpty {
+            Button(tr("Go to Album", "前往专辑"), systemImage: "square.stack") {
+                let releaseID = resolvedTrack?.releaseCatalogID
+                NotificationCenter.default.post(
+                    name: .musesNavigateToRelease,
+                    object: releaseID ?? album
+                )
+            }
+        }
+
         if let resolvedTrack {
             Divider()
             let _ = library.likedRevision

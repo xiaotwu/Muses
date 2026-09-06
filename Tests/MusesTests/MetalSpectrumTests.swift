@@ -7,13 +7,13 @@ import SwiftUI
 @Suite("MetalSpectrum")
 struct MetalSpectrumTests {
 
-    @Test("GPU 加速 PrefKey 存在且默认开启")
+    @Test("GPU acceleration PrefKey exists and defaults to enabled")
     func gpuPrefKeyExists() {
         #expect(PrefKey.gpuAcceleration == "muses.gpuAcceleration")
         // Defaults are persisted via @AppStorage; here we only verify the key string is correct
     }
 
-    @Test("SpectrumRenderer 初始化不崩溃(无 Metal 设备时优雅降级)")
+    @Test("SpectrumRenderer initialization does not crash (graceful fallback without Metal device)")
     func rendererInitSafe() {
         // The test environment may have no Metal device, but this must not crash
         let renderer = SpectrumRenderer()

@@ -6,7 +6,7 @@ import AVFoundation
 @MainActor
 @Suite("SpectrumTap FFT")
 struct SpectrumTapFFTTests {
-    @Test("正弦波峰值落在对应频段")
+    @Test("Sine wave peak falls within expected frequency band")
     func sinePeakInExpectedBand() async throws {
         let sr: Double = 44100
         let freq: Double = 1000   // 1kHz
@@ -24,7 +24,7 @@ struct SpectrumTapFFTTests {
         #expect(maxVal > 0.1)   // a sine wave should show clear energy
     }
 
-    @Test("静音输入产生近似零频段")
+    @Test("Silent input produces near-zero bands")
     func silenceIsNearZero() {
         let samples = [Float](repeating: 0, count: 1024)
         let tap = SpectrumTap()
@@ -32,7 +32,7 @@ struct SpectrumTapFFTTests {
         #expect(bands.allSatisfy { $0 < 0.01 })
     }
 
-    @Test("低频正弦波峰值在低频段")
+    @Test("Low frequency sine peak falls in lower band")
     func lowFreqPeakInLowBand() {
         let sr: Double = 44100
         let freq: Double = 80   // 80Hz

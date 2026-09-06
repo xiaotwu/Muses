@@ -11,6 +11,17 @@ enum YouTubeCatalogLink {
         if let browseID = component(after: "browse:", in: stableID) {
             return pathURL(component: "browse", identity: browseID)
         }
+        if let videoID = component(after: "single:", in: stableID) {
+            var components = URLComponents(string: "https://music.youtube.com/watch")
+            components?.queryItems = [URLQueryItem(name: "v", value: videoID)]
+            return components?.url
+        }
+        if let albumSearch = component(after: "album:", in: stableID) {
+            let query = albumSearch.replacingOccurrences(of: ":", with: " ")
+            var components = URLComponents(string: "https://music.youtube.com/search")
+            components?.queryItems = [URLQueryItem(name: "q", value: query)]
+            return components?.url
+        }
         return nil
     }
 
@@ -20,6 +31,11 @@ enum YouTubeCatalogLink {
         }
         if let browseID = component(after: "browse:", in: stableID) {
             return pathURL(component: "browse", identity: browseID)
+        }
+        if let artistSearch = component(after: "artist:", in: stableID) {
+            var components = URLComponents(string: "https://music.youtube.com/search")
+            components?.queryItems = [URLQueryItem(name: "q", value: artistSearch)]
+            return components?.url
         }
         return nil
     }

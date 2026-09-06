@@ -17,7 +17,7 @@ struct FocusFeatureTests {
 
     // MARK: - FocusSession model
 
-    @Test("FocusSession:status 编解码 + 默认 active")
+    @Test("FocusSession status encoding/decoding and active default")
     func modelRoundTrip() throws {
         let container = try makeContainer()
         let ctx = ModelContext(container)
@@ -34,7 +34,7 @@ struct FocusFeatureTests {
 
     // MARK: - FocusService flag no-op
 
-    @Test("ffFocusMode 关闭:start 为 no-op,无 FocusSession 行,isActive 保持 false")
+    @Test("ffFocusMode disabled: start is no-op, no FocusSession row, isActive stays false")
     func flagDisabledNoOp() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
@@ -54,7 +54,7 @@ struct FocusFeatureTests {
 
     // MARK: - start / stop state + persistence + events
 
-    @Test("start(minutes:):isActive + FocusSession 行(active)+ focusSessionStarted 事件")
+    @Test("start(minutes:): sets isActive, persists FocusSession row, and emits focusSessionStarted event")
     func startPersistsAndPosts() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
@@ -90,7 +90,7 @@ struct FocusFeatureTests {
         #expect(row2.status == .completed)
     }
 
-    @Test("start(minutes: nil):无时限,totalSeconds=0,isActive true")
+    @Test("start(minutes: nil): untimed session, totalSeconds=0, isActive true")
     func startNoTimer() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
@@ -107,7 +107,7 @@ struct FocusFeatureTests {
 
     // MARK: - Pomodoro
 
-    @Test("start(pomodoro: true):isPomodoro + 25min focus 阶段")
+    @Test("start(pomodoro: true): isPomodoro enabled and 25min focus phase")
     func pomodoroConfig() throws {
         let container = try makeContainer()
         let bus = PlaybackEventBus()
@@ -124,7 +124,7 @@ struct FocusFeatureTests {
 
     // MARK: - remainingFormatted
 
-    @Test("remainingFormatted:M:SS / H:MM:SS")
+    @Test("remainingFormatted formats M:SS and H:MM:SS")
     func remainingFormatted() throws {
         let container = try makeContainer()
         let svc = FocusService(modelContainer: container, eventBus: PlaybackEventBus(),

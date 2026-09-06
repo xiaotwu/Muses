@@ -23,7 +23,7 @@ struct YTDlpBridgeTests {
 
     // MARK: - resolveStreamURL
 
-    @Test("resolveStreamURL 解析第一行 stdout 作为 URL")
+    @Test("resolveStreamURL parses first stdout line as URL")
     func resolveStreamURLParsesFirstStdoutLine() async throws {
         let bin = try makeFakeBinary(script: """
             #!/bin/sh
@@ -37,21 +37,21 @@ struct YTDlpBridgeTests {
 
     // MARK: - fetchPlaylist
 
-    @Test("fetchPlaylist 解析 NDJSON 条目")
+    @Test("fetchPlaylist parses NDJSON entries")
     func fetchPlaylistParsesNDJSON() async throws {
         let bin = try makeFakeBinary(script: """
             #!/bin/sh
-            echo '{"id":"v1","title":"Song A","uploader":"Chan","duration":201.5}'
-            echo '{"id":"v2","title":"Song B"}'
+            echo '{"id":"track_alpha","title":"Song A","uploader":"Chan","duration":201.5}'
+            echo '{"id":"track_beta","title":"Song B"}'
             """)
         let bridge = YTDlpBridge(binaryPath: bin)
         let entries = try await bridge.fetchPlaylist(url: "https://example.com/pl")
         #expect(entries.count == 2)
-        #expect(entries[0].id == "v1")
+        #expect(entries[0].id == "track_alpha")
         #expect(entries[0].title == "Song A")
         #expect(entries[0].uploader == "Chan")
         #expect(entries[0].duration == 201.5)
-        #expect(entries[1].id == "v2")
+        #expect(entries[1].id == "track_beta")
         #expect(entries[1].title == "Song B")
         #expect(entries[1].uploader == nil)
         #expect(entries[1].duration == nil)
@@ -59,7 +59,7 @@ struct YTDlpBridgeTests {
 
     // MARK: - exitCode
 
-    @Test("非零退出抛出 exitCode")
+    @Test("Non-zero exit throws exitCode")
     func nonZeroExitThrowsExitCode() async throws {
         let bin = try makeFakeBinary(script: """
             #!/bin/sh
@@ -69,17 +69,17 @@ struct YTDlpBridgeTests {
         let bridge = YTDlpBridge(binaryPath: bin)
         do {
             _ = try await bridge.resolveStreamURL(videoId: "x", quality: "bestaudio")
-            Issue.record("应抛出 YTDlpError.exitCode")
+            Issue.record("Expected YTDlpError.exitCode to be thrown")
         } catch let e as YTDlpBridge.YTDlpError {
             #expect(String(describing: e).hasPrefix("exitCode"))
         } catch {
-            Issue.record("抛出了非 YTDlpError 类型:\(error)")
+            Issue.record("Threw unexpected non-YTDlpError: \(error)")
         }
     }
 
     // MARK: - timeout
 
-    @Test("超时抛出 timeout")
+    @Test("Timeout throws timeout error")
     func timeoutThrowsTimeout() async throws {
         let bin = try makeFakeBinary(script: """
             #!/bin/sh
@@ -90,11 +90,11 @@ struct YTDlpBridgeTests {
         do {
             _ = try await bridge.resolveStreamURL(
                 videoId: "x", quality: "bestaudio", timeout: 0.5)
-            Issue.record("应抛出 YTDlpError.timeout")
+            Issue.record("Expected YTDlpError.timeout to be thrown")
         } catch let e as YTDlpBridge.YTDlpError {
             #expect(String(describing: e) == "timeout")
         } catch {
-            Issue.record("抛出了非 YTDlpError 类型:\(error)")
+            Issue.record("Threw unexpected non-YTDlpError: \(error)")
         }
     }
 }

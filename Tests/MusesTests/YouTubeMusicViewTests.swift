@@ -7,14 +7,14 @@ import SwiftUI
 @Suite("YouTubeMusicView")
 struct YouTubeMusicViewTests {
 
-    @Test("YTMTab 包含 search 与 imports 两个标签")
+    @Test("YTMTab contains search and imports cases")
     func tabHasTwoCases() {
         #expect(YouTubeMusicView.YTMTab.allCases.count == 2)
         #expect(YouTubeMusicView.YTMTab.allCases.contains(.search))
         #expect(YouTubeMusicView.YTMTab.allCases.contains(.imports))
     }
 
-    @Test("YTMTab label 本地化")
+    @Test("YTMTab label localized")
     func tabLabelLocalized() {
         // Just assert a non-empty string (the actual language depends on the system locale)
         #expect(!YouTubeMusicView.YTMTab.search.label.isEmpty)

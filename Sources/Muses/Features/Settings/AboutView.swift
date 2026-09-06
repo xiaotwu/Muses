@@ -45,10 +45,6 @@ struct AboutView: View {
                     .font(.caption)
                     .foregroundStyle(BrandColors.textSecondary)
                     .lineSpacing(3)
-
-                Text(tr("Tech stack: Swift + SwiftUI + AVAudioEngine + SwiftData + yt-dlp", "技术栈: Swift + SwiftUI + AVAudioEngine + SwiftData + yt-dlp"))
-                    .font(.caption2)
-                    .foregroundStyle(BrandColors.textSecondary.opacity(0.7))
             }
             .padding(.vertical, 8)
         }

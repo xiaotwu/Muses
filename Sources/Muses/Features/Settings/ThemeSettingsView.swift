@@ -18,13 +18,10 @@ struct ThemeSettingsView: View {
                 get: { modeRaw },
                 set: { modeRaw = $0 }
             )) {
-                Text(tr("Large Cover", "巨大封面")).tag(NowPlayingMode.cover.rawValue)
-                Text(tr("Spinning Vinyl", "唱片旋转")).tag(NowPlayingMode.vinyl.rawValue)
+                Text(tr("Cover", "封面")).tag(NowPlayingMode.cover.rawValue)
+                Text(tr("Vinyl", "黑胶")).tag(NowPlayingMode.vinyl.rawValue)
             }
             .pickerStyle(.radioGroup)
-            Text(tr("Large Cover is the default square artwork. Vinyl shows a circular cover that spins clockwise while playing, without a disc rim.", "默认巨大方块封面。唱片模式仅显示圆形封面,播放时匀速顺时针旋转,无黑胶边。"))
-                .font(.caption)
-                .foregroundStyle(BrandColors.textSecondary)
         }
 
         Section(tr("App Theme", "应用主题")) {
@@ -37,9 +34,6 @@ struct ThemeSettingsView: View {
                 Text(tr("Match System", "跟随系统")).tag(AppTheme.system.rawValue)
             }
             .pickerStyle(.radioGroup)
-            Text(tr("Theme switches between near-black dark and near-white light appearances. Match System follows the OS appearance.", "主题在近黑深色与近白浅色外观间切换；跟随系统按系统外观自动适配。"))
-                .font(.caption)
-                .foregroundStyle(BrandColors.textSecondary)
         }
     }
 }

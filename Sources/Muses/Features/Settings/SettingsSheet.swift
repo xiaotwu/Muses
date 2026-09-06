@@ -98,9 +98,26 @@ struct SettingsSheet: View {
                 .blocksWindowDrag()
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 14) {
                         accountHeader
+                            .background(
+                                BrandColors.surface.opacity(0.45),
+                                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(BrandColors.hairline, lineWidth: 0.8)
+                            )
+
                         categoryList
+                            .background(
+                                BrandColors.surface.opacity(0.45),
+                                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(BrandColors.hairline, lineWidth: 0.8)
+                            )
                     }
                     .padding(.horizontal, 16)
                     .padding(.bottom, 24)
@@ -174,17 +191,17 @@ struct SettingsSheet: View {
                     showingDetail = true
                 } label: {
                     HStack(spacing: 12) {
-                        categoryIcon(cat)
-                            .frame(width: 28, height: 28)
+                        SettingsCategoryBadge(category: cat)
                         Text(cat.label)
+                            .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(BrandColors.textPrimary)
                         Spacer()
                         Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundStyle(BrandColors.textSecondary)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(BrandColors.textSecondary.opacity(0.7))
                     }
                     .padding(.horizontal, 14)
-                    .padding(.vertical, 11)
+                    .padding(.vertical, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                 }
@@ -193,19 +210,6 @@ struct SettingsSheet: View {
                     Divider().opacity(0.12)
                 }
             }
-        }
-    }
-
-    @ViewBuilder
-    private func categoryIcon(_ category: SettingsCategory) -> some View {
-        if category == .youtube {
-            YouTubeMark(size: 15)
-                .accessibilityHidden(true)
-        } else if let systemIcon = category.systemIcon {
-            Image(systemName: systemIcon)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(BrandColors.magenta)
-                .accessibilityHidden(true)
         }
     }
 
@@ -304,6 +308,7 @@ struct AboutSettingsView: View {
                     Label(tr("GitHub Project", "GitHub 项目"), systemImage: "link")
                 }
                 .buttonStyle(.bordered)
+                .tint(BrandColors.magenta)
 
                 Divider()
 
@@ -313,13 +318,70 @@ struct AboutSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(BrandColors.textSecondary)
                         .lineSpacing(3)
-                    Text(tr("Tech stack: Swift + SwiftUI + AVAudioEngine + SwiftData + yt-dlp",
-                            "技术栈: Swift + SwiftUI + AVAudioEngine + SwiftData + yt-dlp"))
-                        .font(.caption2)
-                        .foregroundStyle(BrandColors.textSecondary.opacity(0.7))
                 }
             }
             .padding(.vertical, 8)
         }
+    }
+}
+
+private struct SettingsCategoryBadge: View {
+    let category: SettingsCategory
+
+    private var gradientColors: [Color] {
+        switch category {
+        case .general:
+            return [Color(white: 0.55), Color(white: 0.42)]
+        case .playback:
+            return [Color(red: 0.98, green: 0.35, blue: 0.42), Color(red: 0.88, green: 0.22, blue: 0.32)]
+        case .audioQuality:
+            return [Color(red: 0.20, green: 0.68, blue: 0.90), Color(red: 0.12, green: 0.50, blue: 0.80)]
+        case .appearance:
+            return [Color(red: 0.60, green: 0.35, blue: 0.90), Color(red: 0.45, green: 0.22, blue: 0.78)]
+        case .youtube:
+            return [Color(red: 0.95, green: 0.18, blue: 0.18), Color(red: 0.80, green: 0.10, blue: 0.10)]
+        case .lyrics:
+            return [Color(red: 0.95, green: 0.60, blue: 0.18), Color(red: 0.88, green: 0.48, blue: 0.12)]
+        case .desktop:
+            return [Color(red: 0.18, green: 0.75, blue: 0.68), Color(red: 0.10, green: 0.60, blue: 0.52)]
+        case .updates:
+            return [Color(red: 0.25, green: 0.55, blue: 0.98), Color(red: 0.15, green: 0.42, blue: 0.88)]
+        case .about:
+            return [Color(red: 0.50, green: 0.52, blue: 0.58), Color(red: 0.38, green: 0.40, blue: 0.46)]
+        }
+    }
+
+    private var iconName: String {
+        switch category {
+        case .general: return "gearshape.fill"
+        case .playback: return "play.fill"
+        case .audioQuality: return "sparkles.tv"
+        case .appearance: return "paintbrush.fill"
+        case .youtube: return ""
+        case .lyrics: return "quote.bubble.fill"
+        case .desktop: return "menubar.rectangle"
+        case .updates: return "arrow.triangle.2.circlepath"
+        case .about: return "info"
+        }
+    }
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 6.5, style: .continuous)
+        ZStack {
+            shape
+                .fill(LinearGradient(colors: gradientColors, startPoint: .top, endPoint: .bottom))
+                .overlay(shape.stroke(Color.white.opacity(0.22), lineWidth: 0.75))
+
+            if category == .youtube {
+                YouTubeMark(size: 15)
+            } else {
+                Image(systemName: iconName)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+        }
+        .frame(width: 26, height: 26)
+        .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
+        .accessibilityHidden(true)
     }
 }

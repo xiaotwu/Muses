@@ -5,6 +5,7 @@ struct RootView: View {
     @Environment(LibraryService.self) private var library
     @Environment(PlaylistService.self) private var playlistService
     @Environment(PlaybackService.self) private var playback
+    @Environment(YouTubeCatalogService.self) private var catalog
     @Environment(\.openWindow) private var openWindow
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var artworkWorld
@@ -39,6 +40,7 @@ struct RootView: View {
     @State private var showStoreFallbackAlert = false
     @State private var showYouTubeVideo = false
     @AppStorage(PrefKey.nowPlayingMode) private var nowPlayingModeRaw: String = NowPlayingMode.cover.rawValue
+    @AppStorage("muses.sidebarCollapsed") private var isSidebarCollapsed = false
 
     private var lyricsFullscreen: Bool {
         nowPlayingShowLyrics && (NowPlayingLyricsMode(rawValue: lyricsModeRaw) ?? .inline) != .inline
@@ -87,6 +89,14 @@ struct RootView: View {
                 }
                 showQueue.toggle()
                 if showQueue { showLyricsDrawer = false }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .musesToggleNowPlaying)) { _ in
+                guard !showSettings else { return }
+                if showNowPlaying {
+                    showNowPlaying = false
+                } else {
+                    openNowPlaying()
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .musesFocusSearch)) { _ in
                 showSettings = false
@@ -144,6 +154,34 @@ struct RootView: View {
                     section = .albums
                 case .artist(let artist):
                     selectedCatalogRelease = nil
+                    selectedCatalogArtist = artist
+                    section = .artists
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .musesNavigateToRelease)) { note in
+                showSettings = false
+                selectedPlaylist = nil
+                selectedYouTubeImport = nil
+                selectedCatalogArtist = nil
+                if let release = note.object as? CatalogReleaseProjection {
+                    selectedCatalogRelease = release
+                    section = .albums
+                } else if let id = note.object as? String,
+                          let release = catalog.release(byStableID: id) ?? catalog.release(byTitle: id) {
+                    selectedCatalogRelease = release
+                    section = .albums
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .musesNavigateToArtist)) { note in
+                showSettings = false
+                selectedPlaylist = nil
+                selectedYouTubeImport = nil
+                selectedCatalogRelease = nil
+                if let artist = note.object as? CatalogArtistProjection {
+                    selectedCatalogArtist = artist
+                    section = .artists
+                } else if let id = note.object as? String,
+                          let artist = catalog.artist(byStableID: id) ?? catalog.artist(byName: id) {
                     selectedCatalogArtist = artist
                     section = .artists
                 }
@@ -222,7 +260,8 @@ struct RootView: View {
                         showAbout: $showAbout,
                         initialSettingsCategory: $initialSettingsCategory,
                         selectedPlaylist: $selectedPlaylist,
-                        selectedYouTubeImport: $selectedYouTubeImport)
+                        selectedYouTubeImport: $selectedYouTubeImport,
+                        isCollapsed: $isSidebarCollapsed)
             ZStack(alignment: .bottom) {
                 detailStack
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -234,12 +273,24 @@ struct RootView: View {
                               onArtworkTap: { openNowPlaying() },
                               onLyricsTap: { handleDockLyrics() },
                               onQueueTap: {
-                                  showQueue.toggle()
-                                  showLyricsDrawer = false
+                                  withAnimation(MusesMotion.drawerAnimation(reduceMotion: reduceMotion)) {
+                                      showQueue.toggle()
+                                      if showQueue { showLyricsDrawer = false }
+                                  }
                               },
                               onVideoTap: { showYouTubeVideo = true })
                         .padding(.horizontal, AppleMusicTokens.playerHorizontalMargin)
                         .padding(.bottom, AppleMusicTokens.playerBottomMargin)
+                }
+            }
+            if !showSettings, !showNowPlaying {
+                if showLyricsDrawer {
+                    LyricsDrawerView(isPresented: $showLyricsDrawer)
+                        .transition(.move(edge: .trailing))
+                }
+                if showQueue {
+                    QueueDrawerView(isPresented: $showQueue, showsScrim: false)
+                        .transition(.move(edge: .trailing))
                 }
             }
         }
@@ -353,30 +404,6 @@ struct RootView: View {
                 }
             }
             .overlay {
-                if !showSettings, !showNowPlaying, showLyricsDrawer || showQueue {
-                    ZStack(alignment: .trailing) {
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                showQueue = false
-                                showLyricsDrawer = false
-                        }
-                        HStack(alignment: .top, spacing: 8) {
-                            if showLyricsDrawer {
-                                LyricsDrawerView(isPresented: $showLyricsDrawer)
-                            }
-                            if showQueue {
-                                QueueDrawerView(isPresented: $showQueue, showsScrim: false)
-                            }
-                        }
-                        .padding(.top, chromeTop)
-                        .padding(.bottom, chromeBottom)
-                    }
-                    .tint(BrandColors.magenta)
-                    .accessibilityHidden(showSettings)
-                }
-            }
-            .overlay {
                 if SettingsChromePolicy.presentsAsFloatingGlass, showSettings {
                     ZStack {
                         BrandColors.scrim
@@ -415,7 +442,9 @@ struct RootView: View {
                     .tint(BrandColors.magenta)
                 }
             }
+            .animation(MusesMotion.drawerAnimation(reduceMotion: reduceMotion), value: isSidebarCollapsed)
             .animation(MusesMotion.drawerAnimation(reduceMotion: reduceMotion), value: showQueue)
+            .animation(MusesMotion.drawerAnimation(reduceMotion: reduceMotion), value: showLyricsDrawer)
             .animation(MusesMotion.overlayAnimation(reduceMotion: reduceMotion), value: showYouTubeVideo)
             .animation(MusesMotion.overlayAnimation(reduceMotion: reduceMotion), value: showSettings)
             .overlay {
@@ -585,8 +614,11 @@ extension EnvironmentValues {
 
 extension Notification.Name {
     static let musesToggleQueue = Notification.Name("muses.toggleQueue")
+    static let musesToggleNowPlaying = Notification.Name("muses.toggleNowPlaying")
     static let musesFocusSearch = Notification.Name("muses.focusSearch")
     static let musesNavigateFromSearch = Notification.Name("muses.navigateFromSearch")
+    static let musesNavigateToRelease = Notification.Name("muses.navigateToRelease")
+    static let musesNavigateToArtist = Notification.Name("muses.navigateToArtist")
     static let musesNavigateYouTubeImport = Notification.Name("muses.navigateYouTubeImport")
     static let musesCloseYouTubeAlbum = Notification.Name("muses.closeYouTubeAlbum")
     static let musesShowPlaylistsOverview = Notification.Name("muses.showPlaylistsOverview")

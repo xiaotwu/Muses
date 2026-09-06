@@ -7,7 +7,7 @@ import Foundation
 @Suite("SleepTimer")
 struct SleepTimerTests {
 
-    @Test("start 设置 isActive + remainingSeconds")
+    @Test("start sets isActive and remainingSeconds")
     func startActivatesTimer() {
         let engine = RecordingEngine()
         let queue = QueueService()
@@ -21,7 +21,7 @@ struct SleepTimerTests {
         #expect(timer.remainingSeconds == 1800)
     }
 
-    @Test("cancel 重置状态")
+    @Test("cancel resets state")
     func cancelResetsState() {
         let engine = RecordingEngine()
         let queue = QueueService()
@@ -36,7 +36,7 @@ struct SleepTimerTests {
         #expect(timer.totalSeconds == 0)
     }
 
-    @Test("remainingFormatted 格式化正确")
+    @Test("remainingFormatted formats correctly")
     func remainingFormattedCorrect() {
         let engine = RecordingEngine()
         let queue = QueueService()

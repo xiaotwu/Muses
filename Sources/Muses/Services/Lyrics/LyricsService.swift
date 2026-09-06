@@ -282,7 +282,7 @@ final class LyricsService {
         }
 
         guard (synced?.isEmpty == false) || (plain?.isEmpty == false) else {
-            log.info("musixmatch: track_id \(trackId) 无歌词内容")
+            log.info("musixmatch: track_id \(trackId) has no lyrics content")
             return nil
         }
         return LyricsResult(

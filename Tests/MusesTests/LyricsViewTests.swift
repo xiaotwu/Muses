@@ -6,7 +6,7 @@ import Foundation
 struct LyricsViewTests {
 
     /// currentLineIndex returns the last line whose time <= position.
-    @Test("currentLineIndex 定位当前行")
+    @Test("currentLineIndex locates current line")
     func currentLineIndexBasic() {
         let lines = [
             LyricLine(id: UUID(), time: 0.0, text: "intro"),
@@ -22,7 +22,7 @@ struct LyricsViewTests {
     }
 
     /// Returns nil when position precedes the first line's timestamp (no line reached yet).
-    @Test("currentLineIndex 在首行之前返回 nil")
+    @Test("currentLineIndex returns nil before first line")
     func currentLineIndexBeforeFirst() {
         let lines = [
             LyricLine(id: UUID(), time: 10.0, text: "first"),
@@ -32,7 +32,7 @@ struct LyricsViewTests {
     }
 
     /// Plain-text lyrics (time == nil) do not affect currentLineIndex.
-    @Test("currentLineIndex 跳过无时间标签行")
+    @Test("currentLineIndex skips lines without timestamps")
     func currentLineIndexSkipsNilTime() {
         let lines = [
             LyricLine(id: UUID(), time: 5.0, text: "timed"),

@@ -94,7 +94,7 @@ final class GlobalHotkeyService {
             if status == noErr, let ref {
                 registered.append((ref, id))
             } else {
-                AppLog.for("GlobalHotkeyService").warning("注册热键失败 action=\(action) status=\(status)")
+                AppLog.for("GlobalHotkeyService").warning("Failed to register hotkey action=\(action) status=\(status)")
                 Self.actionById.removeValue(forKey: id)
             }
         }

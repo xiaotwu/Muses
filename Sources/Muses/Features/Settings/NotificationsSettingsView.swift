@@ -9,6 +9,7 @@ struct NotificationsSettingsView: View {
     var body: some View {
         Section(tr("Notifications", "通知")) {
             Toggle(tr("Notify on Track Change", "换歌时通知"), isOn: $trackChangeEnabled)
+                .tint(BrandColors.magenta)
                 .onChange(of: trackChangeEnabled) { _, on in
                     if on && !authorizationRequested {
                         Task { _ = try? await UNUserNotificationCenter.current()
@@ -16,10 +17,6 @@ struct NotificationsSettingsView: View {
                         authorizationRequested = true
                     }
                 }
-            if trackChangeEnabled {
-                Text(tr("A system notification is sent each time the track changes.", "每首歌曲切换时会发送一条系统通知。"))
-                    .font(.caption).foregroundStyle(BrandColors.textSecondary)
-            }
         }
     }
 }

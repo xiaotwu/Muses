@@ -95,10 +95,7 @@ struct NewView: View {
     private var editorialSection: some View {
         if !featuredTracks.isEmpty || !featuredPersonalCards.isEmpty {
             VStack(alignment: .leading, spacing: 13) {
-                SectionHeader(
-                    title: tr("Featured", "精选"),
-                    subtitle: tr("New music selected for you", "为你挑选的新音乐")
-                )
+                SectionHeader(title: tr("Featured", "精选"))
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 20) {
                         ForEach(featuredTracks) { snapshot in
@@ -140,10 +137,7 @@ struct NewView: View {
 
     private var bestNewSongs: some View {
         VStack(alignment: .leading, spacing: 13) {
-            SectionHeader(
-                title: tr("Best New Songs", "最佳新歌"),
-                subtitle: tr("Play in this order", "按此顺序播放")
-            )
+            SectionHeader(title: tr("Best New Songs", "最佳新歌"))
             LazyVGrid(
                 columns: [GridItem(
                     .adaptive(

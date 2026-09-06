@@ -9,15 +9,22 @@ struct ChromeGlyph: View {
     var size: CGFloat = 14
     var hit: CGFloat = 28
 
+    @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         Image(systemName: systemName)
             .font(.system(size: size, weight: .semibold))
             .symbolRenderingMode(.monochrome)
             .foregroundStyle(selected && ChromeGlyphStyle.selectedUsesAccent
                              ? BrandColors.magenta : BrandColors.textPrimary)
-            .opacity(selected ? 1 : 0.7)
-            .frame(width: hit, height: hit)
+            .opacity(selected ? 1.0 : (isHovered ? 0.95 : 0.7))
+            .scaleEffect(isHovered && !reduceMotion ? 1.06 : 1.0)
+            .offset(y: isHovered && !reduceMotion ? -1 : 0)
+            .frame(width: max(28, hit), height: max(28, hit))
             .contentShape(Rectangle())
+            .onHover { isHovered = $0 }
+            .animation(MusesMotion.hoverAnimation(reduceMotion: reduceMotion), value: isHovered)
     }
 }
 

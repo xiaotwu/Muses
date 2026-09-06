@@ -77,7 +77,7 @@ gh release create v0.4.0 build/Muses-0.4.0.dmg --title "Muses 0.4.0" --notes "â€
 
 ### Pre-release checklist
 
-- [ ] `make test` green (465+ tests at time of writing)
+- [ ] `make test` green (455+ tests across 60 suites)
 - [ ] `codesign --verify --deep --strict` on the app and the bundled helper
 - [ ] Helper present at `Contents/Helpers/MusesWebHomeHelper`, mode 0700, same-signature chain
 - [ ] Kill switch / default-off verified (fresh install shows Web Home Off, helper never launched without consent)

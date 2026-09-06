@@ -245,7 +245,7 @@ struct CollectionDeckStage<Controls: View>: View {
 
     private func deck(geometry: CollectionDeckGeometry) -> some View {
         GeometryReader { proxy in
-            ZStack {
+            ZStack(alignment: .top) {
                 ForEach(CollectionDeckProjection.visibleIndices(
                     count: rows.count,
                     position: position,
@@ -254,19 +254,24 @@ struct CollectionDeckStage<Controls: View>: View {
                     card(at: index, geometry: geometry, containerWidth: proxy.size.width)
                 }
 
-                deckChevron(systemName: "chevron.left", help: tr("Previous song", "上一首")) {
-                    moveFocus(by: -1)
-                }
-                .disabled(focusedIndex <= 0 || !isInteractionEnabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                HStack {
+                    deckChevron(systemName: "chevron.left", help: tr("Previous song", "上一首")) {
+                        moveFocus(by: -1)
+                    }
+                    .disabled(focusedIndex <= 0 || !isInteractionEnabled)
 
-                deckChevron(systemName: "chevron.right", help: tr("Next song", "下一首")) {
-                    moveFocus(by: 1)
+                    Spacer()
+
+                    deckChevron(systemName: "chevron.right", help: tr("Next song", "下一首")) {
+                        moveFocus(by: 1)
+                    }
+                    .disabled(focusedIndex >= rows.count - 1 || !isInteractionEnabled)
                 }
-                .disabled(focusedIndex >= rows.count - 1 || !isInteractionEnabled)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity, maxHeight: geometry.cardHeight)
+                .zIndex(1000)
             }
-            .contentShape(Rectangle())
+            .frame(width: proxy.size.width, height: geometry.cardHeight + 40, alignment: .top)
             .onHover { inside in
                 fanHovered = inside
                 if !inside { hoveredID = nil }
@@ -381,9 +386,11 @@ struct CollectionDeckStage<Controls: View>: View {
 
         return Button {
             guard isInteractionEnabled, !horizontalDragActive else { return }
-            setPosition(CGFloat(index), animated: true)
-            focusedID = row.id
-            activate(row, source: .pointer)
+            if index != focusedIndex {
+                moveFocus(to: index)
+            } else {
+                activate(row, source: .pointer)
+            }
         } label: {
             CollectionDeckCardSurface(
                 row: row,
@@ -396,10 +403,11 @@ struct CollectionDeckStage<Controls: View>: View {
             )
         }
         .buttonStyle(.plain)
+        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .focusable(false)
-        .position(
-            x: containerWidth / 2 + x + yield,
-            y: geometry.cardHeight / 2 + 18 + y - playingLift
+        .offset(
+            x: x + yield,
+            y: 18 + y - playingLift
         )
         .rotationEffect(.degrees(Double(relative * 3.15)))
         .scaleEffect(scale * playingScale)
@@ -439,7 +447,7 @@ struct CollectionDeckStage<Controls: View>: View {
     }
 
     private func deckDrag(geometry: CollectionDeckGeometry) -> some Gesture {
-        DragGesture(minimumDistance: 2)
+        DragGesture(minimumDistance: 6)
             .onChanged { value in
                 guard isInteractionEnabled else { return }
                 if dragOrigin == nil { dragOrigin = position }
@@ -587,74 +595,140 @@ struct CollectionDeckCardSurface: View {
     }
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: AppleMusicTokens.cardCorner, style: .continuous)
-        VStack(spacing: 0) {
+        let totalHeight = cardWidth + footerHeight
+        let cardShape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+
+        ZStack(alignment: .bottomLeading) {
+            // Full-bleed artwork
             ArtworkView(
                 source: artworkSource,
                 cornerRadius: 0,
-                glyphSize: max(24, cardWidth * 0.2),
+                glyphSize: max(32, cardWidth * 0.22),
                 targetSize: cardWidth,
-                presentation: .fitOnAmbient
+                targetHeight: totalHeight,
+                presentation: .fill
             )
-            .overlay {
-                if isHovered {
+            .frame(width: cardWidth, height: totalHeight)
+            .clipShape(cardShape)
+
+            // Top-right floating frosted badges
+            VStack {
+                HStack(spacing: 6) {
+                    Spacer()
+                    if !row.snapshot.youTubeId.isEmpty {
+                        Circle()
+                            .fill(.ultraThinMaterial)
+                            .frame(width: 24, height: 24)
+                            .overlay {
+                                YouTubeMark(size: 12)
+                            }
+                            .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 0.75))
+                            .shadow(color: .black.opacity(0.3), radius: 3)
+                    }
                     Circle()
-                        .fill(BrandColors.magenta)
-                        .frame(width: 31, height: 31)
+                        .fill(.ultraThinMaterial)
+                        .frame(width: 24, height: 24)
                         .overlay {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 11, weight: .bold))
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 10, weight: .bold))
                                 .foregroundStyle(.white)
-                                .offset(x: 1)
                         }
-                        .shadow(color: .black.opacity(0.25), radius: 8, y: 3)
-                        .transition(.opacity)
+                        .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 0.75))
+                        .shadow(color: .black.opacity(0.3), radius: 3)
                 }
+                .padding(.top, 10)
+                .padding(.trailing, 10)
+                Spacer()
             }
 
-            HStack(alignment: .top, spacing: 6) {
-                VStack(alignment: .leading, spacing: footerHeight <= 48 ? 1 : 3) {
-                    Text(row.title)
-                        .font(.system(size: footerHeight <= 48 ? 11.5 : 12.5, weight: .semibold))
-                        .foregroundStyle(BrandColors.textPrimary)
-                        .lineLimit(2)
-                        .truncationMode(.tail)
-                        .layoutPriority(1)
-                    Text(row.artist)
-                        .font(.system(size: footerHeight <= 48 ? 10 : 11.5))
-                        .foregroundStyle(BrandColors.textSecondary)
-                        .lineLimit(1)
+            // Bottom gradient scrim
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0.0),
+                    .init(color: Color.black.opacity(0.45), location: 0.45),
+                    .init(color: Color.black.opacity(0.85), location: 0.75),
+                    .init(color: Color.black.opacity(0.95), location: 1.0)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: totalHeight * 0.58)
+            .clipShape(cardShape)
+
+            // Bottom content: Title, Artist, and Action Row
+            VStack(alignment: .leading, spacing: 4) {
+                Text(row.title)
+                    .font(.system(size: footerHeight <= 52 ? 12.5 : 14.5, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .shadow(color: .black.opacity(0.7), radius: 3, y: 1)
+
+                Text(row.artist)
+                    .font(.system(size: footerHeight <= 52 ? 10.5 : 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.82))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .shadow(color: .black.opacity(0.7), radius: 2, y: 1)
+
+                HStack(alignment: .center, spacing: 6) {
+                    // Tag on left
+                    HStack(spacing: 3) {
+                        Image(systemName: isPlaying ? "waveform" : "music.note")
+                            .font(.system(size: 8.5, weight: .bold))
+                            .foregroundStyle(isPlaying ? BrandColors.magenta : Color.white.opacity(0.8))
+                        Text(tr("SONG", "歌曲"))
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(Color.white.opacity(0.9))
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color.white.opacity(0.14), in: Capsule())
+
+                    Spacer(minLength: 0)
+
+                    // Action pill on right
+                    HStack(spacing: 4) {
+                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 8.5, weight: .bold))
+                        Text(isPlaying ? tr("Pause", "暂停") : tr("Play", "播放"))
+                            .font(.system(size: 9.5, weight: .semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3.5)
+                    .background(
+                        isPlaying || isHovered
+                            ? BrandColors.magenta
+                            : Color.white.opacity(0.22),
+                        in: Capsule()
+                    )
+                    .overlay(
+                        Capsule().stroke(Color.white.opacity(0.35), lineWidth: 0.75)
+                    )
                 }
-                Spacer(minLength: 0)
-                if isPlaying {
-                    Image(systemName: "waveform")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(BrandColors.magenta)
-                        .accessibilityHidden(true)
-                }
+                .padding(.top, 2)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, footerHeight <= 48 ? 3 : 7)
-            .frame(height: footerHeight, alignment: .top)
-            .background(BrandColors.surface)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 10)
         }
-        .frame(width: cardWidth, height: cardWidth + footerHeight)
+        .frame(width: cardWidth, height: totalHeight)
         .background(BrandColors.surface)
-        .clipShape(shape)
+        .clipShape(cardShape)
         .overlay {
-            shape.stroke(
+            cardShape.stroke(
                 isPlaying
-                    ? Color.white.opacity(0.68)
-                    : (showsKeyboardFocus
-                        ? BrandColors.textPrimary.opacity(0.78)
-                        : (isFocused ? BrandColors.textSecondary.opacity(0.58) : BrandColors.hairline)),
-                lineWidth: isPlaying ? 1.5 : (showsKeyboardFocus ? 2 : (isFocused ? 1.25 : 1))
+                    ? BrandColors.magenta.opacity(0.85)
+                    : (isFocused
+                        ? Color.white.opacity(0.38)
+                        : (isHovered ? Color.white.opacity(0.28) : BrandColors.hairline)),
+                lineWidth: (isFocused || isPlaying) ? 1.5 : 1.0
             )
         }
         .shadow(
-            color: .black.opacity(isHovered ? 0.44 : (isFocused ? 0.32 : 0.22)),
-            radius: isHovered ? 21 : (isFocused ? 15 : 9),
-            y: isHovered ? 12 : 8
+            color: .black.opacity(isHovered ? 0.45 : (isFocused ? 0.35 : 0.22)),
+            radius: isHovered ? 18 : (isFocused ? 14 : 8),
+            y: isHovered ? 10 : 6
         )
         .shadow(
             color: isPlaying ? resolvedGlow.opacity(0.52) : Color.clear,

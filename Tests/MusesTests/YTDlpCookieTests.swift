@@ -23,7 +23,7 @@ struct YTDlpCookieTests {
         defaults.removeObject(forKey: PrefKey.ytCookiePath)
     }
 
-    @Test("cookieArgs none → 空数组")
+    @Test("cookieArgs none → empty array")
     func noneReturnsEmpty() {
         saveAndSet(source: YTCookieSource.none.rawValue)
         defer { clear() }
@@ -44,21 +44,21 @@ struct YTDlpCookieTests {
         #expect(bridge.cookieArgs() == ["--cookies-from-browser", "chrome"])
     }
 
-    @Test("cookieArgs file 有路径 → --cookies <path>")
+    @Test("cookieArgs file with path → --cookies <path>")
     func fileWithPath() {
         saveAndSet(source: YTCookieSource.file.rawValue, path: "/tmp/cookies.txt")
         defer { clear() }
         #expect(bridge.cookieArgs() == ["--cookies", "/tmp/cookies.txt"])
     }
 
-    @Test("cookieArgs file 无路径 → 空数组(安全回退)")
+    @Test("cookieArgs file without path → empty array (safe fallback)")
     func fileEmptyPath() {
         saveAndSet(source: YTCookieSource.file.rawValue, path: "")
         defer { clear() }
         #expect(bridge.cookieArgs().isEmpty)
     }
 
-    @Test("cookieArgs 未设置 → 默认 none 空数组")
+    @Test("cookieArgs unset → defaults to none empty array")
     func unsetDefaultsToNone() {
         clear()
         #expect(bridge.cookieArgs().isEmpty)

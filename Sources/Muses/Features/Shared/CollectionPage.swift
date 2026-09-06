@@ -518,9 +518,10 @@ private struct CollectionTrackTitleCell: View {
 
             Button(action: onToggleLike) {
                 Image(systemName: liked ? "heart.fill" : "heart")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(liked ? BrandColors.magenta : BrandColors.textSecondary)
-                    .frame(width: 24, height: 24)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help(liked ? tr("Unlike", "取消收藏") : tr("Like", "收藏"))

@@ -8,7 +8,7 @@ struct YouTubeStreamEngineTests {
 
     // MARK: - 1. A successful load sets state.source = .youtube
 
-    @Test("load 成功设置 state.source = .youtube 且 duration > 0")
+    @Test("load successfully sets state.source to .youtube and duration > 0")
     func loadSuccessSetsSource() async throws {
         let wav = try makeWAVFile()
         let bridge = MockYTDlpBridge()
@@ -28,7 +28,7 @@ struct YouTubeStreamEngineTests {
 
     // MARK: - 2. A failed load sets state.error = .sourceUnavailable
 
-    @Test("load 失败设置 state.error = .sourceUnavailable")
+    @Test("load failure sets state.error to .sourceUnavailable")
     func loadFailureSetsError() async throws {
         let bridge = MockYTDlpBridge()
         bridge.shouldFail = true
@@ -40,7 +40,7 @@ struct YouTubeStreamEngineTests {
             sampleRate: 44100, bitDepth: 16, codec: "aac", isLossless: false)
         do {
             try await engine.load(snap)
-            Issue.record("应抛出 PlayerError.sourceUnavailable")
+            Issue.record("Expected PlayerError.sourceUnavailable to be thrown")
         } catch {
             #expect(engine.state.error == .sourceUnavailable)
         }
@@ -49,7 +49,7 @@ struct YouTubeStreamEngineTests {
 
     // MARK: - 3. buffering resets to zero after load success/failure (covered by 1/2; asserted separately here)
 
-    @Test("load 成功后 buffering == false")
+    @Test("buffering is false after load success")
     func bufferingFalseAfterSuccess() async throws {
         let wav = try makeWAVFile()
         let bridge = MockYTDlpBridge()
@@ -66,7 +66,7 @@ struct YouTubeStreamEngineTests {
 
     // MARK: - 4. AVPlayer fallback path
 
-    @Test("下载失败时降级到 AVPlayer 且不报错")
+    @Test("Falls back to AVPlayer on download failure without error")
     func avPlayerFallback() async throws {
         let bridge = MockYTDlpBridge()
         // Use a .test TLD so DNS resolution fails fast, combined with a short timeout
@@ -91,7 +91,7 @@ struct YouTubeStreamEngineTests {
 
     // MARK: - 5. Two-node switching: load swaps activePlayer
 
-    @Test("load 后 activePlayer 已初始化且 state 正确")
+    @Test("activePlayer initialized and state correct after load")
     func loadSwapsActivePlayer() async throws {
         let wav = try makeWAVFile()
         let bridge = MockYTDlpBridge()
@@ -111,7 +111,7 @@ struct YouTubeStreamEngineTests {
 
     // MARK: - 6. Preloading: prepare downloads + decodes in the background into the prefetch slot
 
-    @Test("prepare 预加载下一首文件且不改变当前 state")
+    @Test("prepare prefetches next track file without modifying current state")
     func preparePrefetchesFile() async throws {
         let wav = try makeWAVFile(seconds: 5)
         let bridge = MockYTDlpBridge()
@@ -144,7 +144,7 @@ struct YouTubeStreamEngineTests {
 
     // MARK: - 7. playPrepared switches seamlessly to the preloaded track
 
-    @Test("playPrepared 切换到预加载曲目并交换 activePlayer")
+    @Test("playPrepared switches to prefetched track and swaps activePlayer")
     func playPreparedSwapsPlayer() async throws {
         let wav = try makeWAVFile()
         let bridge = MockYTDlpBridge()

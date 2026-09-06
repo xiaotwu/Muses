@@ -303,7 +303,7 @@ final class YTDlpBridge {
             .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
         guard let line = firstLine, !line.isEmpty,
               let url = URL(string: line) else {
-            throw YTDlpError.parseFailed("无法从 stdout 解析 URL:\(stdout)")
+            throw YTDlpError.parseFailed("Unable to parse URL from stdout: \(stdout)")
         }
         return url
     }
@@ -332,12 +332,12 @@ final class YTDlpBridge {
             let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !line.isEmpty else { continue }
             guard let data = line.data(using: .utf8) else {
-                throw YTDlpError.parseFailed("第 \(idx) 行非 UTF-8")
+                throw YTDlpError.parseFailed("Line \(idx) is not valid UTF-8")
             }
             do {
                 entries.append(try decoder.decode(YTDlpPlaylistEntry.self, from: data))
             } catch {
-                throw YTDlpError.parseFailed("第 \(idx) 行 JSON 解析失败:\(error)")
+                throw YTDlpError.parseFailed("Line \(idx) JSON parse failed: \(error)")
             }
         }
         return entries
@@ -356,7 +356,7 @@ final class YTDlpBridge {
         // Fresh hit: reuse it directly and skip the yt-dlp spawn.
         if let cache = searchCache, cache.isFresh(query: query, limit: limit),
            let cached = cache.get(query: query, limit: limit) {
-            log.info("searchYouTube 缓存命中(新鲜):\(query)")
+            log.info("searchYouTube cache hit (fresh): \(query)")
             return cached.value
         }
         let bin = try await resolveBinary()
@@ -376,12 +376,12 @@ final class YTDlpBridge {
             let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !line.isEmpty else { continue }
             guard let data = line.data(using: .utf8) else {
-                throw YTDlpError.parseFailed("搜索结果第 \(idx) 行非 UTF-8")
+                throw YTDlpError.parseFailed("Search result line \(idx) is not valid UTF-8")
             }
             do {
                 entries.append(try decoder.decode(YTDlpPlaylistEntry.self, from: data))
             } catch {
-                throw YTDlpError.parseFailed("搜索结果第 \(idx) 行 JSON 解析失败:\(error)")
+                throw YTDlpError.parseFailed("Search result line \(idx) JSON parse failed: \(error)")
             }
         }
         // Store in the cache (after a successful spawn).
@@ -455,14 +455,48 @@ final class YTDlpBridge {
                 executablePath: executablePath, args: args, timeout: timeout)
         } catch let e as YTDlpError {
             switch e {
-            case .timeout: log.error("yt-dlp 超时(\(timeout)s),已终止")
-            case .exitCode(let code, let stderr): log.error("yt-dlp 退出码 \(code):\(stderr)")
-            case .notFound: log.error("yt-dlp 启动失败:\(executablePath)")
-            case .parseFailed: break
+            case .timeout:
+                log.error("yt-dlp timed out (\(timeout)s), terminated")
+            case .exitCode(let code, let stderr):
+                log.error("yt-dlp exit code \(code): \(stderr)")
+                let isCookieOrConfigError = stderr.localizedCaseInsensitiveContains("cookie")
+                    || stderr.localizedCaseInsensitiveContains("permission")
+                    || stderr.localizedCaseInsensitiveContains("operation not permitted")
+                    || stderr.localizedCaseInsensitiveContains("could not copy")
+                let hasCookieArgs = args.contains("--cookies") || args.contains("--cookies-from-browser")
+                let hasIgnoreConfig = args.contains("--ignore-config")
+                if isCookieOrConfigError && (hasCookieArgs || !hasIgnoreConfig) {
+                    log.warning("yt-dlp encountered cookie or permission error, automatically falling back: retrying without cookies and with --ignore-config")
+                    var fallbackArgs = args
+                    var i = 0
+                    while i < fallbackArgs.count {
+                        if fallbackArgs[i] == "--cookies" || fallbackArgs[i] == "--cookies-from-browser" {
+                            fallbackArgs.remove(at: i)
+                            if i < fallbackArgs.count {
+                                fallbackArgs.remove(at: i)
+                            }
+                        } else {
+                            i += 1
+                        }
+                    }
+                    if !fallbackArgs.contains("--ignore-config") {
+                        fallbackArgs.insert("--ignore-config", at: 0)
+                    }
+                    do {
+                        return try await runner.run(
+                            executablePath: executablePath, args: fallbackArgs, timeout: timeout)
+                    } catch {
+                        throw e
+                    }
+                }
+            case .notFound:
+                log.error("yt-dlp launch failed: \(executablePath)")
+            case .parseFailed:
+                break
             }
             throw e
         } catch {
-            log.error("yt-dlp 运行未知错误:\(error)")
+            log.error("yt-dlp runtime error: \(error)")
             throw error
         }
     }

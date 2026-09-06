@@ -127,13 +127,6 @@ struct YouTubeSettingsView: View {
             primaryAction
                 .padding(.top, 4)
 
-            Text(
-                tr("Personalized Home reads your YouTube Music web session locally through an isolated one-shot helper — read-only, never used for playback or playlist writes, and no Cookie, auth hash, or raw response is saved.",
-                   "个性化首页由独立的一次性 Helper 在本机以只读方式读取你的 YouTube Music 登录会话——不参与播放或歌单写入，也不保存 Cookie、鉴权哈希或原始响应。"))
-                .font(.caption)
-                .foregroundStyle(BrandColors.textSecondary)
-                .padding(.top, 2)
-
             DisclosureGroup(isExpanded: $showAdvanced) {
                 accountDetails
                 ytDlpDetails
@@ -416,6 +409,7 @@ struct YouTubeSettingsView: View {
                 Label(tr("Choose Cookie File…", "选择 Cookie 文件…"), systemImage: "doc")
             }
             .buttonStyle(.bordered)
+            .tint(BrandColors.magenta)
         }
 
         Text(cookieHelpText)

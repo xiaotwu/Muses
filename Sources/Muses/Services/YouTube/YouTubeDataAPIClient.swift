@@ -47,7 +47,7 @@ struct PaginationPage<Item: Sendable>: Sendable {
     let nextPageToken: String?
 }
 
-/// YouTube Data API v3 account and owned-playlist client.
+/// YouTube Data API account and owned-playlist client.
 ///
 /// Used only for account identity and personalization signals (channels/playlists/playlistItems/subscriptions/videos?myRating=like),
 /// with OAuth `Bearer` tokens. It never calls YouTube Music internal APIs and never replaces yt-dlp for playback/import.

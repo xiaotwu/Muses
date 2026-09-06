@@ -139,7 +139,7 @@ final class HistoryService {
         let ctx = ModelContext(modelContainer)
         ctx.insert(event)
         do { try ctx.save() } catch {
-            AppLog.for("HistoryService").warning("保存 ListeningEvent 失败:\(error.localizedDescription)")
+            AppLog.for("HistoryService").warning("Failed to save ListeningEvent: \(error.localizedDescription)")
         }
         historyRevision &+= 1
     }

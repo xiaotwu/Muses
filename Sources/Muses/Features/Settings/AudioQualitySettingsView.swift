@@ -45,9 +45,6 @@ struct AudioQualitySettingsView: View {
                 playback.reloadCurrent()
                 cacheBytes = MediaFileCache.totalBytes()
             }
-            Text(tr("yt-dlp caches each quality on disk. Switching quality re-downloads the current song.",
-                    "yt-dlp 按音质缓存到本地。切换音质会重新下载当前曲目。"))
-                .font(.caption).foregroundStyle(BrandColors.textSecondary)
         }
 
         Section(tr("Media cache", "媒体缓存")) {
@@ -59,6 +56,7 @@ struct AudioQualitySettingsView: View {
                 cacheBytes = 0
                 playback.reloadCurrent()
             }
+            .buttonStyle(.bordered)
         }
         .onAppear { cacheBytes = MediaFileCache.totalBytes() }
     }

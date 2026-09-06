@@ -41,7 +41,7 @@ final class PlaylistService {
         let playlist = Playlist(name: name.trimmingCharacters(in: .whitespacesAndNewlines))
         ctx.insert(playlist)
         try? ctx.save()
-        log.info("创建歌单 \(playlist.name)")
+        log.info("Created playlist \(playlist.name)")
         notifyPlaylistsChanged()
         return playlist
     }
@@ -65,7 +65,7 @@ final class PlaylistService {
         if let p = try? ctx.fetch(descriptor).first {
             ctx.delete(p)
             try? ctx.save()
-            log.info("删除歌单 \(id)")
+            log.info("Deleted playlist \(id)")
             notifyPlaylistsChanged()
         }
     }
@@ -90,11 +90,11 @@ final class PlaylistService {
         ctx.delete(stored)
         do {
             try ctx.save()
-            log.info("删除歌单 (id)，可在当前会话撤销")
+            log.info("Deleted playlist \(id), undoable in current session")
             notifyPlaylistsChanged()
             return snapshot
         } catch {
-            log.warning("删除歌单失败: (error.localizedDescription)")
+            log.warning("Failed to delete playlist: \(error.localizedDescription)")
             return nil
         }
     }
@@ -127,7 +127,7 @@ final class PlaylistService {
             notifyPlaylistsChanged()
             return restored
         } catch {
-            log.warning("恢复已删除歌单失败: (error.localizedDescription)")
+            log.warning("Failed to restore deleted playlist: \(error.localizedDescription)")
             return nil
         }
     }

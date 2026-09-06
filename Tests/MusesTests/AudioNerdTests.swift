@@ -30,7 +30,7 @@ struct AudioNerdTests {
         #expect(byLabel[tr("Volume", "音量")] == "0%")
     }
 
-    @Test("nil device name → Output Device Unknown (绝不伪造)")
+    @Test("nil device name maps to Output Device Unknown")
     func nilDeviceNameFallback() {
         let t = makeYouTubeTrack()
         let rows = AudioInfoModel.rows(track: t, defaultDeviceName: nil,
@@ -44,7 +44,7 @@ struct AudioNerdTests {
 
     // MARK: - Populated fields
 
-    @Test("YouTube 高保真快照 → 全字段填充")
+    @Test("YouTube hi-fi snapshot populates all fields")
     func populatedYouTubeSnapshot() {
         let t = makeYouTubeTrack() // 96kHz/24-bit/5000kbps/2ch/FLAC/lossless/replayGain -6.3
         let rows = AudioInfoModel.rows(track: t, defaultDeviceName: "Built-in Speakers",
@@ -63,7 +63,7 @@ struct AudioNerdTests {
         #expect(byLabel[tr("Volume", "音量")] == "73%")
     }
 
-    @Test("YouTube 来源区分 + 有损 + mono")
+    @Test("YouTube source distinction with lossy and mono")
     func youTubeSourceLossyMono() {
         let t = TrackSnapshot(
             id: UUID(), title: "YT", artist: "A",
@@ -87,7 +87,7 @@ struct AudioNerdTests {
         #expect(byLabel[tr("Volume", "音量")] == "100%")
     }
 
-    @Test("5.1 多声道 → 显示数字")
+    @Test("5.1 multichannel displays numeric channel count")
     func multichannelNumeric() {
         let t = TrackSnapshot(
             id: UUID(), title: "Surround", artist: "A",
@@ -104,7 +104,7 @@ struct AudioNerdTests {
         #expect(byLabel[tr("ReplayGain", "回放增益")] == "+0.0 dB")
     }
 
-    @Test("空 EQ 预设 id → Unknown")
+    @Test("Empty EQ preset ID maps to Unknown")
     func emptyEQPresetFallback() {
         let t = makeYouTubeTrack()
         let rows = AudioInfoModel.rows(track: t, defaultDeviceName: nil,
@@ -113,7 +113,7 @@ struct AudioNerdTests {
         #expect(byLabel[tr("EQ Preset", "EQ 预设")] == unknown)
     }
 
-    @Test("行数固定 11 + 标签唯一")
+    @Test("Row count is fixed at 11 and labels are unique")
     func rowCountAndUniqueLabels() {
         let rows = AudioInfoModel.rows(track: nil, defaultDeviceName: nil,
                                        eqPresetId: "", volume: 0.0)
@@ -124,7 +124,7 @@ struct AudioNerdTests {
 
     // MARK: - AudioDevice initializers (pure values, no Core Audio)
 
-    @Test("AudioDevice 等价性与可识别")
+    @Test("AudioDevice equality and identity semantics")
     func audioDeviceValueSemantics() {
         let a = AudioDeviceService.AudioDevice(id: 42, name: "Dev A", channels: 2)
         let b = AudioDeviceService.AudioDevice(id: 42, name: "Dev A", channels: 2)
