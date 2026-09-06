@@ -49,6 +49,7 @@ struct ListeningHeatmapView: View {
                         .tag(Presentation.table)
                 }
                 .pickerStyle(.segmented)
+                .labelsHidden()
                 .frame(width: 230)
             }
 
