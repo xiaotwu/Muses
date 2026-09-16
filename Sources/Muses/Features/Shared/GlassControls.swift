@@ -7,9 +7,8 @@ private struct MusesControls: ViewModifier {
 
     @ViewBuilder func body(content: Content) -> some View {
         if #available(macOS 26.0, *), !reduceTransparency {
-            GlassEffectContainer(spacing: 16) {
-                content.buttonStyle(.glass)
-            }
+            content.buttonStyle(.glass)
+                .buttonBorderShape(.capsule)
             .transaction { if reduceMotion { $0.animation = nil } }
         } else {
             content.buttonStyle(.bordered)
@@ -23,8 +22,8 @@ private struct MusesAction: ViewModifier {
 
     @ViewBuilder func body(content: Content) -> some View {
         if #available(macOS 26.0, *), !reduceTransparency {
-            if prominent { content.buttonStyle(.glassProminent) }
-            else { content.buttonStyle(.glass) }
+            if prominent { content.buttonStyle(.glassProminent).buttonBorderShape(.capsule) }
+            else { content.buttonStyle(.glass).buttonBorderShape(.capsule) }
         } else {
             if prominent { content.buttonStyle(.borderedProminent) }
             else { content.buttonStyle(.bordered) }
@@ -55,6 +54,10 @@ struct SettingsGlassChoice: View {
     @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
+        MusesGlassGroup(spacing: 8) { choices }
+    }
+
+    private var choices: some View {
         HStack(spacing: 8) {
             ForEach(options) { option in
                 Button {

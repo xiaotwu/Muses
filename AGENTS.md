@@ -318,3 +318,7 @@ The native window toolbar owns page Back and Forward, including Settings categor
 ### 2026-09-16 flat Settings revision
 
 Settings now uses only first-level sidebar categories. Expand preferences and explanations in clearly separated content sections; do not restore secondary/tertiary navigation pages. Diagnostics, Library Review, and Help are first-level destinations. Window Back/Forward continues to navigate categories and browsing pages. Use available native Liquid Glass controls, with supported-system and accessibility fallbacks; keep system menu behavior and keyboard semantics.
+
+### 2026-09-16 global glass revision
+
+Shared action buttons and compact selection controls use adaptive native glass and capsule shapes across the app. Group glass only within a bounded cluster of related controls, never around the complete window containing already-glassed panes. Artwork, video and large reading regions keep their content aspect ratios. Settings uses the main sidebar row height and grouping rhythm, with emphasized section headings and secondary explanatory notes. Keep the menu-bar player compact (332-point width).
