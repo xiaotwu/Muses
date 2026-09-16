@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 /// Lyrics source.
-enum LyricsSource: String, Sendable {
+enum LyricsSource: String, Codable, Sendable {
     case lrclib      // LRCLIB API
     case musixmatch  // Musixmatch public Web API
     case cached      // Track.lyrics persistent cache
@@ -20,11 +20,12 @@ struct LyricLine: Sendable, Identifiable {
     /// This line's translation, if any. Data-platform limitation: most sources
     /// do not provide one, so it stays nil — never fabricated.
     let translation: String?
+    let romanization: String?
 
     init(id: UUID = UUID(), time: Double?, text: String,
-         words: [LyricWord]? = nil, translation: String? = nil) {
+         words: [LyricWord]? = nil, translation: String? = nil, romanization: String? = nil) {
         self.id = id; self.time = time; self.text = text
-        self.words = words; self.translation = translation
+        self.words = words; self.translation = translation; self.romanization = romanization
     }
 }
 
@@ -38,21 +39,21 @@ struct LyricWord: Sendable, Identifiable {
 
 /// A set of translations (structure ready; data-platform limitation — the free
 /// LRCLIB/Musixmatch public APIs have no translations → usually nil).
-struct LyricsTranslation: Sendable {
+struct LyricsTranslation: Codable, Sendable {
     let language: String?   // language code, e.g. "zh"
     let lines: [String]      // line-by-line translation aligned with the original lines (no time tags)
 }
 
 /// Romanized lyrics. Parallel to `LyricsResult` but non-recursive (a Swift value
 /// type cannot contain itself); data-platform limitation → usually nil, never fabricated.
-struct LyricsRomanization: Sendable {
+struct LyricsRomanization: Codable, Sendable {
     let plainLyrics: String?
     let syncedLyrics: String?
     let source: LyricsSource
 }
 
 /// Lyrics lookup result. Carries translations / romanization / the LRC `[offset:]` shift.
-struct LyricsResult: Sendable {
+struct LyricsResult: Codable, Sendable {
     let plainLyrics: String?
     let syncedLyrics: String?   // LRC format (with [mm:ss.xx] tags)
     let source: LyricsSource
@@ -83,14 +84,109 @@ struct LyricsResult: Sendable {
 final class LyricsService {
     private let session: URLSession
     private let modelContainer: ModelContainer?
+    private let documentCache: LyricsDocumentCache
+    private let offsetDefaults: UserDefaults
+    private let offsetsKey = "muses.lyrics.videoOffsetsMs"
     private let log = AppLog.for("LyricsService")
 
     /// Manual lyric offset for the current track, in milliseconds (§10.8).
     /// @Observable: the lyrics view reads it live; the offset fine-tuner writes it and
     /// mirrors it into `Track.lyricsOffsetMs`. A single value while a track plays.
     var manualOffsetMs: Int = 0
+    private var offsetTrackID: UUID?
 
-    init(session: URLSession = .shared, modelContainer: ModelContainer? = nil) {
+    func prepareOffset(for track: TrackSnapshot) {
+        guard offsetTrackID != track.id else { return }
+        offsetTrackID = track.id
+        let videoOffset = (offsetDefaults.dictionary(forKey: offsetsKey)?[track.youTubeId] as? NSNumber)?.intValue
+        manualOffsetMs = videoOffset ?? track.lyricsOffsetMs ?? 0
+        if let modelContainer {
+            let id = track.id
+            let context = ModelContext(modelContainer)
+            if let stored = try? context.fetch(FetchDescriptor<Track>(predicate: #Predicate { $0.id == id })).first {
+                manualOffsetMs = videoOffset ?? stored.lyricsOffsetMs ?? 0
+            }
+        }
+    }
+    private(set) var selectionRevision = 0
+    @ObservationIgnored private var candidateCache: [String: [LyricsCandidate]] = [:]
+    @ObservationIgnored private var selectedCache: [String: LyricsResult] = [:]
+    @ObservationIgnored private var enrichmentCache: [String: [String]] = [:]
+
+    func enrichment(key: String) -> [String]? { enrichmentCache[key] }
+
+    func rememberEnrichment(_ lines: [String], key: String) {
+        if enrichmentCache.count >= 30 { enrichmentCache.removeAll() }
+        enrichmentCache[key] = lines
+    }
+
+    @ObservationIgnored private var syncRefreshAttempts: Set<String> = []
+
+    func load(track: TrackSnapshot) async -> LyricsResult? {
+        let key = LyricsDocumentIdentity.key(for: track)
+        let revision = selectionRevision
+        if let selected = selectedCache[cacheKey(track)] { return await upgradeTiming(selected, track: track) }
+        if let saved = await documentCache.read(key: key), !Task.isCancelled {
+            guard revision == selectionRevision else { return selectedCache[key] }
+            if selectedCache.count >= 20 { selectedCache.removeAll() }
+            selectedCache[cacheKey(track)] = saved
+            return await upgradeTiming(saved, track: track)
+        }
+        guard !Task.isCancelled else { return nil }
+        if let saved = fetchCached(track: track) { return await upgradeTiming(saved, track: track) }
+        guard let result = await fetch(track: track), !Task.isCancelled else { return nil }
+        guard revision == selectionRevision else { return selectedCache[key] }
+        await documentCache.write(result, key: key)
+        return result
+    }
+
+    /// A plain cached document must not permanently prevent synchronized lyrics.
+    /// Upgrade only when the provider's timed text and recording both agree.
+    private func upgradeTiming(_ cached: LyricsResult, track: TrackSnapshot) async -> LyricsResult {
+        let key = cacheKey(track)
+        guard cached.syncedLyrics?.isEmpty != false,
+              cached.plainLyrics?.isEmpty == false,
+              !syncRefreshAttempts.contains(key) else { return cached }
+        if syncRefreshAttempts.count >= 100 { syncRefreshAttempts.removeAll() }
+        syncRefreshAttempts.insert(key)
+        let revision = selectionRevision
+        let candidates = await findCandidates(track: track)
+        guard !Task.isCancelled, revision == selectionRevision else {
+            return selectedCache[key] ?? cached
+        }
+        guard let candidate = LyricsSyncUpgrade.match(cached, candidates: candidates, track: track) else { return cached }
+        let upgraded = result(for: candidate)
+        selectedCache[key] = upgraded
+        persistLyrics(upgraded, for: track.id)
+        await documentCache.write(upgraded, key: key)
+        selectionRevision &+= 1
+        return upgraded
+    }
+
+    private func cacheKey(_ track: TrackSnapshot) -> String {
+        LyricsDocumentIdentity.key(for: track)
+    }
+
+    func choose(_ candidate: LyricsCandidate, for track: TrackSnapshot) {
+        guard candidate.hasLyrics else { return }
+        let result = result(for: candidate)
+        selectedCache[cacheKey(track)] = result
+        persistLyrics(result, for: track.id)
+        let key = LyricsDocumentIdentity.key(for: track)
+        Task { await documentCache.write(result, key: key) }
+        selectionRevision &+= 1
+    }
+
+    private func result(for candidate: LyricsCandidate) -> LyricsResult {
+        LyricsResult(plainLyrics: candidate.plainLyrics, syncedLyrics: candidate.syncedLyrics,
+                     source: .lrclib, offsetMs: candidate.syncedLyrics.flatMap(Self.parseOffsetMs))
+    }
+
+
+    init(session: URLSession = .shared, modelContainer: ModelContainer? = nil,
+         documentCache: LyricsDocumentCache = LyricsDocumentCache(), offsetDefaults: UserDefaults = .standard) {
+        self.documentCache = documentCache
+        self.offsetDefaults = offsetDefaults
         self.session = session
         self.modelContainer = modelContainer
     }
@@ -99,6 +195,7 @@ final class LyricsService {
 
     /// Checks the persistent cache (Track.lyrics). A hit returns LyricsResult(source: .cached).
     func fetchCached(track: TrackSnapshot) -> LyricsResult? {
+        if let selected = selectedCache[cacheKey(track)] { return selected }
         if let lyrics = track.lyrics, !lyrics.isEmpty {
             // Detect whether it is LRC (with time tags) or plain text
             let isLRC = lyrics.contains("[") && lyrics.range(of: #"\[\d{2}:\d{2}"#, options: .regularExpression) != nil
@@ -114,7 +211,7 @@ final class LyricsService {
 
     /// Writes lyrics back to the Track.lyrics persistent cache.
     private func persistLyrics(_ result: LyricsResult, for trackId: UUID) {
-        guard let container = modelContainer else { return }
+        guard !Task.isCancelled, let container = modelContainer else { return }
         let ctx = ModelContext(container)
         let descriptor = FetchDescriptor<Track>(predicate: #Predicate { $0.id == trackId })
         guard let track = try? ctx.fetch(descriptor).first else { return }
@@ -123,17 +220,43 @@ final class LyricsService {
         try? ctx.save()
     }
 
+    /// Discovery playback can precede library import. Keep its preference keyed by
+    /// video identity without manufacturing a library row; imported rows retain their field.
+    @discardableResult
+    func setOffset(for track: TrackSnapshot, offsetMs: Int) -> Bool {
+        guard track.youTubeId.count == 11, YouTubeShareTarget(kind: .video, id: track.youTubeId) != nil else { return false }
+        if let modelContainer {
+            let context = ModelContext(modelContainer)
+            let id = track.id
+            do {
+                if try context.fetchCount(FetchDescriptor<Track>(predicate: #Predicate { $0.id == id })) > 0,
+                   !setOffset(trackId: id, offsetMs: offsetMs) { return false }
+            } catch { return false }
+        }
+        var offsets = offsetDefaults.dictionary(forKey: offsetsKey) ?? [:]
+        // Keep an explicit zero so older imported snapshots cannot revive an old offset.
+        offsets[track.youTubeId] = offsetMs
+        offsetDefaults.set(offsets, forKey: offsetsKey)
+        offsetTrackID = track.id
+        manualOffsetMs = offsetMs
+        return true
+    }
+
     /// Persists the per-track manual lyric offset (§10.8). `offsetMs == 0` is treated as a
     /// reset → stores nil. Also updates the observable `manualOffsetMs` so the lyrics view
     /// reacts immediately.
-    func setOffset(trackId: UUID, offsetMs: Int) {
-        manualOffsetMs = offsetMs
-        guard let container = modelContainer else { return }
+    @discardableResult
+    func setOffset(trackId: UUID, offsetMs: Int) -> Bool {
+        guard let container = modelContainer else { return false }
         let ctx = ModelContext(container)
         let descriptor = FetchDescriptor<Track>(predicate: #Predicate { $0.id == trackId })
-        guard let track = try? ctx.fetch(descriptor).first else { return }
+        guard let track = try? ctx.fetch(descriptor).first else { return false }
         track.lyricsOffsetMs = offsetMs == 0 ? nil : offsetMs
-        try? ctx.save()
+        do { try ctx.save() }
+        catch { ctx.rollback(); return false }
+        offsetTrackID = trackId
+        manualOffsetMs = offsetMs
+        return true
     }
 
     /// Fetches lyrics by priority according to the user preference (`PrefKey.lyricsSource`).
@@ -141,38 +264,28 @@ final class LyricsService {
     /// - default: LRCLIB
     /// Returns on the first successful source; nil when all fail.
     func fetch(track: TrackSnapshot) async -> LyricsResult? {
+        let revision = selectionRevision
         let pref = UserDefaults.standard.string(forKey: PrefKey.lyricsSource) ?? "lrclib"
-
-        switch pref {
-        case "lrclib":
-            if let remote = await fetchLrclib(track: track) {
-                persistLyrics(remote, for: track.id)
-                return remote
-            }
-            return nil
-        case "musixmatch":
-            if let mx = await fetchMusixmatch(track: track) {
-                persistLyrics(mx, for: track.id)
-                return mx
-            }
-            if let remote = await fetchLrclib(track: track) {
-                persistLyrics(remote, for: track.id)
-                return remote
-            }
-            return nil
-        default:
-            if let remote = await fetchLrclib(track: track) {
-                persistLyrics(remote, for: track.id)
-                return remote
-            }
-            return nil
+        var result: LyricsResult?
+        if pref == "musixmatch" {
+            result = await fetchMusixmatch(track: track)
         }
+        if result == nil, !Task.isCancelled, revision == selectionRevision {
+            result = await fetchLrclib(track: track)
+        }
+        guard !Task.isCancelled else { return nil }
+        // A pending automatic lookup cannot replace a subsequent manual choice.
+        guard revision == selectionRevision else { return selectedCache[cacheKey(track)] }
+        guard let result else { return nil }
+        selectedCache[cacheKey(track)] = result
+        persistLyrics(result, for: track.id)
+        return result
     }
 
     // MARK: - LRCLIB
 
     /// Strip YouTube/MV decorations so LRCLIB / Musixmatch can match (Better Lyrics style).
-    static func sanitizedTitle(_ raw: String) -> String {
+    nonisolated static func sanitizedTitle(_ raw: String) -> String {
         var s = raw
         let patterns = [
             #"\s*[\(\[【]\s*official\s*(music\s*)?(video|audio|lyric(s)?(\s*video)?)\s*[\)\]】]"#,
@@ -188,63 +301,67 @@ final class LyricsService {
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Queries LRCLIB `/api/get`; on 404 or no match, falls back to `/api/search` and takes the first result.
+    /// Candidate metadata is validated even for the exact endpoint. Search order
+    /// is not evidence of recording identity.
     private func fetchLrclib(track: TrackSnapshot) async -> LyricsResult? {
-        let titles = Self.queryTitles(track.title)
-        for title in titles {
-            let getURL = LyricsEndpoint.lrclib(
-                track: title,
-                artist: track.artist,
-                album: track.albumTitle
-            )
-            if let data = await get(getURL), let result = parseLrclibGet(data: data) {
-                return result
-            }
+        let candidates = await findCandidates(track: track)
+        guard !Task.isCancelled else { return nil }
+        if let matched = LyricsMatchPolicy.automatic(candidates, track: track) {
+            let result = result(for: matched)
+            return result
         }
-        for title in titles {
-            let searchURL = LyricsEndpoint.lrclibSearch(track: title, artist: track.artist)
-            if let data = await get(searchURL), let result = parseLrclibSearch(data: data) {
-                return result
-            }
+        if UserDefaults.standard.object(forKey: PrefKey.lyricsIntelligence) as? Bool ?? true,
+           let matched = await LyricsIntelligence.match(candidates, track: track), !Task.isCancelled {
+            let result = result(for: matched)
+            return result
         }
         return nil
     }
 
-    static func queryTitles(_ raw: String) -> [String] {
+    func findCandidates(track: TrackSnapshot, refresh: Bool = false) async -> [LyricsCandidate] {
+        let key = cacheKey(track)
+        if !refresh, let cached = candidateCache[key] { return cached }
+        var candidates: [LyricsCandidate] = []
+        let titles = Self.queryTitles(track.title, artist: track.artist)
+        let artist = LyricsMatchPolicy.queryArtist(track.artist)
+        for title in titles {
+            guard !Task.isCancelled else { return [] }
+            let url = LyricsEndpoint.lrclib(track: title, artist: artist,
+                                           album: track.albumTitle, duration: track.durationSeconds)
+            if let data = await get(url),
+               let candidate = try? JSONDecoder().decode(LyricsCandidate.self, from: data) {
+                candidates.append(candidate)
+            }
+        }
+        if LyricsMatchPolicy.automatic(candidates, track: track) == nil || refresh {
+            for title in titles {
+                guard !Task.isCancelled else { return [] }
+                let url = LyricsEndpoint.lrclibSearch(track: title, artist: artist)
+                if let data = await get(url),
+                   let found = try? JSONDecoder().decode([LyricsCandidate].self, from: data) {
+                    candidates.append(contentsOf: found.prefix(50))
+                }
+            }
+        }
+        guard !Task.isCancelled else { return [] }
+        var seen = Set<Int>()
+        let ranked = LyricsMatchPolicy.ranked(candidates.filter { seen.insert($0.id).inserted }, track: track)
+        if candidateCache.count >= 20 { candidateCache.removeAll() }
+        if selectedCache.count >= 20 { selectedCache.removeAll() }
+        candidateCache[key] = ranked
+        return ranked
+    }
+
+    nonisolated static func queryTitles(_ raw: String, artist: String? = nil) -> [String] {
         let cleaned = sanitizedTitle(raw)
-        if cleaned.isEmpty || cleaned == raw { return [raw] }
-        return [raw, cleaned]
-    }
-
-    /// Parses the single-object `/api/get` response.
-    private func parseLrclibGet(data: Data) -> LyricsResult? {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            log.warning("lrclib get: JSON parse failed")
-            return nil
+        guard let artist, !LyricsMatchPolicy.queryArtist(artist).isEmpty else {
+            return cleaned.isEmpty || cleaned == raw ? [raw] : [raw, cleaned]
         }
-        let plain = json["plainLyrics"] as? String
-        let synced = json["syncedLyrics"] as? String
-        // Both empty counts as no hit.
-        guard (plain?.isEmpty == false) || (synced?.isEmpty == false) else { return nil }
-        return LyricsResult(plainLyrics: plain, syncedLyrics: synced, source: .lrclib,
-                            offsetMs: synced.flatMap { Self.parseOffsetMs($0) })
-    }
-
-    /// Parses the array `/api/search` response, taking the first entry that has lyrics.
-    private func parseLrclibSearch(data: Data) -> LyricsResult? {
-        guard let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-            log.warning("lrclib search: JSON parse failed")
-            return nil
-        }
-        for entry in array {
-            let plain = entry["plainLyrics"] as? String
-            let synced = entry["syncedLyrics"] as? String
-            if (plain?.isEmpty == false) || (synced?.isEmpty == false) {
-                return LyricsResult(plainLyrics: plain, syncedLyrics: synced, source: .lrclib,
-                                    offsetMs: synced.flatMap { Self.parseOffsetMs($0) })
-            }
-        }
-        return nil
+        let name = NSRegularExpression.escapedPattern(for: LyricsMatchPolicy.queryArtist(artist))
+        let withoutArtist = cleaned.replacingOccurrences(
+            of: "^" + name + #"\s*[-–—:]\s*"#, with: "", options: [.regularExpression, .caseInsensitive])
+        var seen = Set<String>()
+        return [withoutArtist, cleaned, raw].filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
     // MARK: - Musixmatch
@@ -259,7 +376,7 @@ final class LyricsService {
             track: searchTitle, artist: track.artist
         )
         guard let searchData = await get(searchURL),
-              let trackId = parseMusixmatchTrackId(data: searchData)
+              let trackId = parseMusixmatchTrackId(data: searchData, track: track)
         else {
             log.info("musixmatch: no track_id for \(track.title) / \(track.artist)")
             return nil
@@ -292,7 +409,7 @@ final class LyricsService {
     }
 
     /// Parses the `track.search` response and returns the first `track_id`.
-    private func parseMusixmatchTrackId(data: Data) -> Int? {
+    private func parseMusixmatchTrackId(data: Data, track: TrackSnapshot) -> Int? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let message = json["message"] as? [String: Any],
               let body = message["body"] as? [String: Any],
@@ -301,13 +418,17 @@ final class LyricsService {
             log.warning("musixmatch search: JSON parse failed")
             return nil
         }
-        for entry in trackList {
-            if let track = entry["track"] as? [String: Any],
-               let id = track["track_id"] as? Int {
-                return id
-            }
+        let candidates = trackList.compactMap { entry -> LyricsCandidate? in
+            guard let item = entry["track"] as? [String: Any],
+                  let id = item["track_id"] as? Int,
+                  let title = item["track_name"] as? String,
+                  let artist = item["artist_name"] as? String else { return nil }
+            return LyricsCandidate(id: id, trackName: title, artistName: artist,
+                                   albumName: item["album_name"] as? String,
+                                   duration: (item["track_length"] as? NSNumber)?.doubleValue,
+                                   instrumental: false, plainLyrics: String(id), syncedLyrics: nil)
         }
-        return nil
+        return LyricsMatchPolicy.automatic(candidates, track: track)?.id
     }
 
     /// Parses the `track.subtitle.get` response and returns `subtitle_body` (LRC text).
@@ -529,7 +650,11 @@ final class LyricsService {
     /// GETs a URL and returns the body data; nil on non-2xx or transport error (errors are swallowed).
     private func get(_ url: URL) async -> Data? {
         do {
-            let (data, response) = try await session.data(from: url)
+            guard !Task.isCancelled else { return nil }
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 12
+            let (data, response) = try await session.data(for: request)
+            guard !Task.isCancelled, data.count <= 2_000_000 else { return nil }
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode) else {
                 log.warning("GET \(url) non-2xx")

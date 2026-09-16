@@ -1,7 +1,19 @@
 import SwiftUI
 import AppKit
+import SwiftData
 
 struct RootView: View {
+    @Environment(\.modelContext) private var modelContext
+    @AppStorage(PrefKey.settingsLastPane) private var settingsPane = SettingsCategory.general.rawValue
+    @State private var selectedChannelID: String?
+    @State private var settingsPath: [SettingsDestination] = []
+    @State private var navigationHistory = BrowseNavigationHistory()
+    @State private var restoredBrowseRoute = false
+    @State private var pendingAccountRestoration: BrowseRouteSnapshot?
+    @Environment(GlobalSearchService.self) private var globalSearch
+    @Environment(YouTubeAccountService.self) private var account
+    @State private var collectionMemory = CollectionPresentationMemory()
+    @Environment(ExternalPlaybackRouter.self) private var externalPlaybackRouter
     @Environment(LibraryService.self) private var library
     @Environment(PlaylistService.self) private var playlistService
     @Environment(PlaybackService.self) private var playback
@@ -16,6 +28,7 @@ struct RootView: View {
     @State private var selectedCatalogRelease: CatalogReleaseProjection?
     @State private var selectedCatalogArtist: CatalogArtistProjection?
     @State private var showYouTubeLink = false
+    @State private var droppedYouTubeLink = ""
     @State private var showNowPlaying = false
     /// The visual layer remains mounted only for the 300ms opacity dismissal;
     /// logical presentation, hit testing, and accessibility stop immediately.
@@ -28,22 +41,17 @@ struct RootView: View {
     @State private var windowWidth: CGFloat = 1440
     @State private var showQueue = false
     @State private var showLyricsDrawer = false
-    @State private var showSettings = false
-    @State private var showAbout = false
-    @State private var showFocus = false
     @State private var showAudioInfo = false
-    /// Set by the Profile popover menu, to jump straight to a given Settings category (e.g. YouTube sign-in).
-    @State private var initialSettingsCategory: SettingsCategory? = nil
     @AppStorage(PrefKey.language) private var language = "system"
     @AppStorage(PrefKey.nowPlayingLyricsMode) private var lyricsModeRaw: String = NowPlayingLyricsMode.inline.rawValue
     @Environment(\.libraryStoreFallback) private var libraryStoreFallback
     @State private var showStoreFallbackAlert = false
     @State private var showYouTubeVideo = false
     @AppStorage(PrefKey.nowPlayingMode) private var nowPlayingModeRaw: String = NowPlayingMode.cover.rawValue
-    @AppStorage("muses.sidebarCollapsed") private var isSidebarCollapsed = false
+    @AppStorage(PrefKey.sidebarCollapsed) private var isSidebarCollapsed = false
 
     private var lyricsFullscreen: Bool {
-        nowPlayingShowLyrics && (NowPlayingLyricsMode(rawValue: lyricsModeRaw) ?? .inline) != .inline
+        (NowPlayingLyricsMode(rawValue: lyricsModeRaw) ?? .inline) != .inline
     }
 
     private var skipArtworkMorph: Bool {
@@ -55,25 +63,155 @@ struct RootView: View {
 
     var body: some View {
         notificationWired
-            .id(language)
+            .toolbar { windowNavigationToolbar }
+            .modifier(MainWindowTitleHidden())
+            .alert(tr("Unable to Open Link", "无法打开链接", zhHant: "無法開啟連結"), isPresented: Binding(
+                get: { externalPlaybackRouter.errorMessage != nil },
+                set: { if !$0 { externalPlaybackRouter.errorMessage = nil } }
+            )) {
+                Button(tr("OK", "好")) { externalPlaybackRouter.errorMessage = nil }
+            } message: { Text(externalPlaybackRouter.errorMessage ?? "") }
+            .onChange(of: browseRoute) { _, route in
+                navigationHistory.visit(route)
+                pendingAccountRestoration = nil
+                if !libraryStoreFallback {
+                    BrowseRouteSnapshot(route: route, accountChannelID: account.activeChannelID).save()
+                }
+            }
+            .onChange(of: account.activeChannelID) { previous, current in
+                globalSearch.reset()
+                if let snapshot = pendingAccountRestoration, current != nil {
+                    pendingAccountRestoration = nil
+                    if let route = snapshot.route(activeChannelID: current) {
+                        applyBrowseRoute(route)
+                        navigationHistory = BrowseNavigationHistory(initial: browseRoute)
+                    } else if !libraryStoreFallback {
+                        BrowseRouteSnapshot(route: browseRoute, accountChannelID: current).save()
+                    }
+                }
+                if previous != nil && previous != current { clearPrivateNavigation() }
+            }
+            .onChange(of: account.isConnected) { _, connected in
+                if !connected { globalSearch.reset(); clearPrivateNavigation() }
+            }
+            .onAppear {
+                if MusesSingleInstance.pendingVideoPresentation {
+                    MusesSingleInstance.pendingVideoPresentation = false
+                    showYouTubeVideo = playback.videoSession != nil
+                }
+            }
+            .onChange(of: showYouTubeVideo) { _, shown in
+                if !shown, let surface = playback.videoSession?.surface, !surface.isFloating {
+                    surface.close()
+                }
+            }
+            .onDisappear {
+                if let surface = playback.videoSession?.surface, !surface.isFloating {
+                    surface.close()
+                }
+            }
+    }
+
+    private var browseRoute: BrowseRoute {
+        if section == .subscriptions, let selectedChannelID { return .channel(selectedChannelID) }
+        if section == .settings { return .settings(settingsPane, []) }
+        if section == .playlists, let selectedPlaylist { return .playlist(selectedPlaylist.id) }
+        if section == .playlists, let selectedYouTubeImport { return .youTubeImport(selectedYouTubeImport.id) }
+        if section == .albums, let selectedCatalogRelease { return .release(selectedCatalogRelease.stableID) }
+        if section == .artists, let selectedCatalogArtist { return .artist(selectedCatalogArtist.stableID) }
+        return .section(section)
+    }
+
+    @ToolbarContentBuilder
+    private var windowNavigationToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .navigation) {
+            Button {
+                withAnimation(MusesMotion.drawerAnimation(reduceMotion: reduceMotion)) {
+                    isSidebarCollapsed.toggle()
+                }
+            } label: {
+                Label(tr("Toggle Sidebar", "切换边栏", zhHant: "切換側邊欄"), systemImage: "sidebar.leading")
+            }
+            .help(tr("Toggle Sidebar", "切换边栏", zhHant: "切換側邊欄"))
+            Button {
+                if showNowPlaying { showNowPlaying = false }
+                else { navigateHistory(back: true) }
+            } label: {
+                Label(tr("Back", "后退", zhHant: "返回"), systemImage: "arrow.left")
+            }
+            .help(tr("Back", "后退", zhHant: "返回"))
+            .keyboardShortcut("[", modifiers: .command)
+            .disabled((!showNowPlaying && !navigationHistory.canGoBack) || showYouTubeVideo)
+            Button { navigateHistory(back: false) } label: {
+                Label(tr("Forward", "前进", zhHant: "前進"), systemImage: "arrow.right")
+            }
+            .help(tr("Forward", "前进", zhHant: "前進"))
+            .keyboardShortcut("]", modifiers: .command)
+            .disabled(!navigationHistory.canGoForward || showNowPlaying || showYouTubeVideo)
+        }
+    }
+
+    private func navigateHistory(back: Bool) {
+        guard let route = back ? navigationHistory.back() : navigationHistory.forward() else { return }
+        applyBrowseRoute(route)
+        navigationHistory.replaceCurrent(browseRoute)
+    }
+
+    private func applyBrowseRoute(_ route: BrowseRoute) {
+        selectedPlaylist = nil
+        selectedYouTubeImport = nil
+        selectedCatalogRelease = nil
+        selectedCatalogArtist = nil
+        selectedChannelID = nil
+        switch route {
+        case .channel(let id):
+            section = .subscriptions
+            selectedChannelID = id
+        case .settings(let category, let path):
+            section = .settings
+            settingsPane = category
+            settingsPath = path
+        case .section(let destination): section = destination
+        case .playlist(let id):
+            section = .playlists
+            selectedPlaylist = try? modelContext.fetch(FetchDescriptor<Playlist>(predicate: #Predicate { $0.id == id })).first
+        case .youTubeImport(let id):
+            section = .playlists
+            selectedYouTubeImport = try? modelContext.fetch(FetchDescriptor<YouTubeImport>(predicate: #Predicate { $0.id == id })).first
+        case .release(let id):
+            section = .albums
+            selectedCatalogRelease = catalog.release(byStableID: id)
+        case .artist(let id):
+            section = .artists
+            selectedCatalogArtist = catalog.artist(byStableID: id)
+        }
+        // A deleted destination resolves to its overview instead of a stale model.
+    }
+
+    private func clearPrivateNavigation() {
+        pendingAccountRestoration = nil
+        if section == .subscriptions { applyBrowseRoute(.section(.home)) }
+        // Do not retain private destinations in the back/forward stack across accounts.
+        navigationHistory = BrowseNavigationHistory(initial: browseRoute)
+        if !libraryStoreFallback {
+            BrowseRouteSnapshot(route: browseRoute, accountChannelID: account.activeChannelID).save()
+        }
     }
 
     private var notificationWired: some View {
         navigationWired
-            .onChange(of: showSettings) { _, open in
-                if open {
-                    dismissTransientOverlaysForSettings()
-                } else {
-                    showAbout = false
-                    initialSettingsCategory = nil
+            .onReceive(NotificationCenter.default.publisher(for: .musesOpenSettings)) { note in
+                if let category = note.object as? SettingsCategory {
+                    UserDefaults.standard.set(category.destination.rawValue, forKey: PrefKey.settingsLastPane)
                 }
+                openIntegratedSettings()
             }
             .dropDestination(for: URL.self) { urls, _ in
-                guard !showSettings else { return false }
-                let text = urls.map(\.absoluteString).joined(separator: "\n")
-                if text.contains("youtu") {
-                    showYouTubeLink = true
-                }
+                guard urls.count == 1, let url = urls.first,
+                      let target = YouTubeShareTarget(url: url),
+                      target.kind == .video || target.kind == .playlist else { return false }
+                droppedYouTubeLink = url.absoluteString
+                showYouTubeLink = true
                 return true
             }
             .onAppear(perform: handleAppear)
@@ -83,7 +221,6 @@ struct RootView: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .musesToggleQueue)) { _ in
-                guard !showSettings else { return }
                 if showNowPlaying {
                     showNowPlaying = false
                 }
@@ -91,7 +228,6 @@ struct RootView: View {
                 if showQueue { showLyricsDrawer = false }
             }
             .onReceive(NotificationCenter.default.publisher(for: .musesToggleNowPlaying)) { _ in
-                guard !showSettings else { return }
                 if showNowPlaying {
                     showNowPlaying = false
                 } else {
@@ -99,26 +235,21 @@ struct RootView: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .musesFocusSearch)) { _ in
-                showSettings = false
                 openWindow(id: SearchWindowPolicy.sceneID)
             }
-            .onReceive(NotificationCenter.default.publisher(for: .musesOpenSettings)) { note in
-                if let category = note.object as? SettingsCategory {
-                    initialSettingsCategory = category
-                }
-                showSettings = true
-            }
             .onChange(of: section) { _, new in
-                showSettings = false
                 applySidebarSectionChange(new)
             }
-            .onReceive(NotificationCenter.default.publisher(for: .musesToggleFocusMode)) { _ in
-                guard !showSettings else { return }
-                showFocus.toggle()
-            }
             .onReceive(NotificationCenter.default.publisher(for: .musesToggleAudioInfo)) { _ in
-                guard !showSettings else { return }
                 showAudioInfo.toggle()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .musesToggleLyrics)) { _ in
+                handleDockLyrics()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .musesShowYouTubeVideo)) { _ in
+                guard playback.state.track?.youTubeId != nil else { return }
+                MusesSingleInstance.pendingVideoPresentation = false
+                showYouTubeVideo = true
             }
     }
 
@@ -140,26 +271,9 @@ struct RootView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .musesNavigateFromSearch)) { note in
                 guard let route = note.object as? GlobalSearchRoute else { return }
-                showSettings = false
-                selectedPlaylist = nil
-                selectedYouTubeImport = nil
-                switch route {
-                case .section(let destination):
-                    selectedCatalogRelease = nil
-                    selectedCatalogArtist = nil
-                    section = destination == .search ? .home : destination
-                case .release(let release):
-                    selectedCatalogArtist = nil
-                    selectedCatalogRelease = release
-                    section = .albums
-                case .artist(let artist):
-                    selectedCatalogRelease = nil
-                    selectedCatalogArtist = artist
-                    section = .artists
-                }
+                applySearchRoute(route)
             }
             .onReceive(NotificationCenter.default.publisher(for: .musesNavigateToRelease)) { note in
-                showSettings = false
                 selectedPlaylist = nil
                 selectedYouTubeImport = nil
                 selectedCatalogArtist = nil
@@ -173,7 +287,6 @@ struct RootView: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .musesNavigateToArtist)) { note in
-                showSettings = false
                 selectedPlaylist = nil
                 selectedYouTubeImport = nil
                 selectedCatalogRelease = nil
@@ -190,13 +303,9 @@ struct RootView: View {
 
     private var sheetHost: some View {
         alertHost
-            .sheet(isPresented: $showFocus) {
-                FocusView()
-                    .tint(BrandColors.magenta)
-            }
             .sheet(isPresented: $showAudioInfo) {
                 AudioInfoPanel()
-                    .tint(BrandColors.magenta)
+                    .tint(BrandColors.accent)
             }
     }
 
@@ -215,23 +324,60 @@ struct RootView: View {
             }
     }
 
+    private func applySearchRoute(_ route: GlobalSearchRoute) {
+        MusesSingleInstance.pendingSearchRoute = nil
+        selectedPlaylist = nil
+        selectedYouTubeImport = nil
+        switch route {
+        case .section(let destination):
+            selectedCatalogRelease = nil
+            selectedCatalogArtist = nil
+            section = destination == .search ? .home : destination
+        case .release(let release):
+            selectedCatalogArtist = nil
+            selectedCatalogRelease = release
+            section = .albums
+        case .artist(let artist):
+            selectedCatalogRelease = nil
+            selectedCatalogArtist = artist
+            section = .artists
+        }
+    }
+
+    private func openIntegratedSettings() {
+        MusesSingleInstance.pendingSettings = false
+        settingsPath = []
+        showNowPlaying = false
+        showYouTubeVideo = false
+        showQueue = false
+        showLyricsDrawer = false
+        selectedPlaylist = nil
+        selectedYouTubeImport = nil
+        selectedCatalogRelease = nil
+        selectedCatalogArtist = nil
+        section = .settings
+    }
+
     private func handleAppear() {
+        if !restoredBrowseRoute {
+            restoredBrowseRoute = true
+            if !libraryStoreFallback, !MusesSingleInstance.pendingSettings,
+               MusesSingleInstance.pendingSearchRoute == nil,
+               let snapshot = BrowseRouteSnapshot.read() {
+                if snapshot.requiresAccount && account.isConnected && account.activeChannelID == nil {
+                    pendingAccountRestoration = snapshot
+                } else if let route = snapshot.route(activeChannelID: account.activeChannelID) {
+                    applyBrowseRoute(route)
+                    navigationHistory = BrowseNavigationHistory(initial: browseRoute)
+                }
+            }
+        }
+        if MusesSingleInstance.pendingSettings { openIntegratedSettings() }
+        if let route = MusesSingleInstance.pendingSearchRoute { applySearchRoute(route) }
         if libraryStoreFallback { showStoreFallbackAlert = true }
         DispatchQueue.main.async {
             MusesSingleInstance.orderFrontMainWindow()
         }
-    }
-
-    /// Settings is modal within the main window. Close transient chrome instead
-    /// of leaving hidden keyboard/VoiceOver targets behind the glass panel.
-    private func dismissTransientOverlaysForSettings() {
-        guard SettingsChromePolicy.dismissesTransientOverlaysOnPresentation else { return }
-        showQueue = false
-        showLyricsDrawer = false
-        showYouTubeVideo = false
-        showYouTubeLink = false
-        showFocus = false
-        showAudioInfo = false
     }
 
     /// Sidebar items must replace pushed album/artist/playlist detail. Playlist
@@ -256,17 +402,17 @@ struct RootView: View {
     private var splitView: some View {
         HStack(spacing: 0) {
             SidebarView(selection: $section,
-                        showSettings: $showSettings,
-                        showAbout: $showAbout,
-                        initialSettingsCategory: $initialSettingsCategory,
                         selectedPlaylist: $selectedPlaylist,
                         selectedYouTubeImport: $selectedYouTubeImport,
-                        isCollapsed: $isSidebarCollapsed)
+                        isCollapsed: $isSidebarCollapsed,
+                        onSettingsCategoryChange: { settingsPath = [] })
             ZStack(alignment: .bottom) {
                 detailStack
+                    .environment(\.collectionPresentation, collectionMemory.entry(for: browseRoute))
+                    .id(section == .settings ? BrowseRoute.section(.settings) : browseRoute)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(BrowseBackground())
-                if !showYouTubeVideo, !showSettings,
+                if !showYouTubeVideo,
                    !(showNowPlaying && NowPlayingChromePolicy.hidesDock) {
                     PlayerBar(lyricsActive: showLyricsDrawer,
                               queueActive: showQueue,
@@ -283,13 +429,14 @@ struct RootView: View {
                         .padding(.bottom, AppleMusicTokens.playerBottomMargin)
                 }
             }
-            if !showSettings, !showNowPlaying {
+            if !showNowPlaying {
                 if showLyricsDrawer {
                     LyricsDrawerView(isPresented: $showLyricsDrawer)
                         .transition(.move(edge: .trailing))
                 }
                 if showQueue {
                     QueueDrawerView(isPresented: $showQueue, showsScrim: false)
+                        .ignoresSafeArea(.container, edges: [.top, .bottom])
                         .transition(.move(edge: .trailing))
                 }
             }
@@ -299,13 +446,10 @@ struct RootView: View {
             MainWindowConfigurator()
                 .frame(width: 0, height: 0)
         }
-        .ignoresSafeArea(edges: [.top, .bottom, .leading])
-        .tint(BrandColors.magenta)
-        // The centered Settings overlay owns pointer/trackpad input while it is
-        // visible. Disabling the browse tree also suspends the deck's AppKit
-        // scroll monitor, which otherwise sees coordinates through overlays.
-        .disabled(!SettingsChromePolicy.allowsBrowseInteraction(isPresented: showSettings))
-        .accessibilityHidden(showNowPlaying || showSettings)
+        .ignoresSafeArea(edges: [.bottom, .leading])
+        .tint(BrandColors.accent)
+        .accessibilityHidden(showNowPlaying || showYouTubeVideo)
+        .disabled(showYouTubeVideo)
     }
 
     private func openNowPlaying() {
@@ -328,7 +472,8 @@ struct RootView: View {
         case .toggleDrawer:
             showLyricsDrawer.toggle()
         case .toggleLyricsFocus:
-            nowPlayingShowLyrics.toggle()
+            lyricsModeRaw = lyricsFullscreen ? NowPlayingLyricsMode.inline.rawValue : NowPlayingLyricsMode.lyricsOnly.rawValue
+            nowPlayingShowLyrics = true
         }
     }
 
@@ -356,23 +501,24 @@ struct RootView: View {
                 CatalogArtistsView(selection: $selectedCatalogArtist)
             case .songs:
                 SongsListView()
+            case .liked:
+                SongsListView(filter: .liked)
+            case .musicVideos:
+                SongsListView(filter: .musicVideos)
+            case .subscriptions:
+                YouTubeSubscriptionsView(selectedChannelID: $selectedChannelID)
             case .playlists:
                 PlaylistsView(selectedPlaylist: $selectedPlaylist)
             case .history:
                 HistoryView()
-            case .inbox:
-                if LibraryChromePolicy.showsInbox {
-                    InboxView()
-                } else {
-                    SongsListView()
-                }
+            case .settings:
+                SettingsPage(path: $settingsPath)
             }
         }
     }
 
     private func continuityChrome<Content: View>(_ content: Content) -> some View {
         content
-            .ignoresSafeArea(edges: .top)
             .environment(\.artworkWorldNamespace, artworkWorld)
             .background {
                 GeometryReader { geo in
@@ -383,75 +529,39 @@ struct RootView: View {
             .overlay {
                 if nowPlayingOverlayMounted, NowPlayingChromePolicy.coversWindow {
                     nowPlayingLayers
-                        .tint(BrandColors.magenta)
-                        .disabled(!SettingsChromePolicy.allowsUnderlyingInteraction(
-                            isPresented: showSettings
-                        ))
-                        .accessibilityHidden(showSettings)
+                        .tint(BrandColors.accent)
                 } else {
                     VStack(spacing: 0) {
                         Color.clear.frame(height: chromeTop)
                             .allowsHitTesting(false)
                         nowPlayingLayers
-                            .disabled(!SettingsChromePolicy.allowsUnderlyingInteraction(
-                                isPresented: showSettings
-                            ))
-                            .accessibilityHidden(showSettings)
                         Color.clear.frame(height: showYouTubeVideo ? 0 : chromeBottom)
                             .allowsHitTesting(false)
                     }
-                    .tint(BrandColors.magenta)
+                    .tint(BrandColors.accent)
                 }
             }
             .overlay {
-                if SettingsChromePolicy.presentsAsFloatingGlass, showSettings {
-                    ZStack {
-                        BrandColors.scrim
-                            .ignoresSafeArea()
-                            .contentShape(Rectangle())
-                            .onTapGesture { showSettings = false }
-                        SettingsSheet(
-                            isPresented: $showSettings,
-                            initialCategory: initialSettingsCategory ?? (showAbout ? .about : nil)
-                        )
-                        .frame(width: 520, height: 560)
-                        .background(
-                            BrandColors.surface.opacity(0.90),
-                            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        )
-                        .musesGlass(cornerRadius: 18)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .stroke(BrandColors.hairline, lineWidth: 1)
-                        }
-                        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    }
-                    .zIndex(50)
-                    .tint(BrandColors.magenta)
-                }
-            }
-            .overlay {
-                if !showSettings, showYouTubeLink {
+                if showYouTubeLink {
                     ZStack {
                         BrandColors.scrim
                             .ignoresSafeArea()
                             .contentShape(Rectangle())
                             .onTapGesture { showYouTubeLink = false }
-                        AddYouTubeLinkSheet(isPresented: $showYouTubeLink)
+                        AddYouTubeLinkSheet(isPresented: $showYouTubeLink, initialURL: droppedYouTubeLink)
                     }
-                    .tint(BrandColors.magenta)
+                    .tint(BrandColors.accent)
                 }
             }
             .animation(MusesMotion.drawerAnimation(reduceMotion: reduceMotion), value: isSidebarCollapsed)
             .animation(MusesMotion.drawerAnimation(reduceMotion: reduceMotion), value: showQueue)
             .animation(MusesMotion.drawerAnimation(reduceMotion: reduceMotion), value: showLyricsDrawer)
             .animation(MusesMotion.overlayAnimation(reduceMotion: reduceMotion), value: showYouTubeVideo)
-            .animation(MusesMotion.overlayAnimation(reduceMotion: reduceMotion), value: showSettings)
             .overlay {
-                if !showSettings, showYouTubeVideo,
+                if showYouTubeVideo,
                    let videoId = playback.state.track?.youTubeId {
                     YouTubeVideoOverlay(videoId: videoId, isPresented: $showYouTubeVideo)
-                        .tint(BrandColors.magenta)
+                        .tint(BrandColors.accent)
                 }
             }
             .onChange(of: showNowPlaying) { _, open in
@@ -499,7 +609,6 @@ struct RootView: View {
                         .zIndex(0)
                     NowPlayingView(isPresented: $showNowPlaying,
                                    showLyrics: $nowPlayingShowLyrics,
-                                   settingsPresented: $showSettings,
                                    coverHostedExternally: showNowPlaying && !skipArtworkMorph)
                         .zIndex(1)
                 }
@@ -514,12 +623,10 @@ struct RootView: View {
         }
         .opacity(nowPlayingOverlayOpacity)
         .allowsHitTesting(NowPlayingPresentationPolicy.acceptsInteraction(
-            isPresented: showNowPlaying,
-            settingsPresented: showSettings
+            isPresented: showNowPlaying
         ))
         .accessibilityHidden(!NowPlayingPresentationPolicy.isAccessibilityVisible(
-            isPresented: showNowPlaying,
-            settingsPresented: showSettings
+            isPresented: showNowPlaying
         ))
     }
 
@@ -556,7 +663,7 @@ struct RootView: View {
             // PlayerBar re-enters the hierarchy when `showNowPlaying` flips.
             // Yield once so its artwork button can receive the focus request.
             await Task.yield()
-            guard !showNowPlaying, !showSettings else { return }
+            guard !showNowPlaying else { return }
             NotificationCenter.default.post(name: .musesRestorePlayerArtworkFocus, object: nil)
         }
     }
@@ -584,10 +691,27 @@ private struct CoverSlotBinder: View {
 
 enum SidebarSection: String, Hashable, CaseIterable {
     case search, home, new
-    case artists, albums, songs  // Library subsections
+    case artists, albums, songs, liked, musicVideos, subscriptions  // Unified library destinations
     case playlists
+    case settings
     case history  // Phase 17: Smart Listening History
-    case inbox    // Phase 20: Music Inbox
+
+    var title: String {
+        switch self {
+        case .search: return tr("Search", "搜索")
+        case .home: return tr("Home", "首页")
+        case .new: return SidebarNavPolicy.newTitle()
+        case .artists: return tr("Artists", "艺术家")
+        case .albums: return tr("Albums", "专辑")
+        case .songs: return tr("Songs", "歌曲")
+        case .liked: return tr("Favorites", "收藏")
+        case .musicVideos: return tr("Music Videos", "音乐视频")
+        case .subscriptions: return tr("Subscriptions", "订阅")
+        case .playlists: return tr("Playlists", "歌单")
+        case .history: return tr("History", "历史记录")
+        case .settings: return tr("Settings", "设置", zhHant: "設定")
+        }
+    }
 }
 
 /// Which pushed details survive a sidebar section change.
@@ -623,11 +747,12 @@ extension Notification.Name {
     static let musesCloseYouTubeAlbum = Notification.Name("muses.closeYouTubeAlbum")
     static let musesShowPlaylistsOverview = Notification.Name("muses.showPlaylistsOverview")
     static let musesOpenSettings = Notification.Name("muses.openSettings")
-    // Desktop integration notifications (mini player, desktop lyrics, focus mode).
+    static let musesToggleLyrics = Notification.Name("muses.toggleLyrics")
+    static let musesShowYouTubeVideo = Notification.Name("muses.showYouTubeVideo")
+    // Desktop integration notifications (mini player, desktop lyrics).
     static let musesOpenMiniPlayer = Notification.Name("muses.openMiniPlayer")
     static let musesToggleDesktopLyrics = Notification.Name("muses.toggleDesktopLyrics")
     static let musesDesktopFlagsChanged = Notification.Name("muses.desktopFlagsChanged")
-    static let musesToggleFocusMode = Notification.Name("muses.toggleFocusMode")
     // Audio info panel toggle.
     static let musesToggleAudioInfo = Notification.Name("muses.toggleAudioInfo")
 }
@@ -671,15 +796,8 @@ enum BrandColors {
         rgb(0.15, 0.15, 0.17),
         rgb(0.92, 0.92, 0.94)
     )
-    /// Apple Music `--keyColor` #FA586A (play, scrubber, selected row, active lyric).
-    static let magenta = dynamic(
-        rgb(AppleMusicTokens.keyColorRGB.r,
-            AppleMusicTokens.keyColorRGB.g,
-            AppleMusicTokens.keyColorRGB.b),
-        rgb(AppleMusicTokens.keyColorRGB.r,
-            AppleMusicTokens.keyColorRGB.g,
-            AppleMusicTokens.keyColorRGB.b)
-    )
+    /// Adaptive monochrome selection accent. YouTube and destructive colors stay semantic.
+    static let accent = dynamic(rgb(0.98, 0.98, 0.99), rgb(0.06, 0.06, 0.07))
     static let textPrimary = dynamic(
         rgb(0.94, 0.94, 0.94),
         rgb(0.09, 0.09, 0.10)
@@ -704,11 +822,18 @@ enum BrandColors {
 /// Reads `@AppStorage(PrefKey.theme)` and applies `.preferredColorScheme`,
 /// driving BrandColors' dynamic NSColor to re-resolve on appearance change.
 struct ThemeApplier<Content: View>: View {
-    @AppStorage(PrefKey.theme) private var themeRaw: String = AppTheme.dark.rawValue
+    @AppStorage(PrefKey.theme) private var themeRaw: String = AppTheme.system.rawValue
+    @AppStorage(PrefKey.language) private var languageRaw = AppLanguage.system.rawValue
     @ViewBuilder var content: () -> Content
 
     var body: some View {
         let scheme = AppTheme(rawValue: themeRaw)?.effectiveColorScheme
-        content().preferredColorScheme(scheme)
+        content()
+            .musesControls()
+            .preferredColorScheme(scheme)
+            .environment(\.locale, Locale(identifier: L10n.resolvedLanguage(preference: languageRaw)))
+            .onChange(of: languageRaw, initial: true) { _, value in
+                LanguagePreferences.shared.update(value)
+            }
     }
 }

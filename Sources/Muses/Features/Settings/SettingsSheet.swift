@@ -1,31 +1,63 @@
 import SwiftUI
 import AppKit
 
-/// Settings category enum.
-enum SettingsCategory: String, Hashable, CaseIterable {
-    case general, playback, audioQuality, appearance, youtube, lyrics, desktop, updates, about
+/// Settings categories and compatibility redirects for saved selections.
+enum SettingsCategory: String, Hashable, CaseIterable, Identifiable {
+    case general, playback, audioQuality, appearance, youtube, lyrics, desktop, updates, about, diagnostics, identity, help
 
-    var label: String {
+    static let allCases: [SettingsCategory] = [.general, .playback, .appearance, .youtube, .lyrics, .diagnostics, .identity, .about, .help]
+
+    /// Preserve saved selections and existing deep links after regrouping.
+    var destination: SettingsCategory {
         switch self {
-        case .general:      return tr("General", "通用")
-        case .playback:     return tr("Playback", "播放")
-        case .audioQuality: return tr("Quality", "清晰度")
-        case .appearance:   return tr("Appearance", "外观")
-        case .youtube:      return "YouTube"
-        case .lyrics:       return tr("Lyrics", "歌词")
-        case .desktop:      return tr("Desktop", "桌面")
-        case .updates:      return tr("Updates", "更新")
-        case .about:        return tr("About", "关于")
+        case .audioQuality: return .playback
+        case .desktop: return .appearance
+        case .updates: return .about
+        default: return self
         }
     }
 
-    var systemIcon: String? {
+    var id: String { rawValue }
+
+    var label: String {
         switch self {
-        case .general:      return "gear"
+        case .diagnostics: return tr("Diagnostics", "诊断", zhHant: "診斷")
+        case .identity: return tr("Library Review", "资料库核对", zhHant: "資料庫核對")
+        case .help: return tr("Help & Privacy", "帮助与隐私", zhHant: "說明與隱私")
+        case .general:      return tr("General", "通用")
+        case .playback:     return tr("Playback & Quality", "播放与音质")
+        case .audioQuality: return tr("Quality", "清晰度")
+        case .appearance:   return tr("Appearance & Desktop", "外观与桌面")
+        case .youtube:      return tr("Account & Content", "账号与内容")
+        case .lyrics:       return tr("Lyrics & Intelligence", "歌词与智能")
+        case .desktop:      return tr("Desktop", "桌面")
+        case .updates:      return tr("Updates", "更新")
+        case .about:        return tr("About & Updates", "关于与更新")
+        }
+    }
+
+    var sidebarLabel: String {
+        switch destination {
+        case .general: return tr("General", "通用", zhHant: "一般")
+        case .playback: return tr("Playback", "播放", zhHant: "播放")
+        case .appearance: return tr("Appearance", "外观", zhHant: "外觀")
+        case .youtube: return tr("Account", "账号", zhHant: "帳號")
+        case .lyrics: return tr("Lyrics", "歌词", zhHant: "歌詞")
+        case .diagnostics, .identity, .help: return label
+        default: return tr("About", "关于", zhHant: "關於")
+        }
+    }
+
+    var toolbarIcon: String {
+        switch self {
+        case .diagnostics: return "stethoscope"
+        case .identity: return "checklist"
+        case .help: return "questionmark.circle"
+        case .general:      return "gearshape"
         case .playback:     return "play.circle"
         case .audioQuality: return "sparkles.tv"
         case .appearance:   return "paintbrush"
-        case .youtube:      return nil
+        case .youtube:      return "person.crop.circle"
         case .lyrics:       return "text.alignleft"
         case .desktop:      return "menubar.rectangle"
         case .updates:      return "arrow.triangle.2.circlepath"
@@ -34,233 +66,86 @@ enum SettingsCategory: String, Hashable, CaseIterable {
     }
 }
 
-enum SettingsNavigationPolicy {
-    static func title(
-        selectedCategory: SettingsCategory,
-        showingDetail: Bool
-    ) -> String {
-        showingDetail ? selectedCategory.label : tr("Settings", "设置")
-    }
+/// Integrated settings destination; shares the main window and app services.
+enum SettingsDestination: String, Hashable, Codable {
+    case desktop, graphics, help, account, webHome, playbackAccess, diagnostics, identity, lyricsSupport
 }
 
-/// Apple Music–style Account page in the main content slot.
-struct SettingsSheet: View {
-    @Binding var isPresented: Bool
-    @State private var selectedCategory: SettingsCategory
-    @State private var showingDetail: Bool
-    @State private var escapeMonitor: Any?
-    @Environment(YouTubeAccountService.self) private var youTubeAccount
-    /// Shares the same preference key as the YouTubeSettingsView "Advanced" disclosure.
-    @AppStorage(PrefKey.ytShowAdvanced) private var showYtAdvanced = false
+struct SettingsPage: View {
+    @Binding var path: [SettingsDestination]
+    @AppStorage(PrefKey.settingsLastPane) private var paneRaw = SettingsCategory.general.rawValue
+    @AppStorage(PrefKey.language) private var languageRaw = AppLanguage.system.rawValue
 
-    init(isPresented: Binding<Bool>, initialCategory: SettingsCategory? = nil) {
-        _isPresented = isPresented
-        _selectedCategory = State(initialValue: initialCategory ?? .general)
-        _showingDetail = State(initialValue: initialCategory != nil)
+    private var currentCategory: SettingsCategory {
+        (SettingsCategory(rawValue: paneRaw) ?? .general).destination
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                if showingDetail {
-                    ChromeIconButton(
-                        systemName: "chevron.left",
-                        help: tr("Back", "返回"),
-                        accessibility: tr("Back", "返回")
-                    ) { showingDetail = false }
-                }
-                Text(SettingsNavigationPolicy.title(
-                    selectedCategory: selectedCategory,
-                    showingDetail: showingDetail
-                ))
-                    .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
-                    .foregroundStyle(BrandColors.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
-                Spacer()
-                ChromeIconButton(
-                    systemName: "xmark",
-                    help: tr("Close", "关闭"),
-                    accessibility: tr("Close Settings", "关闭设置")
-                ) { close() }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .padding(.bottom, 8)
-            // The main window uses a hidden title bar. Keep this non-interactive
-            // header as its native background-drag region while the panel is open.
-
-            if showingDetail {
-                Form {
-                    detailForm
-                }
-                .formStyle(.grouped)
-                .scrollContentBackground(.hidden)
-                .blocksWindowDrag()
+        Group {
+            if currentCategory == .identity {
+                CatalogIdentityReviewView()
+                    .padding(24)
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        accountHeader
-                            .background(
-                                BrandColors.surface.opacity(0.45),
-                                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(BrandColors.hairline, lineWidth: 0.8)
-                            )
-
-                        categoryList
-                            .background(
-                                BrandColors.surface.opacity(0.45),
-                                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(BrandColors.hairline, lineWidth: 0.8)
-                            )
+                    Form {
+                        switch currentCategory {
+                        case .general:
+                            LanguageSettingsView()
+                            NotificationsSettingsView()
+                        case .playback, .audioQuality:
+                            PlaybackSettingsView()
+                            AudioQualitySettingsView()
+                        case .appearance, .desktop:
+                            ThemeSettingsView()
+                            DesktopSettingsView()
+                            GPUSettingsView()
+                        case .youtube:
+                            YouTubeSettingsView()
+                        case .lyrics:
+                            LyricsSettingsView()
+                            LyricsSupportView(availability: LyricsIntelligence.availability)
+                        case .diagnostics:
+                            YouTubeSettingsView(destination: .diagnostics)
+                        case .about, .updates:
+                            AboutSettingsView()
+                            UpdatesSettingsView()
+                        case .help:
+                            SettingsHelpView()
+                        case .identity:
+                            EmptyView()
+                        }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 24)
+                    .formStyle(SettingsContentStyle())
+                    .frame(maxWidth: 860, alignment: .leading)
+                    .padding(32)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
-                .blocksWindowDrag()
+                .settingsPageTitle(currentCategory.label)
             }
         }
+        .onChange(of: languageRaw) { _, value in LanguagePreferences.shared.update(value) }
+        .padding(.bottom, OverlayChromeMetrics.scrollBottomInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(Rectangle())
-        .onExitCommand { handleEscape() }
-        .onAppear {
-            escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                if event.keyCode == 53 {
-                    handleEscape()
-                    return nil
-                }
-                return event
-            }
-        }
-        .onDisappear {
-            if let escapeMonitor {
-                NSEvent.removeMonitor(escapeMonitor)
-                self.escapeMonitor = nil
-            }
-        }
+        .background(BrandColors.background)
+        .tint(BrandColors.accent)
     }
+}
 
-    @ViewBuilder
-    private var detailForm: some View {
-        switch selectedCategory {
-        case .general:
-            GPUSettingsView()
-            NotificationsSettingsView()
-            LanguageSettingsView()
-            Section {
-                Button(role: .destructive) {
-                    NSApp.terminate(nil)
-                } label: {
-                    Label(tr("Quit Muses", "退出 Muses"), systemImage: "power")
-                }
-            }
-        case .playback:
-            PlaybackSettingsView()
-        case .audioQuality:
-            AudioQualitySettingsView()
-        case .appearance:
-            ThemeSettingsView()
-        case .youtube:
-            // Normal mode: only the YouTubeSettingsView one-click panel; yt-dlp setup and hover
-            // preview are technical details shown together with the Advanced disclosure.
-            YouTubeSettingsView()
-            if showYtAdvanced {
-                YTDlpConfigWizard()
-            }
-        case .lyrics:
-            LyricsSettingsView()
-        case .desktop:
-            DesktopSettingsView()
-        case .updates:
-            UpdatesSettingsView()
-        case .about:
-            AboutSettingsView()
+/// Open sections share consistent spacing without nested scroll views or cards.
+struct SettingsContentStyle: FormStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 28) {
+            configuration.content
         }
-    }
-
-    private var categoryList: some View {
-        VStack(spacing: 0) {
-            ForEach(SettingsCategory.allCases, id: \.self) { cat in
-                Button {
-                    selectedCategory = cat
-                    showingDetail = true
-                } label: {
-                    HStack(spacing: 12) {
-                        SettingsCategoryBadge(category: cat)
-                        Text(cat.label)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(BrandColors.textPrimary)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(BrandColors.textSecondary.opacity(0.7))
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                if cat != SettingsCategory.allCases.last {
-                    Divider().opacity(0.12)
-                }
-            }
-        }
-    }
-
-    private var accountHeader: some View {
-        HStack(spacing: 16) {
-            ChromeGlyph(systemName: "person.crop.circle.fill",
-                        selected: youTubeAccount.isConnected, size: 36, hit: 56)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(youTubeAccount.account?.channel?.title
-                     ?? tr("Not signed in", "未登录"))
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(BrandColors.textPrimary)
-                Text(youTubeAccount.isConnected
-                     ? tr("YouTube connected", "已连接 YouTube")
-                     : tr("Connect YouTube in Settings", "在设置中连接 YouTube"))
-                    .font(.caption)
-                    .foregroundStyle(BrandColors.textSecondary)
-            }
-            Spacer()
-            if youTubeAccount.isConnected {
-                Button(tr("Sign Out", "退出登录")) { youTubeAccount.disconnect() }
-                    .buttonStyle(.bordered)
-            } else {
-                Button(tr("Connect", "连接")) {
-                    selectedCategory = .youtube
-                    showingDetail = true
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(BrandColors.magenta)
-                .help(tr("Open YouTube connection settings", "打开 YouTube 连接设置"))
-            }
-        }
-        .padding(16)
-        .contentShape(Rectangle())
-    }
-
-    private func handleEscape() {
-        if showingDetail {
-            showingDetail = false
-        } else {
-            close()
-        }
-    }
-
-    private func close() {
-        isPresented = false
+        .font(.system(size: 13))
+        .lineSpacing(4)
+        .controlSize(.large)
+        .toggleStyle(.switch)
     }
 }
 
 /// About settings page: logo + version + GitHub link + compliance notice.
-/// Update checking moved to the dedicated "Updates" category (UpdatesSettingsView).
+/// Update checking lives in the dedicated Updates pane.
 struct AboutSettingsView: View {
     private var appVersion: String {
         let info = Bundle.main.infoDictionary
@@ -270,118 +155,60 @@ struct AboutSettingsView: View {
     }
 
     var body: some View {
-        Section(tr("About", "关于")) {
-            VStack(alignment: .leading, spacing: 16) {
-                // Logo + version
-                HStack(spacing: 16) {
-                    Group {
-                        let url = Bundle.main.url(forResource: "logo", withExtension: "png")
-                            ?? Bundle.module.url(forResource: "logo", withExtension: "png")
-                        if let url, let nsImage = NSImage(contentsOf: url) {
-                            Image(nsImage: nsImage)
-                                .resizable().scaledToFill()
-                                .frame(width: 56, height: 56)
-                                .cornerRadius(12)
-                        } else {
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(BrandColors.magenta)
-                                .frame(width: 56, height: 56)
-                                .overlay(Text("M").font(.system(size: 28, weight: .bold))
-                                    .foregroundStyle(BrandColors.textPrimary))
-                        }
-                    }
-                    VStack(alignment: .leading) {
-                        Text("Muses").font(BrandFont.muses(30))
-                            .foregroundStyle(BrandColors.textPrimary)
-                        Text("\(tr("Version", "版本")) \(appVersion)")
-                            .font(.caption).foregroundStyle(BrandColors.textSecondary)
-                    }
-                    Spacer()
+        Section {
+            HStack(spacing: 16) {
+                MusesMark(size: 56)
+                    .accessibilityLabel("Muses")
+                VStack(alignment: .leading) {
+                    Text("Muses").font(BrandFont.muses(30))
+                        .foregroundStyle(BrandColors.textPrimary)
+                    Text("\(tr("Version", "版本")) \(appVersion)")
+                        .font(.caption).foregroundStyle(BrandColors.textSecondary)
                 }
-
-                // GitHub link
-                Button {
-                    if let url = URL(string: "https://github.com/xiaotwu/noname123") {
-                        NSWorkspace.shared.open(url)
-                    }
-                } label: {
-                    Label(tr("GitHub Project", "GitHub 项目"), systemImage: "link")
-                }
-                .buttonStyle(.bordered)
-                .tint(BrandColors.magenta)
-
-                Divider()
-
-                Section(tr("Disclaimer", "合规声明")) {
-                    Text(tr("This software is for personal use only, not distributed on the App Store. YouTube content is subject to YouTube's Terms of Service; downloading must comply with applicable local laws.",
-                            "本软件仅供个人使用, 不在 App Store 分发。YouTube 内容受 YouTube 服务条款约束, 下载行为需遵守当地法律法规。"))
-                        .font(.caption)
-                        .foregroundStyle(BrandColors.textSecondary)
-                        .lineSpacing(3)
-                }
+                Spacer()
             }
-            .padding(.vertical, 8)
-        }
+
+            Button {
+                if let url = URL(string: "https://github.com/xiaotwu/Muses") {
+                    NSWorkspace.shared.open(url)
+                }
+            } label: {
+                Label(tr("GitHub Project", "GitHub 项目"), systemImage: "link")
+            }
+            .labelStyle(ActionIconLabelStyle())
+            .help(tr("GitHub Project", "GitHub 项目"))
+
+        } header: { Text(tr("About", "关于")).font(.headline.weight(.semibold)) }
     }
 }
 
-private struct SettingsCategoryBadge: View {
-    let category: SettingsCategory
-
-    private var gradientColors: [Color] {
-        switch category {
-        case .general:
-            return [Color(white: 0.55), Color(white: 0.42)]
-        case .playback:
-            return [Color(red: 0.98, green: 0.35, blue: 0.42), Color(red: 0.88, green: 0.22, blue: 0.32)]
-        case .audioQuality:
-            return [Color(red: 0.20, green: 0.68, blue: 0.90), Color(red: 0.12, green: 0.50, blue: 0.80)]
-        case .appearance:
-            return [Color(red: 0.60, green: 0.35, blue: 0.90), Color(red: 0.45, green: 0.22, blue: 0.78)]
-        case .youtube:
-            return [Color(red: 0.95, green: 0.18, blue: 0.18), Color(red: 0.80, green: 0.10, blue: 0.10)]
-        case .lyrics:
-            return [Color(red: 0.95, green: 0.60, blue: 0.18), Color(red: 0.88, green: 0.48, blue: 0.12)]
-        case .desktop:
-            return [Color(red: 0.18, green: 0.75, blue: 0.68), Color(red: 0.10, green: 0.60, blue: 0.52)]
-        case .updates:
-            return [Color(red: 0.25, green: 0.55, blue: 0.98), Color(red: 0.15, green: 0.42, blue: 0.88)]
-        case .about:
-            return [Color(red: 0.50, green: 0.52, blue: 0.58), Color(red: 0.38, green: 0.40, blue: 0.46)]
-        }
+/// Settings headings belong to their content pane, never the shared window toolbar.
+extension View {
+    func settingsPageTitle(_ title: String, showsBack: Bool = true) -> some View {
+        modifier(SettingsPageTitle(title: title, showsBack: showsBack))
     }
+}
 
-    private var iconName: String {
-        switch category {
-        case .general: return "gearshape.fill"
-        case .playback: return "play.fill"
-        case .audioQuality: return "sparkles.tv"
-        case .appearance: return "paintbrush.fill"
-        case .youtube: return ""
-        case .lyrics: return "quote.bubble.fill"
-        case .desktop: return "menubar.rectangle"
-        case .updates: return "arrow.triangle.2.circlepath"
-        case .about: return "info"
-        }
-    }
+private struct SettingsPageTitle: ViewModifier {
+    let title: String
+    let showsBack: Bool
 
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 6.5, style: .continuous)
-        ZStack {
-            shape
-                .fill(LinearGradient(colors: gradientColors, startPoint: .top, endPoint: .bottom))
-                .overlay(shape.stroke(Color.white.opacity(0.22), lineWidth: 0.75))
-
-            if category == .youtube {
-                YouTubeMark(size: 15)
-            } else {
-                Image(systemName: iconName)
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(.white)
+    func body(content: Content) -> some View {
+        content
+            .navigationBarBackButtonHidden(true)
+            .scrollContentBackground(.hidden)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                HStack(alignment: .top, spacing: 12) {
+                    Text(title)
+                        .font(.title2.weight(.semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityAddTraits(.isHeader)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+                .background(BrandColors.background)
             }
-        }
-        .frame(width: 26, height: 26)
-        .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
-        .accessibilityHidden(true)
+            .background(BrandColors.background)
     }
 }

@@ -62,8 +62,8 @@ struct HeroObjectView: View {
                     Label(tr("Play", "播放"), systemImage: "play.fill")
                         .padding(.horizontal, 16).padding(.vertical, 8)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(BrandColors.magenta)
+                .musesAction(prominent: true)
+                .tint(BrandColors.accent)
                 .padding(.top, 4)
             }
 

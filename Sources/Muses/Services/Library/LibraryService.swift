@@ -22,13 +22,14 @@ final class LibraryService {
         let query = search?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !query.isEmpty else {
             return (try? context.fetch(FetchDescriptor<Track>(
+                predicate: #Predicate { ($0.libraryMember == nil || $0.libraryMember == true) },
                 sortBy: [SortDescriptor(\.title)]))) ?? []
         }
         let descriptor = FetchDescriptor<Track>(
             predicate: #Predicate {
-                $0.title.localizedStandardContains(query)
+                 ($0.libraryMember == nil || $0.libraryMember == true) && ($0.title.localizedStandardContains(query)
                     || $0.artist.localizedStandardContains(query)
-                    || $0.albumTitle?.localizedStandardContains(query) == true
+                    || $0.albumTitle?.localizedStandardContains(query) == true)
             },
             sortBy: [SortDescriptor(\.title)])
         return (try? context.fetch(descriptor)) ?? []
@@ -43,6 +44,7 @@ final class LibraryService {
         guard let track = try? context.fetch(FetchDescriptor<Track>(
             predicate: #Predicate { $0.id == id })).first else { return }
         track.liked.toggle()
+        if track.liked { track.libraryMember = true }
         do {
             try context.save()
             likedRevision &+= 1
@@ -69,19 +71,7 @@ final class LibraryService {
         track.genre = genre
         track.lyrics = lyrics
 
-        let cleanArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
-        if track.artistCatalogID == nil || track.artistCatalogID?.hasPrefix("artist:") == true {
-            let resolved = !cleanArtist.isEmpty ? cleanArtist : "Unknown Artist"
-            track.artistCatalogID = "artist:\(resolved.lowercased())"
-        }
-        if track.releaseCatalogID == nil || track.releaseCatalogID?.hasPrefix("album:") == true || track.releaseCatalogID?.hasPrefix("single:") == true {
-            let artistKey = (!cleanArtist.isEmpty ? cleanArtist : "Unknown Artist").lowercased()
-            if let a = albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !a.isEmpty {
-                track.releaseCatalogID = "album:\(artistKey):\(a.lowercased())"
-            } else {
-                track.releaseCatalogID = "single:\(track.youTubeId)"
-            }
-        }
+        // Editing display metadata does not establish catalog identity.
 
         do {
             try context.save()

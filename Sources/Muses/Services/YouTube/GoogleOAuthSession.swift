@@ -97,13 +97,13 @@ enum OAuthError: LocalizedError, Equatable, Sendable {
         case .userCancelled:
             tr("Sign-in cancelled", "用户取消登录")
         case .authFailed(let m):
-            tr("OAuth authorization failed: \(m)", "OAuth 授权失败:\(m)")
+            tr("OAuth authorization failed: \(m)", "OAuth 授权失败:\(m)", zhHant: "OAuth 授權失敗:\(m)")
         case .tokenExchangeFailed(let m):
-            tr("OAuth token exchange failed: \(m)", "OAuth 令牌交换失败:\(m)")
+            tr("OAuth token exchange failed: \(m)", "OAuth 令牌交换失败:\(m)", zhHant: "OAuth 令牌交換失敗:\(m)")
         case .noRefreshToken:
             tr("No refresh token; sign in again", "无 refresh token,无法刷新(需重新登录)")
         case .network(let m):
-            tr("Network error: \(m)", "网络错误:\(m)")
+            tr("Network error: \(m)", "网络错误:\(m)", zhHant: "網路錯誤:\(m)")
         }
     }
 

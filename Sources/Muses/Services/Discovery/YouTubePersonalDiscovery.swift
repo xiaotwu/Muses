@@ -28,7 +28,7 @@ enum YouTubePersonalDiscovery {
         }
         return HomeSection(
             id: "yt-mix-\(title)",
-            title: tr("Because you liked \(title)", "因为你喜欢 \(title)"),
+            title: tr("Because you liked \(title)", "因为你喜欢 \(title)", zhHant: "因為你喜歡 \(title)"),
             subtitle: tr("Mix from YouTube Music", "YouTube Music 电台"),
             kind: .youTubeCarousel,
             items: Array(items),
@@ -43,7 +43,7 @@ enum YouTubePersonalDiscovery {
         }
         return HomeSection(
             id: "yt-subs",
-            title: tr("From \(title)", "来自 \(title)"),
+            title: tr("From \(title)", "来自 \(title)", zhHant: "來自 \(title)"),
             subtitle: tr("From your subscriptions", "来自你的订阅"),
             kind: .youTubeCarousel,
             items: Array(items),

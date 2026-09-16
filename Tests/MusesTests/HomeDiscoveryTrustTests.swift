@@ -82,7 +82,7 @@ struct HomeDiscoveryTrustTests {
         #expect(cache.isFresh(cachedBaseline!, layer: .baseline, now: now))
         #expect(!cache.isFresh(cachedWeb!, layer: .web, now: now))
         #expect(cache.directoryURL(for: account.scope, layer: .baseline).path
-            .hasSuffix("account-UC_account/baseline"))
+            .hasSuffix("account-UC_account/baseline-official-v3"))
         #expect(cache.directoryURL(for: account.scope, layer: .web).path
             .hasSuffix("account-UC_account/web"))
     }

@@ -24,8 +24,8 @@ struct YouTubeImportSheet: View {
                 Button(tr("Import", "导入")) {
                     onImport(url)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(BrandColors.magenta)
+                .musesAction(prominent: true)
+                .tint(BrandColors.accent)
                 .disabled(url.isEmpty)
             }
         }

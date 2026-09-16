@@ -74,8 +74,8 @@ struct DesktopIntegrationTests {
     func trayMenuEnabledStates() {
         let empty = TrayMenuModel.items(track: nil, isPlaying: false)
         #expect(empty.first(where: { $0.kind == .header })?.title == tr("Muses", "Muses"))
-        // No track → play/next/prev/like/inbox disabled
-        for kind in [TrayMenuModel.Item.Kind.playPause, .next, .previous, .like, .addToInbox] {
+        // No track → play/next/prev/like disabled
+        for kind in [TrayMenuModel.Item.Kind.playPause, .next, .previous, .like] {
             let item = empty.first { $0.kind == kind }!
             #expect(item.enabled == false)
         }
@@ -95,7 +95,7 @@ struct DesktopIntegrationTests {
     @Test("TrayMenuModel tag/kind round-trip")
     func trayMenuTagRoundTrip() {
         for kind in [TrayMenuModel.Item.Kind.playPause, .next, .previous, .like,
-                     .addToInbox, .openMini, .openMain, .quit] {
+                     .openMini, .openMain, .quit] {
             #expect(TrayMenuModel.kind(for: TrayMenuModel.tag(for: kind)) == kind)
         }
         #expect(TrayMenuModel.kind(for: 999) == nil)   // unknown tag

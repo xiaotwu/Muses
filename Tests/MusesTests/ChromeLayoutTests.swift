@@ -47,12 +47,12 @@ struct ChromeLayoutTests {
         #expect(cg.height == 180)
     }
 
-    @Test("Apple Music key color is FA586A")
+    @Test("Monochrome dark accent is FAFAFC")
     func appleMusicKeyColor() {
-        #expect(AppleMusicTokens.keyColorHex == "FA586A")
+        #expect(AppleMusicTokens.keyColorHex == "FAFAFC")
         #expect(abs(AppleMusicTokens.keyColorRGB.r - 250.0 / 255.0) < 0.0001)
-        #expect(abs(AppleMusicTokens.keyColorRGB.g - 88.0 / 255.0) < 0.0001)
-        #expect(abs(AppleMusicTokens.keyColorRGB.b - 106.0 / 255.0) < 0.0001)
+        #expect(abs(AppleMusicTokens.keyColorRGB.g - 250.0 / 255.0) < 0.0001)
+        #expect(abs(AppleMusicTokens.keyColorRGB.b - 252.0 / 255.0) < 0.0001)
     }
 
     @Test("dark page background is measured AM Web 1F1F1F")
@@ -73,7 +73,7 @@ struct ChromeLayoutTests {
 
     @Test("selected chrome glyph uses accent and no glow")
     func selectedGlyphIsAccentWithoutGlow() {
-        #expect(ChromeGlyphStyle.selectedGlowRadius == 0)
+        #expect(ChromeGlyphStyle.selectedGlowRadius == 5)
         #expect(ChromeGlyphStyle.selectedUsesAccent)
     }
 
@@ -146,9 +146,10 @@ struct ChromeLayoutTests {
         #expect(NewPagePolicy.compactSongColumnMinimum == 280)
     }
 
-    @Test("Settings occupies content while presented")
-    func settingsOccupiesContent() {
-        #expect(SettingsChromePolicy.showsAccount(isPresented: true))
+    @Test("Settings account lives in the YouTube pane, not a browse overlay")
+    func settingsAccountLivesInYouTubePane() {
+        #expect(SettingsChromePolicy.accountLivesInYouTubePane)
+        #expect(!SettingsChromePolicy.showsAccount(isPresented: true))
         #expect(!SettingsChromePolicy.showsAccount(isPresented: false))
     }
 
@@ -195,7 +196,15 @@ struct ChromeLayoutTests {
         #expect(PlayerControlPolicy.usesYouTubeMark)
         #expect(PlayerControlPolicy.hidesExpandControl)
         #expect(PlayerControlPolicy.nowPlayingOpensFromArtwork)
-        #expect(!LibraryChromePolicy.showsInbox)
+        #expect(PlayerIdlePolicy.showsTransport(hasTrack: false))
+        #expect(PlayerIdlePolicy.showsTransport(hasTrack: true))
+        #expect(PlayerIdlePolicy.showsLyrics(hasTrack: false))
+        #expect(PlayerIdlePolicy.showsVolume(hasTrack: false))
+        #expect(PlayerIdlePolicy.showsYouTube(hasTrack: false))
+        #expect(PlayerIdlePolicy.showsProgress(hasTrack: false))
+        #expect(PlayerIdlePolicy.showsQueue(hasTrack: false))
+        #expect(PlayerIdlePolicy.showsIdentityMark(hasTrack: false))
+        #expect(!PlayerIdlePolicy.showsIdentityMark(hasTrack: true))
         let minimumDetailWidth = WindowChromeMetrics.minimumWidth
             - AppleMusicTokens.sidebarWidth
             - WindowChromeMetrics.sidebarOuterInset
@@ -219,33 +228,15 @@ struct ChromeLayoutTests {
         #expect(!NowPlayingChromePolicy.canOpen(hasTrack: false))
     }
 
-    @Test("Settings owns global keyboard input over retained Now Playing")
-    func settingsOwnsNowPlayingKeyboardInput() {
-        #expect(NowPlayingInputPolicy.acceptsGlobalKeyEvents(
-            nowPlayingPresented: true,
-            settingsPresented: false
-        ))
-        #expect(!NowPlayingInputPolicy.acceptsGlobalKeyEvents(
-            nowPlayingPresented: true,
-            settingsPresented: true
-        ))
-        #expect(!NowPlayingInputPolicy.acceptsGlobalKeyEvents(
-            nowPlayingPresented: false,
-            settingsPresented: false
-        ))
+    @Test("Now Playing keeps keyboard input in its own window")
+    func nowPlayingKeyboardInputStaysInWindow() {
+        #expect(NowPlayingInputPolicy.acceptsGlobalKeyEvents(nowPlayingPresented: true))
+        #expect(!NowPlayingInputPolicy.acceptsGlobalKeyEvents(nowPlayingPresented: false))
         #expect(NowPlayingPresentationPolicy.dismissDuration == 0.30)
-        #expect(NowPlayingPresentationPolicy.acceptsInteraction(
-            isPresented: true,
-            settingsPresented: false
-        ))
-        #expect(!NowPlayingPresentationPolicy.acceptsInteraction(
-            isPresented: false,
-            settingsPresented: false
-        ))
-        #expect(!NowPlayingPresentationPolicy.isAccessibilityVisible(
-            isPresented: true,
-            settingsPresented: true
-        ))
+        #expect(NowPlayingPresentationPolicy.acceptsInteraction(isPresented: true))
+        #expect(!NowPlayingPresentationPolicy.acceptsInteraction(isPresented: false))
+        #expect(NowPlayingPresentationPolicy.isAccessibilityVisible(isPresented: true))
+        #expect(!NowPlayingPresentationPolicy.isAccessibilityVisible(isPresented: false))
     }
 
     @Test("Now Playing matches the roomy reference and adapts at minimum width")
@@ -259,10 +250,14 @@ struct ChromeLayoutTests {
             reduceMotion: true
         )
         let medium = NowPlayingLayout.resolve(width: 1_228, height: 768, isPlaying: true)
-        let compact = NowPlayingLayout.resolve(width: 840, height: 600, isPlaying: true)
+        let compact = NowPlayingLayout.resolve(
+            width: WindowChromeMetrics.minimumWidth,
+            height: WindowChromeMetrics.minimumHeight,
+            isPlaying: true
+        )
 
         #expect(playing.presentation == .split)
-        #expect(playing.contentWidth == 1_120)
+        #expect(playing.contentWidth == 1_240)
         #expect(playing.stageSide == 404)
         #expect(abs(playing.renderedArtworkSide - playing.stageSide) < 0.001)
         #expect(playing.artworkScale == NowPlayingLayout.liveCoverPlayingScale)
@@ -274,7 +269,7 @@ struct ChromeLayoutTests {
         #expect(playing.columnGap == 144)
         #expect(playing.lyricsLeadingInset == 30)
         #expect(medium.presentation == .split)
-        #expect(medium.contentWidth == 928)
+        #expect(medium.contentWidth == 1_068)
         #expect(compact.presentation == .stacked)
         #expect(compact.contentWidth == 792)
         #expect(compact.stageSide <= 360)
@@ -403,26 +398,12 @@ struct ChromeLayoutTests {
         ) == 42)
     }
 
-    @Test("Settings detail header follows the selected category")
-    func settingsDetailHeaderTitle() {
-        for category in SettingsCategory.allCases {
-            #expect(SettingsNavigationPolicy.title(
-                selectedCategory: category,
-                showingDetail: true
-            ) == category.label)
-        }
-        #expect(SettingsNavigationPolicy.title(
-            selectedCategory: .general,
-            showingDetail: false
-        ) == tr("Settings", "设置"))
-    }
-
     @Test("permanent sidebar uses edge-attached liquid glass")
     func permanentSidebarGlass() {
         #expect(SidebarGlassPolicy.usesLiquidGlass)
         #expect(SidebarGlassPolicy.touchesTopLeadingAndBottomEdges)
         #expect(LibraryChromePolicy.sidebarIsPermanent)
-        #expect(TrafficLightsPolicy.livesInSidebar)
+        #expect(TrafficLightsPolicy.livesInToolbar)
         #expect(WindowChromeMetrics.sidebarOuterInset == 0)
     }
 
@@ -487,6 +468,12 @@ struct ChromeLayoutTests {
         #expect(!MusesSingleInstance.isMainWindow(search))
         #expect(!MusesSingleInstance.isMainWindow(mini))
         #expect(MusesSingleInstance.mainWindow(in: [search, mini, main]) === main)
+        // Scene restoration may replace both public strings after attachment.
+        main.identifier = NSUserInterfaceItemIdentifier("restored-scene")
+        main.setFrameAutosaveName("restored-frame")
+        #expect(MusesSingleInstance.isMainWindow(main))
+        #expect(MusesSingleInstance.mainWindow(in: [search, mini, main]) === main)
+        #expect(MusesSingleInstance.mainWindow(in: [search, mini]) == nil)
     }
 
     @Test("station cards clip overflow so hover cannot steal the next cell")
@@ -519,26 +506,279 @@ struct ChromeLayoutTests {
         #expect(SidebarRowHitPolicy.usesFullRowHitTarget)
     }
 
-    @Test("Settings is a floating glass panel")
-    func settingsFloatingGlass() {
-        #expect(SettingsChromePolicy.presentsAsFloatingGlass)
-        #expect(SettingsChromePolicy.stickyTitle)
-        #expect(SettingsChromePolicy.usesLiquidGlass)
-        #expect(SettingsChromePolicy.allowsBrowseInteraction(isPresented: false))
-        #expect(!SettingsChromePolicy.allowsBrowseInteraction(isPresented: true))
-        #expect(SettingsChromePolicy.allowsUnderlyingInteraction(isPresented: false))
-        #expect(!SettingsChromePolicy.allowsUnderlyingInteraction(isPresented: true))
-        #expect(SettingsChromePolicy.dismissesTransientOverlaysOnPresentation)
-        #expect(!MusesGlassRole.persistentChrome.isInteractive)
-        #expect(MusesGlassRole.player.isInteractive)
-        #expect(MusesGlassRole.compactControl.isInteractive)
+    @Test("Settings preserves category redirects in the integrated destination")
+    func integratedSettingsCategories() {
+        #expect(SettingsChromePolicy.presentsInMainWindow)
+        #expect(SettingsCategory.audioQuality.destination == .playback)
+        #expect(SettingsCategory.desktop.destination == .appearance)
+        #expect(SettingsCategory.updates.destination == .about)
+        #expect(Set(SettingsCategory.allCases.map(\.toolbarIcon)).count == SettingsCategory.allCases.count)
     }
 
-    @Test("Removed library destinations stay out of navigation")
+    @Test("playlist unavailable Retry reloads through the existing refresh path")
+    func playlistUnavailableRetryWiring() throws {
+        let source = try readSource("Sources/Muses/Features/Playlist/PlaylistsView.swift")
+        let unavailableStart = try #require(source.range(of: "title: tr(\"Playlists unavailable\""))
+        let unavailableEnd = try #require(source.range(of: ".padding(16)", range: unavailableStart.upperBound..<source.endIndex))
+        let unavailable = source[unavailableStart.lowerBound..<unavailableEnd.lowerBound]
+        #expect(unavailable.contains("actionTitle: tr(\"Retry\", \"重试\")"))
+        #expect(unavailable.contains("action: refresh"))
+        let refreshStart = try #require(source.range(of: "private func refresh()"))
+        let refreshEnd = try #require(source.range(of: "private func deletePlaylist", range: refreshStart.upperBound..<source.endIndex))
+        #expect(source[refreshStart.lowerBound..<refreshEnd.lowerBound]
+            .contains("playlists = playlistService.fetchAll()"))
+    }
+
+    @Test("menu bar puts playback in Playback and keeps View for chrome")
+    func menuBarPolicy() {
+        #expect(MenuBarPolicy.playbackCommandsLiveInPlaybackMenu)
+        #expect(MenuBarPolicy.playbackCommandsAreNotInViewMenu)
+        #expect(MenuBarPolicy.viewMenuIncludesSidebarToggle)
+        #expect(MenuBarPolicy.viewMenuIncludesLibraryDestinations)
+        #expect(MenuBarPolicy.fileMenuOmitsDuplicateLibraryWindow)
+        #expect(MenuBarPolicy.fileMenuIncludesMiniPlayerWindow)
+        #expect(MenuBarPolicy.searchLivesInFileMenu)
+        #expect(MenuBarPolicy.searchIsNotInPlaybackMenu)
+        #expect(MenuBarPolicy.viewMenuOmitsWindowTabs)
+        #expect(MenuBarPolicy.helpOpensProjectDocs)
+        #expect(MenuBarPolicy.helpDocumentationURL.host == "xiaotwu.github.io")
+    }
+
+    @Test("Settings scene and Playback menu are wired in source")
+    func settingsAndMenuSourceContract() throws {
+        let app = try readSource("Sources/Muses/App/MusesApp.swift")
+        #expect(!app.contains("Settings {"))
+        #expect(app.contains("MusesSingleInstance.requestSettings()"))
+        #expect(app.contains("CommandMenu(tr(\"Playback\""))
+        #expect(app.contains("New MiniPlayer Window"))
+        #expect(app.contains("replacing: .newItem"))
+        #expect(app.contains("replacing: .sidebar"))
+        #expect(app.contains("replacing: .help"))
+        #expect(app.contains("allowsAutomaticWindowTabbing = false"))
+        #expect(app.contains("WindowChromeMetrics.defaultWidth"))
+        #expect(app.contains("WindowChromeMetrics.defaultHeight"))
+        #expect(!app.contains("CommandGroup(after: .toolbar)"))
+        #expect(app.contains("replacing: .appSettings"))
+
+        let playbackMenu = playbackMenuSource(in: app)
+        #expect(playbackMenu.contains("Play/Pause"))
+        #expect(playbackMenu.contains("Audio Info"))
+        #expect(!playbackMenu.contains("Button(tr(\"Search\""))
+        #expect(app.contains("Button(tr(\"Search\""))
+        #expect(app.contains("keyboardShortcut(\"f\", modifiers: .command)"))
+        #expect(app.contains("MenuBarPolicy.helpDocumentationURL"))
+
+        let root = try readSource("Sources/Muses/App/RootView.swift")
+        #expect(!root.contains("SettingsSheet("))
+        #expect(root.contains("SettingsPage(path: $settingsPath)"))
+        #expect(!root.contains("showSettings"))
+
+        let sidebar = try readSource("Sources/Muses/Features/SidebarView.swift")
+        #expect(sidebar.contains("SidebarSection.new.title"))
+        #expect(!sidebar.contains("Discover"))
+        #expect(sidebar.contains("SidebarNavPolicy.settingsFooterTitle"))
+        #expect(sidebar.contains("musesOpenSettings"))
+
+        let settings = try readSource("Sources/Muses/Features/Settings/SettingsSheet.swift")
+        #expect(settings.contains("GPUSettingsView()"))
+        #expect(SettingsPanePolicy.gpuAccelerationLivesInAppearance)
+        #expect(!SettingsPanePolicy.gpuAccelerationLivesInGeneral)
+        let appearancePane = settings.range(of: "case .appearance, .desktop:")
+        let gpu = settings.range(of: "GPUSettingsView()")
+        let generalPane = settings.range(of: "case .general:")
+        #expect(appearancePane != nil && gpu != nil && generalPane != nil)
+        if let appearancePane, let gpu, let generalPane {
+            #expect(gpu.lowerBound > appearancePane.lowerBound)
+            #expect(gpu.lowerBound > generalPane.lowerBound)
+        }
+    }
+
+    private func playbackMenuSource(in app: String) -> String {
+        guard let start = app.range(of: "CommandMenu(tr(\"Playback\"") else { return "" }
+        let rest = app[start.lowerBound...]
+        guard let end = rest.range(of: "CommandGroup(replacing: .help)") else {
+            return String(rest)
+        }
+        return String(rest[..<end.lowerBound])
+    }
+
+    private func readSource(_ relative: String) throws -> String {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        return try String(contentsOf: root.appendingPathComponent(relative), encoding: .utf8)
+    }
+
+    @Test("content layer badges use opaque scrim instead of material")
+    func contentLayerAvoidsMaterialBadges() throws {
+        #expect(!ContentGlassPolicy.browsingCardsUseGlassEffect)
+        #expect(!ContentGlassPolicy.badgesUseMaterial)
+        #expect(ContentGlassPolicy.badgesUseOpaqueScrim)
+        #expect(!ContentBadgeStyle.usesMaterial)
+        #expect(ContentBadgeStyle.usesOpaqueScrim)
+
+        let files = [
+            "Sources/Muses/Features/Shared/AlbumObject.swift",
+            "Sources/Muses/Features/Shared/CollectionSongDeck.swift",
+            "Sources/Muses/Features/Shared/ArtistObject.swift",
+            "Sources/Muses/Features/Catalog/CatalogViews.swift",
+            "Sources/Muses/Features/HomeView+Sections.swift",
+            "Sources/Muses/Features/MiniPlayer/MiniPlayerView.swift"
+        ]
+        for file in files {
+            let source = try readSource(file)
+            #expect(!source.contains("ultraThinMaterial"), "\(file) still uses material")
+            #expect(!source.contains("glassEffect"), "\(file) still uses glassEffect")
+        }
+
+        let album = try readSource("Sources/Muses/Features/Shared/AlbumObject.swift")
+        #expect(album.contains("ContentScrimCircle") || album.contains("ContentBadgeStyle.fill"))
+        #expect(!album.contains(".musesGlass("))
+    }
+
+    @Test("idle player bar preserves transport layout with a template mark")
+    func idlePlayerBarSourceContract() throws {
+        let source = try readSource("Sources/Muses/Features/PlayerBar.swift")
+        #expect(source.contains("PlayerIdlePolicy.showsProgress"))
+        #expect(source.contains("idleIdentity"))
+        #expect(source.contains("TrayIcon.menuBarImage"))
+        #expect(source.contains(".disabled(!hasTrack)"))
+        #expect(source.contains("Not Playing"))
+        #expect(!source.contains("airplayaudio"))
+    }
+
+    @Test("audio output glyph is a speaker, not AirPlay")
+    func audioOutputGlyphIsSpeaker() throws {
+        #expect(!AudioOutputGlyphPolicy.usesAirPlaySymbol)
+        #expect(AudioOutputGlyphPolicy.defaultSystemImage == "speaker.wave.2")
+        #expect(AudioOutputGlyphPolicy.systemImage(forDeviceName: nil) == "speaker.wave.2")
+        #expect(AudioOutputGlyphPolicy.systemImage(forDeviceName: "MacBook Pro Speakers")
+                == "speaker.wave.2")
+        #expect(AudioOutputGlyphPolicy.systemImage(forDeviceName: "AirPods Pro") == "headphones")
+        #expect(AudioOutputGlyphPolicy.systemImage(forDeviceName: "Living Room AirPlay")
+                == "airplayaudio")
+        #expect(AudioOutputGlyphPolicy.accessibilityLabel(forDeviceName: "MacBook Pro Speakers")
+                == tr("Audio output", "音频输出"))
+
+        let volume = try readSource("Sources/Muses/Features/Shared/LiquidGlassVolumeBar.swift")
+        #expect(volume.contains("AudioOutputGlyphPolicy.systemImage"))
+        #expect(!volume.contains("Image(systemName: \"airplayaudio\")"))
+
+        let menuBar = try readSource("Sources/Muses/Features/MiniPlayer/MenuBarPlayerView.swift")
+        #expect(menuBar.contains("LiquidGlassVolumeBar("))
+        #expect(!menuBar.contains("Image(systemName: \"airplayaudio\")"))
+    }
+
+    @Test("Listen again uses recents or empty copy, never fabricated cards")
+    func listenAgainEmptyContract() {
+        #expect(ListenAgainEmptyPolicy.placeholderCardCount(hasRecents: false, isLoading: true) == 0)
+        #expect(ListenAgainEmptyPolicy.placeholderCardCount(hasRecents: false, isLoading: false) == 0)
+        #expect(ListenAgainEmptyPolicy.placeholderCardCount(hasRecents: true, isLoading: true) == 0)
+        #expect(ListenAgainEmptyPolicy.showsEmptyCopy(hasRecents: false))
+        #expect(!ListenAgainEmptyPolicy.showsEmptyCopy(hasRecents: true))
+        #expect(ListenAgainEmptyPolicy.showsRecentCards(hasRecents: true))
+        #expect(!ListenAgainEmptyPolicy.showsRecentCards(hasRecents: false))
+        #expect(ListenAgainEmptyPolicy.hidesDiscoverySection(id: "listen-again", title: "Charts"))
+        #expect(ListenAgainEmptyPolicy.hidesDiscoverySection(
+            id: "web-home-listen", title: "Listen again"))
+        #expect(ListenAgainEmptyPolicy.hidesDiscoverySection(
+            id: "web-home-listen-zh", title: "再听一次"))
+        #expect(!ListenAgainEmptyPolicy.hidesDiscoverySection(id: "charts", title: "Charts"))
+    }
+
+    @Test("important empty states expose a next step and hide no-op playback")
+    func emptyStateNextStepContract() throws {
+        #expect(EmptyStatePolicy.songsEmptyOpensSearch)
+        #expect(!EmptyStatePolicy.hidesNoOpPlaybackControls)
+        #expect(EmptyStatePolicy.playlistsUnavailableRetries)
+
+        let empty = try readSource("Sources/Muses/Features/Common/EmptyStateView.swift")
+        #expect(empty.contains("actionTitle"))
+        #expect(empty.contains("action:"))
+
+        let songs = try readSource("Sources/Muses/Features/SongsListView.swift")
+        #expect(songs.contains("emptyActionTitle"))
+        #expect(songs.contains("musesFocusSearch"))
+        #expect(songs.contains("if !rows.isEmpty"))
+
+        let playlists = try readSource("Sources/Muses/Features/Playlist/PlaylistsView.swift")
+        #expect(playlists.contains("Playlists unavailable"))
+        #expect(playlists.contains("actionTitle: tr(\"Retry\""))
+        #expect(playlists.contains("action: refresh"))
+    }
+
+    /// Scenario A lock: AppTheme.system + 1280×800 main window. One test (and one
+    /// live pass) shares that appearance and geometry. Light, minimum 840×600,
+    /// signed-in, or playing are later named rounds — never mixed into this one.
+    @Test("scenario A verification lock uses named default geometry")
+    func scenarioAVerificationLock() {
+        #expect(VerificationLockPolicy.scenarioATheme == .system)
+        #expect(AppearancePreferenceDefaults.values[PrefKey.theme] as? String
+                == AppTheme.system.rawValue)
+        #expect(VerificationLockPolicy.scenarioAWindowWidth == WindowChromeMetrics.defaultWidth)
+        #expect(VerificationLockPolicy.scenarioAWindowHeight == WindowChromeMetrics.defaultHeight)
+        #expect(WindowChromeMetrics.defaultWidth == 1280)
+        #expect(WindowChromeMetrics.defaultHeight == 800)
+        #expect(WindowChromeMetrics.minimumWidth == 840)
+        #expect(WindowChromeMetrics.minimumHeight == 600)
+        #expect(SearchWindowPolicy.defaultWidth == 680)
+        #expect(SearchWindowPolicy.defaultHeight == 620)
+    }
+
+    @Test("dead runtime capabilities and orphan lyrics flag stay gone")
+    func deadCapabilitiesStayGone() throws {
+        let caps = try readSource("Sources/Muses/Services/System/RuntimeCapabilities.swift")
+        #expect(!caps.contains("weatherContext"))
+        #expect(!caps.contains("not implemented"))
+        #expect(!caps.contains("func isUsable"))
+        #expect(!caps.contains("func explanation"))
+        #expect(!caps.contains("wordSyncedLyrics"))
+        #expect(!caps.contains("translationLyrics"))
+        #expect(!caps.contains("headphoneDetection"))
+        #expect(!caps.contains("outputDeviceSwitching"))
+
+        let prefs = try readSource("Sources/Muses/Domain/UserPreferences.swift")
+        #expect(!prefs.contains("ffAdvancedLyrics"))
+        #expect(!prefs.contains("muses.ff.advancedLyrics"))
+
+        let lyrics = try readSource("Sources/Muses/Features/Settings/LyricsSettingsView.swift")
+        #expect(lyrics.contains("original lyrics are never generated from memory"))
+
+        let desktop = try readSource("Sources/Muses/Features/Settings/DesktopSettingsView.swift")
+        #expect(desktop.contains("macOS default device"))
+
+        let home = try readSource("Sources/Muses/Features/HomeView+Sections.swift")
+        #expect(HomeGuestStatusPolicy.unsignedInShowsSingleCue)
+        #expect(HomeGuestStatusPolicy.unsignedInHidesGuestBanner)
+        #expect(home.contains("Public discovery"))
+        #expect(!home.contains("Make Home yours"))
+        #expect(!home.contains("guestBanner"))
+        #expect(home.contains("Sign In"))
+
+        let homeView = try readSource("Sources/Muses/Features/HomeView.swift")
+        #expect(!homeView.contains("guestBanner"))
+    }
+
+    @Test("sidebar New title matches the New page and Settings footer is Settings")
+    func sidebarCopyContract() {
+        #expect(SidebarNavPolicy.newTitle() == SidebarSection.new.title)
+        #expect(SidebarNavPolicy.newTitle() == tr("New", "新发现"))
+        #expect(SidebarNavPolicy.settingsFooterTitle() == tr("Settings", "设置"))
+        #expect(!SidebarNavPolicy.includesRecently)
+        #expect(!SidebarSection.allCases.map(\.rawValue).contains("recently"))
+        #expect(AppearancePreferenceDefaults.values[PrefKey.theme] as? String
+                == AppTheme.system.rawValue)
+    }
+
+    @Test("Unified media destinations coexist without retired chrome entries")
     func removedDestinationsStayAbsent() {
         let destinations = Set(SidebarSection.allCases.map(\.rawValue))
         #expect(!destinations.contains("recently"))
-        #expect(!destinations.contains("musicVideos"))
+        #expect(destinations.contains("musicVideos"))
+        #expect(destinations.contains("subscriptions"))
+        #expect(!destinations.contains("radio"))
+        #expect(!destinations.contains("inbox"))
     }
 
     @Test("song station grid is portrait 148–176")
@@ -608,8 +848,8 @@ struct ChromeLayoutTests {
         #expect(LibraryChromePolicy.sidebarIsPermanent)
         #expect(SearchWindowPolicy.isSingleInstance)
         #expect(DockLyricsPolicy.action(nowPlayingOpen: false) == .toggleDrawer)
-        #expect(ChromeGlyphStyle.selectedGlowRadius == 0)
-        #expect(AppleMusicTokens.keyColorHex == "FA586A")
+        #expect(ChromeGlyphStyle.selectedGlowRadius == 5)
+        #expect(AppleMusicTokens.keyColorHex == "FAFAFC")
         #expect(AppleMusicChrome.playerIsFloatingCapsule)
         #expect(AppleMusicChrome.primaryNavInSidebar)
     }

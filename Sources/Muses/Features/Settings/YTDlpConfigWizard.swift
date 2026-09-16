@@ -20,19 +20,19 @@ struct YTDlpConfigWizard: View {
     }
 
     var body: some View {
-        Section(tr("yt-dlp setup", "yt-dlp 配置")) {
+        Section {
             Picker(tr("Cookies", "Cookies"), selection: $browser) {
                 ForEach(Browser.allCases, id: \.self) { Text($0.label).tag($0) }
             }
             Button(tr("Write yt-dlp config…", "写入 yt-dlp 配置…")) {
                 status = writeConfig()
             }
-            .buttonStyle(.bordered)
-            .tint(BrandColors.magenta)
+            .musesAction()
+            .tint(BrandColors.accent)
             if let status {
                 Text(status).font(.caption).foregroundStyle(BrandColors.textSecondary)
             }
-        }
+        } header: { Text(tr("yt-dlp setup", "yt-dlp 配置")).font(.headline.weight(.semibold)) }
     }
 
     private func writeConfig() -> String {
@@ -61,7 +61,7 @@ struct YTDlpConfigWizard: View {
             }
             try lines.joined(separator: "\n").appending("\n").write(to: file, atomically: true, encoding: .utf8)
             UserDefaults.standard.set(cookieSource.rawValue, forKey: PrefKey.ytCookieSource)
-            return tr("Wrote \(file.path)", "已写入 \(file.path)")
+            return tr("Wrote \(file.path)", "已写入 \(file.path)", zhHant: "已寫入 \(file.path)")
         } catch {
             return error.localizedDescription
         }

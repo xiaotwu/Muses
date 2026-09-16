@@ -4,7 +4,7 @@ import AppKit
 /// GitHub Release update-check service.
 ///
 /// Queries the latest release via the GitHub Releases API
-/// (`api.github.com/repos/xiaotwu/noname123/releases/latest`) and compares it with the
+/// (`api.github.com/repos/xiaotwu/Muses/releases/latest`) and compares it with the
 /// current `CFBundleShortVersionString`. When a newer version exists it exposes
 /// `hasUpdate` / `latestVersion` / `releaseURL`; the settings page shows this and offers
 /// a "Download" button that opens the GitHub Release page (personal use; no auto-install).
@@ -32,7 +32,7 @@ final class UpdateService {
     private let defaults: UserDefaults
     private let log = AppLog.for("UpdateService")
 
-    init(repo: String = "xiaotwu/noname123",
+    init(repo: String = "xiaotwu/Muses",
          session: URLSession = .shared,
          defaults: UserDefaults = .standard) {
         self.repo = repo

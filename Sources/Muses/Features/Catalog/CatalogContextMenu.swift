@@ -77,6 +77,9 @@ private struct CatalogCollectionContextMenu: ViewModifier {
                 }
             }
             if let link {
+                if let target = YouTubeShareTarget(url: link) {
+                    YouTubeShareMenu(target: target)
+                }
                 Button(tr("Copy Link", "复制链接"), systemImage: "link") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(link.absoluteString, forType: .string)

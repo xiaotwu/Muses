@@ -30,7 +30,7 @@ enum YouTubePlaylistSyncError: LocalizedError, Sendable, Equatable {
         case .revisionNotFound:
             return tr("Playlist revision not found", "未找到歌单修订")
         case .conflictsRequireResolution(let count):
-            return tr("Resolve \(count) playlist conflicts before continuing", "继续前请先解决 \(count) 个歌单冲突")
+            return tr("Resolve \(count) playlist conflicts before continuing", "继续前请先解决 \(count) 个歌单冲突", zhHant: "繼續前請先解決 \(count) 個歌單衝突")
         case .writePermissionRequired:
             return tr(
                 "Allow YouTube playlist management before Push",
@@ -46,17 +46,17 @@ enum YouTubePlaylistSyncError: LocalizedError, Sendable, Equatable {
         case .manualConfirmationRequired(let sequence):
             return tr(
                 "Push operation \(sequence + 1) cannot be reconciled uniquely and needs confirmation",
-                "第 \(sequence + 1) 个推送操作无法唯一对账，需要人工确认")
+                "第 \(sequence + 1) 个推送操作无法唯一对账，需要人工确认", zhHant: "第 \(sequence + 1) 個推送操作無法唯一對賬，需要人工確認")
         case .incompleteRemote(let itemCount, let pageCount, let reason):
             let why = reason.detail?.isEmpty == false
                 ? reason.detail!
                 : reason.kind.rawValue
             return tr(
                 "Remote playlist is incomplete: read \(itemCount) items across \(pageCount) pages (\(why)). Continue checking before Pull or Push.",
-                "远端歌单尚未读取完整：已读取 \(pageCount) 页、\(itemCount) 条（\(why)）。请继续检查，完成前不能拉取或推送。"
+                "远端歌单尚未读取完整：已读取 \(pageCount) 页、\(itemCount) 条（\(why)）。请继续检查，完成前不能拉取或推送。", zhHant: "遠端歌單尚未讀取完整：已讀取 \(pageCount) 頁、\(itemCount) 條（\(why)）。請繼續檢查，完成前不能拉取或推送。"
             )
         case .invalidSnapshot(let message):
-            return tr("Invalid playlist snapshot: \(message)", "歌单快照无效：\(message)")
+            return tr("Invalid playlist snapshot: \(message)", "歌单快照无效：\(message)", zhHant: "歌單快照無效：\(message)")
         }
     }
 }
@@ -716,7 +716,7 @@ final class YouTubePlaylistSyncService {
         let playlist = Playlist(name: trimmedName?.isEmpty == false
                                 ? trimmedName!
                                 : tr("\(snapshot.title) — Recovered Copy",
-                                     "\(snapshot.title) — 恢复副本"))
+                                     "\(snapshot.title) — 恢复副本", zhHant: "\(snapshot.title) — 恢復副本"))
         context.insert(playlist)
         var items: [PlaylistItem] = []
         for (order, value) in snapshot.normalizedItems.enumerated() {
@@ -1378,7 +1378,10 @@ final class YouTubePlaylistSyncService {
                                context: ModelContext) throws -> Track {
         let videoID = item.videoID
         let descriptor = FetchDescriptor<Track>(predicate: #Predicate { $0.youTubeId == videoID })
-        if let existing = try context.fetch(descriptor).first { return existing }
+        if let existing = try context.fetch(descriptor).first {
+            existing.libraryMember = true
+            return existing
+        }
         let track = Track(title: item.knownTitle ?? tr("Unknown Title", "未知标题"),
                           artist: item.knownArtist ?? tr("Unknown Artist", "未知艺人"),
                           durationMs: item.knownDurationMs ?? 0, youTubeId: item.videoID,

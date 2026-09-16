@@ -9,6 +9,7 @@ final class PlayerState {
     var duration: Double = 0
     var buffering: Bool = false
     var bufferRatio: Double = 0
+    var audioProcessing: AudioProcessingAvailability = .unavailable
     var quality: AudioQualityInfo?
     var error: PlayerError?
 
@@ -38,11 +39,11 @@ enum PlayerError: LocalizedError, Equatable {
         case .embedUnavailable:
             tr("YouTube embedding is disabled for this video", "此视频禁止嵌入播放")
         case .networkError(let m):
-            tr("Network error: \(m)", "网络错误:\(m)")
+            tr("Network error: \(m)", "网络错误:\(m)", zhHant: "網路錯誤:\(m)")
         case .fileMissing(let p):
-            tr("File missing: \(p)", "文件缺失:\(p)")
+            tr("File missing: \(p)", "文件缺失:\(p)", zhHant: "檔案缺失:\(p)")
         case .decodingFailed(let m):
-            tr("Decode failed: \(m)", "解码失败:\(m)")
+            tr("Decode failed: \(m)", "解码失败:\(m)", zhHant: "解碼失敗:\(m)")
         case .engineStartFailed:
             tr("Audio engine failed to start (device in use?)", "音频引擎启动失败(设备占用?)")
         case .rateLimited:
@@ -53,4 +54,9 @@ enum PlayerError: LocalizedError, Equatable {
     static func == (lhs: PlayerError, rhs: PlayerError) -> Bool {
         String(describing: lhs) == String(describing: rhs)
     }
+}
+
+/// Availability of the current audio path, independent of saved EQ preferences.
+enum AudioProcessingAvailability: Equatable, Sendable {
+    case unavailable, waitingForDownload, available, streamOnly
 }

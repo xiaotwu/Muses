@@ -15,13 +15,9 @@ struct FeatureFlagDefaultsTests {
         #expect(on[PrefKey.ffSmartHistory] == true)
         #expect(on[PrefKey.ffSessions] == true)
         #expect(on[PrefKey.ffAdvancedQueue] == true)
-        #expect(on[PrefKey.ffInbox] == true)
         #expect(on[PrefKey.ffNotes] == true)
         #expect(on[PrefKey.ffContext] == true)
-        #expect(on[PrefKey.ffAutomation] == true)
         #expect(on[PrefKey.ffAudioNerd] == true)
-        #expect(on[PrefKey.ffLocalHardening] == nil)
-        #expect(on[PrefKey.ffFocusMode] == true)
         #expect(on[PrefKey.ffDiscovery] == true)
         #expect(on[PrefKey.ffSituationalNew] == true)
         #expect(on[PrefKey.ffTray] == true)
@@ -35,8 +31,9 @@ struct FeatureFlagDefaultsTests {
         #expect(on[PrefKey.ffDesktopLyrics] == nil)
     }
 
-    @Test("Inventory contains 12 keys including tray icon, excluding retired local flags")
-    func exactlyTwelveFlags() {
-        #expect(FeatureFlagDefaults.enabledByDefault.count == 12)
+    @Test("Inventory contains 9 keys including tray icon, excluding retired flags")
+    func exactlyNineFlags() {
+        #expect(FeatureFlagDefaults.enabledByDefault.count == 9)
+        #expect(FeatureFlagDefaults.enabledByDefault.keys.contains { $0.contains("advancedLyrics") } == false)
     }
 }

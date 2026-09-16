@@ -24,6 +24,7 @@ struct AddYouTubeLinkSheet: View {
     @Environment(YouTubeImportService.self) private var importService
     @Environment(\.dismiss) private var dismiss
     var isPresented: Binding<Bool>? = nil
+    var initialURL: String = ""
     @State private var url: String = ""
     @State private var importing = false
     @State private var error: String?
@@ -54,8 +55,8 @@ struct AddYouTubeLinkSheet: View {
                 Spacer()
                 Button(tr("Cancel", "取消")) { close() }.disabled(importing)
                 Button(tr("Import", "导入")) { performImport() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(BrandColors.magenta)
+                    .musesAction(prominent: true)
+                    .tint(BrandColors.accent)
                     .disabled(url.isEmpty || importing || detectedKind == nil)
                     .overlay {
                         if importing { ProgressView().controlSize(.small) }
@@ -65,6 +66,7 @@ struct AddYouTubeLinkSheet: View {
         .padding(20)
         .frame(width: 480)
         .musesFloatingChrome(cornerRadius: 16)
+        .onAppear { if url.isEmpty { url = initialURL } }
     }
 
     private enum DetectedKind { case video, playlist }
@@ -118,30 +120,10 @@ enum YouTubeLinkKind {
     case video, playlist, unknown
 
     static func detect(_ raw: String) -> YouTubeLinkKind {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty,
-              let comps = URLComponents(string: trimmed) else { return .unknown }
-
-        // Playlist: any YouTube link with a list= parameter.
-        if let items = comps.queryItems,
-           let list = items.first(where: { $0.name == "list" })?.value,
-           !list.isEmpty {
-            return .playlist
+        switch YouTubeImportURL(raw) {
+        case .video: return .video
+        case .playlist: return .playlist
+        case nil: return .unknown
         }
-
-        let host = (comps.host ?? "").lowercased()
-        let isYouTube = host.hasSuffix("youtube.com") || host == "youtu.be"
-        guard isYouTube else { return .unknown }
-
-        // Single video: watch?v= / youtu.be/<id> / shorts/<id> / embed/<id>.
-        if comps.host == "youtu.be", comps.path.count > 1 { return .video }
-        if let v = comps.queryItems?.first(where: { $0.name == "v" })?.value, !v.isEmpty {
-            return .video
-        }
-        let path = comps.path.lowercased()
-        if path.hasPrefix("/shorts/") || path.hasPrefix("/embed/") { return .video }
-
-        // A /playlist link without list= has no playlist id; treat it as unknown.
-        return .unknown
     }
 }

@@ -1,10 +1,9 @@
 import Foundation
 import Observation
-import SwiftData
 
 /// Situational New recommendations.
 ///
-/// "Music for you, right now": deterministic scoring (no LLM) over History/Context/Sessions/Focus/Inbox/Library/
+/// "Music for you, right now": deterministic scoring (no LLM) over History/Context/Sessions/Library/
 /// imported YouTube tracks. Adds no new yt-dlp spawns.
 ///
 /// Architecture (mirrors `RecommendationService`):
@@ -21,27 +20,17 @@ final class SituationalRecommendationService {
 
     private let library: LibraryService
     private let historyService: HistoryService?
-    private let inboxService: InboxService?
-    private let modelContainer: ModelContainer?
     private let enabledProvider: () -> Bool
     /// Context signal injection: bridges `ContextService.capture()` by default; tests can inject values directly.
     private let contextProvider: () -> ListeningContext?
-    /// Focus state injection: bridges `FocusService.isActive`/`activeSessionId` by default.
-    private let focusStateProvider: () -> (active: Bool, sessionId: UUID?)
 
     init(library: LibraryService,
          historyService: HistoryService? = nil,
          contextService: ContextService? = nil,
-         focusService: FocusService? = nil,
-         inboxService: InboxService? = nil,
-         modelContainer: ModelContainer? = nil,
          enabledProvider: @escaping () -> Bool = { UserDefaults.standard.bool(forKey: PrefKey.ffSituationalNew) },
-         contextProvider: (() -> ListeningContext?)? = nil,
-         focusStateProvider: (() -> (active: Bool, sessionId: UUID?))? = nil) {
+         contextProvider: (() -> ListeningContext?)? = nil) {
         self.library = library
         self.historyService = historyService
-        self.inboxService = inboxService
-        self.modelContainer = modelContainer
         self.enabledProvider = enabledProvider
         // Bridges the real services by default; tests can override. Weak closure references avoid retain cycles.
         if let contextProvider {
@@ -51,14 +40,6 @@ final class SituationalRecommendationService {
             self.contextProvider = { [weak cs] in cs?.capture() }
         } else {
             self.contextProvider = { nil }
-        }
-        if let focusStateProvider {
-            self.focusStateProvider = focusStateProvider
-        } else if let focusService {
-            let fs = focusService
-            self.focusStateProvider = { [weak fs] in (fs?.isActive ?? false, fs?.activeSessionId) }
-        } else {
-            self.focusStateProvider = { (false, nil) }
         }
     }
 
@@ -92,14 +73,6 @@ final class SituationalRecommendationService {
             let playCount: Int
             let lastPlayedAt: Date?
         }
-        struct InboxV: Sendable, Hashable {
-            let trackId: UUID
-            let title: String
-            let artist: String
-            let youTubeId: String
-            let artworkUrl: String?
-            let durationSeconds: Double
-        }
         struct HistoryAgg: Sendable {
             var plays: Int = 0
             var listenedMs: Int = 0
@@ -112,20 +85,14 @@ final class SituationalRecommendationService {
         }
         let now: Date
         let context: ListeningContext?
-        let focusActive: Bool
-        let hasCurrentSession: Bool
         let libraryTracks: [TrackV]
         let likedTrackIds: Set<UUID>
         let history: [UUID: HistoryAgg]
-        let inboxUnheard: [InboxV]
     }
 
     private func snapshot() -> SituationalSnapshot {
         let now = Date()
         let context = contextProvider()
-        let focusState = focusStateProvider()
-        let focusActive = focusState.active
-        let hasCurrentSession = focusState.sessionId != nil
 
         let tracks = library.allTracks()
         let libraryTracks = tracks.map {
@@ -158,25 +125,10 @@ final class SituationalRecommendationService {
             }
         }
 
-        // Unplayed inbox items.
-        var inboxUnheard: [SituationalSnapshot.InboxV] = []
-        if let container = modelContainer ?? inboxService?.container {
-            let descriptor = FetchDescriptor<InboxItem>(
-                predicate: #Predicate { $0.stateRaw == "unheard" })
-            if let items = try? container.mainContext.fetch(descriptor) {
-                inboxUnheard = items.prefix(40).map {
-                    .init(trackId: $0.trackId, title: $0.trackTitle, artist: $0.artist,
-                          youTubeId: $0.youTubeId, artworkUrl: $0.artworkUrl,
-                          durationSeconds: $0.durationSeconds)
-                }
-            }
-        }
-
         return SituationalSnapshot(
-            now: now, context: context, focusActive: focusActive,
-            hasCurrentSession: hasCurrentSession,
+            now: now, context: context,
             libraryTracks: libraryTracks, likedTrackIds: likedIds,
-            history: history, inboxUnheard: inboxUnheard)
+            history: history)
     }
 
     // MARK: - Resolve ids → TrackSnapshot
@@ -185,19 +137,7 @@ final class SituationalRecommendationService {
         let byId = Dictionary(uniqueKeysWithValues: snapshot.libraryTracks.map { ($0.id, $0) })
         return planned.compactMap { section in
             let items = section.itemIds.compactMap { id -> TrackSnapshot? in
-                guard let t = byId[id] else {
-                    // The inbox item may not exist in the library yet (not accepted). Build a minimal snapshot.
-                    if let inbox = snapshot.inboxUnheard.first(where: { $0.trackId == id }) {
-                        return TrackSnapshot(
-                            id: inbox.trackId, title: inbox.title, artist: inbox.artist,
-                            albumTitle: nil, durationSeconds: inbox.durationSeconds,
-                            youTubeId: inbox.youTubeId,
-                            artworkUrl: inbox.artworkUrl,
-                            sampleRate: nil, bitDepth: nil, codec: nil,
-                            isLossless: false, liked: false)
-                    }
-                    return nil
-                }
+                guard let t = byId[id] else { return nil }
                 return TrackSnapshot(
                     id: t.id, title: t.title, artist: t.artist,
                     albumTitle: t.albumTitle, durationSeconds: t.durationSeconds,
@@ -223,10 +163,7 @@ final class SituationalRecommendationService {
 
     /// Pure function: computes situational sections from a snapshot. Thread-agnostic and deterministically testable.
     private nonisolated static func plan(from snap: SituationalSnapshot) -> [PlannedSection] {
-        if snap.focusActive {
-            return focusSections(from: snap)
-        }
-        return normalSections(from: snap)
+        normalSections(from: snap)
     }
 
     // MARK: - Scoring weights (constants, deterministic)
@@ -284,7 +221,7 @@ final class SituationalRecommendationService {
         return listening + contextAff + recency + playlist + discoveryW - overplay - skip
     }
 
-    // MARK: - Normal sections (non-focus)
+    // MARK: - Sections
 
     private nonisolated static func normalSections(from snap: SituationalSnapshot) -> [PlannedSection] {
         let band = snap.context?.timeBand
@@ -315,8 +252,8 @@ final class SituationalRecommendationService {
                                   targetHeadphones: headphones, discovery: false)
             if !items.isEmpty {
                 sections.append(PlannedSection(id: "app-rotation",
-                                      title: tr("Your \(label) rotation", "你的 \(label) 旋转"),
-                                      subtitle: tr("What you play while in \(label)", "你在 \(label) 时常听的"),
+                                      title: tr("Your \(label) rotation", "你的 \(label) 旋转", zhHant: "你的 \(label) 旋轉"),
+                                      subtitle: tr("What you play while in \(label)", "你在 \(label) 时常听的", zhHant: "你在 \(label) 時常聽的"),
                                       itemIds: items))
             }
         }
@@ -354,48 +291,6 @@ final class SituationalRecommendationService {
                                   itemIds: youTube))
         }
 
-        // (6) Inbox: unplayed items (by recency/added time).
-        if !snap.inboxUnheard.isEmpty {
-            let ids = snap.inboxUnheard
-                .sorted { $0.trackId.uuidString < $1.trackId.uuidString }
-                .prefix(sectionCap).map(\.trackId)
-            sections.append(PlannedSection(id: "from-inbox",
-                                  title: tr("From your Inbox", "来自收件箱"),
-                                  subtitle: tr("Saved to check out later", "存起来稍后听"),
-                                  itemIds: Array(ids)))
-        }
-
-        return sections
-    }
-
-    // MARK: - Focus sections (focus-only)
-
-    private nonisolated static func focusSections(from snap: SituationalSnapshot) -> [PlannedSection] {
-        var sections: [PlannedSection] = []
-
-        // (1) Continue focusing: recent tracks with low skips and high completions.
-        let continueItems = topTracks(from: snap,
-                                      targetBand: nil, targetApp: nil,
-                                      targetHeadphones: false, discovery: false,
-                                      preferLowSkip: true)
-        if !continueItems.isEmpty {
-            sections.append(PlannedSection(id: "focus-continue",
-                                  title: tr("Continue Focus Session", "继续专注会话"),
-                                  subtitle: tr("Least-skipped, keep the flow", "最少跳过,保持心流"),
-                                  itemIds: continueItems))
-        }
-
-        // (2) Low-distraction carousel: high-completion tracks (high completedCount, low skips).
-        let lowDist = topTracks(from: snap,
-                                targetBand: nil, targetApp: nil,
-                                targetHeadphones: false, discovery: false,
-                                preferLowSkip: true, requireCompletion: true)
-        if !lowDist.isEmpty {
-            sections.append(PlannedSection(id: "focus-low-distraction",
-                                  title: tr("Low-distraction rotation", "低干扰轮播"),
-                                  subtitle: tr("Tracks you finish, not skip", "你会听完而非跳过的曲目"),
-                                  itemIds: lowDist))
-        }
         return sections
     }
 

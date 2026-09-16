@@ -31,20 +31,15 @@ struct ArtistObjectView: View {
                 .frame(width: size, height: totalHeight)
                 .clipShape(cardShape)
 
-                // Top-right floating frosted badge
+                // Top-right opaque content badge
                 VStack {
                     HStack {
                         Spacer()
-                        Circle()
-                            .fill(.ultraThinMaterial)
-                            .frame(width: 24, height: 24)
-                            .overlay {
-                                Image(systemName: "ellipsis")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundStyle(.white)
-                            }
-                            .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 0.75))
-                            .shadow(color: .black.opacity(0.3), radius: 3)
+                        ContentScrimCircle {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.white)
+                        }
                     }
                     .padding(.top, 10)
                     .padding(.trailing, 10)
@@ -86,7 +81,7 @@ struct ArtistObjectView: View {
                         HStack(spacing: 3) {
                             Image(systemName: isNowPlaying ? "waveform" : "person.fill")
                                 .font(.system(size: 8, weight: .bold))
-                                .foregroundStyle(isNowPlaying ? BrandColors.magenta : Color.white.opacity(0.8))
+                                .foregroundStyle(isNowPlaying ? BrandColors.accent : Color.white.opacity(0.8))
                             Text(tr("ARTIST", "艺术家"))
                                 .font(.system(size: 8.5, weight: .bold))
                                 .foregroundStyle(Color.white.opacity(0.9))
@@ -110,7 +105,7 @@ struct ArtistObjectView: View {
                             .padding(.vertical, 3)
                             .background(
                                 isNowPlaying || hovering
-                                ? BrandColors.magenta
+                                ? BrandColors.accent
                                 : Color.white.opacity(0.22),
                                 in: Capsule()
                             )
@@ -131,7 +126,7 @@ struct ArtistObjectView: View {
             .overlay {
                 cardShape.stroke(
                     isNowPlaying
-                        ? BrandColors.magenta.opacity(0.85)
+                        ? BrandColors.accent.opacity(0.85)
                         : (hovering ? Color.white.opacity(0.28) : BrandColors.hairline),
                     lineWidth: (hovering || isNowPlaying) ? 1.5 : 1.0
                 )

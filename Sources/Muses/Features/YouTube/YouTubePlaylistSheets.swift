@@ -17,7 +17,9 @@ struct AddToYouTubePlaylistSheet: View {
                 Text(tr("Add to playlist", "添加到歌单"))
                     .font(.headline)
                 Spacer()
-                Button(tr("Done", "完成")) { dismiss() }
+                Button(tr("Close", "关闭"), systemImage: "xmark") { dismiss() }
+                    .labelStyle(ActionIconLabelStyle())
+                    .help(tr("Close", "关闭"))
             }
             TextField(tr("Search YouTube", "搜索 YouTube"), text: $query)
                 .textFieldStyle(.roundedBorder)
@@ -167,8 +169,8 @@ struct PlaylistPullPreviewSheet: View {
                     onApply(resolved)
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(BrandColors.magenta)
+                .musesAction(prominent: true)
+                .tint(BrandColors.accent)
                 .disabled(resolvedConflictIDs.count != preview.mergePlan.conflicts.count)
             }
         }
@@ -179,7 +181,7 @@ struct PlaylistPullPreviewSheet: View {
 
     private var summary: String {
         tr("\(preview.mergePlan.remoteOnlyChanges.count) remote changes, \(preview.mergePlan.localOnlyChanges.count) local changes, \(preview.mergePlan.conflicts.count) conflicts",
-           "\(preview.mergePlan.remoteOnlyChanges.count) 项远端变化，\(preview.mergePlan.localOnlyChanges.count) 项本地变化，\(preview.mergePlan.conflicts.count) 个冲突")
+           "\(preview.mergePlan.remoteOnlyChanges.count) 项远端变化，\(preview.mergePlan.localOnlyChanges.count) 项本地变化，\(preview.mergePlan.conflicts.count) 个冲突", zhHant: "\(preview.mergePlan.remoteOnlyChanges.count) 項遠端變化，\(preview.mergePlan.localOnlyChanges.count) 項本地變化，\(preview.mergePlan.conflicts.count) 個衝突")
     }
 
     private func conflictCard(_ conflict: YouTubePlaylistConflict) -> some View {
@@ -199,11 +201,11 @@ struct PlaylistPullPreviewSheet: View {
                     resolve(conflict, with: conflict.remote)
                 }
             }
-            .buttonStyle(.bordered)
+            .musesAction()
             if resolvedConflictIDs.contains(conflict.id) {
                 Label(tr("Resolved", "已解决"), systemImage: "checkmark.circle.fill")
                     .font(.caption2)
-                    .foregroundStyle(BrandColors.magenta)
+                    .foregroundStyle(BrandColors.accent)
             }
         }
         .padding(12)
@@ -283,14 +285,14 @@ struct PlaylistPushPreviewSheet: View {
                     Button(tr("Done", "完成")) {
                         cancel()
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(BrandColors.magenta)
+                    .musesAction(prominent: true)
+                    .tint(BrandColors.accent)
                 } else {
                     Button(tr("Push to YouTube", "推送到 YouTube")) {
                         Task { await push() }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(BrandColors.magenta)
+                    .musesAction(prominent: true)
+                    .tint(BrandColors.accent)
                     .disabled(pushing)
                 }
             }
@@ -332,12 +334,12 @@ struct PlaylistPushPreviewSheet: View {
         switch operation.kind {
         case .insert:
             tr("Add video at position \((operation.toPosition ?? 0) + 1)",
-               "在第 \((operation.toPosition ?? 0) + 1) 位添加视频")
+               "在第 \((operation.toPosition ?? 0) + 1) 位添加视频", zhHant: "在第 \((operation.toPosition ?? 0) + 1) 位添加影片")
         case .remove:
             tr("Remove playlist occurrence", "删除一个歌单条目")
         case .move:
             tr("Move to position \((operation.toPosition ?? 0) + 1)",
-               "移动到第 \((operation.toPosition ?? 0) + 1) 位")
+               "移动到第 \((operation.toPosition ?? 0) + 1) 位", zhHant: "移動到第 \((operation.toPosition ?? 0) + 1) 位")
         }
     }
 }

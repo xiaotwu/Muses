@@ -61,31 +61,6 @@ struct RemainingFixesTests {
         #expect(q.peekNext()?.track.title == "high")
     }
 
-    @Test("replacement lock does not wipe the collection")
-    func replacementLockKeepsQueue() {
-        let q = QueueService()
-        let ctx = [
-            TrackSnapshot(id: UUID(), title: "a", artist: "a", albumTitle: nil,
-                          durationSeconds: 1, youTubeId: "test-video",
-                          artworkUrl: nil, sampleRate: nil,
-                          bitDepth: nil, codec: nil, isLossless: false),
-            TrackSnapshot(id: UUID(), title: "b", artist: "a", albumTitle: nil,
-                          durationSeconds: 1, youTubeId: "test-video",
-                          artworkUrl: nil, sampleRate: nil,
-                          bitDepth: nil, codec: nil, isLossless: false)
-        ]
-        q.play(ctx[0], context: ctx, from: .album)
-        q.replacementLocked = true
-        let outsider = TrackSnapshot(id: UUID(), title: "x", artist: "a", albumTitle: nil,
-                                     durationSeconds: 1, youTubeId: "test-video",
-                                     artworkUrl: nil, sampleRate: nil,
-                                     bitDepth: nil, codec: nil, isLossless: false)
-        q.play(outsider, context: [outsider], from: .search)
-        #expect(q.items.count == 2)
-        #expect(q.items.map(\.track.title) == ["a", "b"])
-        #expect(q.upNext.first?.track.title == "x")
-    }
-
     @Test("Google Desktop loopback redirect is detected")
     func oauthLoopbackDetection() {
         let loop = GoogleOAuthConfig(clientID: "id", clientSecret: "s",
@@ -114,7 +89,7 @@ struct RemainingFixesTests {
             == "Streetwise")
         let cookie = YouTubeIdentity.sidebarSubtitle(
             oauthConnected: false, channelTitle: nil, cookieSource: .chrome)
-        #expect(cookie == tr("Not connected", "未连接"))
+        #expect(cookie == tr("Chrome cookies (playback)", "Chrome Cookie（播放）", zhHant: "Chrome Cookie（播放）"))
         #expect(!cookie.localizedCaseInsensitiveContains("sign-in"))
         #expect(YouTubeIdentity.sidebarSubtitle(
             oauthConnected: false, channelTitle: nil, cookieSource: .none)
@@ -129,8 +104,8 @@ struct RemainingFixesTests {
     func youtubeEmbedHTML() {
         let html = YouTubeEmbed.pageHTML(videoId: "LQeq2F1D2dE")
         #expect(html.contains("youtube-nocookie.com/embed/LQeq2F1D2dE"))
-        #expect(html.contains("autoplay=1"))
-        #expect(!YouTubeEmbed.pageHTML(videoId: "ab<script>").contains("<script>"))
+        #expect(html.contains("autoplay=0"))
+        #expect(!YouTubeEmbed.pageHTML(videoId: "ab<script>").contains("ab<script>"))
         #expect(YouTubeEmbed.isVideo(TrackSnapshot(
             id: UUID(), title: "t", artist: "a", albumTitle: nil, durationSeconds: 1,
             youTubeId: "abc", artworkUrl: nil,
@@ -199,8 +174,9 @@ struct RemainingFixesTests {
     func trayTemplateImage() {
         let statusIcon = TrayIcon.templateImage()
         #expect(statusIcon.isTemplate)
-        #expect(TrayIcon.symbolName == "music.note")
-        #expect(TrayIcon.symbolPointSize == 15)
+        #expect(TrayIcon.loadLogo() != nil)
+        #expect(TrayIcon.menuBarImage.size == NSSize(width: 18, height: 18))
+        #expect(TrayIcon.settingsImage.isTemplate)
 
         let src = NSImage(size: NSSize(width: 32, height: 32))
         src.lockFocus()

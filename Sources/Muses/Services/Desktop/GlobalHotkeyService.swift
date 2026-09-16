@@ -24,11 +24,9 @@ final class GlobalHotkeyService {
     static let actionVolumeUp        = "desktop.volumeUp"
     static let actionVolumeDown      = "desktop.volumeDown"
     static let actionMute            = "desktop.mute"
-    static let actionAddToInbox      = "desktop.addToInbox"
     static let actionShowHidePlayer  = "desktop.showHidePlayer"
     static let actionShowMiniPlayer  = "desktop.showMiniPlayer"
     static let actionShowLyrics      = "desktop.showLyrics"
-    static let actionToggleFocus     = "desktop.toggleFocusMode"
 
     /// Default bindings (restorable via "Reset to Defaults"). Key codes are Carbon virtualKeys; modifiers are Carbon modifierFlags.
     static let defaults: [String: HotkeyShortcut] = [
@@ -39,20 +37,18 @@ final class GlobalHotkeyService {
         actionVolumeUp:       HotkeyShortcut(keyCode: kVK_UpArrow, modifiers: cmdKey | controlKey),
         actionVolumeDown:     HotkeyShortcut(keyCode: kVK_DownArrow, modifiers: cmdKey | controlKey),
         actionMute:           HotkeyShortcut(keyCode: kVK_ANSI_M, modifiers: cmdKey | controlKey | optionKey),
-        actionAddToInbox:     HotkeyShortcut(keyCode: kVK_ANSI_I, modifiers: cmdKey | controlKey | optionKey),
         actionShowHidePlayer: HotkeyShortcut(keyCode: kVK_ANSI_P, modifiers: cmdKey | controlKey | optionKey),
         actionShowMiniPlayer: HotkeyShortcut(keyCode: kVK_ANSI_O, modifiers: cmdKey | controlKey | optionKey),
-        actionShowLyrics:     HotkeyShortcut(keyCode: kVK_ANSI_Y, modifiers: cmdKey | controlKey | optionKey),
-        actionToggleFocus:    HotkeyShortcut(keyCode: kVK_ANSI_F, modifiers: cmdKey | controlKey | optionKey)
+        actionShowLyrics:     HotkeyShortcut(keyCode: kVK_ANSI_Y, modifiers: cmdKey | controlKey | optionKey)
     ]
 
     /// Display names of all bindable actions (listed by the settings panel).
     static let actionLabels: [String: String] = [
         actionPlayPause: "Play / Pause", actionNext: "Next", actionPrevious: "Previous",
         actionLike: "Like", actionVolumeUp: "Volume Up", actionVolumeDown: "Volume Down",
-        actionMute: "Mute", actionAddToInbox: "Add to Inbox",
+        actionMute: "Mute",
         actionShowHidePlayer: "Show / Hide Player", actionShowMiniPlayer: "Show Mini Player",
-        actionShowLyrics: "Show Desktop Lyrics", actionToggleFocus: "Toggle Focus Mode"
+        actionShowLyrics: "Show Desktop Lyrics"
     ]
 
     private let enabledProvider: () -> Bool
@@ -62,6 +58,8 @@ final class GlobalHotkeyService {
     private var eventHandler: EventHandlerRef?
     private var nextHotKeyId: UInt32 = 1
     private(set) var revision: Int = 0
+    private(set) var failedActions: [String] = []
+    var registeredCount: Int { registered.count }
     var isEnabled: Bool { enabledProvider() }
 
     init(enabledProvider: @escaping () -> Bool = {
@@ -81,9 +79,15 @@ final class GlobalHotkeyService {
     /// Re-reads the flag and bindings, then re-registers. Flag off → unregister everything.
     func sync() {
         unregisterAll()
+        failedActions = []
         guard isEnabled else { revision &+= 1; return }
         let map = shortcutProvider()
         installEventHandlerIfNeeded()
+        guard eventHandler != nil else {
+            failedActions = map.keys.sorted()
+            revision &+= 1
+            return
+        }
         for (action, sc) in map {
             let id = nextHotKeyId; nextHotKeyId &+= 1
             Self.actionById[id] = action
@@ -96,6 +100,7 @@ final class GlobalHotkeyService {
             } else {
                 AppLog.for("GlobalHotkeyService").warning("Failed to register hotkey action=\(action) status=\(status)")
                 Self.actionById.removeValue(forKey: id)
+                failedActions.append(action)
             }
         }
         revision &+= 1
@@ -126,6 +131,14 @@ final class GlobalHotkeyService {
     /// Injected with `dispatcher` by production wiring; the C callback cannot capture self,
     /// so it goes through this static singleton pointer.
     nonisolated(unsafe) static var sharedDispatcher: ((String) -> Void)?
+
+    nonisolated static func action(for event: EventRef) -> String? {
+        var hotKey = EventHotKeyID()
+        let status = GetEventParameter(event, EventParamName(kEventParamDirectObject),
+            EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKey)
+        guard status == noErr, hotKey.signature == 0x4D757373 else { return nil }
+        return actionById[hotKey.id]
+    }
 
     // MARK: - Persistence (JSON)
 
@@ -164,11 +177,7 @@ final class GlobalHotkeyService {
 private func musesHotkeyCallback(_ callRef: OpaquePointer?, _ event: OpaquePointer?,
                                   _ userData: UnsafeMutableRawPointer?) -> OSStatus {
     guard let event else { return noErr }
-    var id: UInt32 = 0
-    GetEventParameter(event, EventParamName(kEventParamDirectObject),
-                      EventParamType(typeEventHotKeyID), nil,
-                      MemoryLayout<UInt32>.size, nil, &id)
-    guard let action = GlobalHotkeyService.actionById[id] else { return noErr }
+    guard let action = GlobalHotkeyService.action(for: event) else { return noErr }
     let dispatcher = GlobalHotkeyService.sharedDispatcher
     Task { @MainActor in dispatcher?(action) }
     return noErr

@@ -22,7 +22,7 @@ enum YouTubeImportError: LocalizedError, Equatable {
         case .notFound:
             tr("YouTube import record not found", "YouTube 导入记录未找到")
         case .networkError(let m):
-            tr("Network error: \(m)", "网络错误:\(m)")
+            tr("Network error: \(m)", "网络错误:\(m)", zhHant: "網路錯誤:\(m)")
         }
     }
 
@@ -87,7 +87,7 @@ final class YouTubeImportService {
         // 2. Fetch entries.
         let entries: [YTDlpBridge.YTDlpPlaylistEntry]
         do {
-            entries = try await bridge.fetchPlaylist(url: url, timeout: 60)
+            entries = try await bridge.fetchPlaylist(url: url, timeout: 60).filter { $0.resourceKind == .video }
         } catch {
             log.error("fetchPlaylist failed: \(error.localizedDescription)")
             throw YouTubeImportError.networkError(error.localizedDescription)
@@ -173,7 +173,7 @@ final class YouTubeImportService {
     /// Fetches title/channel/cover via YouTube oEmbed (falling back to placeholders), creates the lazy track, and caches the cover.
     /// - Returns: the id of the new or existing track.
     @discardableResult
-    func importVideo(url: String) async throws -> UUID {
+    func importVideo(url: String, saveToLibrary: Bool = true) async throws -> UUID {
         guard let videoId = extractVideoId(from: url) else {
             throw YouTubeImportError.invalidURL
         }
@@ -184,11 +184,22 @@ final class YouTubeImportService {
         if let existing = try? ctx.fetch(FetchDescriptor<Track>(
             predicate: #Predicate { $0.youTubeId == videoId }
         )).first {
+            if saveToLibrary {
+                existing.libraryMember = true
+                try ctx.save()
+            }
             return existing.id
         }
 
         // Fetch metadata via oEmbed (fall back on failure).
         let meta = await fetchOEmbedMetadata(for: url)
+        try Task.checkCancellation()
+        // Metadata awaits allow another route to resolve this video first.
+        let fresh = ModelContext(modelContainer)
+        if let existing = try fresh.fetch(FetchDescriptor<Track>(predicate: #Predicate { $0.youTubeId == videoId })).first {
+            if saveToLibrary { existing.libraryMember = true; try fresh.save() }
+            return existing.id
+        }
         let title = meta?.title ?? "YouTube Video"
         let channel = meta?.channel ?? "Unknown"
         let artworkURLString = meta?.artworkURL ?? thumbnailURL(forVideoId: videoId)
@@ -198,9 +209,11 @@ final class YouTubeImportService {
             artist: channel,
             durationMs: 0,
             youTubeId: videoId,
-            artworkUrl: artworkURLString
+            artworkUrl: artworkURLString,
+            isInLibrary: saveToLibrary
         )
-        ctx.insert(track)
+        fresh.insert(track)
+        try fresh.save()
 
         // Cache the cover (non-blocking).
         if let url = URL(string: artworkURLString),
@@ -208,7 +221,6 @@ final class YouTubeImportService {
             _ = try? artworkCache.store(imageData)
         }
 
-        try ctx.save()
         catalog?.rebuildFromTrackMetadata()
         log.info("Imported single video \(videoId) (\(title))")
         return track.id
@@ -216,25 +228,8 @@ final class YouTubeImportService {
 
     // MARK: - Repair
 
-    /// Collapse duplicate `.youtube` tracks that share a `youTubeId`, then
-    /// rebuild only stable-ID YouTube catalog cache rows.
+    /// Rebuild projections only. Historical UUIDs and relations require a reviewed migration.
     func repairYouTubeLibrary() {
-        let ctx = ModelContext(modelContainer)
-        let all = (try? ctx.fetch(FetchDescriptor<Track>())) ?? []
-        let grouped = Dictionary(grouping: all.compactMap { track -> (String, Track)? in
-            guard !track.youTubeId.isEmpty else { return nil }
-            return (track.youTubeId, track)
-        }) { $0.0 }.mapValues { $0.map(\.1) }
-
-        for (_, group) in grouped where group.count > 1 {
-            mergeDuplicateYouTubeTracks(group, context: ctx)
-        }
-
-        let imports = (try? ctx.fetch(FetchDescriptor<YouTubeImport>())) ?? []
-        for imp in imports {
-            attachCatalogMetadata(for: imp, context: ctx)
-        }
-        try? ctx.save()
         catalog?.rebuildFromTrackMetadata()
     }
 
@@ -326,40 +321,13 @@ final class YouTubeImportService {
     /// Supports `youtube.com/playlist?list=`, `youtube.com/watch?v=...&list=...`,
     /// `youtu.be/<id>?list=...`, and similar shapes.
     private func extractPlaylistId(from url: String) -> String? {
-        guard let comps = URLComponents(string: url) else { return nil }
-        // 1) The standard query `list=` parameter.
-        if let items = comps.queryItems {
-            if let list = items.first(where: { $0.name == "list" })?.value,
-               !list.isEmpty {
-                return list
-            }
-        }
-        // 2) Some youtu.be links place the list in the query; covered above.
-        // 3) Without a list parameter, the playlist id is undeterminable.
-        return nil
+        guard case .playlist(let id) = YouTubeImportURL(url) else { return nil }
+        return id
     }
 
-    /// Parses a single-video id from a YouTube URL.
-    /// Supports `youtube.com/watch?v=`, `youtu.be/<id>`, `youtube.com/shorts/<id>`, and `youtube.com/embed/<id>`.
     private func extractVideoId(from url: String) -> String? {
-        guard let comps = URLComponents(string: url) else { return nil }
-        if let v = comps.queryItems?.first(where: { $0.name == "v" })?.value, !v.isEmpty {
-            return v
-        }
-        let host = (comps.host ?? "").lowercased()
-        guard host.hasSuffix("youtube.com") || host == "youtu.be" else { return nil }
-        let path = comps.path
-        if host == "youtu.be" {
-            let seg = path.split(separator: "/").filter { !$0.isEmpty }
-            return seg.first.map { String($0) }
-        }
-        let seg = path.split(separator: "/").filter { !$0.isEmpty }
-        guard let first = seg.first else { return nil }
-        let prefix = first.lowercased()
-        if prefix == "shorts" || prefix == "embed" {
-            return seg.dropFirst().first.map { String($0) }
-        }
-        return nil
+        guard case .video(let id) = YouTubeImportURL(url) else { return nil }
+        return id
     }
 
     /// Builds the YouTube video thumbnail URL (hqdefault).
@@ -389,6 +357,7 @@ final class YouTubeImportService {
                        durationMs: Int,
                        context ctx: ModelContext) -> Track {
         if let existing = existingYouTubeTrack(videoId: entry.id, context: ctx) {
+            existing.libraryMember = true
             if existing.title != entry.title { existing.title = entry.title }
             if existing.artist != artist { existing.artist = artist }
             if durationMs > 0, existing.durationMs != durationMs {
@@ -438,33 +407,6 @@ final class YouTubeImportService {
             let bPlayed = b.lastPlayedAt ?? .distantPast
             if aPlayed != bPlayed { return aPlayed < bPlayed }
             return a.addedAt > b.addedAt
-        }
-    }
-
-    private func mergeDuplicateYouTubeTracks(_ group: [Track], context ctx: ModelContext) {
-        guard let keeper = Self.preferredTrack(among: group) else { return }
-        let keeperId = keeper.id
-        for discarded in group where discarded.id != keeperId {
-            keeper.playCount += discarded.playCount
-            if discarded.liked { keeper.liked = true }
-            if let otherPlayed = discarded.lastPlayedAt {
-                if let keptPlayed = keeper.lastPlayedAt {
-                    if otherPlayed > keptPlayed { keeper.lastPlayedAt = otherPlayed }
-                } else {
-                    keeper.lastPlayedAt = otherPlayed
-                }
-            }
-            for item in discarded.youTubeImportItems ?? [] { item.track = keeper }
-            let discardedId = discarded.id
-            let playlistItems = (try? ctx.fetch(FetchDescriptor<PlaylistItem>())) ?? []
-            for item in playlistItems where item.track?.id == discardedId {
-                item.track = keeper
-            }
-            let inboxItems = (try? ctx.fetch(FetchDescriptor<InboxItem>(
-                predicate: #Predicate { $0.trackId == discardedId }
-            ))) ?? []
-            for item in inboxItems { item.trackId = keeperId }
-            ctx.delete(discarded)
         }
     }
 

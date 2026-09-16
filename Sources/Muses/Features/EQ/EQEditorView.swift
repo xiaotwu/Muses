@@ -1,20 +1,21 @@
 import SwiftUI
 import SwiftData
 
-/// 32-band graphic EQ editor: vertical slider bars + a smooth curve + preset management (built-in + custom).
-/// Changes are pushed to PlaybackService.setEQ in real time.
+/// 10-band graphic EQ editor: vertical slider bars + a smooth curve + preset management (built-in + custom).
+/// Changes are pushed to PlaybackService.setEQ in real time. During AVPlayer streaming
+/// the engine treats setEQ as a no-op until playback switches to the local file.
 struct EQEditorView: View {
     @Environment(PlaybackService.self) private var playback
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \EQPreset.createdAt, order: .reverse) private var customPresets: [EQPreset]
 
     @AppStorage(PrefKey.eqActivePresetId) private var activePresetIdRaw: String = "Flat"
+    @Environment(\.dismiss) private var dismiss
     @State private var bands: [EQBand] = EQPresets.flat
     @State private var showSaveDialog = false
     @State private var newPresetName = ""
 
     private let gainRange: ClosedRange<Float> = -24...24
-    private let bandFreqs: [Double] = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
 
     var body: some View {
         VStack(spacing: 16) {
@@ -27,26 +28,41 @@ struct EQEditorView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .musesFloatingChrome(cornerRadius: 16)
         .onAppear {
-            if bands.count == 10, bands.allSatisfy({ $0.gain == 0 }) {
-                loadPreset(named: activePresetIdRaw)
-            }
+            bands = playback.eqBands
         }
     }
 
     // MARK: - Header
 
     private var header: some View {
-        HStack {
-            Text(tr("Equalizer", "均衡器")).font(.title2).fontWeight(.bold)
-                .foregroundStyle(BrandColors.textPrimary)
-            Spacer()
-            Button(tr("Reset", "重置")) {
-                bands = EQPresets.flat
-                applyBands()
-                activePresetIdRaw = "Flat"
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(tr("Equalizer", "均衡器")).font(.title2).fontWeight(.bold)
+                    .foregroundStyle(BrandColors.textPrimary)
+                Spacer()
+                Button { playback.setEQBypassed(!playback.eqBypassed) } label: {
+                    Image(systemName: "power")
+                }
+                .tint(playback.eqBypassed ? BrandColors.textSecondary : BrandColors.accent)
+                .help(tr("Bypass equalizer", "旁路均衡器", zhHant: "旁路均衡器"))
+                .accessibilityLabel(tr("Bypass equalizer", "旁路均衡器", zhHant: "旁路均衡器"))
+                .accessibilityValue(playback.eqBypassed ? tr("On", "开", zhHant: "開") : tr("Off", "关", zhHant: "關"))
+                Button {
+                    bands = EQPresets.flat
+                    applyBands()
+                    activePresetIdRaw = "Flat"
+                } label: { Image(systemName: "arrow.counterclockwise") }
+                .help(tr("Reset", "重置"))
+                .accessibilityLabel(tr("Reset", "重置"))
+                .musesAction()
+                .tint(BrandColors.accent)
+            .focusEffectDisabled()
+                Button(tr("Close", "关闭"), systemImage: "xmark") { dismiss() }
+                    .labelStyle(ActionIconLabelStyle())
+                    .help(tr("Close", "关闭"))
+                    .keyboardShortcut(.cancelAction)
             }
-            .buttonStyle(.bordered)
-            .tint(BrandColors.magenta)
+            StreamingEQAvailabilityNote()
         }
     }
 
@@ -86,7 +102,7 @@ struct EQEditorView: View {
     private func drawCurve(ctx: GraphicsContext, size: CGSize) {
         guard !bands.isEmpty else { return }
         let n = bands.count
-        let stepX = size.width / CGFloat(n - 1)
+        let stepX = size.width / CGFloat(max(1, n - 1))
         let midY = size.height / 2
         var path = Path()
         for (i, band) in bands.enumerated() {
@@ -95,7 +111,7 @@ struct EQEditorView: View {
             if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
             else { path.addLine(to: CGPoint(x: x, y: y)) }
         }
-        ctx.stroke(path, with: .color(BrandColors.magenta), lineWidth: 2)
+        ctx.stroke(path, with: .color(BrandColors.accent), lineWidth: 2)
 
         // Band points
         for (i, band) in bands.enumerated() {
@@ -103,7 +119,7 @@ struct EQEditorView: View {
             let y = midY - CGFloat(band.gain) / 24.0 * (size.height / 2)
             ctx.fill(
                 Circle().path(in: CGRect(x: x - 4, y: y - 4, width: 8, height: 8)),
-                with: .color(BrandColors.magenta)
+                with: .color(BrandColors.accent)
             )
         }
     }
@@ -121,10 +137,14 @@ struct EQEditorView: View {
                         get: { Double(bands[idx].gain) },
                         set: { v in
                             bands[idx].gain = Float(v)
+                            activePresetIdRaw = "Custom"
                             applyBands()
                         }), in: Double(gainRange.lowerBound)...Double(gainRange.upperBound))
+                    .accessibilityLabel(formatFreq(bands[idx].frequency) + " Hz")
+                    .accessibilityValue(String(format: "%+.1f dB", bands[idx].gain))
                     .labelsHidden()
-                    .tint(BrandColors.magenta)
+                    .tint(BrandColors.accent)
+            .focusEffectDisabled()
                     .rotationEffect(.degrees(-90))
                     .frame(width: 30, height: 80)
                     Text(formatFreq(bands[idx].frequency))
@@ -146,8 +166,11 @@ struct EQEditorView: View {
                 Button {
                     showSaveDialog = true
                 } label: { Label(tr("Save As", "另存为"), systemImage: "plus") }
-                    .buttonStyle(.bordered)
-                    .tint(BrandColors.magenta)
+                    .labelStyle(.iconOnly)
+                    .help(tr("Save As", "另存为"))
+                    .musesAction()
+                    .tint(BrandColors.accent)
+            .focusEffectDisabled()
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
@@ -181,8 +204,8 @@ struct EQEditorView: View {
         Button(action: action) {
             Text(name).font(.callout)
                 .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(isActive ? BrandColors.magenta.opacity(0.3) : BrandColors.surface)
-                .foregroundStyle(isActive ? BrandColors.magenta : BrandColors.textPrimary)
+                .background(isActive ? BrandColors.accent.opacity(0.3) : BrandColors.surface)
+                .foregroundStyle(isActive ? BrandColors.accent : BrandColors.textPrimary)
                 .cornerRadius(6)
         }
         .buttonStyle(.plain)
@@ -192,15 +215,6 @@ struct EQEditorView: View {
 
     private func applyBands() {
         playback.setEQ(bands)
-    }
-
-    private func loadPreset(named name: String) {
-        if let builtin = BuiltinEQPresets.all.first(where: { $0.name == name }) {
-            bands = builtin.bands
-        } else if let custom = customPresets.first(where: { $0.id.uuidString == name }) {
-            bands = custom.bands
-        }
-        applyBands()
     }
 
     private func savePreset() {
@@ -224,5 +238,33 @@ struct EQEditorView: View {
 
     private func formatFreq(_ hz: Double) -> String {
         hz >= 1000 ? "\(Int(hz / 1000))k" : "\(Int(hz))"
+    }
+}
+
+/// Solid caption used by the EQ editor and Audio Info. Readable under Reduce Transparency.
+struct StreamingEQAvailabilityNote: View {
+    @Environment(PlaybackService.self) private var playback
+
+    private var message: String {
+        if playback.eqBypassed {
+            return tr("Equalizer bypassed. Your settings are saved.", "均衡器已旁路，设置已保留。", zhHant: "均衡器已旁路，設定已保留。")
+        }
+        switch playback.transportState.audioProcessing {
+        case .available:
+            return tr("Equalizer and spectrum are available.", "均衡器和频谱可用。", zhHant: "均衡器和頻譜可用。")
+        case .waitingForDownload:
+            return tr("EQ settings will apply when the download finishes.", "下载完成后会应用均衡器设置。", zhHant: "下載完成後會套用均衡器設定。")
+        case .streamOnly:
+            return tr("This stream cannot use EQ or spectrum. Your settings are saved.", "此流无法使用均衡器或频谱，设置已保留。", zhHant: "此串流無法使用均衡器或頻譜，設定已保留。")
+        case .unavailable:
+            return tr("EQ settings are saved for supported playback.", "均衡器设置已保存，将在支持的播放模式中应用。", zhHant: "均衡器設定已儲存，將在支援的播放模式中套用。")
+        }
+    }
+
+    var body: some View {
+        Text(message)
+            .font(.callout)
+            .foregroundStyle(BrandColors.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }

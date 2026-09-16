@@ -1,20 +1,17 @@
 import SwiftUI
 import AppKit
 
-/// Rounded Muses mark used by the idle player capsule.
+/// Complete original Muses artwork without an application-drawn badge.
 struct MusesMark: View {
     var size: CGFloat = 20
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: max(4, size * 0.22), style: .continuous)
-        if let url = Bundle.main.url(forResource: "logo", withExtension: "png")
-            ?? Bundle.module.url(forResource: "logo", withExtension: "png"),
-           let image = NSImage(contentsOf: url) {
+        if let image = TrayIcon.logoImage {
             Image(nsImage: image)
                 .resizable()
-                .scaledToFill()
+                .scaledToFit()
                 .frame(width: size, height: size)
-                .clipShape(shape)
         } else {
             shape
                 .fill(BrandColors.textPrimary)
@@ -25,5 +22,19 @@ struct MusesMark: View {
                         .foregroundStyle(BrandColors.background)
                 }
         }
+    }
+}
+
+/// The same transparent, monochrome brand silhouette as the macOS status item.
+struct MusesSymbol: View {
+    var size: CGFloat = 24
+
+    var body: some View {
+        Image(nsImage: TrayIcon.settingsImage)
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
     }
 }

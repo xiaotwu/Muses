@@ -6,7 +6,6 @@ struct YouTubeAlbumDetailView: View {
     let youTubeImport: YouTubeImport
     @Environment(PlaybackService.self) private var playback
     @Environment(YouTubeImportService.self) private var importService
-    @Environment(InboxService.self) private var inbox
     @Environment(YouTubeAccountService.self) private var youTubeAccount
     @Environment(YouTubePlaylistSyncService.self) private var playlistSync
     @Environment(YouTubeSearchService.self) private var searchService
@@ -104,25 +103,20 @@ struct YouTubeAlbumDetailView: View {
     private var controls: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 8) {
-                ChromeIconButton(
-                    systemName: "chevron.backward",
-                    help: tr("Back", "返回"),
-                    accessibility: tr("Back", "返回")
-                ) {
-                    NotificationCenter.default.post(name: .musesCloseYouTubeAlbum, object: nil)
+                if !rows.isEmpty {
+                    ChromeIconButton(
+                        systemName: "play.fill",
+                        help: tr("Play All", "播放全部"),
+                        accessibility: tr("Play All", "播放全部"),
+                        action: playAll
+                    )
+                    ChromeIconButton(
+                        systemName: "shuffle",
+                        help: tr("Shuffle", "随机播放"),
+                        accessibility: tr("Shuffle", "随机播放"),
+                        action: shuffleAll
+                    )
                 }
-                ChromeIconButton(
-                    systemName: "play.fill",
-                    help: tr("Play All", "播放全部"),
-                    accessibility: tr("Play All", "播放全部"),
-                    action: playAll
-                )
-                ChromeIconButton(
-                    systemName: "shuffle",
-                    help: tr("Shuffle", "随机播放"),
-                    accessibility: tr("Shuffle", "随机播放"),
-                    action: shuffleAll
-                )
                 ChromeIconButton(
                     systemName: "arrow.down.to.line",
                     help: tr("Pull from YouTube", "从 YouTube 拉取"),

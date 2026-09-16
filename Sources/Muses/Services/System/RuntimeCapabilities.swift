@@ -1,65 +1,52 @@
 import Foundation
 import AppKit
 
-/// Runtime capability detection: lets features gate their UI by SUPPORTED / LIMITED /
-/// UNSUPPORTED instead of assuming platform support. Capabilities, once determined, never
-/// change within the process lifetime, hence the lets + construction-time probing.
+/// Platform capability hints. Conditional integrations report limited until
+/// their owning service confirms an operation; audio processing follows the
+/// active engine instead of the presence of the underlying system APIs.
 @Observable
 @MainActor
 final class RuntimeCapabilities {
 
     enum Status { case supported, limited, unsupported }
 
-    let globalHotkeys: Status
+    var globalHotkeys: Status {
+        guard let hotkeys, hotkeys.isEnabled else { return .unsupported }
+        _ = hotkeys.revision
+        return hotkeys.registeredCount > 0 && hotkeys.failedActions.isEmpty ? .supported : .limited
+    }
+    var hotkeyFailures: [String] { hotkeys?.failedActions ?? [] }
     let mediaKeys: Status
     let tray: Status
     let miniWindow: Status
     let desktopLyrics: Status
     let activeApplicationDetection: Status
-    let outputDeviceEnumeration: Status
-    let outputDeviceSwitching: Status
-    let headphoneDetection: Status
-    let wordSyncedLyrics: Status
-    let translationLyrics: Status
-    let audioAnalysis: Status
-    let weatherContext: Status
+    var outputDeviceEnumeration: Status {
+        guard let devices else { return .limited }
+        return devices.lastError == nil && !devices.devices.isEmpty ? .supported : .limited
+    }
+    private weak var playback: PlaybackService?
+    private weak var hotkeys: GlobalHotkeyService?
+    private weak var devices: AudioDeviceService?
+    var audioAnalysis: Status {
+        guard playback?.transportState.error == nil else { return .unsupported }
+        switch playback?.transportState.audioProcessing {
+        case .available: return .supported
+        case .waitingForDownload: return .limited
+        default: return .unsupported
+        }
+    }
 
-    init() {
+    init(playback: PlaybackService? = nil, hotkeys: GlobalHotkeyService? = nil, devices: AudioDeviceService? = nil) {
+        self.playback = playback
+        self.hotkeys = hotkeys
+        self.devices = devices
         // Native capabilities on macOS 14+. Carbon RegisterEventHotKey still works;
         // NSStatusItem / NSPanel / NSWorkspace.frontmostApplication / Core Audio are all system APIs.
-        globalHotkeys = .supported
-        mediaKeys = .supported
+        mediaKeys = .limited
         tray = .supported
         miniWindow = .supported
         desktopLyrics = .supported
         activeApplicationDetection = .supported
-        outputDeviceEnumeration = .supported
-        // AVAudioEngine routes to the system default device; per-device routing would need a
-        // manual graph / AVAudioIONNode, done best-effort.
-        outputDeviceSwitching = .limited
-        // No system API directly detects headphones; relies on a device-name/transport-type
-        // heuristic, which is unreliable.
-        headphoneDetection = .limited
-        // No free word-sync/translation lyrics provider; the structure supports it, but the
-        // data falls back line → plain.
-        wordSyncedLyrics = .limited
-        translationLyrics = .limited
-        audioAnalysis = .supported
-        // Weather context needs network + location, out of scope for a local-first music app;
-        // not implemented.
-        weatherContext = .unsupported
-    }
-
-    /// Convenience: maps a Status to a "usable" boolean (limited still counts as usable;
-    /// the UI should explain the limitation separately).
-    func isUsable(_ s: Status) -> Bool { s != .unsupported }
-
-    /// User-readable localized explanation (for disabled-state UI).
-    func explanation(for s: Status) -> String {
-        switch s {
-        case .supported:  return tr("Supported", "支持")
-        case .limited:    return tr("Supported with limitations", "受限支持")
-        case .unsupported: return tr("Not supported on this platform", "此平台不支持")
-        }
     }
 }

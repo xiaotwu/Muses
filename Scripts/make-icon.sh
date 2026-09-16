@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# make-icon.sh — 从 logo-and-icon/icon.png (1024×1024 RGBA) 生成 AppIcon.icns。
+# Build AppIcon.icns from the complete original logo artwork.
 #
 # 产物:Sources/Muses/Resources/AppIcon.icns(由 Info.plist CFBundleIconFile=AppIcon 引用)。
 # 幂等:若 .icns 存在且新于源 png 则跳过。
@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-SOURCE="logo-and-icon/icon.png"
+SOURCE="logo-and-icon/logo.png"
 ICONSET="build/AppIcon.iconset"
 DEST="Sources/Muses/Resources/AppIcon.icns"
 
@@ -18,7 +18,7 @@ if [[ ! -f "$SOURCE" ]]; then
 fi
 
 # 幂等:产物存在且新于源 → 跳过。
-if [[ -f "$DEST" ]] && [[ "$DEST" -nt "$SOURCE" ]]; then
+if [[ -f "$DEST" ]] && [[ "$DEST" -nt "$SOURCE" ]] && [[ "$DEST" -nt "$0" ]]; then
     echo "AppIcon.icns 已是最新,跳过。"
     exit 0
 fi

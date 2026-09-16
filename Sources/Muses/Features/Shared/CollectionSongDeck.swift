@@ -154,6 +154,7 @@ enum CollectionDeckInputPolicy {
 }
 
 struct CollectionDeckStage<Controls: View>: View {
+    @Environment(PlaybackService.self) private var playback
     let title: String
     let subtitle: String
     let youTubeURL: URL?
@@ -168,6 +169,7 @@ struct CollectionDeckStage<Controls: View>: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.isEnabled) private var environmentIsEnabled
+    @Environment(\.collectionPresentation) private var presentation
     @State private var position: CGFloat = 0
     @State private var focusedID: UUID?
     @State private var hoveredID: UUID?
@@ -176,6 +178,9 @@ struct CollectionDeckStage<Controls: View>: View {
     @State private var horizontalDragActive = false
     @State private var wheelAccumulator: CGFloat = 0
     @State private var wheelResetTask: Task<Void, Never>?
+    @State private var activationTask: Task<Void, Never>?
+    @State private var activationID: UUID?
+    @State private var activationProgress: CGFloat = 0
     @FocusState private var deckFocused: Bool
 
     private var focusedIndex: Int {
@@ -236,10 +241,18 @@ struct CollectionDeckStage<Controls: View>: View {
             )
         }
         .onAppear(perform: establishInitialFocus)
+        .onChange(of: focusedID) { _, value in presentation?.focusedID = value }
         .onChange(of: rows.map(\.id)) { _, _ in reconcileFocus() }
         .onDisappear {
             wheelResetTask?.cancel()
             wheelResetTask = nil
+            cancelActivation()
+        }
+        .onChange(of: reduceMotion) { _, reduced in
+            if reduced { cancelActivation() }
+        }
+        .onChange(of: isInteractionEnabled) { _, enabled in
+            if !enabled { cancelActivation() }
         }
     }
 
@@ -290,26 +303,32 @@ struct CollectionDeckStage<Controls: View>: View {
             .focusEffectDisabled()
             .focused($deckFocused)
             .onKeyPress(.leftArrow) {
+                guard ContentKeyboardScope.acceptsShortcuts else { return .ignored }
                 moveFocus(by: -1)
                 return .handled
             }
             .onKeyPress(.rightArrow) {
+                guard ContentKeyboardScope.acceptsShortcuts else { return .ignored }
                 moveFocus(by: 1)
                 return .handled
             }
             .onKeyPress(.home) {
+                guard ContentKeyboardScope.acceptsShortcuts else { return .ignored }
                 moveFocus(to: 0)
                 return .handled
             }
             .onKeyPress(.end) {
+                guard ContentKeyboardScope.acceptsShortcuts else { return .ignored }
                 moveFocus(to: rows.count - 1)
                 return .handled
             }
             .onKeyPress(.return) {
+                guard ContentKeyboardScope.acceptsShortcuts else { return .ignored }
                 activateFocusedCard()
                 return .handled
             }
             .onKeyPress(.space) {
+                guard ContentKeyboardScope.acceptsShortcuts else { return .ignored }
                 activateFocusedCard()
                 return .handled
             }
@@ -331,7 +350,7 @@ struct CollectionDeckStage<Controls: View>: View {
                         Button(cardAccessibilityLabel(
                             row: row,
                             index: index,
-                            playing: row.matches(currentTrack)
+                            playing: row.matches(currentTrack) && playback.state.isPlaying
                         )) {
                             guard isInteractionEnabled else { return }
                             setPosition(CGFloat(index), animated: true)
@@ -365,7 +384,7 @@ struct CollectionDeckStage<Controls: View>: View {
         let relative = CGFloat(index) - position
         let distance = abs(relative)
         let hovered = hoveredID == row.id
-        let playing = row.matches(currentTrack)
+        let playing = row.matches(currentTrack) && playback.state.isPlaying
         let fanScale: CGFloat = fanHovered ? 1.06 : 1
         let spread = geometry.spread * fanScale
         var x = relative * spread
@@ -399,8 +418,17 @@ struct CollectionDeckStage<Controls: View>: View {
                 isFocused: index == focusedIndex,
                 isPlaying: playing,
                 isHovered: hovered,
+                primaryAction: row.matches(currentTrack) ? playback.primaryAction : .play,
                 showsKeyboardFocus: deckFocused && index == focusedIndex
             )
+            .overlay {
+                if activationID == row.id, !reduceMotion {
+                    CollectionActivationEmbers(progress: activationProgress)
+                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
         }
         .buttonStyle(.plain)
         .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
@@ -424,7 +452,7 @@ struct CollectionDeckStage<Controls: View>: View {
             },
             onRemoveFromContainer: onRemove.map { handler in { handler(row) } }
         )
-        .help(tr("Play \(row.title)", "播放 \(row.title)"))
+        .help(tr("Play \(row.title)", "播放 \(row.title)", zhHant: "播放 \(row.title)"))
         .accessibilityLabel(cardAccessibilityLabel(row: row, index: index, playing: playing))
         .accessibilityValue(index == focusedIndex ? tr("Focused", "当前焦点") : "")
     }
@@ -494,7 +522,39 @@ struct CollectionDeckStage<Controls: View>: View {
         source: CollectionDeckActivationSource
     ) {
         guard CollectionDeckActivationPolicy.isPrimaryActivation(source) else { return }
-        onPlay(row)
+        let isPausing = row.matches(playback.state.track) && playback.primaryAction == .pause
+        cancelActivation()
+        if !isPausing, !reduceMotion {
+            activationID = row.id
+            if source == .pointer {
+                NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+            }
+            activationTask = Task { @MainActor in
+                // Publish the initial frame before starting the one-shot effect.
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: MusesMotion.collectionActivationEmbers)) {
+                    activationProgress = 1
+                }
+                try? await Task.sleep(for: .seconds(MusesMotion.collectionActivationEmbers))
+                guard !Task.isCancelled else { return }
+                cancelActivation()
+            }
+        }
+        if row.matches(playback.state.track) {
+            playback.toggle()
+        } else {
+            onPlay(row)
+        }
+    }
+
+    private func cancelActivation() {
+        activationTask?.cancel()
+        activationTask = nil
+        activationID = nil
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { activationProgress = 0 }
     }
 
     private func moveFocus(by delta: Int) {
@@ -540,7 +600,11 @@ struct CollectionDeckStage<Controls: View>: View {
     }
 
     private func establishInitialFocus() {
-        if let index = rows.firstIndex(where: { $0.matches(currentTrack) }) {
+        if let savedID = presentation?.focusedID,
+           let index = rows.firstIndex(where: { $0.id == savedID }) {
+            position = CGFloat(index)
+            focusedID = savedID
+        } else if let index = rows.firstIndex(where: { $0.matches(currentTrack) }) {
             position = CGFloat(index)
             focusedID = rows[index].id
         } else {
@@ -568,8 +632,8 @@ struct CollectionDeckStage<Controls: View>: View {
         index: Int,
         playing: Bool
     ) -> String {
-        let positionText = tr("\(index + 1) of \(rows.count)", "第 \(index + 1) 首，共 \(rows.count) 首")
-        let playbackText = playing ? tr("Playing", "正在播放") : tr("Play", "播放")
+        let positionText = tr("\(index + 1) of \(rows.count)", "第 \(index + 1) 首，共 \(rows.count) 首", zhHant: "第 \(index + 1) 首，共 \(rows.count) 首")
+        let playbackText = row.matches(currentTrack) ? playback.primaryAction.title : tr("Play", "播放")
         return "\(positionText), \(row.title) — \(row.artist), \(playbackText)"
     }
 }
@@ -581,6 +645,7 @@ struct CollectionDeckCardSurface: View {
     let isFocused: Bool
     let isPlaying: Bool
     let isHovered: Bool
+    var primaryAction: PlaybackPrimaryAction = .play
     var showsKeyboardFocus = false
 
     @State private var glowColor = Color.white
@@ -611,30 +676,19 @@ struct CollectionDeckCardSurface: View {
             .frame(width: cardWidth, height: totalHeight)
             .clipShape(cardShape)
 
-            // Top-right floating frosted badges
             VStack {
                 HStack(spacing: 6) {
                     Spacer()
                     if !row.snapshot.youTubeId.isEmpty {
-                        Circle()
-                            .fill(.ultraThinMaterial)
-                            .frame(width: 24, height: 24)
-                            .overlay {
-                                YouTubeMark(size: 12)
-                            }
-                            .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 0.75))
-                            .shadow(color: .black.opacity(0.3), radius: 3)
-                    }
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                        .frame(width: 24, height: 24)
-                        .overlay {
-                            Image(systemName: "ellipsis")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(.white)
+                        ContentScrimCircle {
+                            YouTubeMark(size: 12)
                         }
-                        .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 0.75))
-                        .shadow(color: .black.opacity(0.3), radius: 3)
+                    }
+                    ContentScrimCircle {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
                 }
                 .padding(.top, 10)
                 .padding(.trailing, 10)
@@ -676,7 +730,7 @@ struct CollectionDeckCardSurface: View {
                     HStack(spacing: 3) {
                         Image(systemName: isPlaying ? "waveform" : "music.note")
                             .font(.system(size: 8.5, weight: .bold))
-                            .foregroundStyle(isPlaying ? BrandColors.magenta : Color.white.opacity(0.8))
+                            .foregroundStyle(isPlaying ? BrandColors.accent : Color.white.opacity(0.8))
                         Text(tr("SONG", "歌曲"))
                             .font(.system(size: 9, weight: .bold))
                             .foregroundStyle(Color.white.opacity(0.9))
@@ -689,9 +743,9 @@ struct CollectionDeckCardSurface: View {
 
                     // Action pill on right
                     HStack(spacing: 4) {
-                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                        Image(systemName: primaryAction.symbol)
                             .font(.system(size: 8.5, weight: .bold))
-                        Text(isPlaying ? tr("Pause", "暂停") : tr("Play", "播放"))
+                        Text(primaryAction.title)
                             .font(.system(size: 9.5, weight: .semibold))
                     }
                     .foregroundStyle(.white)
@@ -699,7 +753,7 @@ struct CollectionDeckCardSurface: View {
                     .padding(.vertical, 3.5)
                     .background(
                         isPlaying || isHovered
-                            ? BrandColors.magenta
+                            ? BrandColors.accent
                             : Color.white.opacity(0.22),
                         in: Capsule()
                     )
@@ -718,7 +772,7 @@ struct CollectionDeckCardSurface: View {
         .overlay {
             cardShape.stroke(
                 isPlaying
-                    ? BrandColors.magenta.opacity(0.85)
+                    ? BrandColors.accent.opacity(0.85)
                     : (isFocused
                         ? Color.white.opacity(0.38)
                         : (isHovered ? Color.white.opacity(0.28) : BrandColors.hairline)),

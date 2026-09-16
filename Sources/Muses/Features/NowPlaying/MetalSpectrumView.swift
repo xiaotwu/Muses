@@ -7,67 +7,91 @@ import AppKit
 /// wrapping MTKView).
 ///
 /// The Metal shader is compiled at launch (vertices are generated procedurally:
-/// 64 bars x 2 quads = 768 vertices) and renders at 60 FPS the upper gradient
+/// 64 bars x 2 quads = 768 vertices) and renders at 30 FPS the upper gradient
 /// bars plus a 30%-opacity mirrored lower half. Spectrum data is written from
 /// the audio thread through a thread-safe buffer; the MTKView delegate thread
 /// reads it, applies peak decay, and renders.
 struct MetalSpectrumView: NSViewRepresentable {
+    var onUnavailable: () -> Void = {}
     @Environment(PlaybackService.self) private var playback
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeNSView(context: Context) -> MTKView {
-        let mtkView = MTKView()
         let renderer = SpectrumRenderer()
+        let mtkView = MTKView(frame: .zero, device: renderer.device)
         mtkView.device = renderer.device
         mtkView.delegate = renderer
         mtkView.preferredFramesPerSecond = 30
         mtkView.framebufferOnly = true
-        mtkView.enableSetNeedsDisplay = true
-        mtkView.isPaused = reduceMotion || !playback.state.isPlaying
+        mtkView.enableSetNeedsDisplay = false
+        mtkView.isPaused = reduceMotion || !playback.transportState.isPlaying || playback.transportState.audioProcessing != .available
         mtkView.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
         mtkView.colorPixelFormat = .bgra8Unorm
         mtkView.wantsLayer = true
         mtkView.layer?.isOpaque = false
 
-        // Spectrum handler: called on the audio render thread -> writes to a
-        // thread-safe buffer.
-        playback.installSpectrumHandler { frame in
-            renderer.updateBands(frame.bands)
-        }
-
         context.coordinator.renderer = renderer
+        if !renderer.isAvailable {
+            let coordinator = context.coordinator
+            DispatchQueue.main.async { if coordinator.isActive { onUnavailable() } }
+        }
+        context.coordinator.setSampling(!mtkView.isPaused && renderer.isAvailable)
         return mtkView
     }
 
     func updateNSView(_ nsView: MTKView, context: Context) {
-        let shouldPause = reduceMotion || !playback.state.isPlaying
+        let shouldPause = reduceMotion || !playback.transportState.isPlaying || playback.transportState.audioProcessing != .available
+        context.coordinator.setSampling(!shouldPause && context.coordinator.renderer?.isAvailable == true)
         guard nsView.isPaused != shouldPause else { return }
         nsView.isPaused = shouldPause
+        AppLog.for("Spectrum").notice("metal paused=\(shouldPause, privacy: .public) frames=\(context.coordinator.renderer?.renderedFrames ?? 0, privacy: .public)")
         if shouldPause { nsView.setNeedsDisplay(nsView.bounds) }
     }
 
-    func dismantleNSView(_ nsView: MTKView, coordinator: Coordinator) {
+    static func dismantleNSView(_ nsView: MTKView, coordinator: Coordinator) {
+        coordinator.isActive = false
+        coordinator.setSampling(false)
+        nsView.isPaused = true
+        nsView.delegate = nil
         coordinator.renderer?.cleanup()
-        playback.removeSpectrumHandler()
+        coordinator.renderer = nil
+        if let owner = coordinator.owner { coordinator.playback?.removeSpectrumHandler(owner: owner) }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator { Coordinator(playback: playback) }
 
-    final class Coordinator {
+    @MainActor final class Coordinator {
+        weak var playback: PlaybackService?
+        var owner: UUID?
         var renderer: SpectrumRenderer?
+        var isActive = true
+        func setSampling(_ enabled: Bool) {
+            if enabled, isActive, owner == nil, let renderer, renderer.isAvailable {
+                owner = playback?.installSpectrumHandler { renderer.updateBands($0.bands) }
+            } else if !enabled, let owner {
+                playback?.removeSpectrumHandler(owner: owner)
+                self.owner = nil
+            }
+        }
+        init(playback: PlaybackService) { self.playback = playback }
     }
 }
 
-/// MTKView delegate: manages the Metal device, pipeline, uniform buffer, and
+/// MTKView delegate: manages the Metal device, pipeline, command-owned uniforms, and
 /// per-frame rendering.
 final class SpectrumRenderer: NSObject, MTKViewDelegate {
+    var isAvailable: Bool { !cleanedUp && device != nil && commandQueue != nil && pipelineState != nil }
     let device: MTLDevice?
-    private let commandQueue: MTLCommandQueue?
-    private let pipelineState: MTLRenderPipelineState?
-    private var uniformBuffer: MTLBuffer?
+    private var commandQueue: MTLCommandQueue?
+    private var pipelineState: MTLRenderPipelineState?
+    private var cleanedUp = false
+    private(set) var renderedFrames = 0
+    private var lastDrawableSize = CGSize.zero
 
     /// Thread-safe spectrum data buffer (64 bands, 0...1).
     private let bufferLock = NSLock()
+    private var receivedSamples = 0
+    private var maximumSample: Float = 0
     private var rawBands: [Float] = Array(repeating: 0, count: 64)
     private var peaks: [Float] = Array(repeating: 0, count: 64)
     private var lastFrameTime: CFTimeInterval = CACurrentMediaTime()
@@ -75,19 +99,18 @@ final class SpectrumRenderer: NSObject, MTKViewDelegate {
     private let bandCount = 64
 
     /// Uniform struct layout (mirrors Uniforms in the Metal shader):
-    /// 64 Float bands + 6 Float (width, height, barWidth, gap, midY, pad)
-    private let uniformSize = (64 + 8) * MemoryLayout<Float>.size
+    /// 64 Float bands + 7 Float (width, height, barWidth, gap, midY, pad)
 
-    override init() {
-        device = MTLCreateSystemDefaultDevice()
+    init(device: MTLDevice? = MTLCreateSystemDefaultDevice(), shaderSource: String? = nil) {
+        self.device = device
         commandQueue = device?.makeCommandQueue()
-        pipelineState = Self.makePipelineState(device: device)
-        uniformBuffer = device?.makeBuffer(length: uniformSize, options: [])
+        pipelineState = Self.makePipelineState(device: device, sourceOverride: shaderSource)
         super.init()
+        AppLog.for("Spectrum").notice("metal created available=\(self.isAvailable, privacy: .public)")
     }
 
     /// Compiles the Metal shader at runtime and creates the pipeline state.
-    private static func makePipelineState(device: MTLDevice?) -> MTLRenderPipelineState? {
+    private static func makePipelineState(device: MTLDevice?, sourceOverride: String?) -> MTLRenderPipelineState? {
         guard let device else { return nil }
         let source = """
         #include <metal_stdlib>
@@ -149,14 +172,14 @@ final class SpectrumRenderer: NSObject, MTKViewDelegate {
             out.position = float4(ndcX, ndcY, 0.0, 1.0);
 
             if (isLower) {
-                // Mirror: white at 30% opacity.
-                out.color = float4(1.0, 1.0, 1.0, 0.3);
+                // Mirror: accent at 30% opacity.
+                out.color = float4(0.98, 0.98, 0.99, 0.3);
             } else {
-                // Upper half: white gradient (100% at the bottom -> 70% at the
+                // Upper half: accent gradient (100% at the bottom -> 70% at the
                 // top, keeping a slight sense of depth).
                 float t = barH > 0.001 ? (c.y / barH) : 0.0;
                 float v = 1.0 - t * 0.3;
-                out.color = float4(v, v, v, 1.0);
+                out.color = float4(0.98, 0.98, 0.99, v);
             }
             return out;
         }
@@ -165,7 +188,7 @@ final class SpectrumRenderer: NSObject, MTKViewDelegate {
             return in.color;
         }
         """
-        guard let library = try? device.makeLibrary(source: source, options: nil) else { return nil }
+        guard let library = try? device.makeLibrary(source: sourceOverride ?? source, options: nil) else { return nil }
         let vertexFn = library.makeFunction(name: "spectrum_vertex")
         let fragmentFn = library.makeFunction(name: "spectrum_fragment")
 
@@ -188,17 +211,19 @@ final class SpectrumRenderer: NSObject, MTKViewDelegate {
     /// Called on the audio thread: thread-safe write of the raw band data.
     func updateBands(_ bands: [Float]) {
         guard bands.count == bandCount else { return }
-        bufferLock.lock()
+        guard bufferLock.try() else { return }
         rawBands = bands
+        receivedSamples += 1
+        maximumSample = max(maximumSample, bands.max() ?? 0)
         bufferLock.unlock()
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
     func draw(in view: MTKView) {
-        guard let drawable = view.currentDrawable,
+        guard !cleanedUp, !view.isPaused, view.drawableSize.width > 0, view.drawableSize.height > 0,
+              let drawable = view.currentDrawable,
               let desc = view.currentRenderPassDescriptor,
-              let buffer = uniformBuffer,
               let cmd = commandQueue?.makeCommandBuffer(),
               let encoder = cmd.makeRenderCommandEncoder(descriptor: desc),
               let pipeline = pipelineState
@@ -218,27 +243,71 @@ final class SpectrumRenderer: NSObject, MTKViewDelegate {
         }
         lastFrameTime = now
 
-        // Fill the uniform buffer.
-        let size = view.drawableSize
+        lastDrawableSize = view.drawableSize
+        encode(encoder: encoder, pipeline: pipeline, size: view.drawableSize, bands: peaks)
+        encoder.endEncoding()
+        cmd.present(drawable)
+        cmd.commit()
+        renderedFrames += 1
+    }
+
+    private func encode(encoder: MTLRenderCommandEncoder, pipeline: MTLRenderPipelineState,
+                        size: CGSize, bands: [Float]) {
         let unit = Float(size.width) / 65.0
         var uniforms = [Float](repeating: 0, count: 64 + 8)
-        for i in 0..<bandCount { uniforms[i] = peaks[i] }
+        for i in 0..<bandCount { uniforms[i] = bands[i] }
         uniforms[64] = Float(size.width)
         uniforms[65] = Float(size.height)
         uniforms[66] = unit * 0.8
         uniforms[67] = unit * 0.2
         uniforms[68] = Float(size.height) / 2.0
-        memcpy(buffer.contents(), uniforms, uniformSize)
-
         encoder.setRenderPipelineState(pipeline)
-        encoder.setVertexBuffer(buffer, offset: 0, index: 0)
+        uniforms.withUnsafeBytes { bytes in
+            encoder.setVertexBytes(bytes.baseAddress!, length: bytes.count, index: 0)
+        }
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 768)
-        encoder.endEncoding()
-        cmd.present(drawable)
-        cmd.commit()
     }
 
+    #if DEBUG
+    /// Offscreen GPU readback verifies the real shader, independent of window compositing.
+    func renderPixelsForTest() -> [UInt8]? {
+        guard let device, let pipelineState, let commandQueue else { return nil }
+        let textureDescriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm,
+            width: 260, height: 100, mipmapped: false)
+        textureDescriptor.usage = [.renderTarget]
+        textureDescriptor.storageMode = .shared
+        guard let texture = device.makeTexture(descriptor: textureDescriptor),
+              let command = commandQueue.makeCommandBuffer() else { return nil }
+        let pass = MTLRenderPassDescriptor()
+        pass.colorAttachments[0].texture = texture
+        pass.colorAttachments[0].loadAction = .clear
+        pass.colorAttachments[0].storeAction = .store
+        pass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 0)
+        guard let encoder = command.makeRenderCommandEncoder(descriptor: pass) else { return nil }
+        encode(encoder: encoder, pipeline: pipelineState, size: CGSize(width: 260, height: 100),
+               bands: Array(repeating: 0.75, count: 64))
+        encoder.endEncoding()
+        command.commit()
+        command.waitUntilCompleted()
+        guard command.status == .completed else { return nil }
+        var pixels = [UInt8](repeating: 0, count: 260 * 100 * 4)
+        pixels.withUnsafeMutableBytes { bytes in
+            texture.getBytes(bytes.baseAddress!, bytesPerRow: 260 * 4,
+                from: MTLRegionMake2D(0, 0, 260, 100), mipmapLevel: 0)
+        }
+        return pixels
+    }
+    #endif
+
     func cleanup() {
-        uniformBuffer = nil
+        guard !cleanedUp else { return }
+        bufferLock.lock()
+        let sampleCount = receivedSamples
+        let maximum = maximumSample
+        bufferLock.unlock()
+        AppLog.for("Spectrum").notice("metal stopped frames=\(self.renderedFrames, privacy: .public) samples=\(sampleCount, privacy: .public) max=\(maximum, privacy: .public) width=\(self.lastDrawableSize.width, privacy: .public) height=\(self.lastDrawableSize.height, privacy: .public)")
+        cleanedUp = true
+        commandQueue = nil
+        pipelineState = nil
     }
 }

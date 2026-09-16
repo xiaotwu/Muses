@@ -6,7 +6,6 @@ struct NewView: View {
     @Environment(SituationalRecommendationService.self) private var situational
     @Environment(PlaybackService.self) private var playback
     @Environment(LibraryService.self) private var library
-    @Environment(FocusService.self) private var focus
     @Environment(YouTubeAccountService.self) private var youTubeAccount
     @Environment(YouTubeSearchService.self) private var youTubeSearch
 
@@ -44,14 +43,12 @@ struct NewView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: AppleMusicSpacing.section) {
-                Text(tr("New", "新发现"))
+                Text(SidebarSection.new.title)
                     .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
                     .foregroundStyle(BrandColors.textPrimary)
                     .padding(.horizontal, AppleMusicTokens.contentPaddingX)
 
-                if focus.isActive {
-                    focusState
-                } else if recommendationsLoading && !hasContent {
+                if recommendationsLoading && !hasContent {
                     loadingState
                 } else if hasContent {
                     editorialSection
@@ -195,7 +192,7 @@ struct NewView: View {
         }
         if !cards.isEmpty {
             VStack(alignment: .leading, spacing: 13) {
-                SectionHeader(title: section.title, subtitle: section.subtitle)
+                SectionHeader(title: section.localizedTitle, subtitle: section.localizedSubtitle)
                 ResponsiveCarousel(cardSize: MusicObjectMetrics.albumRail, spacing: 18) {
                     ForEach(cards) { card in
                         AlbumObjectView(
@@ -253,19 +250,6 @@ struct NewView: View {
         }
     }
 
-    private var focusState: some View {
-        EmptyStateView(
-            icon: "brain.head.profile",
-            title: tr("Focusing", "专注中"),
-            subtitle: tr(
-                "New recommendations are hidden while Focus Mode is active.",
-                "专注模式开启时会隐藏新推荐。"
-            )
-        )
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 56)
-    }
-
     private var emptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "sparkles")
@@ -283,8 +267,8 @@ struct NewView: View {
             Button(tr("Open Search", "打开搜索")) {
                 NotificationCenter.default.post(name: .musesFocusSearch, object: nil)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(BrandColors.magenta)
+            .musesAction(prominent: true)
+            .tint(BrandColors.accent)
         }
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
@@ -349,7 +333,7 @@ struct NewView: View {
             duration: card.duration
         )
         do {
-            let snapshot = try await youTubeSearch.importAsTrack(entry: entry)
+            let snapshot = try await youTubeSearch.resolveTrack(entry: entry)
             let entries = (siblings ?? featuredPersonalCards).map {
                 YTDlpBridge.YTDlpPlaylistEntry(
                     id: $0.id,

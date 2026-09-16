@@ -1,7 +1,7 @@
 import Foundation
 
 /// Cross-feature playback lifecycle events. Provides a single event source for subscribers
-/// such as History / Session / Context / Inbox / Focus, so each feature does not have to
+/// such as History / Session / Context, so each feature does not have to
 /// poll `PlaybackService.state` on its own.
 ///
 /// Design: a `@MainActor` instance (owned by `PlaybackService`); `post` dispatches
@@ -21,8 +21,6 @@ enum PlaybackEvent: Sendable {
     case trackStopped(TrackSnapshot, listenedMs: Double)
     case queueChanged
     case outputDeviceChanged
-    case focusSessionStarted
-    case focusSessionEnded
 }
 
 @Observable

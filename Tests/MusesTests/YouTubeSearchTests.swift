@@ -41,18 +41,18 @@ struct YouTubeSearchTests {
         let bridge = MockImportBridge()
         let service = YouTubeSearchService(bridge: bridge, modelContainer: container)
 
-        let entry = YTDlpBridge.YTDlpPlaylistEntry(id: "dup1", title: "Dup Song", uploader: "Dup Artist", duration: 200)
+        let entry = YTDlpBridge.YTDlpPlaylistEntry(id: "duplicate01", title: "Dup Song", uploader: "Dup Artist", duration: 200)
 
         // First import → creates the Track
         let snap1 = try await service.importAsTrack(entry: entry)
-        #expect(snap1.youTubeId == "dup1")
+        #expect(snap1.youTubeId == "duplicate01")
         #expect(snap1.title == "Dup Song")
 
         // Verify persistence
         let ctx = ModelContext(container)
         let tracks = try ctx.fetch(FetchDescriptor<Track>())
         #expect(tracks.count == 1)
-        #expect(tracks.first?.youTubeId == "dup1")
+        #expect(tracks.first?.youTubeId == "duplicate01")
 
         // Importing the same entry again → returns the existing track, no new one
         let snap2 = try await service.importAsTrack(entry: entry)
@@ -60,4 +60,26 @@ struct YouTubeSearchTests {
         let tracks2 = try ctx.fetch(FetchDescriptor<Track>())
         #expect(tracks2.count == 1, "Deduplication: duplicate track should not be created")
     }
+    @Test("channel and malformed search entries cannot persist or enter a video queue")
+    func rejectsNonVideoResults() async throws {
+        let container = try makeModelContainer(inMemory: true)
+        let service = YouTubeSearchService(bridge: MockImportBridge(), modelContainer: container)
+        let channel = YTDlpBridge.YTDlpPlaylistEntry(id: "UCoUM-UJ7rirJYP8CQ0EIaHA", title: "Bruno Mars")
+        let invalid = YTDlpBridge.YTDlpPlaylistEntry(id: "../../bad", title: "Invalid")
+        #expect(channel.resourceKind == .channel)
+        #expect(channel.resourceURL?.path == "/channel/UCoUM-UJ7rirJYP8CQ0EIaHA")
+        for entry in [channel, invalid] {
+            await #expect(throws: YouTubeImportError.invalidURL) {
+                try await service.importAsTrack(entry: entry)
+            }
+        }
+        #expect(try ModelContext(container).fetchCount(FetchDescriptor<Track>()) == 0)
+        let video = YTDlpBridge.YTDlpPlaylistEntry(id: "lY5V4hSLWY8", title: "Song")
+        let snapshot = try await service.importAsTrack(entry: video)
+        let queue = TrackSnapshot.playbackContext(playing: snapshot, youTubeEntries: [channel, video, invalid])
+        #expect(queue.map(\.youTubeId) == [video.id])
+        let data = try JSONEncoder().encode(channel)
+        #expect(try JSONDecoder().decode(YTDlpBridge.YTDlpPlaylistEntry.self, from: data).resourceKind == .channel)
+    }
+
 }

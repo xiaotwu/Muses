@@ -16,7 +16,7 @@ enum YouTubeIdentity {
         case .safari:
             return tr("Safari cookies (playback)", "Safari Cookie（播放）")
         case .chrome:
-            return tr("Not connected", "未连接")
+            return tr("Chrome cookies (playback)", "Chrome Cookie（播放）", zhHant: "Chrome Cookie（播放）")
         case .firefox:
             return tr("Firefox cookies (playback)", "Firefox Cookie（播放）")
         case .file:
@@ -41,20 +41,25 @@ enum YouTubeIdentity {
     static func discoveryCookieHint(cookieSource: YTCookieSource) -> String {
         switch cookieSource {
         case .none:
-            return tr("No browser cookies. YouTube discovery and some streams need a cookie source in Settings → YouTube.",
-                      "未使用浏览器 Cookie。YouTube 发现和部分播放需要在「设置 → YouTube」中选择 Cookie 来源。")
+            return tr("No browser cookies. YouTube discovery and some streams need a cookie source in Settings → Account & Content.",
+                      "未使用浏览器 Cookie。YouTube 发现和部分播放需要在「设置 → 账号与内容」中选择 Cookie 来源。",
+                      zhHant: "未使用瀏覽器 Cookie。YouTube 探索和部分播放需要在「設定 → 帳號與內容」中選擇 Cookie 來源。")
         case .safari:
-            return tr("Using Safari cookies. If this keeps failing, refresh Safari’s YouTube login or pick another browser in Settings → YouTube.",
-                      "正在使用 Safari Cookie。若持续失败，请刷新 Safari 的 YouTube 登录，或在「设置 → YouTube」改选其他浏览器。")
+            return tr("Using Safari cookies. If this keeps failing, refresh Safari’s YouTube login or pick another browser in Settings → Account & Content.",
+                      "正在使用 Safari Cookie。若持续失败，请刷新 Safari 的 YouTube 登录，或在「设置 → 账号与内容」改选其他浏览器。",
+                      zhHant: "正在使用 Safari Cookie。若持續失敗，請更新 Safari 的 YouTube 登入，或在「設定 → 帳號與內容」改選其他瀏覽器。")
         case .chrome:
-            return tr("No browser cookies. YouTube discovery and some streams need a cookie source in Settings → YouTube.",
-                      "未使用浏览器 Cookie。YouTube 发现和部分播放需要在「设置 → YouTube」中选择 Cookie 来源。")
+            return tr("Using Chrome cookies. If this keeps failing, refresh Chrome’s YouTube login or choose another browser in Account & Content settings.",
+                      "正在使用 Chrome Cookie。若持续失败，请刷新 Chrome 的 YouTube 登录，或在「账号与内容」设置中改选浏览器。",
+                      zhHant: "正在使用 Chrome Cookie。若持續失敗，請更新 Chrome 的 YouTube 登入，或在「帳號與內容」設定中改選瀏覽器。")
         case .firefox:
-            return tr("Using Firefox cookies. If this keeps failing, refresh Firefox’s YouTube login or pick another browser in Settings → YouTube.",
-                      "正在使用 Firefox Cookie。若持续失败，请刷新 Firefox 的 YouTube 登录，或在「设置 → YouTube」改选其他浏览器。")
+            return tr("Using Firefox cookies. If this keeps failing, refresh Firefox’s YouTube login or pick another browser in Settings → Account & Content.",
+                      "正在使用 Firefox Cookie。若持续失败，请刷新 Firefox 的 YouTube 登录，或在「设置 → 账号与内容」改选其他浏览器。",
+                      zhHant: "正在使用 Firefox Cookie。若持續失敗，請更新 Firefox 的 YouTube 登入，或在「設定 → 帳號與內容」改選其他瀏覽器。")
         case .file:
-            return tr("Using a cookie file. If this keeps failing, update the file or pick a browser in Settings → YouTube.",
-                      "正在使用 Cookie 文件。若持续失败，请更新该文件，或在「设置 → YouTube」改选浏览器。")
+            return tr("Using a cookie file. If this keeps failing, update the file or pick a browser in Settings → Account & Content.",
+                      "正在使用 Cookie 文件。若持续失败，请更新该文件，或在「设置 → 账号与内容」改选浏览器。",
+                      zhHant: "正在使用 Cookie 檔案。若持續失敗，請更新該檔案，或在「設定 → 帳號與內容」改選瀏覽器。")
         }
     }
 }

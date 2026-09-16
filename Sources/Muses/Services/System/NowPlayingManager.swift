@@ -20,17 +20,29 @@ final class NowPlayingManager {
     private let publishInfo: ([String: Any]) -> Void
     private(set) var observationLifecycleStartCount = 0
     private var lastNotifiedTrackId: UUID?
+    private var artworkTask: Task<Void, Never>?
+    private var artworkIdentity: String?
+    private var artwork: MPMediaItemArtwork?
+    private let artworkLoader: (URL) async -> NSImage?
+    private lazy var logoArtwork: MPMediaItemArtwork? = TrayIcon.logoImage.map { image in
+        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+    }
 
     init(_ playback: PlaybackService,
          library: LibraryService? = nil,
          queue: QueueService? = nil,
          bindsRemoteCommands: Bool = true,
+         artworkLoader: @escaping (URL) async -> NSImage? = { await ImageLoader.shared.load($0).value },
          publishInfo: @escaping ([String: Any]) -> Void = {
-             MPNowPlayingInfoCenter.default().nowPlayingInfo = $0
+             let center = MPNowPlayingInfoCenter.default()
+             center.nowPlayingInfo = $0
+             center.playbackState = $0.isEmpty ? .stopped
+                 : (($0[MPNowPlayingInfoPropertyPlaybackRate] as? Double) == 1 ? .playing : .paused)
          }) {
         self.playback = playback
         self.library = library
         self.queue = queue
+        self.artworkLoader = artworkLoader
         self.publishInfo = publishInfo
         if bindsRemoteCommands {
             bindCommands()
@@ -40,6 +52,7 @@ final class NowPlayingManager {
 
     deinit {
         updateTask?.cancel()
+        artworkTask?.cancel()
     }
 
     // MARK: - State observation
@@ -65,9 +78,11 @@ final class NowPlayingManager {
 
     private func updateInfo() {
         var info: [String: Any] = [:]
-        let state = playback.state
+        let state = playback.transportState
+        updateArtwork(for: state.track)
 
         if let track = state.track {
+            info[MPMediaItemPropertyArtwork] = artwork ?? logoArtwork
             info[MPMediaItemPropertyTitle] = track.title
             info[MPMediaItemPropertyArtist] = track.artist
             if let album = track.albumTitle {
@@ -84,6 +99,27 @@ final class NowPlayingManager {
         if let track = state.track, track.id != lastNotifiedTrackId {
             lastNotifiedTrackId = track.id
             sendTrackChangeNotification(title: track.title, body: track.artist)
+        }
+    }
+
+    /// Artwork resolves once per media identity, never on the transport clock.
+    /// Old responses cannot publish the previous song's cover after a switch.
+    private func updateArtwork(for track: TrackSnapshot?) {
+        let source = ArtworkSource.resolve(for: track)
+        let identity = track.map { "\($0.id)|\(source.identity)" }
+        guard identity != artworkIdentity else { return }
+        artworkIdentity = identity
+        artworkTask?.cancel()
+        artwork = nil
+        guard case .remote(let url) = source, let identity else { return }
+        let loader = artworkLoader
+        artworkTask = Task { [weak self] in
+            let image = await loader(url)
+            guard !Task.isCancelled, let self, self.artworkIdentity == identity,
+                  self.playback.transportState.track?.id == track?.id,
+                  let image else { return }
+            self.artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+            self.updateInfo()
         }
     }
 
@@ -149,8 +185,8 @@ final class NowPlayingManager {
         center.skipForwardCommand.addTarget { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                self.playback.seek(to: min(self.playback.state.duration,
-                                           self.playback.state.position + 15))
+                self.playback.seek(to: min(self.playback.transportState.duration,
+                                           self.playback.transportState.position + 15))
             }
             return .success
         }
@@ -158,7 +194,7 @@ final class NowPlayingManager {
         center.skipBackwardCommand.addTarget { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                self.playback.seek(to: max(0, self.playback.state.position - 15))
+                self.playback.seek(to: max(0, self.playback.transportState.position - 15))
             }
             return .success
         }
@@ -209,7 +245,7 @@ final class NowPlayingManager {
     // MARK: - Remote command handling
 
     private func handleLike() {
-        guard let library, let id = playback.state.track?.id else { return }
+        guard let library, let id = playback.transportState.track?.id else { return }
         library.toggleLike(id: id)
     }
 

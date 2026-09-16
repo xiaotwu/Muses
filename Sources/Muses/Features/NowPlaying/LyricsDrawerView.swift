@@ -27,7 +27,7 @@ struct LyricsDrawerView: View {
         HStack(spacing: 8) {
             Image(systemName: "quote.bubble")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(BrandColors.magenta)
+                .foregroundStyle(BrandColors.accent)
             Text(tr("Lyrics", "歌词"))
                 .font(.system(size: 20, weight: .bold))
                 .foregroundStyle(BrandColors.textPrimary)

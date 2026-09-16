@@ -6,6 +6,45 @@ import Testing
 @MainActor
 @Suite("YouTube catalog identity", .serialized)
 struct YouTubeCatalogTests {
+    @Test("legacy names are quarantined without rewriting tracks or deleting history fields")
+    func legacyNamesRemainUnresolved() throws {
+        let container = try makeModelContainer(inMemory: true)
+        let context = ModelContext(container)
+        let track = Track(title: "Song", artist: "Same Name", albumTitle: "Same Album",
+                          youTubeId: "abcdefghijk", liked: true,
+                          releaseCatalogID: "album:same name:same album", artistCatalogID: "artist:same name")
+        context.insert(track)
+        context.insert(CatalogArtist(stableID: "artist:same name", name: "Same Name"))
+        context.insert(CatalogRelease(stableID: "album:same name:same album", title: "Same Album", artistName: "Same Name"))
+        try context.save()
+        let service = YouTubeCatalogService(modelContainer: container)
+        service.rebuildFromTrackMetadata()
+        #expect(service.artists().isEmpty)
+        #expect(service.releases().isEmpty)
+        let verify = ModelContext(container)
+        let saved = try #require(verify.fetch(FetchDescriptor<Track>()).first)
+        #expect(saved.id == track.id)
+        #expect(saved.liked)
+        #expect(saved.albumTitle == "Same Album")
+        #expect(saved.artistCatalogID == "artist:same name")
+        #expect(saved.releaseCatalogID == "album:same name:same album")
+        #expect(try verify.fetchCount(FetchDescriptor<CatalogArtist>()) == 1)
+        #expect(try verify.fetchCount(FetchDescriptor<CatalogRelease>()) == 1)
+    }
+
+    @Test("online catalog import rejects non-video entries and name-derived release IDs")
+    func invalidOnlineImports() throws {
+        let container = try makeModelContainer(inMemory: true)
+        let service = YouTubeCatalogService(modelContainer: container)
+        #expect(throws: YouTubeImportError.invalidURL) {
+            try service.importOnlineTrack(entry: .init(id: "UCabcdefghijklmnopqrstuv", title: "Channel"))
+        }
+        #expect(throws: YouTubeImportError.invalidURL) {
+            try service.importOnlineTrack(entry: .init(id: "abcdefghijk", title: "Song"), releaseStableID: "album:artist:title")
+        }
+        #expect(try ModelContext(container).fetchCount(FetchDescriptor<Track>()) == 0)
+    }
+
     @Test("release identity requires a stable browse or playlist id")
     func releaseIdentityRequiresStableID() {
         #expect(YouTubeCatalogIdentity.release(browseID: "MPREb_123", playlistID: nil)
@@ -49,6 +88,8 @@ struct YouTubeCatalogTests {
         let artists = service.artists()
         #expect(artists.count == 2)
         #expect(Set(artists.map(\.stableID)) == ["channel:UC_one", "channel:UC_two"])
+        #expect(service.artist(byName: "Aster") == nil)
+        #expect(service.artist(byStableID: "channel:UC_one")?.stableID == "channel:UC_one")
     }
 
     @Test("music-video rows retain their Track media kind")
@@ -155,41 +196,28 @@ struct YouTubeCatalogTests {
         #expect(service.artist(byName: "dua lipa")?.stableID == "channel:UC_dua")
     }
 
-    @Test("online discography fetches and partitions releases into albums and singles")
+    @Test("online catalog rejects namesakes and non-album resources and supports refresh")
     func onlineDiscographyFetching() async throws {
-        let container = try makeModelContainer(inMemory: true)
         let bridge = MockCatalogBridge()
         bridge.searchResults = [
-            YTDlpBridge.YTDlpPlaylistEntry(id: "top1", title: "Levitating", uploader: "Dua Lipa", duration: 203)
+            .init(id: "abcdefghijk", title: "Song", channelID: "UC_dua"),
+            .init(id: "zyxwvutsrqp", title: "Same artist name", channelID: "UC_other"),
+            .init(id: "OLAK5uy_album", title: "Album", channelID: "UC_dua"),
+            .init(id: "PL_user_playlist", title: "Album", channelID: "UC_dua")
         ]
-        bridge.entries = [
-            YTDlpBridge.YTDlpPlaylistEntry(id: "OLAK_album", title: "Future Nostalgia", releaseYear: 2020),
-            YTDlpBridge.YTDlpPlaylistEntry(id: "OLAK_single", title: "Don't Start Now - Single", releaseYear: 2019)
-        ]
-
-        let service = YouTubeCatalogService(modelContainer: container, bridge: bridge)
-        let artist = CatalogArtistProjection(
-            stableID: "channel:UC_dua",
-            name: "Dua Lipa",
-            artworkURL: nil,
-            biography: nil,
-            cacheState: .fresh,
-            releases: [],
-            tracks: []
-        )
-
+        let service = YouTubeCatalogService(modelContainer: try makeModelContainer(inMemory: true), bridge: bridge)
+        let artist = CatalogArtistProjection(stableID: "channel:UC_dua", name: "Dua Lipa",
+            artworkURL: nil, biography: nil, cacheState: .fresh, releases: [], tracks: [])
         let disco = try await service.fetchArtistOnlineDiscography(artist: artist)
-        #expect(disco.topTracks.count == 1)
-        #expect(disco.topTracks.first?.id == "top1")
-        #expect(disco.albums.count == 1)
-        #expect(disco.albums.first?.playlistID == "OLAK_album")
-        #expect(disco.singlesAndEPs.count == 1)
-        #expect(disco.singlesAndEPs.first?.playlistID == "OLAK_single")
-
-        // Second call should hit the cache without calling bridge again
-        let cached = try await service.fetchArtistOnlineDiscography(artist: artist)
-        #expect(cached == disco)
-        #expect(bridge.fetchCallCount == 1)
+        #expect(disco.topTracks.map(\.id) == ["abcdefghijk"])
+        #expect(disco.albums.map(\.playlistID) == ["OLAK5uy_album"])
+        #expect(disco.singlesAndEPs.isEmpty)
+        #expect(try await service.fetchArtistOnlineDiscography(artist: artist) == disco)
+        #expect(bridge.searchCallCount == 1)
+        bridge.searchResults = []
+        #expect(try await service.fetchArtistOnlineDiscography(artist: artist, forceRefresh: true).isEmpty)
+        #expect(bridge.searchCallCount == 2)
+        #expect(bridge.invalidationCount == 1)
     }
 
     @Test("importing online track and album attaches release and artist catalog IDs")
@@ -198,7 +226,7 @@ struct YouTubeCatalogTests {
         let service = YouTubeCatalogService(modelContainer: container)
 
         let entry = YTDlpBridge.YTDlpPlaylistEntry(
-            id: "online_song_1",
+            id: "onlineSong1",
             title: "Physical",
             uploader: "Dua Lipa",
             duration: 195,
@@ -212,7 +240,7 @@ struct YouTubeCatalogTests {
             artistName: "Dua Lipa"
         )
 
-        #expect(snapshot.youTubeId == "online_song_1")
+        #expect(snapshot.youTubeId == "onlineSong1")
         #expect(snapshot.title == "Physical")
 
         let verify = ModelContext(container)
@@ -222,7 +250,7 @@ struct YouTubeCatalogTests {
         #expect(tracks.first?.artistCatalogID == "channel:UC_dua")
     }
 
-    @Test("tracks without catalog IDs are auto-cataloged into artists, albums, and singles")
+    @Test("missing catalog identities stay unresolved without name-based grouping")
     func autoCatalogFromTracksAndPlaylists() throws {
         let container = try makeModelContainer(inMemory: true)
         let context = ModelContext(container)
@@ -262,38 +290,23 @@ struct YouTubeCatalogTests {
 
         let service = YouTubeCatalogService(modelContainer: container)
 
-        let releases = service.releases()
-        #expect(releases.count == 3) // 1989 (album), Parachutes (album), Anti-Hero (single)
+        service.rebuildFromTrackMetadata()
+        #expect(service.releases().isEmpty)
+        #expect(service.artists().isEmpty)
+        #expect(service.unresolvedCounts().releases == 4)
+        #expect(service.unresolvedCounts().artists == 4)
+        let persisted = try ModelContext(container).fetch(FetchDescriptor<Track>())
+        #expect(persisted.count == 4)
+        #expect(persisted.allSatisfy { $0.artistCatalogID == nil && $0.releaseCatalogID == nil })
 
-        let album1989 = try #require(service.release(byTitle: "1989"))
-        #expect(album1989.artistName == "Taylor Swift")
-        #expect(album1989.tracks.count == 2)
-        #expect(album1989.kind == .album)
-
-        let yellowAlbum = try #require(service.release(byTitle: "Parachutes"))
-        #expect(yellowAlbum.artistName == "Coldplay")
-        #expect(yellowAlbum.tracks.count == 1)
-
-        let antiHeroSingle = try #require(service.release(byTitle: "Anti-Hero"))
-        #expect(antiHeroSingle.kind == .single)
-
-        let artists = service.artists()
-        #expect(artists.count == 2) // Taylor Swift, Coldplay
-
-        let taylor = try #require(service.artist(byName: "Taylor Swift"))
-        #expect(taylor.tracks.count == 3) // Style, Blank Space, Anti-Hero
-        #expect(taylor.releases.count >= 1)
-
-        let coldplay = try #require(service.artist(byName: "Coldplay"))
-        #expect(coldplay.tracks.count == 1)
     }
 
-    @Test("tracks in imported playlist are cataloged with playlist release only if it is a music album")
+    @Test("projection rebuild does not backfill historical import relationships")
     func importedPlaylistCataloged() throws {
         let container = try makeModelContainer(inMemory: true)
         let context = ModelContext(container)
 
-        // 1. Official YouTube Music album import (OLAK5uy...) -> becomes an album release
+        // Historical album membership is evidence for a preview, not permission to mutate.
         let albumImp = YouTubeImport(
             playlistId: "OLAK5uy_custom_album",
             url: "https://music.youtube.com/playlist?list=OLAK5uy_custom_album",
@@ -312,7 +325,7 @@ struct YouTubeCatalogTests {
         item1.import_ = albumImp
         context.insert(item1)
 
-        // 2. Regular user playlist import (PL...) -> does NOT become an album release; tracks become singles
+        // Regular playlist membership supplies no release identity.
         let plImp = YouTubeImport(
             playlistId: "PL_regular_playlist",
             url: "https://youtube.com/playlist?list=PL_regular_playlist",
@@ -337,16 +350,16 @@ struct YouTubeCatalogTests {
         service.rebuildFromTrackMetadata()
 
         let releases = service.releases()
-        // Official album appears as a release
-        #expect(releases.contains(where: { $0.title == "Rock Hits Album" }))
+        #expect(releases.isEmpty)
+        #expect(try ModelContext(container).fetchCount(FetchDescriptor<Track>()) == 0)
         // Regular playlist does NOT appear as a release
         #expect(!releases.contains(where: { $0.title == "My Liked Playlist" }))
-        // The track from the regular playlist appears as its own single
-        #expect(releases.contains(where: { $0.title == "Pop Song 2" && $0.kind == .single }))
+        // A video without an authoritative release ID remains in Songs.
+        #expect(!releases.contains(where: { $0.title == "Pop Song 2" }))
 
         let artists = service.artists()
-        #expect(artists.contains(where: { $0.name == "Rock Band" }))
-        #expect(artists.contains(where: { $0.name == "Pop Singer" }))
+        #expect(!artists.contains(where: { $0.name == "Rock Band" }))
+        #expect(!artists.contains(where: { $0.name == "Pop Singer" }))
         #expect(!artists.contains(where: { $0.name == "shiachishenm" }))
     }
 
@@ -367,6 +380,8 @@ private final class MockCatalogBridge: YTDlpBridgeProtocol {
     var fetchCallCount = 0
     var searchResults: [YTDlpBridge.YTDlpPlaylistEntry] = []
     var searchCallCount = 0
+    var invalidationCount = 0
+    func invalidateSearch(query: String, limit: Int) { invalidationCount += 1 }
 
     func resolveStreamURL(videoId: String, quality: String, timeout: TimeInterval) async throws -> URL {
         URL(string: "https://example.com/audio")!
@@ -384,4 +399,3 @@ private final class MockCatalogBridge: YTDlpBridgeProtocol {
 
     func version() async -> String? { "mock" }
 }
-

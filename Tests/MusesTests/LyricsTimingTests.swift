@@ -11,6 +11,47 @@ import SwiftData
 @MainActor
 @Suite("Phase 22 Advanced Lyrics")
 struct LyricsTimingTests {
+    @Test("discovery offset survives new snapshot identity, service restart and later import")
+    func discoveryOffsetPersistence() throws {
+        let suite = "lyrics-offset-test-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let container = try makeContainer()
+        let first = TrackSnapshot(from: Track(title: "Song", artist: "Artist", durationMs: 100_000, youTubeId: "abcdefghijk"))
+        let service = LyricsService(modelContainer: container, offsetDefaults: defaults)
+        #expect(service.setOffset(for: first, offsetMs: 1500))
+        let imported = Track(title: "Song", artist: "Artist", youTubeId: first.youTubeId)
+        let context = ModelContext(container)
+        context.insert(imported)
+        try context.save()
+        let reopened = LyricsService(modelContainer: container, offsetDefaults: defaults)
+        reopened.prepareOffset(for: TrackSnapshot(from: imported))
+        #expect(reopened.manualOffsetMs == 1500)
+        #expect(reopened.setOffset(for: TrackSnapshot(from: imported), offsetMs: 0))
+        let finalService = LyricsService(modelContainer: container, offsetDefaults: defaults)
+        finalService.prepareOffset(for: first)
+        #expect(finalService.manualOffsetMs == 0)
+    }
+
+    @Test("opening another lyrics surface preserves live offset; changing tracks restores persisted offset")
+    func offsetAcrossSurfaces() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let first = Track(title: "First", artist: "Artist", youTubeId: "abcdefghijk")
+        let second = Track(title: "Second", artist: "Artist", youTubeId: "abcdefghijl")
+        context.insert(first); context.insert(second)
+        try context.save()
+        let stale = TrackSnapshot(from: first)
+        let service = LyricsService(modelContainer: container)
+        service.prepareOffset(for: stale)
+        service.setOffset(trackId: first.id, offsetMs: 1200)
+        service.prepareOffset(for: stale)
+        #expect(service.manualOffsetMs == 1200)
+        service.prepareOffset(for: TrackSnapshot(from: second))
+        #expect(service.manualOffsetMs == 0)
+        service.prepareOffset(for: stale)
+        #expect(service.manualOffsetMs == 1200)
+    }
 
     private func makeContainer() throws -> ModelContainer {
         try makeModelContainer(inMemory: true)
@@ -120,13 +161,15 @@ struct LyricsTimingTests {
         let svc = LyricsService(modelContainer: container)
         #expect(svc.manualOffsetMs == 0)
 
-        svc.setOffset(trackId: track.id, offsetMs: 250)
+        #expect(svc.setOffset(trackId: track.id, offsetMs: 250))
         #expect(svc.manualOffsetMs == 250)
         let fetched = (try ctx.fetch(FetchDescriptor<Track>())).first(where: { $0.id == track.id })!
         #expect(fetched.lyricsOffsetMs == 250)
 
         // Zeroing it → store nil, observable resets to zero
-        svc.setOffset(trackId: track.id, offsetMs: 0)
+        #expect(!svc.setOffset(trackId: UUID(), offsetMs: 900))
+        #expect(svc.manualOffsetMs == 250)
+        #expect(svc.setOffset(trackId: track.id, offsetMs: 0))
         #expect(svc.manualOffsetMs == 0)
         let after = (try ctx.fetch(FetchDescriptor<Track>())).first(where: { $0.id == track.id })!
         #expect(after.lyricsOffsetMs == nil)

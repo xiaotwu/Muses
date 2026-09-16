@@ -25,3 +25,8 @@ Sources/Muses/Resources/yt-dlp
 Sources/Muses/Resources/yt-dlp-LICENSE
 Sources/Muses/Resources/AppIcon.icns
 .playwright-mcp/
+
+# Local runtime evidence may contain private account/library information.
+docs/audits/
+
+.grok/

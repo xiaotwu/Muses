@@ -79,8 +79,8 @@ struct AlbumObjectView: View {
         .accessibilityLabel("\(title) — \(subtitle)")
         .accessibilityAction(named: Text(
             role == .play
-                ? tr("Play \(title)", "播放 \(title)")
-                : tr("Open \(title)", "打开 \(title)"))) {
+                ? tr("Play \(title)", "播放 \(title)", zhHant: "播放 \(title)")
+                : tr("Open \(title)", "打开 \(title)", zhHant: "打開 \(title)"))) {
             primaryAction()
         }
     }
@@ -155,28 +155,19 @@ struct AlbumObjectView: View {
                 .frame(width: size, height: totalHeight)
                 .clipShape(cardShape)
 
-                // Top-right floating frosted badges
                 VStack {
                     HStack(spacing: 6) {
                         Spacer()
                         if isYouTube {
-                            Circle()
-                                .fill(.ultraThinMaterial)
-                                .frame(width: 24, height: 24)
-                                .overlay { YouTubeMark(size: 12) }
-                                .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 0.75))
-                                .shadow(color: .black.opacity(0.3), radius: 3)
-                        }
-                        Circle()
-                            .fill(.ultraThinMaterial)
-                            .frame(width: 24, height: 24)
-                            .overlay {
-                                Image(systemName: "ellipsis")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundStyle(.white)
+                            ContentScrimCircle {
+                                YouTubeMark(size: 12)
                             }
-                            .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 0.75))
-                            .shadow(color: .black.opacity(0.3), radius: 3)
+                        }
+                        ContentScrimCircle {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.white)
+                        }
                     }
                     .padding(.top, 10)
                     .padding(.trailing, 10)
@@ -218,7 +209,7 @@ struct AlbumObjectView: View {
                             HStack(spacing: 3) {
                                 Image(systemName: isNowPlaying ? "waveform" : "square.stack")
                                     .font(.system(size: 8, weight: .bold))
-                                    .foregroundStyle(isNowPlaying ? BrandColors.magenta : Color.white.opacity(0.8))
+                                    .foregroundStyle(isNowPlaying ? BrandColors.accent : Color.white.opacity(0.8))
                                 Text(tag)
                                     .font(.system(size: 8.5, weight: .bold))
                                     .foregroundStyle(Color.white.opacity(0.9))
@@ -241,7 +232,7 @@ struct AlbumObjectView: View {
                         .padding(.vertical, 3)
                         .background(
                             isNowPlaying || hovering
-                                ? BrandColors.magenta
+                                ? BrandColors.accent
                                 : Color.white.opacity(0.22),
                             in: Capsule()
                         )
@@ -260,7 +251,7 @@ struct AlbumObjectView: View {
             .overlay {
                 cardShape.stroke(
                     isNowPlaying
-                        ? BrandColors.magenta.opacity(0.85)
+                        ? BrandColors.accent.opacity(0.85)
                         : (hovering ? Color.white.opacity(0.28) : BrandColors.hairline),
                     lineWidth: (hovering || isNowPlaying) ? 1.5 : 1.0
                 )
@@ -318,14 +309,12 @@ struct AlbumObjectView: View {
     @ViewBuilder
     private var sourceBadge: some View {
         if isYouTube {
+            let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
             YouTubeMark(size: 12)
                 .padding(.horizontal, 7)
                 .frame(height: 24)
-                .musesGlass(cornerRadius: 7, role: .persistentChrome)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .stroke(BrandColors.textPrimary.opacity(0.16), lineWidth: 1)
-                }
+                .background(ContentBadgeStyle.fill, in: shape)
+                .overlay(shape.stroke(ContentBadgeStyle.stroke, lineWidth: ContentBadgeStyle.lineWidth))
                 .padding(8)
                 .help(tr("YouTube playlist", "YouTube 歌单"))
                 .accessibilityLabel(tr("YouTube playlist", "YouTube 歌单"))

@@ -14,6 +14,7 @@ func makeModelContainer(inMemory: Bool = false, storeURL: URL? = nil) throws -> 
         let url = storeURL ?? musesDefaultStoreURL()
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        _ = try StoreUpgradeSnapshot.prepareIfNeeded(at: url)
         configuration = ModelConfiguration(url: url)
     }
     return try ModelContainer(for: MusesSchema.current, configurations: configuration)

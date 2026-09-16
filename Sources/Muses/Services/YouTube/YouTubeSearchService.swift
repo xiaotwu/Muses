@@ -40,6 +40,13 @@ final class YouTubeSearchService {
     /// - Returns: a TrackSnapshot of the created or existing Track, ready for playback.
     @discardableResult
     func importAsTrack(entry: YTDlpBridge.YTDlpPlaylistEntry) async throws -> TrackSnapshot {
+        try await resolveTrack(entry: entry, saveToLibrary: true)
+    }
+
+    /// Persists playable identity without adding discovery or queue items to Songs.
+    func resolveTrack(entry: YTDlpBridge.YTDlpPlaylistEntry,
+                      saveToLibrary: Bool = false) async throws -> TrackSnapshot {
+        guard entry.resourceKind == .video else { throw YouTubeImportError.invalidURL }
         let ctx = ModelContext(modelContainer)
         let videoId = entry.id
         let existing = try ctx.fetch(FetchDescriptor<Track>(
@@ -48,6 +55,7 @@ final class YouTubeSearchService {
         let track: Track
         if let existing = existing.first {
             track = existing
+            if saveToLibrary { track.libraryMember = true }
         } else {
             let durationMs = Int((entry.duration ?? 0) * 1000)
             let artist = entry.uploader ?? "Unknown"
@@ -60,7 +68,8 @@ final class YouTubeSearchService {
                 youTubeId: entry.id,
                 artworkUrl: YouTubeThumbnail.urlString(videoId: entry.id),
                 mediaKind: entry.inferredMediaKind,
-                artistCatalogID: artistStableID
+                artistCatalogID: artistStableID,
+                isInLibrary: saveToLibrary
             )
             ctx.insert(track)
             if let artistStableID {
@@ -72,9 +81,9 @@ final class YouTubeSearchService {
                                              channelID: entry.channelID))
                 }
             }
-            try ctx.save()
             log.info("Imported search result \(entry.id) (\(entry.title))")
         }
+        try ctx.save()
         return TrackSnapshot(from: track)
     }
 }

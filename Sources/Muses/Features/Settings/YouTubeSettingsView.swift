@@ -21,9 +21,6 @@ struct YouTubeSettingsView: View {
 
     @AppStorage(PrefKey.ytCookieSource) private var cookieSourceRaw: String = YTCookieSource.none.rawValue
     @AppStorage(PrefKey.ytCookiePath) private var cookiePath: String = ""
-    /// Normal users see only the status card and one-click connect; technical details collapse into Advanced.
-    @AppStorage(PrefKey.ytShowAdvanced) private var showAdvanced = false
-
     @State private var binaryPath: String?
     @State private var versionString: String?
     @State private var checkingVersion = false
@@ -63,7 +60,7 @@ struct YouTubeSettingsView: View {
             } label: {
                 Text(tr("System Settings", "系统设置"))
             }
-            .buttonStyle(.link)
+            .musesAction()
         }
         .padding(.top, 4)
     }
@@ -71,71 +68,15 @@ struct YouTubeSettingsView: View {
     var body: some View {
         // Normal mode: one status card + one primary action; yt-dlp, permission, and cookie
         // details all collapse into Advanced so connecting stays clear for regular users.
-        Section(tr("YouTube", "YouTube")) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 10) {
-                    if account.isConnecting || isWebHomeBusy {
-                        ProgressView().controlSize(.small)
-                    }
-                    if account.isConnected {
-                        Label(
-                            account.account?.channel?.title ?? tr("Connected", "已连接"),
-                            systemImage: "checkmark.circle.fill")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(BrandColors.textPrimary)
-                    } else {
-                        Label(tr("Not connected", "未连接"),
-                              systemImage: "person.crop.circle.badge.questionmark")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(BrandColors.textSecondary)
-                    }
-                    Spacer()
-                }
-
-                if account.isConnected {
-                    HStack {
-                        Text(tr("Personalized Home", "个性化首页"))
-                            .foregroundStyle(BrandColors.textSecondary)
-                        Spacer()
-                        Text(
-                            webHome.isEnabled
-                                ? "\(webHomeStatusText) · \(webHomeBrowserDescription)"
-                                : webHomeStatusText)
-                            .foregroundStyle(webHome.isEnabled
-                                ? BrandColors.textPrimary : BrandColors.textSecondary)
-                            .font(.callout)
-                    }
-                    .padding(.top, 8)
-                }
-
-                if let error = webHomeConfigurationError {
-                    Label(error, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .padding(.top, 4)
-                }
-                if let err = account.lastError {
-                    Text(err).font(.caption).foregroundStyle(.red)
-                        .padding(.top, 4)
-                }
-                if isBrowserSessionUnavailable {
-                    browserSessionHelpRow
-                }
+        Group {
+            if let destination {
+                detail(destination)
+            } else {
+                accountOverview
+                Section { accountDetails } header: { Text(tr("Account permissions & sync", "账号权限与同步")).font(.headline.weight(.semibold)) }
+                Section { webHomeDetails } header: { Text(tr("Personalized Home", "个性化首页")).font(.headline.weight(.semibold)) }
+                Section { playbackCookieDetails } header: { Text(tr("Playback access", "播放访问")).font(.headline.weight(.semibold)) }
             }
-            .padding(.vertical, 4)
-
-            primaryAction
-                .padding(.top, 4)
-
-            DisclosureGroup(isExpanded: $showAdvanced) {
-                accountDetails
-                ytDlpDetails
-                webHomeDetails
-                playbackCookieDetails
-            } label: {
-                Label(tr("Advanced", "高级"), systemImage: "gearshape.2")
-            }
-            .padding(.top, 6)
         }
         .task {
             if let bridge { binaryPath = await bridge.locateBinary() }
@@ -178,6 +119,123 @@ struct YouTubeSettingsView: View {
         }
     }
 
+    var destination: SettingsDestination? = nil
+
+    @ViewBuilder private func detail(_ destination: SettingsDestination) -> some View {
+        if destination == .diagnostics {
+            Section { ytDlpDetails } header: { Text(tr("yt-dlp", "yt-dlp")).font(.headline.weight(.semibold)) }
+            YTDlpConfigWizard()
+        }
+    }
+
+    private var accountOverview: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    if account.isConnecting || isWebHomeBusy {
+                        ProgressView().controlSize(.small)
+                    }
+                    if account.isConnected {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Label(
+                                account.account?.channel?.title ?? tr("Connected", "已连接"),
+                                systemImage: "checkmark.circle.fill")
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(BrandColors.textPrimary)
+                            Text(tr("YouTube connected", "已连接 YouTube"))
+                                .font(.caption)
+                                .foregroundStyle(BrandColors.textSecondary)
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Label(tr("Not connected", "未连接"),
+                                  systemImage: "person.crop.circle.badge.questionmark")
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(BrandColors.textSecondary)
+                            Text(tr("Connect your YouTube account to personalize Home.",
+                                    "连接你的 YouTube 账号以个性化首页。"))
+                                .font(.caption)
+                                .foregroundStyle(BrandColors.textSecondary)
+                        }
+                    }
+                    Spacer()
+                    if account.isConnected {
+                        Button(tr("Sign Out", "退出登录")) {
+                            Task {
+                                await webHome.accountDidChange()
+                                account.disconnect()
+                            }
+                        }
+                        .musesAction()
+                    }
+                }
+
+                if account.isConnected {
+                    HStack {
+                        Text(tr("Personalized Home", "个性化首页"))
+                            .foregroundStyle(BrandColors.textSecondary)
+                        Spacer()
+                        Text(
+                            webHome.isEnabled
+                                ? "\(webHomeStatusText) · \(webHomeBrowserDescription)"
+                                : webHomeStatusText)
+                            .foregroundStyle(webHome.isEnabled
+                                ? BrandColors.textPrimary : BrandColors.textSecondary)
+                            .font(.callout)
+                    }
+                    .padding(.top, 8)
+                }
+
+                if let error = webHomeConfigurationError {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .padding(.top, 4)
+                }
+                if let err = account.lastError {
+                    Text(err).font(.caption).foregroundStyle(.red)
+                        .padding(.top, 4)
+                }
+                if isBrowserSessionUnavailable {
+                    browserSessionHelpRow
+                }
+            }
+            .padding(.vertical, 4)
+
+            primaryAction
+                .padding(.top, 4)
+
+            VStack(alignment: .leading, spacing: 10) {
+                officialPageLink(
+                    tr("Watch Later", "稍后观看", zhHant: "稍後觀看"),
+                    url: URL(string: "https://www.youtube.com/playlist?list=WL")!
+                )
+                officialPageLink(
+                    tr("YouTube watch history", "YouTube 观看历史", zhHant: "YouTube 觀看記錄"),
+                    url: URL(string: "https://www.youtube.com/feed/history")!
+                )
+                Text(tr("Opens in your browser using the YouTube account signed in there.",
+                        "在浏览器中打开，使用该浏览器已登录的 YouTube 账号。",
+                        zhHant: "在瀏覽器中開啟，使用該瀏覽器已登入的 YouTube 帳號。"))
+                    .font(.caption).italic().foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 4)
+        } header: { Text(tr("YouTube", "YouTube")).font(.headline.weight(.semibold)) }
+    }
+
+    private func officialPageLink(_ title: String, url: URL) -> some View {
+        Link(destination: url) {
+            HStack(spacing: 8) {
+                YouTubeMark(size: 14).accessibilityHidden(true)
+                Text(title)
+                Spacer()
+                Image(systemName: "arrow.up.right")
+                    .font(.caption.weight(.semibold))
+            }
+        }
+        .help(tr("Open on YouTube", "在 YouTube 打开", zhHant: "在 YouTube 開啟"))
+    }
+
     /// One-click state machine: connect OAuth first, then continue straight into the Home consent;
     /// connected-but-disabled offers only the enable action; when enabled, the single action is refreshing the session.
     @ViewBuilder
@@ -197,8 +255,8 @@ struct YouTubeSettingsView: View {
                       systemImage: "safari")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(BrandColors.magenta)
+            .musesAction(prominent: true)
+            .tint(BrandColors.accent)
             .disabled(account.isConnecting)
         } else if !webHome.isEnabled {
             Button {
@@ -208,8 +266,8 @@ struct YouTubeSettingsView: View {
                       systemImage: "person.crop.circle.badge.checkmark")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(BrandColors.magenta)
+            .musesAction(prominent: true)
+            .tint(BrandColors.accent)
             .disabled(!webHome.isBuildEnabled || isWebHomeBusy)
         } else {
             Button {
@@ -218,8 +276,8 @@ struct YouTubeSettingsView: View {
                 Label(tr("Check Session", "检查会话"), systemImage: "checkmark.shield")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(BrandColors.magenta)
+            .musesAction(prominent: true)
+            .tint(BrandColors.accent)
             .disabled(isWebHomeBusy)
         }
     }
@@ -285,7 +343,7 @@ struct YouTubeSettingsView: View {
                         Label(tr("Allow Playlist Updates…", "允许更新歌单…"),
                               systemImage: "checkmark.shield")
                     }
-                    .buttonStyle(.bordered)
+                    .musesAction()
                 }
                 Button(role: .destructive) {
                     Task {
@@ -295,13 +353,13 @@ struct YouTubeSettingsView: View {
                 } label: {
                     Label(tr("Disconnect", "断开连接"), systemImage: "person.badge.minus")
                 }
-                .buttonStyle(.bordered)
+                .musesAction()
             }
 
             Link(destination: URL(string: "https://myaccount.google.com/permissions")!) {
                 Label(tr("Manage Google Access", "管理 Google 授权"), systemImage: "arrow.up.right.square")
             }
-            .buttonStyle(.link)
+            .musesAction()
         }
 
         Text(oAuthHelpText)
@@ -336,8 +394,8 @@ struct YouTubeSettingsView: View {
         } label: {
             Label(tr("Check yt-dlp Version", "检查 yt-dlp 版本"), systemImage: "arrow.clockwise")
         }
-        .buttonStyle(.bordered)
-        .tint(BrandColors.magenta)
+        .musesAction()
+        .tint(BrandColors.accent)
         .disabled(bridge == nil || checkingVersion)
     }
 
@@ -362,13 +420,13 @@ struct YouTubeSettingsView: View {
                     Label(tr("Disable & Clear Temporary Session", "关闭并清除临时会话"),
                           systemImage: "xmark.shield")
                 }
-                .buttonStyle(.bordered)
+                .musesAction()
             }
             Link(destination: URL(string: "https://music.youtube.com/")!) {
                 Label(tr("Open YouTube Music", "打开 YouTube Music"),
                       systemImage: "arrow.up.right.square")
             }
-            .buttonStyle(.link)
+            .musesAction()
 
             Button {
                 homeDiscovery.clearSavedWebHomeForCurrentAccount()
@@ -376,7 +434,7 @@ struct YouTubeSettingsView: View {
                 Label(tr("Clear Saved Web Home", "清除已保存的 Web 首页"),
                       systemImage: "trash")
             }
-            .buttonStyle(.link)
+            .musesAction()
             .disabled(account.activeChannelID == nil)
         }
 
@@ -408,8 +466,8 @@ struct YouTubeSettingsView: View {
             } label: {
                 Label(tr("Choose Cookie File…", "选择 Cookie 文件…"), systemImage: "doc")
             }
-            .buttonStyle(.bordered)
-            .tint(BrandColors.magenta)
+            .musesAction()
+            .tint(BrandColors.accent)
         }
 
         Text(cookieHelpText)
@@ -487,7 +545,7 @@ struct YouTubeSettingsView: View {
     private var webHomeConsentMessage: String {
         tr(
             "Muses will use the detected default browser (\(webHomeConsentBrowserName)) only for isolated, read-only Home requests. This source stays fixed until you disconnect Web Home; changing the system default browser will not switch it silently. Browser extraction uses a permission-restricted temporary jar that is deleted after the one-shot helper exits. The Web channel must exactly match the connected OAuth channel. YouTube may require you to sign in, complete consent or a CAPTCHA, and this private Web access remains subject to YouTube's terms. No playback, Push, playlist write, or user-data truth will depend on it.",
-            "Muses 只会把识别到的默认浏览器（\(webHomeConsentBrowserName)）用于隔离、只读的首页请求。该来源会固定到你断开 Web 首页为止；更改系统默认浏览器不会让它静默切换。浏览器提取使用权限受限的临时 jar，并在一次性 Helper 退出后删除；Web 频道必须与已连接的 OAuth 频道完全一致。YouTube 可能要求你登录、完成同意或验证码，此私有 Web 访问仍受 YouTube 条款约束。播放、Push、歌单写入和用户数据真相均不会依赖它。")
+            "Muses 只会把识别到的默认浏览器（\(webHomeConsentBrowserName)）用于隔离、只读的首页请求。该来源会固定到你断开 Web 首页为止；更改系统默认浏览器不会让它静默切换。浏览器提取使用权限受限的临时 jar，并在一次性 Helper 退出后删除；Web 频道必须与已连接的 OAuth 频道完全一致。YouTube 可能要求你登录、完成同意或验证码，此私有 Web 访问仍受 YouTube 条款约束。播放、Push、歌单写入和用户数据真相均不会依赖它。", zhHant: "Muses 只會把識別到的預設瀏覽器（\(webHomeConsentBrowserName)）用於隔離、只讀的首頁請求。該來源會固定到你斷開 Web 首頁為止；更改系統預設瀏覽器不會讓它靜默切換。瀏覽器提取使用權限受限的臨時 jar，並在一次性 Helper 結束後刪除；Web 頻道必須與已連接的 OAuth 頻道完全一致。YouTube 可能要求你登入、完成同意或驗證碼，此私有 Web 訪問仍受 YouTube 條款約束。播放、Push、歌單寫入和用戶數據真相均不會依賴它。")
     }
 
     private var webHomeBrowserDescription: String {
@@ -499,7 +557,7 @@ struct YouTubeSettingsView: View {
             return applicationName
         case .unsupported(let applicationName, _):
             return tr("\(applicationName) (not supported)",
-                      "\(applicationName)（暂不支持）")
+                      "\(applicationName)（暂不支持）", zhHant: "\(applicationName)（暫不支持）")
         case .unavailable:
             return tr("Could not detect", "无法识别")
         }
@@ -581,8 +639,8 @@ struct YouTubeSettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(state.isStale
                          ? tr("\(label): showing saved data",
-                              "\(label)：正在显示已保存数据")
-                         : tr("\(label): unavailable", "\(label)：暂不可用"))
+                              "\(label)：正在显示已保存数据", zhHant: "\(label)：正在顯示已保存數據")
+                         : tr("\(label): unavailable", "\(label)：暂不可用", zhHant: "\(label)：暫不可用"))
                         .font(.caption.weight(.semibold))
                     Text(message).font(.caption2).lineLimit(2)
                 }

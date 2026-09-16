@@ -1,6 +1,11 @@
 import SwiftUI
 import AppKit
 
+struct LyricsInteractionPresentedKey: PreferenceKey {
+    static let defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
+}
+
 /// Lyrics view: scrolls to keep the currently playing line aligned.
 ///
 /// Extensions:
@@ -16,6 +21,7 @@ import AppKit
 enum LyricsLayout: Equatable {
     case centered
     case leading
+    case fullscreen
 
     var alignment: Alignment { self == .leading ? .leading : .center }
     var textAlignment: TextAlignment { self == .leading ? .leading : .center }
@@ -39,51 +45,25 @@ enum LyricsVisualStyle {
     }
 }
 
-/// Shared treatment for the current lyric across inline and fullscreen modes.
-/// The white glyph/outline remains when accessibility asks us to remove the
-/// colored bloom; cyan and violet only provide a restrained laser edge.
-struct CurrentLyricLaserModifier: ViewModifier {
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+private struct LyricPaletteKey: EnvironmentKey {
+    static let defaultValue: [Color] = [BrandColors.textPrimary]
+}
 
-    private var allowsColoredBloom: Bool {
-        !reduceTransparency && !NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+extension EnvironmentValues {
+    var lyricPalette: [Color] {
+        get { self[LyricPaletteKey.self] }
+        set { self[LyricPaletteKey.self] = newValue }
     }
+}
 
+/// Static artwork-derived colors; timing and word emphasis retain their existing behavior.
+struct CurrentLyricAccentModifier: ViewModifier {
+    @Environment(\.lyricPalette) private var colors
+    @Environment(\.colorSchemeContrast) private var contrast
     func body(content: Content) -> some View {
-        content
-            .foregroundStyle(Color.white)
-            // A compact white outline survives both accessibility fallbacks.
-            .shadow(color: .white.opacity(0.92), radius: 0, x: -0.65)
-            .shadow(color: .white.opacity(0.92), radius: 0, x: 0.65)
-            .shadow(color: .white.opacity(0.76), radius: 0, y: -0.55)
-            .shadow(color: .white.opacity(0.76), radius: 0, y: 0.55)
-            // Chromatic edges are semantic emphasis, never the text fill.
-            .shadow(
-                color: allowsColoredBloom
-                    ? Color(red: 0.30, green: 0.91, blue: 1.00).opacity(0.68)
-                    : .clear,
-                radius: 0.45,
-                x: -0.8
-            )
-            .shadow(
-                color: allowsColoredBloom
-                    ? Color(red: 0.68, green: 0.48, blue: 1.00).opacity(0.62)
-                    : .clear,
-                radius: 0.45,
-                x: 0.8
-            )
-            .shadow(
-                color: allowsColoredBloom
-                    ? Color(red: 0.35, green: 0.79, blue: 1.00).opacity(0.20)
-                    : .white.opacity(0.16),
-                radius: allowsColoredBloom ? 6 : 1.5
-            )
-            .shadow(
-                color: allowsColoredBloom
-                    ? Color(red: 0.65, green: 0.42, blue: 1.00).opacity(0.14)
-                    : .clear,
-                radius: 10
-            )
+        content.foregroundStyle(LinearGradient(
+            colors: contrast == .increased ? [BrandColors.textPrimary] : colors,
+            startPoint: .leading, endPoint: .trailing))
     }
 }
 
@@ -96,10 +76,10 @@ struct LyricKeyboardFocusHaloModifier: ViewModifier {
             if isFocused {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(
-                        Color.white.opacity(prioritizeLegibility ? 0.96 : 0.82),
+                        BrandColors.textPrimary.opacity(prioritizeLegibility ? 0.96 : 0.82),
                         lineWidth: prioritizeLegibility ? 2 : 1
                     )
-                    .shadow(color: .white.opacity(0.20), radius: 4)
+
                     .allowsHitTesting(false)
             }
         }
@@ -107,14 +87,14 @@ struct LyricKeyboardFocusHaloModifier: ViewModifier {
 }
 
 extension View {
-    func currentLyricLaser() -> some View {
-        modifier(CurrentLyricLaserModifier())
+    func currentLyricAccent() -> some View {
+        modifier(CurrentLyricAccentModifier())
     }
 
     @ViewBuilder
-    func currentLyricLaserIfNeeded(_ isCurrent: Bool) -> some View {
+    func currentLyricAccentIfNeeded(_ isCurrent: Bool) -> some View {
         if isCurrent {
-            currentLyricLaser()
+            currentLyricAccent()
         } else {
             self
         }
@@ -133,12 +113,31 @@ extension View {
 
 struct LyricsView: View {
     var layout: LyricsLayout = .centered
+    var showsCurrentLineOnly = false
     @Environment(PlaybackService.self) private var playback
     @Environment(LyricsService.self) private var service
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var artworkHues: [[Double]] = []
     @State private var lines: [LyricLine]?
     @State private var loadedTrackId: UUID?
+    @State private var originalTexts: [String] = []
+    @State private var documentKey = ""
+    @State private var source: LyricsSource?
+    @State private var loading = false
+    @State private var processingMessage: String?
+    @State private var showMatches = false
+    @AppStorage(PrefKey.nowPlayingLyricsMode) private var displayMode = NowPlayingLyricsMode.inline.rawValue
+    @AppStorage(PrefKey.lyricsTranslationLanguage) private var translationTarget = "off"
+    @AppStorage(PrefKey.lyricsRomanization) private var showRomanization = false
+    @AppStorage(PrefKey.lyricsSource) private var provider = "lrclib"
+    @AppStorage(PrefKey.lyricsIntelligence) private var intelligentMatching = true
+
+    private var loadKey: String {
+        [playback.transportState.track?.id.uuidString ?? "", provider, String(service.selectionRevision), String(intelligentMatching)].joined(separator: ":")
+    }
+
     @FocusState private var focusedLineID: UUID?
     /// The LRC `[offset:]` automatic offset (milliseconds), fixed once the lyrics
     /// load. The manual offset is read live from `service.manualOffsetMs`.
@@ -146,20 +145,186 @@ struct LyricsView: View {
 
     /// Effective offset (seconds) = manual (@Observable, live) + LRC automatic.
     private var offsetSeconds: Double { Double(service.manualOffsetMs + lrcOffsetMs) / 1000.0 }
+    @State private var showTiming = false
     private var prioritizeLegibility: Bool {
         reduceTransparency || NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
     }
 
     var body: some View {
-        Group {
+        VStack(spacing: 8) {
+            HStack {
+                if loading { ProgressView().controlSize(.small) }
+                if let lines, !lines.isEmpty, !lines.contains(where: { $0.time != nil }) {
+                    Image(systemName: "clock.badge.questionmark")
+                        .foregroundStyle(.secondary)
+                        .help(tr("No timing data. Use Match Lyrics to choose a synchronized version.",
+                                 "此版本没有时间轴，可通过匹配歌词选择同步版本。", zhHant: "此版本沒有時間軸，可透過配對歌詞選擇同步版本。"))
+                        .accessibilityLabel(tr("Unsynced lyrics", "非同步歌词", zhHant: "非同步歌詞"))
+                }
+                if translationTarget != "off", lines?.contains(where: { $0.translation != nil }) == true {
+                    Text(tr("Machine translation", "机器翻译")).font(.caption2).foregroundStyle(.secondary)
+                }
+                if showRomanization, lines?.contains(where: { $0.romanization != nil }) == true {
+                    Text(tr("Auto romanization", "自动音译")).font(.caption2).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if lines?.contains(where: { $0.time != nil }) == true {
+                    Button { showTiming.toggle() } label: {
+                        Image(systemName: "timer").frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .help(tr("Adjust lyric timing", "调整歌词时间", zhHant: "調整歌詞時間"))
+                    .accessibilityLabel(tr("Adjust lyric timing", "调整歌词时间", zhHant: "調整歌詞時間"))
+                    .popover(isPresented: $showTiming) { timingControls }
+                }
+                if let processingMessage {
+                    Image(systemName: "info.circle").help(processingMessage)
+                        .accessibilityLabel(processingMessage)
+                }
+                Menu {
+                    if layout != .centered {
+                        Picker(tr("Lyrics display", "歌词显示", zhHant: "歌詞顯示"), selection: $displayMode) {
+                            Text(tr("With artwork", "封面与歌词", zhHant: "封面與歌詞")).tag(NowPlayingLyricsMode.inline.rawValue)
+                            Text(tr("Lyrics only", "仅歌词", zhHant: "僅歌詞")).tag(NowPlayingLyricsMode.lyricsOnly.rawValue)
+                            Text(tr("Current line", "当前行", zhHant: "目前歌詞行")).tag(NowPlayingLyricsMode.minimal.rawValue)
+                        }
+                        Divider()
+                    }
+                    if let source {
+                        Text(source == .cached ? tr("Source: lyrics stored with this track", "来源：此曲目保存的歌词", zhHant: "來源：此曲目儲存的歌詞") : tr("Source: ", "来源：", zhHant: "來源：") + (source == .lrclib ? "LRCLIB" : "Musixmatch"))
+                        Divider()
+                    }
+                    LyricsTranslationPicker(selection: $translationTarget)
+                    Toggle(tr("Romanization", "音译"), isOn: $showRomanization)
+                    Divider()
+                    Button(tr("Match Lyrics…", "匹配歌词…")) { showMatches = true }
+                        .disabled(playback.transportState.track == nil)
+                    Button(tr("Lyrics Settings…", "歌词设置…")) {
+                        NotificationCenter.default.post(name: .musesOpenSettings, object: SettingsCategory.lyrics)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle").frame(width: 28, height: 28)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help(tr("Lyrics options", "歌词选项"))
+                .accessibilityLabel(tr("Lyrics options", "歌词选项"))
+            }
             if let lines, !lines.isEmpty {
-                lyricsList(lines)
-            } else {
-                placeholder
+                if showsCurrentLineOnly && lines.contains(where: { $0.time != nil }) {
+                    currentLineOnly(lines)
+                } else { lyricsList(lines) }
+            }
+            else { placeholder }
+        }
+        .environment(\.lyricPalette, artworkHues.isEmpty ? [BrandColors.textPrimary] : artworkHues.map {
+            Color(hue: $0[0], saturation: min($0[1], 0.72), brightness: colorScheme == .dark ? max(0.82, $0[2]) : min(0.42, $0[2]))
+        })
+        .task(id: playback.transportState.track?.id) {
+            artworkHues = []
+            let expected = playback.transportState.track?.id
+            let source = ArtworkSource.resolve(for: playback.transportState.track)
+            let values = await Task.detached(priority: .utility) { () -> [[Double]] in
+                guard let image = source.loadNSImage() else { return [] }
+                return AlbumArtworkExtractor.dominantColors(image, count: 5).compactMap {
+                    guard let color = $0.usingColorSpace(.deviceRGB) else { return nil }
+                    return [Double(color.hueComponent), Double(color.saturationComponent), Double(color.brightnessComponent)]
+                }
+            }.value
+            guard !Task.isCancelled, playback.transportState.track?.id == expected else { return }
+            artworkHues = values
+        }
+        .task(id: loadKey) { await loadLyrics() }
+        .task(id: documentKey + String(showRomanization)) { await loadRomanization() }
+        .onChange(of: translationTarget) { _, _ in
+            updateEnrichment(translations: nil, romanizations: nil, clearTranslation: true)
+            processingMessage = nil
+        }
+        .background { translationBridge }
+        .preference(key: LyricsInteractionPresentedKey.self, value: showTiming || showMatches)
+        .sheet(isPresented: $showMatches) {
+            if let track = playback.transportState.track { LyricsMatchPicker(track: track).id(track.id) }
+        }
+    }
+
+    private var timingControls: some View {
+        VStack(spacing: 12) {
+            Text(tr("Lyric timing", "歌词时间", zhHant: "歌詞時間")).font(.headline)
+            HStack(spacing: 16) {
+                Button { adjustTiming(by: -500) } label: { Image(systemName: "minus") }
+                    .help(tr("Show lyrics 0.5 seconds earlier", "歌词提前 0.5 秒", zhHant: "歌詞提前 0.5 秒"))
+                    .accessibilityLabel(tr("Show lyrics 0.5 seconds earlier", "歌词提前 0.5 秒", zhHant: "歌詞提前 0.5 秒"))
+                    .disabled(service.manualOffsetMs <= -30_000)
+                Text(String(format: "%+.1f s", Double(service.manualOffsetMs) / 1000))
+                    .monospacedDigit().frame(minWidth: 64)
+                Button { adjustTiming(by: 500) } label: { Image(systemName: "plus") }
+                    .help(tr("Show lyrics 0.5 seconds later", "歌词延后 0.5 秒", zhHant: "歌詞延後 0.5 秒"))
+                    .accessibilityLabel(tr("Show lyrics 0.5 seconds later", "歌词延后 0.5 秒", zhHant: "歌詞延後 0.5 秒"))
+                    .disabled(service.manualOffsetMs >= 30_000)
+                Button { adjustTiming(by: -service.manualOffsetMs) } label: { Image(systemName: "arrow.counterclockwise") }
+                    .help(tr("Reset lyric timing", "重置歌词时间", zhHant: "重設歌詞時間"))
+                    .accessibilityLabel(tr("Reset lyric timing", "重置歌词时间", zhHant: "重設歌詞時間"))
+                    .disabled(service.manualOffsetMs == 0)
             }
         }
-        .onAppear { loadLyrics() }
-        .onChange(of: playback.state.track?.id) { _, _ in loadLyrics() }
+        .padding(16)
+    }
+
+    private func adjustTiming(by delta: Int) {
+        guard let track = playback.transportState.track else { return }
+        if !service.setOffset(for: track, offsetMs: max(-30_000, min(30_000, service.manualOffsetMs + delta))) {
+            processingMessage = tr("Could not save lyric timing. Try again.", "无法保存歌词时间，请重试。", zhHant: "無法儲存歌詞時間，請重試。")
+        }
+    }
+
+    @ViewBuilder
+    private var translationBridge: some View {
+        if #available(macOS 15.0, *), translationTarget != "off", !originalTexts.isEmpty {
+            let expectedKey = documentKey
+            let expectedTarget = translationTarget
+            LyricsTranslationBridge(lines: originalTexts, target: translationTarget) { translated, message in
+                guard documentKey == expectedKey, translationTarget == expectedTarget,
+                      loadedTrackId == playback.transportState.track?.id else { return }
+                updateEnrichment(translations: translated, romanizations: nil, clearTranslation: true)
+                processingMessage = message
+            }
+            .id(documentKey + translationTarget)
+        }
+    }
+
+    private func updateEnrichment(translations: [String]?, romanizations: [String]?,
+                                  clearTranslation: Bool = false, clearRomanization: Bool = false) {
+        guard let current = lines else { return }
+        lines = current.enumerated().map { index, line in
+            LyricLine(id: line.id, time: line.time, text: line.text, words: line.words,
+                      translation: translations?.count == current.count ? translations?[index] : (clearTranslation ? nil : line.translation),
+                      romanization: romanizations?.count == current.count ? romanizations?[index] : (clearRomanization ? nil : line.romanization))
+        }
+    }
+
+    private func loadRomanization() async {
+        updateEnrichment(translations: nil, romanizations: nil, clearRomanization: true)
+        guard showRomanization, !originalTexts.isEmpty else { return }
+        guard LyricsIntelligence.availability == .available else {
+            processingMessage = LyricsIntelligence.availability.message
+            return
+        }
+        let expectedKey = documentKey
+        let key = LyricsDocumentIdentity.digest(["romanization"] + originalTexts)
+        if let cached = service.enrichment(key: key) {
+            updateEnrichment(translations: nil, romanizations: cached)
+            return
+        }
+        do {
+            let romanized = try await LyricsIntelligence.romanize(originalTexts)
+            guard !Task.isCancelled, documentKey == expectedKey, showRomanization,
+                  loadedTrackId == playback.transportState.track?.id else { return }
+            service.rememberEnrichment(romanized, key: key)
+            updateEnrichment(translations: nil, romanizations: romanized)
+        } catch {
+            guard !Task.isCancelled, documentKey == expectedKey else { return }
+            processingMessage = tr("Romanization unavailable. Original lyrics are still shown.", "音译暂不可用，仍显示原文歌词。")
+        }
     }
 
     /// The lyrics list: TimelineView refreshes on animation ticks, highlights the
@@ -169,25 +334,25 @@ struct LyricsView: View {
     /// active word is highlighted within it; otherwise the whole line is.
     private func lyricsList(_ lines: [LyricLine]) -> some View {
         TimelineView(.animation(minimumInterval: 0.1,
-                                paused: !playback.state.isPlaying || reduceMotion)) { _ in
-            let position = playback.state.position
+                                paused: !playback.transportState.isPlaying)) { _ in
+            let position = playback.transportState.position
             let idx = Self.currentLineIndex(in: lines, at: position, offset: offsetSeconds)
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: layout.isImmersive ? 28 : 10) {
+                    LazyVStack(spacing: layout.isImmersive ? 42 : 20) {
                         ForEach(Array(lines.enumerated()), id: \.element.id) { i, line in
                             let distance = abs((idx ?? 0) - i)
                             let isCurrent = i == idx
                             lyricRow(line, isCurrent: isCurrent, position: position)
                             .opacity(idx == nil
-                                ? (layout.isImmersive ? 0.56 : 1)
+                                ? 1
                                 : LyricsVisualStyle.opacity(
                                     distance: distance,
                                     isCurrent: isCurrent,
                                     immersive: layout.isImmersive,
                                     prioritizeLegibility: prioritizeLegibility
                                 ))
-                            .blur(radius: LyricsVisualStyle.blurRadius(
+                            .blur(radius: idx == nil ? 0 : LyricsVisualStyle.blurRadius(
                                 distance: distance,
                                 isCurrent: isCurrent,
                                 immersive: layout.isImmersive,
@@ -250,12 +415,18 @@ struct LyricsView: View {
                 Text(line.text)
                     .font(lineFont(isCurrent: isCurrent))
                     .fontWeight(isCurrent ? .bold : (layout.isImmersive ? .medium : .regular))
-                    .foregroundStyle(isCurrent ? Color.white : BrandColors.textPrimary)
                     .multilineTextAlignment(layout.textAlignment)
                     .frame(maxWidth: .infinity, alignment: layout.alignment)
-                    .currentLyricLaserIfNeeded(isCurrent)
+                    .currentLyricAccentIfNeeded(isCurrent)
             }
 
+            if let romanization = line.romanization, !romanization.isEmpty {
+                Text(romanization)
+                    .font(.system(size: layout.isImmersive ? 14 : 12))
+                    .foregroundStyle(BrandColors.textSecondary)
+                    .multilineTextAlignment(layout.textAlignment)
+                    .frame(maxWidth: .infinity, alignment: layout.alignment)
+            }
             if let translation = line.translation, !translation.isEmpty {
                 Text(translation)
                     .font(.system(size: layout.isImmersive ? 13 : 11,
@@ -270,7 +441,25 @@ struct LyricsView: View {
         .frame(maxWidth: .infinity, alignment: layout.alignment)
     }
 
+    private func currentLineOnly(_ lines: [LyricLine]) -> some View {
+        TimelineView(.animation(minimumInterval: 0.1, paused: !playback.transportState.isPlaying)) { _ in
+            let position = playback.transportState.position
+            if let index = Self.currentLineIndex(in: lines, at: position, offset: offsetSeconds) {
+                Button {
+                    if let time = lines[index].time { playback.seek(to: time + offsetSeconds) }
+                } label: { lyricRow(lines[index], isCurrent: true, position: position) }
+                .buttonStyle(.plain)
+                .help(tr("Jump to this lyric", "跳转到这句歌词"))
+            } else {
+                Text(tr("Lyrics begin soon", "歌词即将开始", zhHant: "歌詞即將開始"))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private func lineFont(isCurrent: Bool) -> Font {
+        if layout == .fullscreen { return .system(size: isCurrent ? 40 : 26, weight: isCurrent ? .bold : .regular) }
         if layout.isImmersive {
             return .system(size: isCurrent ? 34 : 26,
                            weight: isCurrent ? .bold : .medium)
@@ -288,14 +477,12 @@ struct LyricsView: View {
                     .font(layout.isImmersive
                         ? .system(size: 34, weight: .bold)
                         : .title2.bold())
-                    .foregroundStyle(
-                        Color.white.opacity(activeWord == nil || wi == activeWord ? 1 : 0.68)
-                    )
+                    .opacity(activeWord == nil || wi == activeWord ? 1 : 0.68)
             }
         }
         .frame(maxWidth: .infinity, alignment: layout.alignment)
         .multilineTextAlignment(layout.textAlignment)
-        .currentLyricLaser()
+        .currentLyricAccent()
     }
 
     /// Empty lyrics: quiet, Demus / Better Lyrics style. No instructional copy.
@@ -311,30 +498,18 @@ struct LyricsView: View {
     /// Loads lyrics for the current track (reloading whenever the track changes).
     /// Cache first, then network. Also computes the effective offset =
     /// per-track manual offset + LRC automatic offset (seconds).
-    private func loadLyrics() {
-        guard let track = playback.state.track else {
-            lines = nil; loadedTrackId = nil; lrcOffsetMs = 0; return
+    private func loadLyrics() async {
+        lines = nil; source = nil; originalTexts = []; documentKey = ""; processingMessage = nil
+        guard let track = playback.transportState.track else {
+            loadedTrackId = nil; lrcOffsetMs = 0; loading = false; return
         }
-        guard track.id != loadedTrackId else { return }
         loadedTrackId = track.id
-        lines = nil
-        // Initialize the observable manual offset (from the persisted snapshot)
-        // so the fine-tune stepper and rendering share one source.
-        service.manualOffsetMs = track.lyricsOffsetMs ?? 0
-
-        // Cache hit: parse directly, skip the network.
-        if let cached = service.fetchCached(track: track) {
-            applyLyrics(cached)
-            return
-        }
-
-        let expectedTrackID = track.id
-        Task {
-            let result = await service.fetch(track: track)
-            guard loadedTrackId == expectedTrackID,
-                  playback.state.track?.id == expectedTrackID else { return }
-            if let result { applyLyrics(result) }
-        }
+        loading = true
+        service.prepareOffset(for: track)
+        let result = await service.load(track: track)
+        guard !Task.isCancelled, playback.transportState.track?.id == track.id else { return }
+        loading = false
+        if let result { applyLyrics(result) }
     }
 
     /// Parses the LyricsResult into a `[LyricLine]` and updates `lines`;
@@ -354,7 +529,8 @@ struct LyricsView: View {
             return
         }
 
-        if let translated = result.translations?.first?.lines,
+        if translationTarget != "off",
+           let translated = result.translations?.first(where: { $0.language == translationTarget })?.lines,
            translated.count == parsed.count {
             parsed = zip(parsed, translated).map { line, translation in
                 LyricLine(
@@ -367,6 +543,9 @@ struct LyricsView: View {
             }
         }
         lines = parsed
+        source = result.source
+        originalTexts = parsed.map { $0.text.replacingOccurrences(of: #"<\d+:\d{2}(?:[.:]\d{1,3})?>"#, with: "", options: .regularExpression) }
+        documentKey = LyricsDocumentIdentity.digest([loadedTrackId?.uuidString ?? ""] + originalTexts)
     }
 
     /// Computes the index of the lyric line for the current position (the last

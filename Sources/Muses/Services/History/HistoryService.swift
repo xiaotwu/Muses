@@ -85,8 +85,7 @@ final class HistoryService {
         case .trackStopped(let snap, let listenedMs):
             close(snap: snap, listenedMs: Int(listenedMs), outcome: .stopped)
         case .trackPaused, .trackResumed, .trackSeeked, .queueChanged,
-             .outputDeviceChanged,
-             .focusSessionStarted, .focusSessionEnded:
+             .outputDeviceChanged:
             // Not handled at this granularity; pause/resume/seek may later feed behavioral profiling.
             break
         }
@@ -348,7 +347,7 @@ final class HistoryService {
     private func appLabel(_ bundleId: String) -> String {
         let segments = bundleId.split(separator: ".")
         let last = segments.last.map(String.init) ?? bundleId
-        return tr("Most played while \(last)", "使用 \(last) 时最爱")
+        return tr("Most played while \(last)", "使用 \(last) 时最爱", zhHant: "使用 \(last) 時最愛")
     }
 }
 

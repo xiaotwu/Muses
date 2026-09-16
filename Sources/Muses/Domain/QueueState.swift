@@ -20,6 +20,10 @@ final class QueueState {
     var lastPositionMs: Double?
     /// Advanced queue: JSON of the queue groups (`[QueueGroup]`). nil = no groups.
     var groupsJSON: String?
+    /// Actual inserted item, independent of the collection cursor; nil in old stores.
+    var insertedCurrentJSON: String?
+    /// Optional for compatibility with queue snapshots predating Smart Shuffle.
+    var smartShuffleJSON: String?
 
     /// Fixed UUID used by the singleton persisted row.
     static let sharedID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!

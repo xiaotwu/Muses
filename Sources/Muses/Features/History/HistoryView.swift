@@ -86,7 +86,11 @@ struct HistoryView: View {
                 subtitle: tr(
                     "Play a song and its listening activity will appear here.",
                     "播放歌曲后，其收听活动会显示在这里。"
-                )
+                ),
+                actionTitle: tr("Open Search", "打开搜索"),
+                action: {
+                    NotificationCenter.default.post(name: .musesFocusSearch, object: nil)
+                }
             )
         }
     }
@@ -142,13 +146,13 @@ struct HistoryView: View {
                 rankingCard(
                     title: tr("Songs on repeat", "循环热歌"),
                     rows: recap.topTracks.prefix(5).map {
-                        ($0.title, $0.artist, tr("\($0.plays) plays", "播放 \($0.plays) 次"))
+                        ($0.title, $0.artist, tr("\($0.plays) plays", "播放 \($0.plays) 次", zhHant: "播放 \($0.plays) 次"))
                     }
                 )
                 rankingCard(
                     title: tr("Top artists", "热门艺术家"),
                     rows: recap.topArtists.prefix(5).map {
-                        ($0.name, ListeningFormat.duration($0.listenedMs), tr("\($0.plays) plays", "播放 \($0.plays) 次"))
+                        ($0.name, ListeningFormat.duration($0.listenedMs), tr("\($0.plays) plays", "播放 \($0.plays) 次", zhHant: "播放 \($0.plays) 次"))
                     }
                 )
             }
@@ -156,13 +160,13 @@ struct HistoryView: View {
                 rankingCard(
                     title: tr("Songs on repeat", "循环热歌"),
                     rows: recap.topTracks.prefix(5).map {
-                        ($0.title, $0.artist, tr("\($0.plays) plays", "播放 \($0.plays) 次"))
+                        ($0.title, $0.artist, tr("\($0.plays) plays", "播放 \($0.plays) 次", zhHant: "播放 \($0.plays) 次"))
                     }
                 )
                 rankingCard(
                     title: tr("Top artists", "热门艺术家"),
                     rows: recap.topArtists.prefix(5).map {
-                        ($0.name, ListeningFormat.duration($0.listenedMs), tr("\($0.plays) plays", "播放 \($0.plays) 次"))
+                        ($0.name, ListeningFormat.duration($0.listenedMs), tr("\($0.plays) plays", "播放 \($0.plays) 次", zhHant: "播放 \($0.plays) 次"))
                     }
                 )
             }
@@ -184,7 +188,7 @@ struct HistoryView: View {
                     HStack(spacing: 12) {
                         Text("\(index + 1)")
                             .font(.title3.weight(.heavy))
-                            .foregroundStyle(index == 0 ? BrandColors.magenta : BrandColors.textSecondary)
+                            .foregroundStyle(index == 0 ? BrandColors.accent : BrandColors.textSecondary)
                             .frame(width: 24, alignment: .trailing)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(row.0).font(.callout.weight(.semibold)).lineLimit(1)
@@ -210,7 +214,7 @@ struct HistoryView: View {
 
     private func recentActivity(_ events: [ListeningEventSnapshot], range: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(tr("Recent activity · \(range)", "最近活动 · \(range)"))
+            Text(tr("Recent activity · \(range)", "最近活动 · \(range)", zhHant: "最近活動 · \(range)"))
                 .font(.system(size: AppleMusicTokens.sectionTitleSize, weight: .bold))
             LazyVStack(spacing: 2) {
                 ForEach(events) { event in
@@ -238,19 +242,19 @@ struct HistoryView: View {
                             Image(systemName: "play.fill")
                         }
                         .buttonStyle(.plain)
-                        .foregroundStyle(BrandColors.magenta)
+                        .foregroundStyle(BrandColors.accent)
                         .frame(width: 28, height: 28)
                         .disabled(track == nil)
                         .help(track == nil
                               ? tr("This song is no longer in the library", "这首歌曲已不在资料库中")
                               : tr("Play", "播放"))
-                        .accessibilityLabel(tr("Play \(event.title)", "播放 \(event.title)"))
+                        .accessibilityLabel(tr("Play \(event.title)", "播放 \(event.title)", zhHant: "播放 \(event.title)"))
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
                     .background(
                         playback.state.track?.id == event.trackId
-                            ? BrandColors.magenta.opacity(0.09) : Color.clear,
+                            ? BrandColors.accent.opacity(0.09) : Color.clear,
                         in: RoundedRectangle(cornerRadius: 8, style: .continuous)
                     )
                 }
@@ -278,7 +282,7 @@ struct HistoryView: View {
     private var rangeEmptyState: some View {
         EmptyStateView(
             icon: "calendar.badge.clock",
-            title: tr("No listening in \(range.label)", "\(range.label) 暂无收听记录"),
+            title: tr("No listening in \(range.label)", "\(range.label) 暂无收听记录", zhHant: "\(range.label) 暫無收聽記錄"),
             subtitle: tr(
                 "Choose another range to explore earlier listening activity.",
                 "可切换时间范围查看更早的收听活动。"

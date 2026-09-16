@@ -93,7 +93,7 @@ struct YouTubeDataAPIClient {
             case .unauthorized:
                 tr("Unauthorized (token invalid or expired)", "未授权(令牌无效或过期)")
             case .forbidden(let reason):
-                tr("YouTube denied this operation: \(reason)", "YouTube 拒绝了此操作：\(reason)")
+                tr("YouTube denied this operation: \(reason)", "YouTube 拒绝了此操作：\(reason)", zhHant: "YouTube 拒絕了此操作：\(reason)")
             case .quotaExceeded:
                 tr("YouTube API quota is exhausted. Try again after the quota resets.", "YouTube API 配额已用尽，请在配额重置后重试。")
             case .rateLimited:
@@ -104,15 +104,15 @@ struct YouTubeDataAPIClient {
                 tr("The YouTube playlist item no longer exists", "该 YouTube 歌单条目已不存在")
             case .paginationLimitReached(let pages):
                 tr("YouTube pagination stopped at the \(pages)-page safety limit",
-                   "YouTube pagination reached the \(pages)-page safety cap")
+                   "YouTube pagination reached the \(pages)-page safety cap", zhHant: "YouTube pagination reached the \(pages)-page safety cap")
             case .unavailable(let reason):
-                tr("The YouTube item is unavailable: \(reason)", "该 YouTube 条目不可用：\(reason)")
+                tr("The YouTube item is unavailable: \(reason)", "该 YouTube 条目不可用：\(reason)", zhHant: "該 YouTube 條目不可用：\(reason)")
             case .http(let c, let m):
                 "YouTube Data API HTTP \(c):\(m)"
             case .parse(let m):
-                tr("YouTube Data API parse failed: \(m)", "YouTube Data API 解析失败:\(m)")
+                tr("YouTube Data API parse failed: \(m)", "YouTube Data API 解析失败:\(m)", zhHant: "YouTube Data API 解析失敗:\(m)")
             case .network(let m):
-                tr("Network error: \(m)", "网络错误:\(m)")
+                tr("Network error: \(m)", "网络错误:\(m)", zhHant: "網路錯誤:\(m)")
             }
         }
 
@@ -140,6 +140,25 @@ struct YouTubeDataAPIClient {
         return ch
     }
 
+    /// Resolve uploads using the channel's stable identity, never its display name.
+    func uploadsPlaylist(channelID: String) async throws -> String? {
+        struct Response: Decodable {
+            struct Item: Decodable {
+                struct Details: Decodable {
+                    struct Related: Decodable { let uploads: String? }
+                    let relatedPlaylists: Related?
+                }
+                let id: String
+                let contentDetails: Details?
+            }
+            let items: [Item]
+        }
+        var url = URLComponents(string: "\(Self.base)/channels")!
+        url.queryItems = [.init(name: "part", value: "contentDetails"), .init(name: "id", value: channelID)]
+        let response = try JSONDecoder().decode(Response.self, from: await get(url.url!.absoluteString))
+        return response.items.first(where: { $0.id == channelID })?.contentDetails?.relatedPlaylists?.uploads
+    }
+
     /// Playlists owned by the account (id/title/thumbnail/itemCount), fetched with pagination.
     func myPlaylists() async throws -> [YouTubePlaylist] {
         try await paginateList(url: "\(Self.base)/playlists?part=snippet,contentDetails&mine=true&maxResults=50",
@@ -157,9 +176,11 @@ struct YouTubeDataAPIClient {
     /// persisted before requesting the next page.
     func playlistItemsPage(playlistId: String,
                            pageToken: String?) async throws -> PaginationPage<YouTubePlaylistItem> {
-        let baseURL = "\(Self.base)/playlistItems?part=snippet,contentDetails&playlistId=\(playlistId)&maxResults=50"
-        let fullURL = pageToken.map { "\(baseURL)&pageToken=\($0)" } ?? baseURL
-        let data = try await get(fullURL)
+        var url = URLComponents(string: "\(Self.base)/playlistItems")!
+        url.queryItems = [.init(name: "part", value: "snippet,contentDetails"),
+                          .init(name: "playlistId", value: playlistId), .init(name: "maxResults", value: "50")]
+        if let pageToken { url.queryItems?.append(.init(name: "pageToken", value: pageToken)) }
+        let data = try await get(url.url!.absoluteString)
         do {
             let page = try JSONDecoder().decode(PlaylistItemsPage.self, from: data)
             return .init(items: page.items, nextPageToken: page.nextPageToken)
@@ -495,7 +516,7 @@ struct YouTubeSubscription: Codable, Sendable, Equatable {
     }
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(Snippet(title: title, thumbnails: nil, resourceId: nil), forKey: .snippet)
+        try c.encode(Snippet(title: title, thumbnails: nil, resourceId: ResourceId(channelId: channelId)), forKey: .snippet)
     }
     struct Snippet: Codable, Sendable {
         let title: String; let thumbnails: YouTubeChannel.Thumbnails?

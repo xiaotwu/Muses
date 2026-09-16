@@ -2,17 +2,19 @@ import SwiftUI
 
 /// Mirrored bar spectrum visualization: the upper half has 64 bars rising from
 /// the midline (Apple Music accent fade), and the lower half mirrors them at
-/// 30% opacity. With Reduce Motion enabled, the raw bands are drawn directly
-/// with no peak decay.
+/// 30% opacity. With Reduce Motion enabled, the last frame remains static and
+/// audio sampling stops.
 ///
-/// Switches between Metal (MTKView hardware-accelerated) and Canvas (CPU-drawn)
+/// Switches between Metal (MTKView hardware-accelerated) and Canvas (system-rendered)
 /// based on `PrefKey.gpuAcceleration`.
 struct SpectrumView: View {
     @Environment(PlaybackService.self) private var playback
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(PrefKey.gpuAcceleration) private var gpuAcceleration = true
 
-    @State private var current: SpectrumFrame?
+    @State private var metalUnavailable = false
+    @State private var handlerOwner: UUID?
+    @State private var samples = SpectrumSampleBuffer()
     @State private var peaks: [Float] = Array(repeating: 0, count: 64)
     @State private var lastFrameDate: Date = .distantPast
 
@@ -21,37 +23,44 @@ struct SpectrumView: View {
     private let peakDecayPerSecond: Float = 1.0 / 0.2
 
     var body: some View {
-        if gpuAcceleration {
-            MetalSpectrumView()
-                .frame(height: 120)
+        if gpuAcceleration && !metalUnavailable {
+            MetalSpectrumView(onUnavailable: { metalUnavailable = true })
         } else {
             canvasSpectrum
         }
     }
 
-    /// CPU-rendered spectrum via Canvas.
+    /// System-rendered fallback spectrum via Canvas.
     private var canvasSpectrum: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0,
-                                paused: reduceMotion || !playback.state.isPlaying)) { timeline in
-            // Update peaks in the ViewBuilder closure (main thread, before
-            // drawing) rather than writing @State during Canvas rendering.
-            let decayed = updatePeaks(date: timeline.date)
+                                paused: !sampling)) { timeline in
             Canvas { ctx, size in
-                drawSpectrum(ctx: ctx, size: size, values: decayed)
+                drawSpectrum(ctx: ctx, size: size, values: peaks)
+            }
+            .onChange(of: timeline.date) { _, date in
+                _ = updatePeaks(date: date)
             }
         }
-        .frame(height: 120)
-        .onAppear {
-            // The handler runs on the audio render thread; hop to the main
-            // thread to write @State.
-            playback.installSpectrumHandler { frame in
-                DispatchQueue.main.async {
-                    current = frame
-                }
-            }
-        }
+        .onAppear { PerfTrace.event("spectrum.canvas.appear"); syncSampling() }
+        .onChange(of: sampling) { _, _ in syncSampling() }
         .onDisappear {
-            playback.removeSpectrumHandler()
+            PerfTrace.event("spectrum.canvas.disappear")
+            if let handlerOwner { playback.removeSpectrumHandler(owner: handlerOwner) }
+            handlerOwner = nil
+        }
+    }
+
+    private var sampling: Bool {
+        !reduceMotion && playback.transportState.isPlaying && playback.transportState.audioProcessing == .available
+    }
+
+    private func syncSampling() {
+        if sampling, handlerOwner == nil {
+            let buffer = samples
+            handlerOwner = playback.installSpectrumHandler { buffer.write($0) }
+        } else if !sampling, let handlerOwner {
+            playback.removeSpectrumHandler(owner: handlerOwner)
+            self.handlerOwner = nil
         }
     }
 
@@ -59,7 +68,7 @@ struct SpectrumView: View {
     /// peaks and tracking the current bands. Returns the peak array to draw
     /// (a copy, avoiding @State mutation inside the Canvas).
     private func updatePeaks(date: Date) -> [Float] {
-        let bands = current?.bands ?? Array(repeating: 0, count: bandCount)
+        let bands = samples.read()?.bands ?? Array(repeating: 0, count: bandCount)
         guard bands.count == bandCount else { return peaks }
 
         if reduceMotion {
@@ -90,12 +99,12 @@ struct SpectrumView: View {
         let gap = unit * 0.2
 
         // A single Apple Music accent, with a vertical opacity gradient.
-        let gradient = Gradient(colors: [BrandColors.magenta,
-                                         BrandColors.magenta.opacity(0.55)])
+        let gradient = Gradient(colors: [BrandColors.accent,
+                                         BrandColors.accent.opacity(0.55)])
         let shading = GraphicsContext.Shading.linearGradient(
             gradient, startPoint: CGPoint(x: 0, y: midY), endPoint: CGPoint(x: 0, y: 0)
         )
-        let mirrorColor = BrandColors.magenta.opacity(0.3)
+        let mirrorColor = BrandColors.accent.opacity(0.3)
 
         for i in 0..<bandCount {
             let v = CGFloat(values[i])

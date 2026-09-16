@@ -9,7 +9,7 @@
 #
 # 参数/环境:
 #   --identity <id>   签名身份(默认 $MUSES_SIGN_IDENTITY 或 "-" = ad-hoc)
-#   MUSES_VERSION     覆盖 CFBundleShortVersionString(默认 0.4.0)
+#   MUSES_VERSION     覆盖 CFBundleShortVersionString(默认 0.5.0)
 #   MUSES_BUILD       覆盖 CFBundleVersion(默认 1)
 #   MUSES_GOOGLE_OAUTH_CLIENT_ID       Muses 项目持有的 Desktop OAuth client ID
 #   MUSES_GOOGLE_OAUTH_CLIENT_SECRET   可选；installed-app client 通常留空
@@ -26,19 +26,25 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 # 解析 --identity。
+# Use --output to stage validation builds without replacing a running bundle.
 IDENTITY="${MUSES_SIGN_IDENTITY:-}"
+APP="build/Muses.app"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --identity) IDENTITY="$2"; shift 2 ;;
+        --output) APP="$2"; shift 2 ;;
         *) echo "未知参数: $1" >&2; exit 1 ;;
     esac
 done
 [[ -z "$IDENTITY" ]] && IDENTITY="-"
+if [[ "$APP" != *.app || "$APP" == ".app" ]]; then
+    echo "Output must be an .app bundle path" >&2
+    exit 1
+fi
 
-VERSION="${MUSES_VERSION:-0.4.0}"
+VERSION="${MUSES_VERSION:-0.5.0}"
 BUILD="${MUSES_BUILD:-1}"
 
-APP="build/Muses.app"
 CONTENTS="$APP/Contents"
 
 echo "== Muses .app 打包 (身份: $IDENTITY, 版本: $VERSION) =="
@@ -50,14 +56,15 @@ echo "== Muses .app 打包 (身份: $IDENTITY, 版本: $VERSION) =="
 # 2) Release 构建。
 echo "[1/5] swift build -c release"
 swift build -c release
+RELEASE_DIR="$(swift build -c release --show-bin-path)"
 
 # 3) 装配 .app 结构。
 echo "[2/5] 装配 $APP"
 rm -rf "$APP"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources" "$CONTENTS/Helpers"
 
-cp ".build/release/Muses" "$CONTENTS/MacOS/Muses"
-cp ".build/release/MusesWebHomeHelper" "$CONTENTS/Helpers/MusesWebHomeHelper"
+cp "$RELEASE_DIR/Muses" "$CONTENTS/MacOS/Muses"
+cp "$RELEASE_DIR/MusesWebHomeHelper" "$CONTENTS/Helpers/MusesWebHomeHelper"
 chmod 700 "$CONTENTS/Helpers/MusesWebHomeHelper"
 
 # 4) 拷贝资源 + Info.plist。
@@ -67,6 +74,14 @@ for f in yt-dlp yt-dlp-LICENSE AppIcon.icns logo.png MonteCarlo.ttf; do
     [[ -f "$RES_DIR/$f" ]] && cp "$RES_DIR/$f" "$CONTENTS/Resources/"
 done
 cp "$RES_DIR/Info.plist" "$CONTENTS/Info.plist"
+"$REPO_ROOT/Scripts/build-app-intents.sh" Release "$CONTENTS/Resources"
+# Bundle.module must resolve inside the installed app, not a source checkout.
+RESOURCE_BUNDLE="$RELEASE_DIR/Muses_Muses.bundle"
+if [[ ! -d "$RESOURCE_BUNDLE" ]]; then
+    echo "Missing SwiftPM resource bundle: $RESOURCE_BUNDLE" >&2
+    exit 1
+fi
+/usr/bin/ditto "$RESOURCE_BUNDLE" "$CONTENTS/Resources/Muses_Muses.bundle"
 
 # 5) 注入版本号。
 echo "[4/5] 注入版本 $VERSION ($BUILD)"

@@ -28,10 +28,12 @@ struct MusesGlass<S: Shape>: ViewModifier {
     let tint: Color?
     let role: MusesGlassRole
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
 
     func body(content: Content) -> some View {
         let opaque = (reduceTransparency
-                     || NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast)
+                     || contrast == .increased)
         if opaque {
             content.background(BrandColors.surface, in: shape)
         } else if #available(macOS 26.0, *) {
@@ -44,7 +46,7 @@ struct MusesGlass<S: Shape>: ViewModifier {
     @available(macOS 26.0, *)
     private var glassVariant: Glass {
         let base = tint.map { Glass.regular.tint($0) } ?? .regular
-        return role.isInteractive ? base.interactive() : base
+        return role.isInteractive ? base.interactive(!reduceMotion) : base
     }
 }
 
@@ -90,13 +92,18 @@ extension View {
             .overlay(shape.stroke(BrandColors.textPrimary.opacity(0.12), lineWidth: 1))
     }
 
-    /// Opaque black floating panel (Queue). Not glass.
-    func musesOpaquePanel(cornerRadius: CGFloat = 18) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        return self
-            .background(Color.black, in: shape)
-            .clipShape(shape)
-            .overlay(shape.stroke(BrandColors.textPrimary.opacity(0.12), lineWidth: 1))
-    }
+}
 
+/// A bounded chrome group; browsing artwork never participates in glass morphs.
+struct MusesGlassGroup<Content: View>: View {
+    var spacing: CGFloat = 12
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        if #available(macOS 26.0, *) {
+            GlassEffectContainer(spacing: spacing, content: content)
+        } else {
+            content()
+        }
+    }
 }

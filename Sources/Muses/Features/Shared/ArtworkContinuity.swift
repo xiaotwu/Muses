@@ -119,6 +119,7 @@ struct CoverSlotPreferenceKey: PreferenceKey {
 
 /// Full-window Now Playing environment: gradient + scrim, behind chrome and the live cover.
 struct NowPlayingEnvironmentLayer: View {
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(PlaybackService.self) private var playback
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @State private var gradient: [Color] = [
@@ -134,6 +135,13 @@ struct NowPlayingEnvironmentLayer: View {
         Group {
             if requiresOpaqueBackground {
                 BrandColors.background
+            } else if colorScheme == .light {
+                LinearGradient(colors: [Color(nsColor: .windowBackgroundColor), .white],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                    .overlay {
+                        LinearGradient(colors: gradient, startPoint: .topLeading, endPoint: .bottomTrailing)
+                            .opacity(0.08)
+                    }
             } else {
                 LinearGradient(
                     colors: gradient + [Color(red: 0.025, green: 0.028, blue: 0.038)],

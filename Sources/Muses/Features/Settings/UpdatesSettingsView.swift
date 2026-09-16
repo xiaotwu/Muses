@@ -3,16 +3,16 @@ import SwiftUI
 /// Muses module resource locator (lets tests reach files copied in via SPM `.copy("Resources")`).
 enum MusesResources {
     /// Info.plist template URL (packaging injects it into .app/Contents/Info.plist).
-    static let infoPlistURL = Bundle.module.url(forResource: "Info", withExtension: "plist")
+    static let infoPlistURL = Bundle.module.url(forResource: "Info", withExtension: "plist", subdirectory: "Resources")
     /// Entitlements template URL (used by codesign --entitlements).
-    static let entitlementsURL = Bundle.module.url(forResource: "Muses", withExtension: "entitlements")
+    static let entitlementsURL = Bundle.module.url(forResource: "Muses", withExtension: "entitlements", subdirectory: "Resources")
     /// MonteCarlo font URL (registered as an available font at app launch).
-    static let monteCarloFontURL = Bundle.module.url(forResource: "MonteCarlo", withExtension: "ttf")
+    static let monteCarloFontURL = Bundle.module.url(forResource: "MonteCarlo", withExtension: "ttf", subdirectory: "Resources")
 }
 
 /// Update settings: GitHub Release auto-check switch + check now + version status.
 ///
-/// `UpdateService` queries the GitHub Releases API (repos/xiaotwu/noname123/releases/latest)
+/// `UpdateService` queries the GitHub Releases API (repos/xiaotwu/Muses/releases/latest)
 /// and compares it with `CFBundleShortVersionString`. Personal use only — nothing auto-installs:
 /// when a new version exists, "Download" opens the GitHub Release page.
 struct UpdatesSettingsView: View {
@@ -20,9 +20,9 @@ struct UpdatesSettingsView: View {
     @Environment(UpdateService.self) private var updater
 
     var body: some View {
-        Section(tr("Updates", "更新")) {
+        Section {
             Toggle(tr("Check for Updates Automatically", "自动检查更新"), isOn: $checkAutomatically)
-                .tint(BrandColors.magenta)
+                .tint(BrandColors.accent)
 
             HStack {
                 Button {
@@ -31,8 +31,10 @@ struct UpdatesSettingsView: View {
                     Label(tr("Check for Updates Now", "立即检查更新"),
                           systemImage: "arrow.triangle.2.circlepath")
                 }
-                .buttonStyle(.bordered)
-                .tint(BrandColors.magenta)
+                .labelStyle(ActionIconLabelStyle())
+                .help(tr("Check for Updates Now", "立即检查更新"))
+                .musesAction()
+                .tint(BrandColors.accent)
                 .disabled(updater.isChecking)
 
                 if updater.isChecking {
@@ -41,7 +43,7 @@ struct UpdatesSettingsView: View {
             }
 
             statusView
-        }
+        } header: { Text(tr("Updates", "更新")).font(.headline.weight(.semibold)) }
     }
 
     /// Version status row: current version / latest version / update availability / download button / error.
@@ -58,7 +60,7 @@ struct UpdatesSettingsView: View {
                 Text("·").foregroundStyle(BrandColors.textSecondary)
                 Text("\(tr("Latest", "最新")) \(latest)")
                     .font(.caption)
-                    .foregroundStyle(updater.hasUpdate ? BrandColors.magenta
+                    .foregroundStyle(updater.hasUpdate ? BrandColors.accent
                                      : BrandColors.textSecondary)
             }
         }
@@ -68,8 +70,10 @@ struct UpdatesSettingsView: View {
             } label: {
                 Label(tr("Download Update", "下载更新"), systemImage: "arrow.down.circle")
             }
-            .buttonStyle(.borderedProminent)
-            .tint(BrandColors.magenta)
+            .labelStyle(ActionIconLabelStyle())
+            .help(tr("Download Update", "下载更新"))
+            .musesAction(prominent: true)
+            .tint(BrandColors.accent)
         }
     }
 }

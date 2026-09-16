@@ -25,7 +25,7 @@ struct PlaylistDetailView: View {
             title: playlist.name,
             subtitle: tr(
                 "\(rows.count) songs • Playlist Order",
-                "\(rows.count) 首歌曲 • 歌单顺序"
+                "\(rows.count) 首歌曲 • 歌单顺序", zhHant: "\(rows.count) 首歌曲 • 歌單順序"
             ),
             rows: rows,
             defaultSort: .playlistOrder,
@@ -33,9 +33,13 @@ struct PlaylistDetailView: View {
             playlists: allPlaylists,
             emptyTitle: tr("Playlist is empty", "歌单为空"),
             emptySubtitle: tr(
-                "Add YouTube songs from a song's context menu",
-                "通过歌曲的右键菜单添加 YouTube 歌曲"
+                "Add YouTube songs from Search or a song's context menu.",
+                "从搜索或歌曲的右键菜单添加 YouTube 歌曲。"
             ),
+            emptyActionTitle: tr("Open Search", "打开搜索"),
+            emptyAction: {
+                NotificationCenter.default.post(name: .musesFocusSearch, object: nil)
+            },
             onPlay: { row in
                 playback.playTrack(row.snapshot, context: snapshots, from: .playlist)
             },
@@ -49,23 +53,20 @@ struct PlaylistDetailView: View {
             }
         ) {
             HStack(spacing: 8) {
-                ChromeIconButton(
-                    systemName: "chevron.backward",
-                    help: tr("Back", "返回"),
-                    accessibility: tr("Back", "返回")
-                ) { selectedPlaylist = nil }
-                ChromeIconButton(
-                    systemName: "play.fill",
-                    help: tr("Play All", "播放全部"),
-                    accessibility: tr("Play All", "播放全部"),
-                    action: playAll
-                )
-                ChromeIconButton(
-                    systemName: "shuffle",
-                    help: tr("Shuffle", "随机播放"),
-                    accessibility: tr("Shuffle", "随机播放"),
-                    action: shuffleAll
-                )
+                if !rows.isEmpty {
+                    ChromeIconButton(
+                        systemName: "play.fill",
+                        help: tr("Play All", "播放全部"),
+                        accessibility: tr("Play All", "播放全部"),
+                        action: playAll
+                    )
+                    ChromeIconButton(
+                        systemName: "shuffle",
+                        help: tr("Shuffle", "随机播放"),
+                        accessibility: tr("Shuffle", "随机播放"),
+                        action: shuffleAll
+                    )
+                }
             }
         }
         .onAppear(perform: reloadRows)

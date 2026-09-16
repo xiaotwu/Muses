@@ -18,7 +18,7 @@ struct YouTubeImportMetadataTests {
         let bridge = MockImportBridge()
         bridge.entries = [
             YTDlpBridge.YTDlpPlaylistEntry(
-                id: "track_oembed_1", title: "Song A", uploader: "Some Channel", duration: 200),
+                id: "oembed00001", title: "Song A", uploader: "Some Channel", duration: 200),
         ]
 
         YouTubeImportMetadataStub.reset()
@@ -65,7 +65,7 @@ struct YouTubeImportMetadataTests {
         let bridge = MockImportBridge()
         bridge.entries = [
             YTDlpBridge.YTDlpPlaylistEntry(
-                id: "track_oembed_1", title: "Song A", uploader: "Fallback Channel", duration: 200),
+                id: "oembed00001", title: "Song A", uploader: "Fallback Channel", duration: 200),
         ]
 
         YouTubeImportMetadataStub.reset()
@@ -91,7 +91,7 @@ struct YouTubeImportMetadataTests {
         #expect(imp.title == "YouTube Playlist", "Failed oEmbed should fall back to placeholder title")
         #expect(imp.channel == "Fallback Channel", "Failed oEmbed should fall back to first entry's uploader")
         // Fallback artwork: the first video's hqdefault.
-        #expect(imp.artworkUrl == "https://i.ytimg.com/vi/track_oembed_1/hqdefault.jpg")
+        #expect(imp.artworkUrl == "https://i.ytimg.com/vi/oembed00001/hqdefault.jpg")
     }
 }
 final class YouTubeImportMetadataStub: StubURLProtocolBase, @unchecked Sendable {

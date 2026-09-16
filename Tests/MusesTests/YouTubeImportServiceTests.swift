@@ -6,6 +6,21 @@ import SwiftData
 @MainActor
 @Suite("YouTubeImportService", .serialized)
 struct YouTubeImportServiceTests {
+    @Test("playlist import filters channels and malformed entries before creating items")
+    func mixedPlaylistResults() async throws {
+        let container = try makeModelContainer(inMemory: true)
+        let bridge = MockImportBridge()
+        bridge.entries = [
+            .init(id: "UCabcdefghijklmnopqrstuv", title: "Channel"),
+            .init(id: "abcdefghijk", title: "Video"),
+            .init(id: "invalid id", title: "Invalid")
+        ]
+        let service = makeService(bridge: bridge, container: container)
+        _ = try await service.importPlaylist(url: "https://www.youtube.com/playlist?list=PLmixed")
+        let context = ModelContext(container)
+        #expect(try context.fetch(FetchDescriptor<Track>()).map(\.youTubeId) == ["abcdefghijk"])
+        #expect(try context.fetch(FetchDescriptor<YouTubeImportItem>()).map(\.youTubeId) == ["abcdefghijk"])
+    }
 
     // MARK: - 1. importPlaylist creates import + items + tracks
 
@@ -15,9 +30,9 @@ struct YouTubeImportServiceTests {
         let bridge = MockImportBridge()
         bridge.entries = [
             YTDlpBridge.YTDlpPlaylistEntry(
-                id: "track_a", title: "Song A", uploader: "Chan", duration: 201.5),
+                id: "track_a0000", title: "Song A", uploader: "Chan", duration: 201.5),
             YTDlpBridge.YTDlpPlaylistEntry(
-                id: "track_b", title: "Song B", uploader: "Chan", duration: 180.0),
+                id: "track_b0000", title: "Song B", uploader: "Chan", duration: 180.0),
         ]
 
         let service = makeService(bridge: bridge, container: container)
@@ -44,30 +59,30 @@ struct YouTubeImportServiceTests {
 
         let sortedItems = (imp.items ?? []).sorted { $0.order < $1.order }
         #expect(sortedItems.count == 2)
-        #expect(sortedItems[0].youTubeId == "track_a")
+        #expect(sortedItems[0].youTubeId == "track_a0000")
         #expect(sortedItems[0].order == 0)
         #expect(sortedItems[0].title == "Song A")
         #expect(sortedItems[0].artist == "Chan")
         #expect(sortedItems[0].durationMs == 201500)
-        #expect(sortedItems[1].youTubeId == "track_b")
+        #expect(sortedItems[1].youTubeId == "track_b0000")
         #expect(sortedItems[1].order == 1)
         #expect(sortedItems[1].durationMs == 180000)
 
         // Track: source .youtube, correct youTubeId, artworkUrl points at the thumbnail.
         let tracks = try verifyCtx.fetch(FetchDescriptor<Track>())
         #expect(tracks.count == 2)
-        let v1Track = try #require(tracks.first { $0.youTubeId == "track_a" })
+        let v1Track = try #require(tracks.first { $0.youTubeId == "track_a0000" })
         #expect(v1Track.title == "Song A")
-        #expect(v1Track.artworkUrl == "https://i.ytimg.com/vi/track_a/hqdefault.jpg")
-        let v2Track = try #require(tracks.first { $0.youTubeId == "track_b" })
-        #expect(v2Track.artworkUrl == "https://i.ytimg.com/vi/track_b/hqdefault.jpg")
+        #expect(v1Track.artworkUrl == "https://i.ytimg.com/vi/track_a0000/hqdefault.jpg")
+        let v2Track = try #require(tracks.first { $0.youTubeId == "track_b0000" })
+        #expect(v2Track.artworkUrl == "https://i.ytimg.com/vi/track_b0000/hqdefault.jpg")
 
         // import.artworkUrl points at the first video's thumbnail.
-        #expect(imp.artworkUrl == "https://i.ytimg.com/vi/track_a/hqdefault.jpg")
+        #expect(imp.artworkUrl == "https://i.ytimg.com/vi/track_a0000/hqdefault.jpg")
 
         // item.track is linked.
-        #expect(sortedItems[0].track?.youTubeId == "track_a")
-        #expect(sortedItems[1].track?.youTubeId == "track_b")
+        #expect(sortedItems[0].track?.youTubeId == "track_a0000")
+        #expect(sortedItems[1].track?.youTubeId == "track_b0000")
     }
 
     // MARK: - 2. Edge cases: empty playlist / invalid URL
@@ -91,7 +106,7 @@ struct YouTubeImportServiceTests {
         let bridge = MockImportBridge()
         bridge.entries = [
             YTDlpBridge.YTDlpPlaylistEntry(
-                id: "x1", title: "X", uploader: "C", duration: 10.0),
+                id: "x1000000000", title: "X", uploader: "C", duration: 10.0),
         ]
         let service = makeService(bridge: bridge, container: container)
 
@@ -106,9 +121,9 @@ struct YouTubeImportServiceTests {
         let bridge = MockImportBridge()
         bridge.entries = [
             YTDlpBridge.YTDlpPlaylistEntry(
-                id: "track_a", title: "Song A", uploader: "Chan", duration: 10),
+                id: "track_a0000", title: "Song A", uploader: "Chan", duration: 10),
             YTDlpBridge.YTDlpPlaylistEntry(
-                id: "track_b", title: "Song B", uploader: "Chan", duration: 12),
+                id: "track_b0000", title: "Song B", uploader: "Chan", duration: 12),
         ]
         let service = makeService(bridge: bridge, container: container)
         let url = "https://www.youtube.com/playlist?list=PLreuse"
@@ -127,7 +142,7 @@ struct YouTubeImportServiceTests {
         let bridge = MockImportBridge()
         bridge.entries = [
             YTDlpBridge.YTDlpPlaylistEntry(
-                id: "track_a", title: "Song A", uploader: "Chan", duration: 10,
+                id: "track_a0000", title: "Song A", uploader: "Chan", duration: 10,
                 playlistTitle: "Triumph on the Ice"),
         ]
         let service = makeService(bridge: bridge, container: container)
@@ -139,15 +154,16 @@ struct YouTubeImportServiceTests {
         #expect(try ModelContext(container).fetch(FetchDescriptor<CatalogArtist>()).isEmpty)
     }
 
-    @Test("repairYouTubeLibrary merges tracks with same youTubeId and does not create catalog identity from text")
-    func repairMergesDuplicateYouTubeTracks() async throws {
+    @Test("startup repair preserves duplicate video UUIDs and their user data")
+    func repairPreservesDuplicateYouTubeTracks() async throws {
         let container = try makeModelContainer(inMemory: true)
         let bridge = MockImportBridge()
         bridge.entries = [
             YTDlpBridge.YTDlpPlaylistEntry(
-                id: "track_a", title: "Song A", uploader: "Chan", duration: 10),
+                id: "track_a0000", title: "Song A", uploader: "Chan", duration: 10),
         ]
-        let service = makeService(bridge: bridge, container: container)
+        let service = makeService(bridge: bridge, container: container,
+                                  catalog: YouTubeCatalogService(modelContainer: container))
         _ = try await service.importPlaylist(
             url: "https://www.youtube.com/playlist?list=PLdup")
 
@@ -155,26 +171,33 @@ struct YouTubeImportServiceTests {
         let original = try #require(ctx.fetch(FetchDescriptor<Track>()).first)
         original.playCount = 2
         let dupe1 = Track(title: "Song A", artist: "Chan",
-                          durationMs: 10000, youTubeId: "track_a")
+                          durationMs: 10000, youTubeId: "track_a0000")
         dupe1.playCount = 3
         dupe1.liked = true
         dupe1.lastPlayedAt = Date()
         ctx.insert(dupe1)
         let dupe2 = Track(title: "Song A", artist: "Chan",
-                          durationMs: 10000, youTubeId: "track_a")
+                          durationMs: 10000, youTubeId: "track_a0000")
         dupe2.playCount = 1
         ctx.insert(dupe2)
+        ctx.insert(TrackNote(trackId: dupe1.id, content: "Keep this note"))
+        ctx.insert(PlaylistItem(order: 7, track: dupe2))
         try ctx.save()
 
         service.repairYouTubeLibrary()
 
         let verify = ModelContext(container)
         let tracks = try verify.fetch(FetchDescriptor<Track>())
-        #expect(tracks.count == 1)
-        let kept = try #require(tracks.first)
-        #expect(kept.playCount == 6)
-        #expect(kept.liked == true)
-        #expect(kept.releaseCatalogID == nil)
+        #expect(Set(tracks.map(\.id)) == Set([original.id, dupe1.id, dupe2.id]))
+        #expect(tracks.first { $0.id == original.id }?.playCount == 2)
+        #expect(tracks.first { $0.id == dupe1.id }?.playCount == 3)
+        #expect(tracks.first { $0.id == dupe1.id }?.liked == true)
+        #expect(tracks.first { $0.id == dupe2.id }?.playCount == 1)
+        #expect(tracks.allSatisfy { $0.releaseCatalogID == nil })
+        let note = try #require(verify.fetch(FetchDescriptor<TrackNote>()).first)
+        #expect(note.trackId == dupe1.id && note.content == "Keep this note")
+        let entry = try #require(verify.fetch(FetchDescriptor<PlaylistItem>()).first)
+        #expect(entry.track?.id == dupe2.id && entry.order == 7)
         #expect(try verify.fetch(FetchDescriptor<CatalogRelease>()).isEmpty)
         #expect(try verify.fetch(FetchDescriptor<CatalogArtist>()).isEmpty)
     }
@@ -185,11 +208,11 @@ struct YouTubeImportServiceTests {
         let bridge = MockImportBridge()
         bridge.entries = [
             YTDlpBridge.YTDlpPlaylistEntry(
-                id: "track_a", title: "Song A", uploader: "Chan", duration: 10,
+                id: "track_a0000", title: "Song A", uploader: "Chan", duration: 10,
                 playlistTitle: "Ice Album", channelID: "UCice",
                 track: "Song A", album: "Ice Album", releaseYear: 2026),
             YTDlpBridge.YTDlpPlaylistEntry(
-                id: "track_b", title: "Song B (Official Music Video)", uploader: "Chan", duration: 12,
+                id: "track_b0000", title: "Song B (Official Music Video)", uploader: "Chan", duration: 12,
                 playlistTitle: "Ice Album", channelID: "UCice"),
         ]
         let service = makeService(bridge: bridge, container: container)
@@ -213,8 +236,8 @@ struct YouTubeImportServiceTests {
         #expect(artist.name == "Chan")
 
         let tracks = try context.fetch(FetchDescriptor<Track>())
-        let song = try #require(tracks.first { $0.youTubeId == "track_a" })
-        let video = try #require(tracks.first { $0.youTubeId == "track_b" })
+        let song = try #require(tracks.first { $0.youTubeId == "track_a0000" })
+        let video = try #require(tracks.first { $0.youTubeId == "track_b0000" })
         #expect(song.releaseCatalogID == release.stableID)
         #expect(video.releaseCatalogID == release.stableID)
         #expect(song.artistCatalogID == artist.stableID)

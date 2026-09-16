@@ -16,7 +16,7 @@ final class HomeFeedCache {
 
         var directoryName: String {
             switch self {
-            case .baseline: "baseline"
+            case .baseline: "baseline-official-v3"
             case .web: "web"
             }
         }

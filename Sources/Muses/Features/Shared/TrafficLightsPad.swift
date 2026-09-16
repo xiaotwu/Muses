@@ -3,6 +3,18 @@ import AppKit
 
 /// Sidebar glass meets the window on three sides and rounds only toward content.
 enum SidebarPaneShape {
+    /// Mirror the leading pane: interior corners round toward browsing content;
+    /// the window supplies the exterior corner clipping.
+    static var trailingShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: AppleMusicTokens.sidebarCorner,
+            bottomLeadingRadius: AppleMusicTokens.sidebarCorner,
+            bottomTrailingRadius: 0,
+            topTrailingRadius: 0,
+            style: .continuous
+        )
+    }
+
     static var shape: UnevenRoundedRectangle {
         UnevenRoundedRectangle(
             topLeadingRadius: 0,
@@ -47,5 +59,16 @@ final class MainWindowConfigurationView: NSView {
         super.viewDidMoveToWindow()
         guard let window else { return }
         MusesSingleInstance.configureMainWindow(window)
+    }
+}
+
+/// SwiftUI can update toolbar presentation after the AppKit configuration runs.
+struct MainWindowTitleHidden: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content.toolbar(removing: .title)
+        } else {
+            content
+        }
     }
 }

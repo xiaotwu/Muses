@@ -9,6 +9,11 @@ protocol YTDlpBridgeProtocol: AnyObject {
     func fetchPlaylist(url: String, timeout: TimeInterval) async throws -> [YTDlpBridge.YTDlpPlaylistEntry]
     func searchYouTube(query: String, limit: Int, timeout: TimeInterval) async throws -> [YTDlpBridge.YTDlpPlaylistEntry]
     func version() async -> String?
+    func invalidateSearch(query: String, limit: Int)
+}
+
+extension YTDlpBridgeProtocol {
+    func invalidateSearch(query: String, limit: Int) {}
 }
 
 extension YTDlpBridge: YTDlpBridgeProtocol {}
@@ -16,7 +21,9 @@ extension YTDlpBridge: YTDlpBridgeProtocol {}
 /// YouTube streaming playback engine implementing the `PlayerEngine` protocol.
 ///
 /// The playback graph uses two `AVAudioPlayerNode`s → preMixer →
-/// AVAudioUnitEQ (32 bands) → mainMixerNode, supporting gapless hand-off to the next queued track.
+/// AVAudioUnitEQ (32-band unit; the UI configures 10 bands) → mainMixerNode,
+/// supporting gapless hand-off to the next queued track.
+/// `setEQ` and spectrum taps are no-ops while audio is on the AVPlayer streaming path.
 ///
 /// Three playback paths:
 /// 1. **AVAudioFile (primary; EQ/spectrum available)**: the local temp file already exists (left over from a previous play or
@@ -41,7 +48,9 @@ final class YouTubeStreamEngine: PlayerEngine {
     /// Idle node used for prefetching/gapless hand-off.
     private var inactivePlayer: AVAudioPlayerNode { activePlayer === playerA ? playerB : playerA }
 
-    private var currentFile: AVAudioFile?
+    private var requestedEQ: [EQBand] = []
+    private var requestedSpectrum: ((SpectrumFrame) -> Void)?
+    private var currentFile: AVAudioFile? { didSet { updateAudioProcessingAvailability() } }
     private var currentTrack: TrackSnapshot?
     private var fileFrames: AVAudioFramePosition = 0
     private var posTimer: Timer?
@@ -65,9 +74,9 @@ final class YouTubeStreamEngine: PlayerEngine {
     private var timeObserver: Any?
     private var endTimeObserver: NSObjectProtocol?
     /// Set when download/decode failed irrecoverably and playback stays on AVPlayer. `isInFallbackMode` reports this only.
-    private var useAVPlayerFallback = false
+    private var useAVPlayerFallback = false { didSet { updateAudioProcessingAvailability() } }
     /// Hybrid streaming stage: AVPlayer started instantly, awaiting the background download before switching to AVAudioFile.
-    private var isStreamingMode = false
+    private var isStreamingMode = false { didSet { updateAudioProcessingAvailability() } }
     /// Hybrid hand-off task (background download + decode + fade switch), cancellable.
     private var swapTask: Task<Void, Never>?
     /// Playback intent is independent from `state.isPlaying`: the latter may be
@@ -96,6 +105,7 @@ final class YouTubeStreamEngine: PlayerEngine {
     var _isPrefetched: Bool { prefetchedFile != nil }
     /// Whether hybrid streaming is in progress (AVPlayer playing instantly, awaiting the background download before switching).
     var _isStreamingMode: Bool { isStreamingMode }
+    var _appliedEQGains: [Float] { eq.bands.map(\.gain) }
     /// Regression-test seam for detecting a backend that outlives paused state.
     var _hasActivePlayback: Bool {
         playerA.isPlaying || playerB.isPlaying || (avPlayer?.rate ?? 0) > 0
@@ -367,27 +377,45 @@ final class YouTubeStreamEngine: PlayerEngine {
     }
 
     func setEQ(_ bands: [EQBand]) {
-        // EQ is unavailable on the AVPlayer path
+        requestedEQ = bands
         if useAVPlayerFallback || isStreamingMode { return }
+        applyEQ(bands)
+    }
+
+    private func applyEQ(_ bands: [EQBand]) {
         for i in 0..<min(bands.count, eq.bands.count) {
             let b = eq.bands[i]
+            guard bands[i].frequency.isFinite, bands[i].gain.isFinite, bands[i].q.isFinite else {
+                b.bypass = true
+                continue
+            }
             b.filterType = .parametric
-            b.frequency = Float(bands[i].frequency)
-            b.gain = Float(bands[i].gain)
-            b.bandwidth = Float(bands[i].q)
+            b.frequency = Float(max(20, min(bands[i].frequency, eq.outputFormat(forBus: 0).sampleRate / 2)))
+            b.gain = max(-96, min(24, bands[i].gain))
+            b.bandwidth = max(0.05, min(5, bands[i].q))
             b.bypass = false
         }
         for i in bands.count..<eq.bands.count { eq.bands[i].bypass = true }
     }
 
     func installSpectrumTap(_ handler: @escaping (SpectrumFrame) -> Void) {
-        // Spectrum is unavailable on the AVPlayer path; no tap installed
+        requestedSpectrum = handler
+        // Keep intent while streaming; the decoded-file handoff installs the tap.
         if useAVPlayerFallback || isStreamingMode { return }
         spectrumTap.start(on: eq, bus: 0,
                           format: eq.outputFormat(forBus: 0), handler: handler)
     }
 
-    func removeSpectrumTap() { spectrumTap.stop() }
+    func removeSpectrumTap() {
+        requestedSpectrum = nil
+        spectrumTap.stop()
+    }
+
+    private func updateAudioProcessingAvailability() {
+        if useAVPlayerFallback { state.audioProcessing = .streamOnly }
+        else if isStreamingMode { state.audioProcessing = .waitingForDownload }
+        else { state.audioProcessing = currentFile == nil ? .unavailable : .available }
+    }
 
     // MARK: - Hybrid streaming: short fade from AVPlayer to AVAudioFile
 
@@ -448,6 +476,7 @@ final class YouTubeStreamEngine: PlayerEngine {
         next.volume = 0
         if playbackRequested, ioCycleReady, hasAudioOutput { next.play() }
 
+        applyEQ(requestedEQ)
         // ~200ms fade (10 steps × 20ms): AVPlayer volume →0, AVAudioPlayerNode →target
         let steps = 10
         for step in 1...steps {
@@ -527,6 +556,7 @@ final class YouTubeStreamEngine: PlayerEngine {
     /// source. This prevents an old decoded node from continuing underneath a
     /// new AVPlayer and makes later pause calls independent of stale mode flags.
     private func resetPlaybackForNewLoad() {
+        spectrumTap.stop()
         scheduleGen += 1
         cancelStreamingSwap()
         posTimer?.invalidate()
@@ -589,6 +619,9 @@ final class YouTubeStreamEngine: PlayerEngine {
     /// Writes the AVAudioFile duration/quality info into `state` (shared by the AVAudioFile primary path).
     private func applyFileState(file: AVAudioFile, track: TrackSnapshot,
                                 position: Double = 0) {
+        applyEQ(requestedEQ)
+        if let requestedSpectrum { installSpectrumTap(requestedSpectrum) }
+        updateAudioProcessingAvailability()
         let sr = file.processingFormat.sampleRate
         state.duration = Double(file.length) / sr
         state.position = position
@@ -656,6 +689,8 @@ final class YouTubeStreamEngine: PlayerEngine {
     private func startAVPlayer(url: URL, fallback: Bool,
                                loadGeneration: UInt64, trackId: UUID) {
         useAVPlayerFallback = fallback
+        let sourceDuration = StreamDurationPolicy.sourceDuration(url)
+        if let sourceDuration { state.duration = sourceDuration }
         let item = AVPlayerItem(url: url)
         avPlayer = AVPlayer(playerItem: item)
         avPlayer?.volume = currentTargetVolume()
@@ -668,7 +703,9 @@ final class YouTubeStreamEngine: PlayerEngine {
                       self.loadIsCurrent(generation: loadGeneration, trackId: trackId),
                       let p = self.avPlayer else { return }
                 self.state.position = cmTime.seconds
-                if let dur = p.currentItem?.duration,
+                if let sourceDuration {
+                    self.state.duration = sourceDuration
+                } else if let dur = p.currentItem?.duration,
                    dur.seconds.isFinite, dur.seconds > 0 {
                     self.state.duration = dur.seconds
                 }

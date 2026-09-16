@@ -14,12 +14,15 @@ struct CollectionPage<Controls: View>: View {
     var emptyIcon: String = "music.note.list"
     var emptyTitle: String
     var emptySubtitle: String
+    var emptyActionTitle: String? = nil
+    var emptyAction: (() -> Void)? = nil
     let onPlay: (CollectionTrackRow) -> Void
     var onRemove: ((CollectionTrackRow) -> Void)? = nil
     private let controls: Controls
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var mode = CollectionPageMode.stage
+    @Environment(\.collectionPresentation) private var presentation
 
     init(
         title: String,
@@ -32,6 +35,8 @@ struct CollectionPage<Controls: View>: View {
         emptyIcon: String = "music.note.list",
         emptyTitle: String,
         emptySubtitle: String,
+        emptyActionTitle: String? = nil,
+        emptyAction: (() -> Void)? = nil,
         onPlay: @escaping (CollectionTrackRow) -> Void,
         onRemove: ((CollectionTrackRow) -> Void)? = nil,
         @ViewBuilder controls: () -> Controls
@@ -46,6 +51,8 @@ struct CollectionPage<Controls: View>: View {
         self.emptyIcon = emptyIcon
         self.emptyTitle = emptyTitle
         self.emptySubtitle = emptySubtitle
+        self.emptyActionTitle = emptyActionTitle
+        self.emptyAction = emptyAction
         self.onPlay = onPlay
         self.onRemove = onRemove
         self.controls = controls()
@@ -61,48 +68,54 @@ struct CollectionPage<Controls: View>: View {
                 icon: emptyIcon,
                 emptyTitle: emptyTitle,
                 emptySubtitle: emptySubtitle,
+                emptyActionTitle: emptyActionTitle,
+                emptyAction: emptyAction,
                 controls: controls
             )
             .background(BrandColors.background)
         } else {
             ZStack {
-                CollectionDeckStage(
-                    title: title,
-                    subtitle: subtitle,
-                    youTubeURL: youTubeURL,
-                    rows: rows,
-                    currentTrack: currentTrack,
-                    playlists: playlists,
-                    isInteractionEnabled: mode == .stage,
-                    onPlay: onPlay,
-                    onRemove: onRemove,
-                    onExpand: { transition(to: .list) },
-                    controls: controls
-                )
-                .opacity(mode == .stage ? 1 : 0)
-                .offset(y: mode == .stage ? 0 : -22)
-                .allowsHitTesting(mode == .stage)
-                .disabled(mode != .stage)
-                .accessibilityHidden(mode != .stage)
+                RetainedCollectionSurface(isVisible: mode == .stage) {
+                    CollectionDeckStage(
+                        title: title,
+                        subtitle: subtitle,
+                        youTubeURL: youTubeURL,
+                        rows: rows,
+                        currentTrack: currentTrack,
+                        playlists: playlists,
+                        isInteractionEnabled: mode == .stage,
+                        onPlay: onPlay,
+                        onRemove: onRemove,
+                        onExpand: { transition(to: .list) },
+                        controls: controls
+                    )
+                    .opacity(mode == .stage ? 1 : 0)
+                    .offset(y: mode == .stage ? 0 : -22)
+                    .allowsHitTesting(mode == .stage)
+                    .disabled(mode != .stage)
+                    .accessibilityHidden(mode != .stage)
+                }
 
-                CollectionListPanel(
-                    title: title,
-                    subtitle: subtitle,
-                    youTubeURL: youTubeURL,
-                    rows: rows,
-                    defaultSort: defaultSort,
-                    currentTrack: currentTrack,
-                    playlists: playlists,
-                    onPlay: onPlay,
-                    onRemove: onRemove,
-                    onCollapse: { transition(to: .stage) },
-                    controls: controls
-                )
-                .opacity(mode == .list ? 1 : 0)
-                .offset(y: mode == .list ? 0 : 26)
-                .allowsHitTesting(mode == .list)
-                .disabled(mode != .list)
-                .accessibilityHidden(mode != .list)
+                RetainedCollectionSurface(isVisible: mode == .list) {
+                    CollectionListPanel(
+                        title: title,
+                        subtitle: subtitle,
+                        youTubeURL: youTubeURL,
+                        rows: rows,
+                        defaultSort: defaultSort,
+                        currentTrack: currentTrack,
+                        playlists: playlists,
+                        onPlay: onPlay,
+                        onRemove: onRemove,
+                        onCollapse: { transition(to: .stage) },
+                        controls: controls
+                    )
+                    .opacity(mode == .list ? 1 : 0)
+                    .offset(y: mode == .list ? 0 : 26)
+                    .allowsHitTesting(mode == .list)
+                    .disabled(mode != .list)
+                    .accessibilityHidden(mode != .list)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
@@ -112,9 +125,8 @@ struct CollectionPage<Controls: View>: View {
                     transition(to: .stage)
                 }
             }
-            .onChange(of: title) { _, _ in
-                mode = .stage
-            }
+            .onAppear { mode = presentation?.mode ?? .stage }
+            .onChange(of: mode) { _, value in presentation?.mode = value }
         }
     }
 
@@ -137,6 +149,8 @@ private struct CollectionEmptyPanel<Controls: View>: View {
     let icon: String
     let emptyTitle: String
     let emptySubtitle: String
+    var emptyActionTitle: String? = nil
+    var emptyAction: (() -> Void)? = nil
     let controls: Controls
 
     var body: some View {
@@ -147,7 +161,13 @@ private struct CollectionEmptyPanel<Controls: View>: View {
             .padding(.horizontal, AppleMusicTokens.contentPaddingX)
             .padding(.top, AppleMusicSpacing.browseTitleTop)
 
-            EmptyStateView(icon: icon, title: emptyTitle, subtitle: emptySubtitle)
+            EmptyStateView(
+                icon: icon,
+                title: emptyTitle,
+                subtitle: emptySubtitle,
+                actionTitle: emptyActionTitle,
+                action: emptyAction
+            )
                 .padding(.top, AppleMusicSpacing.headerToPrimary)
         }
     }
@@ -181,6 +201,13 @@ struct CollectionPageHeader<Controls: View>: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 if let youTubeURL {
+                    if let target = YouTubeShareTarget(url: youTubeURL) {
+                        YouTubeShareMenu(target: target)
+                            .labelStyle(.iconOnly)
+                            .menuStyle(.borderlessButton)
+                            .fixedSize()
+                            .frame(minWidth: 28, minHeight: 28)
+                    }
                     Link(destination: youTubeURL) {
                         YouTubeMark(size: 16)
                             .frame(width: 28, height: 28)
@@ -264,7 +291,7 @@ private struct CollectionTrackTable: View {
     @Environment(LibraryService.self) private var library
     @Environment(PlaylistService.self) private var playlistService
     @Environment(PlaybackService.self) private var playback
-    @Environment(InboxService.self) private var inbox
+    @Environment(\.collectionPresentation) private var presentation
     @State private var selection = Set<UUID>()
     @State private var sortOrder: [KeyPathComparator<CollectionTrackRow>]
     @State private var columnCustomization = TableColumnCustomization<CollectionTrackRow>()
@@ -397,6 +424,16 @@ private struct CollectionTrackTable: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             Color.clear.frame(height: OverlayChromeMetrics.scrollBottomInset)
         }
+        .onAppear {
+            if let saved = presentation {
+                selection = saved.selection.intersection(Set(rows.map(\.id)))
+                sortOrder = saved.sortOrder ?? defaultSort.comparators
+                columnCustomization = saved.columns
+            }
+        }
+        .onChange(of: selection) { _, value in presentation?.selection = value }
+        .onChange(of: sortOrder) { _, value in presentation?.sortOrder = value }
+        .onChange(of: columnCustomization) { _, value in presentation?.columns = value }
         .task(id: rows.map(\.id)) { refreshLikedIDs() }
         .onChange(of: library.likedRevision) { _, _ in refreshLikedIDs() }
         .onChange(of: defaultSort) { _, newValue in
@@ -435,7 +472,6 @@ private struct CollectionTrackTable: View {
             )
             .environment(playback)
             .environment(library)
-            .environment(inbox)
             .environment(playlistService)
         }
     }
@@ -506,12 +542,12 @@ private struct CollectionTrackTitleCell: View {
             }
             .buttonStyle(.plain)
             .onHover { hoveringArtwork = $0 }
-            .help(tr("Play \(row.title)", "播放 \(row.title)"))
-            .accessibilityLabel(tr("Play \(row.title)", "播放 \(row.title)"))
+            .help(tr("Play \(row.title)", "播放 \(row.title)", zhHant: "播放 \(row.title)"))
+            .accessibilityLabel(tr("Play \(row.title)", "播放 \(row.title)", zhHant: "播放 \(row.title)"))
 
             Text(row.title)
                 .font(.system(size: 13, weight: isPlaying ? .semibold : .regular))
-                .foregroundStyle(isPlaying ? BrandColors.magenta : BrandColors.textPrimary)
+                .foregroundStyle(isPlaying ? BrandColors.accent : BrandColors.textPrimary)
                 .lineLimit(1)
 
             Spacer(minLength: 4)
@@ -519,14 +555,14 @@ private struct CollectionTrackTitleCell: View {
             Button(action: onToggleLike) {
                 Image(systemName: liked ? "heart.fill" : "heart")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(liked ? BrandColors.magenta : BrandColors.textSecondary)
+                    .foregroundStyle(liked ? BrandColors.accent : BrandColors.textSecondary)
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help(liked ? tr("Unlike", "取消收藏") : tr("Like", "收藏"))
-            .accessibilityLabel(liked ? tr("Unlike \(row.title)", "取消收藏 \(row.title)")
-                                      : tr("Like \(row.title)", "收藏 \(row.title)"))
+            .accessibilityLabel(liked ? tr("Unlike \(row.title)", "取消收藏 \(row.title)", zhHant: "取消喜愛項目 \(row.title)")
+                                      : tr("Like \(row.title)", "收藏 \(row.title)", zhHant: "喜愛項目 \(row.title)"))
         }
         .frame(minHeight: 42)
     }

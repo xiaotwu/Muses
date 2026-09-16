@@ -93,3 +93,15 @@ gh release create v0.4.0 build/Muses-0.4.0.dmg --title "Muses 0.4.0" --notes "�
 ## GitHub Pages
 
 `docs/` doubles as the site source (Jekyll). Set the repository Pages source to *Deploy from branch → `main` → `/docs`* to publish it.
+## 0.5.0 preview build
+
+`make clean` removes the complete SwiftPM build directory and app packaging outputs.
+The GitHub `macOS build` workflow runs serial tests and uploads an ad-hoc signed
+Apple Silicon preview bundle. Publishing a notarized distribution requires a
+Developer ID identity and notary credentials; the public 0.5.0 preview is not notarized.
+OAuth configuration is injected only at packaging time and must not be committed.
+
+Settings uses first-level categories with expanded sections. Shared glass actions
+live in `Features/Shared/GlassControls.swift`; controls use capsule shapes while
+artwork and large reading surfaces preserve their aspect ratios. Native glass is
+availability-gated and retains older-system and accessibility fallbacks.

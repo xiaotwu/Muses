@@ -27,11 +27,11 @@ final class YTDlpBridge {
             case .notFound:
                 tr("yt-dlp binary not found", "yt-dlp 二进制未找到")
             case .exitCode(let code, let stderr):
-                tr("yt-dlp exit code \(code):\(stderr)", "yt-dlp 退出码 \(code):\(stderr)")
+                tr("yt-dlp exit code \(code):\(stderr)", "yt-dlp 退出码 \(code):\(stderr)", zhHant: "yt-dlp 結束碼 \(code):\(stderr)")
             case .timeout:
                 tr("yt-dlp timed out", "yt-dlp 调用超时")
             case .parseFailed(let m):
-                tr("yt-dlp output parse failed: \(m)", "yt-dlp 输出解析失败:\(m)")
+                tr("yt-dlp output parse failed: \(m)", "yt-dlp 输出解析失败:\(m)", zhHant: "yt-dlp 輸出解析失敗:\(m)")
             }
         }
 
@@ -56,6 +56,25 @@ final class YTDlpBridge {
         let track: String?
         let album: String?
         let releaseYear: Int?
+        enum ResourceKind: String, Sendable { case video, channel, playlist, unknown }
+
+        /// Validate cached and fresh flat results equally; channels can appear in ytsearch.
+        var resourceKind: ResourceKind {
+            guard id.utf8.allSatisfy({ (65...90).contains($0) || (97...122).contains($0)
+                || (48...57).contains($0) || $0 == 45 || $0 == 95 }) else { return .unknown }
+            if id.hasPrefix("UC"), id.count == 24 { return .channel }
+            if id.count > 11, ["PL", "OLAK", "UU", "RD"].contains(where: id.hasPrefix) { return .playlist }
+            return id.count == 11 ? .video : .unknown
+        }
+
+        var resourceURL: URL? {
+            switch resourceKind {
+            case .video: return YouTubeShareTarget(kind: .video, id: id)?.url(on: .youtube)
+            case .channel: return YouTubeShareTarget(kind: .channel, id: id)?.url(on: .youtube)
+            case .playlist: return YouTubeShareTarget(kind: .playlist, id: id)?.url(on: .youtube)
+            case .unknown: return nil
+            }
+        }
 
         init(id: String,
              title: String,
@@ -341,6 +360,26 @@ final class YTDlpBridge {
             }
         }
         return entries
+    }
+
+    /// Extracts publisher chapter markers without downloading media or writing metadata files.
+    func fetchChapters(videoId: String, timeout: TimeInterval = 30) async throws -> [YouTubeChapter] {
+        guard YTDlpPlaylistEntry(id: videoId, title: "").resourceKind == .video else {
+            throw YTDlpError.parseFailed("Invalid video identity")
+        }
+        let bin = try await resolveBinary()
+        let args = cookieArgs() + ["--ignore-config", "--skip-download", "--no-playlist",
+                                  "--dump-single-json", "https://www.youtube.com/watch?v=\(videoId)"]
+        let (stdout, _) = try await runInternal(executablePath: bin, args: args, timeout: timeout)
+        try Task.checkCancellation()
+        guard let data = stdout.data(using: .utf8) else {
+            throw YTDlpError.parseFailed("Invalid chapter metadata")
+        }
+        return try YouTubeChapter.decode(data, expectedVideoID: videoId)
+    }
+
+    func invalidateSearch(query: String, limit: Int) {
+        searchCache?.invalidate(query: query, limit: limit)
     }
 
     /// Searches YouTube videos via yt-dlp `ytsearch{N}:{query}`.

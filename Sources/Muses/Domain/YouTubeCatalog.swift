@@ -4,6 +4,28 @@ import SwiftData
 /// Stable identity construction for YouTube Music catalog entities.
 /// Display names are deliberately absent from this API.
 enum YouTubeCatalogIdentity {
+    static func isResolvedRelease(_ value: String?) -> Bool {
+        guard let value else { return false }
+        if value.hasPrefix("browse:") { return validKey(value, prefix: "browse:") }
+        if value.hasPrefix("playlist:") {
+            return validKey(value, prefix: "playlist:") && YouTubePlaylistID.isMusicAlbum(String(value.dropFirst(9)))
+        }
+        return false
+    }
+
+    static func isResolvedArtist(_ value: String?) -> Bool {
+        guard let value else { return false }
+        return validKey(value, prefix: "channel:") || validKey(value, prefix: "browse:")
+    }
+
+    private static func validKey(_ value: String, prefix: String) -> Bool {
+        guard value.hasPrefix(prefix) else { return false }
+        let key = value.dropFirst(prefix.count)
+        return !key.isEmpty && key.utf8.allSatisfy {
+            (65...90).contains($0) || (97...122).contains($0) || (48...57).contains($0) || $0 == 45 || $0 == 95
+        }
+    }
+
     static func release(browseID: String?, playlistID: String?) -> String? {
         if let value = normalized(browseID) { return "browse:\(value)" }
         if let value = normalized(playlistID) { return "playlist:\(value)" }

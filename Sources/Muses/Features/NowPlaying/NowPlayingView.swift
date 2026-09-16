@@ -4,7 +4,7 @@ import AppKit
 /// Pure, testable geometry for the full-window Now Playing composition.
 ///
 /// At the 1440×900 reference size the left stage is 404pt wide and the whole
-/// composition is 1120pt wide, leaving balanced 160pt outer margins. Pausing
+/// composition is 1240pt wide, using more of the available window. Pausing
 /// preserves the artwork and stage geometry; only playback-driven motion stops.
 struct NowPlayingLayout: Equatable {
     enum Presentation: Equatable {
@@ -13,7 +13,7 @@ struct NowPlayingLayout: Equatable {
     }
 
     static let splitBreakpoint: CGFloat = 1_040
-    static let referenceContentWidth: CGFloat = 1_120
+    static let referenceContentWidth: CGFloat = 1_240
     static let referenceStageSide: CGFloat = 404
     static let liveCoverPlayingScale: CGFloat = 1.06
     static let vinylVerticalOffset: CGFloat = -12
@@ -63,7 +63,7 @@ struct NowPlayingLayout: Equatable {
             // Preserve the reference's calm outer field as the window narrows;
             // giving all spare width to the columns makes the cover cling to
             // the leading edge and the lyrics feel detached from it.
-            let contentWidth = min(referenceContentWidth, max(0, safeWidth - 300))
+            let contentWidth = min(referenceContentWidth, max(0, safeWidth - 160))
             let stageSide = min(referenceStageSide, max(292, safeHeight * 0.45))
             let gap = min(144, max(64, 64 + (safeWidth - splitBreakpoint) * 0.2))
             let slotSide = stageSide / artworkScale
@@ -93,11 +93,8 @@ struct NowPlayingLayout: Equatable {
 }
 
 enum NowPlayingInputPolicy {
-    static func acceptsGlobalKeyEvents(
-        nowPlayingPresented: Bool,
-        settingsPresented: Bool
-    ) -> Bool {
-        nowPlayingPresented && !settingsPresented
+    static func acceptsGlobalKeyEvents(nowPlayingPresented: Bool) -> Bool {
+        nowPlayingPresented
     }
 }
 
@@ -105,12 +102,12 @@ enum NowPlayingPresentationPolicy {
     /// Final Open Design prototype: dismissal is opacity-only for 300ms.
     static let dismissDuration: TimeInterval = 0.30
 
-    static func acceptsInteraction(isPresented: Bool, settingsPresented: Bool) -> Bool {
-        isPresented && !settingsPresented
+    static func acceptsInteraction(isPresented: Bool) -> Bool {
+        isPresented
     }
 
-    static func isAccessibilityVisible(isPresented: Bool, settingsPresented: Bool) -> Bool {
-        acceptsInteraction(isPresented: isPresented, settingsPresented: settingsPresented)
+    static func isAccessibilityVisible(isPresented: Bool) -> Bool {
+        acceptsInteraction(isPresented: isPresented)
     }
 }
 
@@ -164,18 +161,18 @@ enum NowPlayingVolumePolicy {
 struct NowPlayingView: View {
     @Binding var isPresented: Bool
     @Binding var showLyrics: Bool
-    @Binding var settingsPresented: Bool
     var coverHostedExternally: Bool = false
 
     @Environment(PlaybackService.self) private var playback
     @Environment(LibraryService.self) private var library
-    @Environment(AudioDeviceService.self) private var audioDevices
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @AppStorage(PrefKey.nowPlayingMode) private var modeRaw: String = NowPlayingMode.cover.rawValue
     @AppStorage(PrefKey.nowPlayingLyricsMode) private var lyricsModeRaw: String = NowPlayingLyricsMode.inline.rawValue
     @State private var escapeMonitor: Any?
     @State private var seeking = false
+    @State private var lyricsInteractionPresented = false
+    @State private var chaptersPresented = false
     @State private var seekValue: Double = 0
     @State private var rememberedAudibleVolume = NowPlayingVolumePolicy.fallbackAudibleVolume
 
@@ -183,10 +180,7 @@ struct NowPlayingView: View {
     private var lyricsMode: NowPlayingLyricsMode {
         NowPlayingLyricsMode(rawValue: lyricsModeRaw) ?? .inline
     }
-    private var lyricsFullscreen: Bool { showLyrics && lyricsMode != .inline }
-    private var outputDevices: [AudioDeviceService.AudioDevice] {
-        NowPlayingOutputDevicePolicy.visibleDevices(audioDevices.devices)
-    }
+    private var lyricsFullscreen: Bool { lyricsMode != .inline }
 
     var body: some View {
         GeometryReader { proxy in
@@ -199,15 +193,13 @@ struct NowPlayingView: View {
 
             ZStack(alignment: .bottomTrailing) {
                 VStack(spacing: 0) {
-                    topChrome
-                        .frame(height: NowPlayingLayout.topChromeHeight, alignment: .top)
 
                     if playback.state.track == nil {
                         emptyState
                     } else if lyricsFullscreen {
                         LyricsFullscreenView(mode: lyricsMode)
                             .padding(.horizontal, layout.presentation == .split ? 48 : 24)
-                            .padding(.bottom, 48)
+                            .padding(.bottom, 24)
                     } else {
                         switch layout.presentation {
                         case .split:
@@ -218,37 +210,36 @@ struct NowPlayingView: View {
                     }
                 }
 
-                if playback.state.track != nil {
-                    lyricsOptions
-                        .padding(.trailing, NowPlayingLayout.mirroredOuterControlInset)
-                        .padding(.bottom, NowPlayingLayout.mirroredOuterControlInset)
-                }
+
             }
         }
+        .onPreferenceChange(LyricsInteractionPresentedKey.self) { lyricsInteractionPresented = $0 }
         .onExitCommand {
-            guard acceptsGlobalKeyEvents else { return }
+            guard acceptsGlobalKeyEvents, !chaptersPresented else { return }
             isPresented = false
         }
         .onKeyPress(.space) {
-            guard acceptsGlobalKeyEvents else { return .ignored }
+            guard acceptsGlobalKeyEvents, !chaptersPresented else { return .ignored }
             playback.toggle()
             return .handled
         }
         .onKeyPress(.escape) {
-            guard acceptsGlobalKeyEvents else { return .ignored }
+            guard acceptsGlobalKeyEvents, !chaptersPresented else { return .ignored }
             isPresented = false
             return .handled
         }
         .onAppear {
-            if audioDevices.devices.isEmpty {
-                audioDevices.refresh()
-            }
             rememberedAudibleVolume = NowPlayingVolumePolicy.rememberedAudibleVolume(
                 current: playback.volume,
                 previous: rememberedAudibleVolume
             )
             escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                guard acceptsGlobalKeyEvents else { return event }
+                if isPresented, chaptersPresented, event.keyCode == 53,
+                   event.window?.identifier == MusesSingleInstance.mainWindowIdentifier {
+                    chaptersPresented = false
+                    return nil
+                }
+                guard acceptsGlobalKeyEvents, !chaptersPresented else { return event }
                 if event.keyCode == 53 {
                     isPresented = false
                     return nil
@@ -258,6 +249,7 @@ struct NowPlayingView: View {
         }
         .onChange(of: playback.state.track?.id) {
             seeking = false
+            chaptersPresented = false
         }
         .onChange(of: playback.volume) { _, volume in
             rememberedAudibleVolume = NowPlayingVolumePolicy.rememberedAudibleVolume(
@@ -274,80 +266,9 @@ struct NowPlayingView: View {
     }
 
     private var acceptsGlobalKeyEvents: Bool {
-        NowPlayingInputPolicy.acceptsGlobalKeyEvents(
-            nowPlayingPresented: isPresented,
-            settingsPresented: settingsPresented
-        )
-    }
-
-    private var topChrome: some View {
-        HStack(spacing: 12) {
-            Button { isPresented = false } label: {
-                Image(systemName: "chevron.backward")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(BrandColors.textPrimary)
-                    .frame(width: 34, height: 32)
-                    .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .musesGlass(in: Capsule(), role: .compactControl)
-            .overlay(Capsule().stroke(BrandColors.hairline, lineWidth: 1))
-            .help(tr("Back", "返回"))
-            .accessibilityLabel(tr("Close Now Playing", "关闭正在播放"))
-
-            Spacer()
-
-            outputAndVolume
-        }
-        .padding(.leading, NowPlayingLayout.leadingControlInset)
-        .padding(.trailing, NowPlayingLayout.mirroredOuterControlInset)
-        .padding(.top, NowPlayingLayout.edgeInset)
-    }
-
-    private var outputAndVolume: some View {
-        LiquidGlassVolumeBar(width: 220, height: 32)
-            .blocksWindowDrag()
-    }
-
-    private var outputMenu: some View {
-        Menu {
-            if outputDevices.isEmpty {
-                Text(tr("No audio outputs available", "无可用音频输出"))
-            } else {
-                ForEach(outputDevices) { device in
-                    Button {
-                        _ = audioDevices.setDefault(device.id)
-                    } label: {
-                        Label {
-                            Text(device.name)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .frame(
-                                    width: NowPlayingOutputDevicePolicy.menuLabelWidth,
-                                    alignment: .leading
-                                )
-                        } icon: {
-                            Image(systemName: device.id == audioDevices.defaultDeviceID
-                                ? "checkmark"
-                                : "speaker.wave.2")
-                                .frame(width: 16)
-                        }
-                        .labelStyle(.titleAndIcon)
-                    }
-                }
-            }
-        } label: {
-            Image(systemName: "airplayaudio")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(BrandColors.magenta)
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .frame(width: 28, height: 28)
-        .help(tr("Audio output", "音频输出"))
-        .accessibilityLabel(tr("Choose audio output", "选择音频输出"))
+        NowPlayingInputPolicy.acceptsGlobalKeyEvents(nowPlayingPresented: isPresented)
+            && ContentKeyboardScope.acceptsShortcuts
+            && !lyricsInteractionPresented
     }
 
     private func splitContent(_ layout: NowPlayingLayout) -> some View {
@@ -357,14 +278,14 @@ struct NowPlayingView: View {
 
             LyricsView(layout: .leading)
                 .padding(.leading, layout.lyricsLeadingInset)
-                .padding(.top, 18)
-                .padding(.bottom, 48)
+                .padding(.top, 8)
+                .padding(.bottom, 24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(width: layout.contentWidth)
         .frame(maxHeight: .infinity)
         .padding(.top, 16)
-        .padding(.bottom, 48)
+        .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -401,6 +322,10 @@ struct NowPlayingView: View {
 
             transportRow
                 .padding(.top, 6)
+
+            LiquidGlassVolumeBar(width: layout.stageSide, height: 40)
+                .padding(.top, 18)
+                .blocksWindowDrag()
         }
         .frame(width: layout.stageSide)
     }
@@ -437,6 +362,9 @@ struct NowPlayingView: View {
             if let videoID = playback.state.track?.youTubeId,
                let url = URL(string: "https://youtu.be/\(videoID)") {
                 Divider()
+                Button(tr("Chapters", "章节", zhHant: "章節"), systemImage: "list.bullet.rectangle") {
+                    chaptersPresented = true
+                }
                 Button {
                     NSWorkspace.shared.open(url)
                 } label: {
@@ -463,6 +391,15 @@ struct NowPlayingView: View {
         .disabled(playback.state.track == nil)
         .help(tr("More", "更多"))
         .accessibilityLabel(tr("More playback actions", "更多播放操作"))
+        .popover(isPresented: $chaptersPresented) {
+            if let videoID = playback.state.track?.youTubeId {
+                YouTubeChaptersView(videoID: videoID) { position in
+                    guard playback.state.track?.youTubeId == videoID else { return }
+                    playback.seek(to: position)
+                    chaptersPresented = false
+                }
+            }
+        }
     }
 
     private var likeButton: some View {
@@ -473,7 +410,7 @@ struct NowPlayingView: View {
         } label: {
             Image(systemName: liked ? "star.fill" : "star")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(liked ? BrandColors.magenta : BrandColors.textPrimary.opacity(0.78))
+                .foregroundStyle(liked ? BrandColors.accent : BrandColors.textPrimary.opacity(0.78))
                 .frame(width: 28, height: 28)
                 .background(BrandColors.textPrimary.opacity(0.12), in: Circle())
                 .contentShape(Circle())
@@ -505,7 +442,8 @@ struct NowPlayingView: View {
                 }
             )
             .controlSize(.mini)
-            .tint(BrandColors.magenta)
+            .tint(BrandColors.accent)
+            .focusEffectDisabled()
             .blocksWindowDrag()
             .accessibilityLabel(tr("Playback position", "播放进度"))
             .accessibilityValue(
@@ -595,7 +533,8 @@ struct NowPlayingView: View {
         Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(selected ? BrandColors.magenta : BrandColors.textPrimary.opacity(0.78))
+                .foregroundStyle(selected ? BrandColors.accent : BrandColors.textPrimary.opacity(0.78))
+                .selectionHalo(selected)
                 .frame(width: 34, height: 34)
                 .background(
                     drawsBackground ? BrandColors.textPrimary.opacity(0.12) : .clear,
@@ -607,51 +546,6 @@ struct NowPlayingView: View {
         .help(help)
         .accessibilityLabel(help)
         .accessibilityValue(selected ? tr("On", "开启") : tr("Off", "关闭"))
-    }
-
-    private var lyricsOptions: some View {
-        Menu {
-            lyricsModeButton(
-                .inline,
-                title: tr("Inline lyrics", "内联歌词")
-            )
-            lyricsModeButton(
-                .lyricsOnly,
-                title: tr("Lyrics only", "仅歌词")
-            )
-            lyricsModeButton(
-                .minimal,
-                title: tr("Minimal lyric", "极简歌词")
-            )
-            Divider()
-            Button(tr("Lyrics Settings…", "歌词设置…")) {
-                NotificationCenter.default.post(
-                    name: .musesOpenSettings,
-                    object: SettingsCategory.lyrics
-                )
-            }
-        } label: {
-            Image(systemName: "quote.bubble")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(BrandColors.textPrimary.opacity(0.78))
-                .frame(width: 32, height: 32)
-                .contentShape(Circle())
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .musesGlass(in: Circle(), role: .compactControl)
-        .overlay(Circle().stroke(BrandColors.hairline, lineWidth: 1))
-        .help(tr("Lyrics options", "歌词选项"))
-        .accessibilityLabel(tr("Lyrics display options", "歌词显示选项"))
-    }
-
-    private func lyricsModeButton(_ mode: NowPlayingLyricsMode, title: String) -> some View {
-        Button {
-            lyricsModeRaw = mode.rawValue
-            showLyrics = mode != .inline
-        } label: {
-            Label(title, systemImage: lyricsMode == mode ? "checkmark" : mode.iconName)
-        }
     }
 
     private var emptyState: some View {

@@ -10,7 +10,7 @@ struct HoverPlayButton: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 30, height: 30)
-                .background(BrandColors.magenta, in: Circle())
+                .background(BrandColors.accent, in: Circle())
         }
         .buttonStyle(.plain)
         .help(tr("Play", "播放"))

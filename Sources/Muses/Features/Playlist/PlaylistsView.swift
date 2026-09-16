@@ -51,7 +51,7 @@ struct PlaylistsView: View {
                     Text(addError).lineLimit(2)
                     Spacer()
                     Button(tr("Dismiss", "关闭")) { self.addError = nil }
-                        .buttonStyle(.bordered)
+                        .musesAction()
                         .controlSize(.small)
                 }
                 .font(.caption)
@@ -63,11 +63,11 @@ struct PlaylistsView: View {
             if let deleted = undoablePlaylistDeletion {
                 HStack(spacing: 10) {
                     Image(systemName: "arrow.uturn.backward")
-                    Text(tr("\(deleted.name) was deleted", "已删除 \(deleted.name)"))
+                    Text(tr("\(deleted.name) was deleted", "已删除 \(deleted.name)", zhHant: "已刪除 \(deleted.name)"))
                         .lineLimit(1)
                     Spacer()
                     Button(tr("Undo", "撤销"), action: undoPlaylistDeletion)
-                        .buttonStyle(.bordered)
+                        .musesAction()
                         .controlSize(.small)
                 }
                 .font(.caption)
@@ -87,8 +87,10 @@ struct PlaylistsView: View {
                         Text(loadError).font(.caption).lineLimit(2)
                     }
                     Spacer()
-                    Button(tr("Retry", "重试"), action: refresh)
-                        .buttonStyle(.bordered)
+                    Button(tr("Retry", "重试"), systemImage: "arrow.clockwise", action: refresh)
+                        .labelStyle(ActionIconLabelStyle())
+                        .help(tr("Retry", "重试"))
+                        .musesAction()
                         .controlSize(.small)
                 }
                 .foregroundStyle(BrandColors.textSecondary)
@@ -109,7 +111,9 @@ struct PlaylistsView: View {
                         icon: "exclamationmark.triangle",
                         title: tr("Playlists unavailable", "歌单暂不可用"),
                         subtitle: tr("Retry to load playlists from this Mac.",
-                                     "请重试从此 Mac 载入歌单。"))
+                                     "请重试从此 Mac 载入歌单。"),
+                        actionTitle: tr("Retry", "重试"),
+                        action: refresh)
                         .padding(16)
                 } else if playlists.isEmpty && activeYouTubeImports.isEmpty
                     && deletedYouTubeImports.isEmpty {
@@ -214,6 +218,9 @@ struct PlaylistsView: View {
                                     revisionImport = imp
                                 }
                                 if let url = URL(string: imp.url) {
+                                    if let target = YouTubeShareTarget(url: url) {
+                                        YouTubeShareMenu(target: target)
+                                    }
                                     Button {
                                         NSWorkspace.shared.open(url)
                                     } label: {
@@ -403,7 +410,7 @@ struct PlaylistsView: View {
 
     private func playlistSubtitle(_ playlist: Playlist) -> String {
         let count = playlistSnapshots(playlist).count
-        return tr("Muses • \(count) songs", "Muses • \(count) 首歌曲")
+        return tr("Muses • \(count) songs", "Muses • \(count) 首歌曲", zhHant: "Muses • \(count) 首歌曲")
     }
 
     private func importSubtitle(_ imported: YouTubeImport) -> String {
@@ -412,11 +419,11 @@ struct PlaylistsView: View {
             ? tr("Unknown owner", "未知所有者") : imported.channel
         guard let status = syncStatuses[imported.id] else {
             return tr("YouTube • \(count) songs • \(owner)",
-                      "YouTube • \(count) 首歌曲 • \(owner)")
+                      "YouTube • \(count) 首歌曲 • \(owner)", zhHant: "YouTube • \(count) 首歌曲 • \(owner)")
         }
         let activity = syncActivitySummary(status)
         return tr("YouTube • \(count) songs • \(owner)\n\(activity)",
-                  "YouTube • \(count) 首歌曲 • \(owner)\n\(activity)")
+                  "YouTube • \(count) 首歌曲 • \(owner)\n\(activity)", zhHant: "YouTube • \(count) 首歌曲 • \(owner)\n\(activity)")
     }
 
     private var playlistEmptyState: some View {
@@ -431,13 +438,15 @@ struct PlaylistsView: View {
                 .font(.callout)
                 .foregroundStyle(BrandColors.textSecondary)
             HStack(spacing: 10) {
-                Button(tr("New Playlist", "新建歌单")) { showCreateSheet = true }
-                    .buttonStyle(.borderedProminent)
-                    .tint(BrandColors.magenta)
+                Button(tr("New Playlist", "新建歌单"), systemImage: "plus") { showCreateSheet = true }
+                    .labelStyle(ActionIconLabelStyle())
+                    .help(tr("New Playlist", "新建歌单"))
+                    .musesAction(prominent: true)
+                    .tint(BrandColors.accent)
                 Button(tr("Import YouTube Playlist", "导入 YouTube 歌单")) {
                     showImportSheet = true
                 }
-                .buttonStyle(.bordered)
+                .musesAction()
             }
         }
         .frame(maxWidth: .infinity, minHeight: 260)
@@ -454,21 +463,21 @@ struct PlaylistsView: View {
         var parts: [String] = []
         if let checked = status.lastRemoteCheckAt {
             parts.append(tr("Checked \(checked.formatted(date: .abbreviated, time: .omitted))",
-                            "检查于 \(checked.formatted(date: .abbreviated, time: .omitted))"))
+                            "检查于 \(checked.formatted(date: .abbreviated, time: .omitted))", zhHant: "檢查於 \(checked.formatted(date: .abbreviated, time: .omitted))"))
         } else {
             parts.append(tr("Not checked", "尚未检查"))
         }
         if let pushed = status.lastPushAt {
             parts.append(tr("Pushed \(pushed.formatted(date: .abbreviated, time: .omitted))",
-                            "推送于 \(pushed.formatted(date: .abbreviated, time: .omitted))"))
+                            "推送于 \(pushed.formatted(date: .abbreviated, time: .omitted))", zhHant: "推送於 \(pushed.formatted(date: .abbreviated, time: .omitted))"))
         }
         if let pulled = status.lastPullAt {
             parts.append(tr("Pulled \(pulled.formatted(date: .abbreviated, time: .omitted))",
-                            "拉取于 \(pulled.formatted(date: .abbreviated, time: .omitted))"))
+                            "拉取于 \(pulled.formatted(date: .abbreviated, time: .omitted))", zhHant: "拉取於 \(pulled.formatted(date: .abbreviated, time: .omitted))"))
         }
         if status.pendingLocalChangeCount > 0 {
             parts.append(tr("\(status.pendingLocalChangeCount) pending",
-                            "\(status.pendingLocalChangeCount) 项待推送"))
+                            "\(status.pendingLocalChangeCount) 项待推送", zhHant: "\(status.pendingLocalChangeCount) 項待推送"))
         }
         return parts.joined(separator: " • ")
     }
@@ -481,9 +490,9 @@ struct PlaylistsView: View {
             .padding(.horizontal, 8)
             .frame(height: 24)
             .background(BrandColors.surface.opacity(0.94),
-                        in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        in: Capsule())
             .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                Capsule()
                     .stroke(BrandColors.hairline, lineWidth: 1)
             }
             .help(appearance.help)
@@ -496,7 +505,7 @@ struct PlaylistsView: View {
             let message = status.errorMessage ?? tr(
                 "This playlist needs sync review.", "此歌单需要同步复核。")
             return (tr("Review", "需复核"), "exclamationmark.triangle.fill",
-                    BrandColors.magenta, message)
+                    BrandColors.accent, message)
         }
         if status.hasIncompleteRemote {
             return (tr("Partial", "未完整"), "arrow.clockwise.circle",
@@ -506,7 +515,7 @@ struct PlaylistsView: View {
         }
         if status.pendingLocalChangeCount > 0 {
             return (tr("\(status.pendingLocalChangeCount) pending",
-                       "\(status.pendingLocalChangeCount) 项待推送"),
+                       "\(status.pendingLocalChangeCount) 项待推送", zhHant: "\(status.pendingLocalChangeCount) 項待推送"),
                     "arrow.up.circle.fill", BrandColors.textPrimary,
                     tr("Local changes are waiting for Push.", "本地修改正在等待推送。"))
         }
@@ -533,7 +542,7 @@ struct PlaylistsView: View {
                         Text(imported.title)
                         if let deletedAt = imported.deletedAt {
                             Text(tr("Deleted \(deletedAt.formatted(date: .abbreviated, time: .omitted))",
-                                    "删除于 \(deletedAt.formatted(date: .abbreviated, time: .omitted))"))
+                                    "删除于 \(deletedAt.formatted(date: .abbreviated, time: .omitted))", zhHant: "刪除於 \(deletedAt.formatted(date: .abbreviated, time: .omitted))"))
                                 .font(.caption)
                                 .foregroundStyle(BrandColors.textSecondary)
                         }
@@ -542,11 +551,11 @@ struct PlaylistsView: View {
                     Button(tr("Restore Locally", "恢复到本地")) {
                         restoreYouTubeImport(imported)
                     }
-                    .buttonStyle(.bordered)
+                    .musesAction()
                 }
                 .padding(10)
                 .background(BrandColors.surface,
-                            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            in: Capsule())
             }
         }
     }
@@ -559,9 +568,9 @@ private enum PlaylistDeletionTarget {
     var title: String {
         switch self {
         case .playlist(let playlist):
-            return tr("Delete \(playlist.name)?", "删除 \(playlist.name)？")
+            return tr("Delete \(playlist.name)?", "删除 \(playlist.name)？", zhHant: "刪除 \(playlist.name)？")
         case .youTubeImport(let imported):
-            return tr("Delete \(imported.title)?", "删除 \(imported.title)？")
+            return tr("Delete \(imported.title)?", "删除 \(imported.title)？", zhHant: "刪除 \(imported.title)？")
         }
     }
 
@@ -619,7 +628,7 @@ struct PlaylistAddChoiceSheet: View {
                 Image(systemName: systemName)
                     .font(.system(size: 20, weight: .semibold))
                     .frame(width: 30)
-                    .foregroundStyle(BrandColors.magenta)
+                    .foregroundStyle(BrandColors.accent)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title).font(.headline).foregroundStyle(BrandColors.textPrimary)
                     Text(subtitle).font(.caption).foregroundStyle(BrandColors.textSecondary)
@@ -630,7 +639,7 @@ struct PlaylistAddChoiceSheet: View {
             }
             .padding(14)
             .background(BrandColors.surface,
-                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        in: Capsule())
         }
         .buttonStyle(.plain)
     }
@@ -658,8 +667,8 @@ struct NewPlaylistSheet: View {
                     isPresented = false
                     name = ""
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(BrandColors.magenta)
+                .musesAction(prominent: true)
+                .tint(BrandColors.accent)
                 .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }

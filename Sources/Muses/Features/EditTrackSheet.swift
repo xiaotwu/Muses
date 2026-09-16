@@ -25,8 +25,8 @@ struct EditTrackSheet: View {
                 Button(tr("Cancel", "取消")) { dismiss() }
                     .foregroundStyle(BrandColors.textSecondary)
                 Button(tr("Save", "保存")) { save() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(BrandColors.magenta)
+                    .musesAction(prominent: true)
+                    .tint(BrandColors.accent)
             }
             .padding(16)
 

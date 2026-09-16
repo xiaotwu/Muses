@@ -24,10 +24,8 @@ final class SessionService {
 
     /// Current active session id (in-memory mirror, avoiding a store lookup per event). nil = no session in progress.
     private var activeSessionId: UUID?
-    /// Read-only access to the in-progress session id (FocusService links FocusSession.listeningSessionId to it).
+    /// Read-only access to the in-progress session id.
     var currentSessionId: UUID? { activeSessionId }
-    /// Playback state before sleep, used on wake to decide whether to resume playback.
-    private var wasPlayingBeforeSleep = false
 
     var isEnabled: Bool { enabledProvider() }
 
@@ -75,26 +73,34 @@ final class SessionService {
     }
 
     private func handle(_ event: PlaybackEvent) {
+        // Recovery remains available when listening statistics are disabled.
+        switch event {
+        case .trackStarted(let snapshot):
+            queue.checkpointPosition(currentTrackId: snapshot.id, lastPositionMs: 0)
+        case .trackSeeked(let id, let position):
+            guard id == (playback.transportState.track?.id ?? queue.currentTrackId) else { return }
+            checkpoint(positionMs: position, trackID: id)
+        case .trackPaused, .trackStopped, .trackSkipped, .trackCompleted: checkpoint()
+        default: break
+        }
         guard isEnabled else { return }
         switch event {
         case .trackStarted(let snap):
             openOrContinueSession(for: snap)
         case .trackPaused, .trackStopped, .trackSkipped:
-            checkpoint()
+            break
         case .trackCompleted:
-            checkpoint()
             // Queue exhausted (repeat off, last track, no inserted item) → end the session naturally
             if queue.repeatMode == .off,
                queue.currentIndex >= queue.items.count - 1,
                queue.upNext.isEmpty {
                 endActiveSession()
             }
-        case .trackSeeked(_, let toMs):
-            checkpoint(positionMs: toMs)
+        case .trackSeeked:
+            break
         case .trackResumed:
             break  // Resuming playback does not change track/position boundaries; the periodic timer keeps checkpointing
-        case .queueChanged, .outputDeviceChanged,
-             .focusSessionStarted, .focusSessionEnded:
+        case .queueChanged, .outputDeviceChanged:
             break
         }
     }
@@ -126,11 +132,13 @@ final class SessionService {
     }
 
     /// Checkpoint: writes the current position into the session row and the `QueueState` crash-recovery slot.
-    /// Uses an explicitly passed `positionMs` when provided (seek events carry their target); otherwise converts from `playback.state.position`.
-    private func checkpoint(positionMs: Double? = nil) {
-        guard let sid = activeSessionId else { return }
-        let posMs = positionMs ?? (max(0, playback.state.position) * 1000.0)
-        let trackId = playback.state.track?.id
+    /// Uses an explicitly passed `positionMs` when provided (seek events carry their target); otherwise converts from `playback.transportState.position`.
+    private func checkpoint(positionMs: Double? = nil, trackID: UUID? = nil) {
+        let posMs = positionMs ?? (max(0, playback.transportState.position) * 1000.0)
+        guard posMs.isFinite, posMs >= 0,
+              let trackId = trackID ?? playback.transportState.track?.id else { return }
+        queue.checkpointPosition(currentTrackId: trackId, lastPositionMs: posMs)
+        guard isEnabled, let sid = activeSessionId else { return }
         let ctx = ModelContext(modelContainer)
         guard let row = (try? ctx.fetch(FetchDescriptor<ListeningSession>()))?
             .first(where: { $0.id == sid }) else { return }
@@ -138,8 +146,6 @@ final class SessionService {
         row.currentTrackId = trackId
         row.updatedAt = Date()
         try? ctx.save()
-        // The crash-recovery slot (single QueueState row) is what launch recovery actually reads.
-        queue.checkpointPosition(currentTrackId: trackId, lastPositionMs: posMs)
     }
 
     /// Ends the current active session (queue exhausted / user "Start Over").
@@ -181,10 +187,8 @@ final class SessionService {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(10))
                 guard let self else { return }
-                guard self.isEnabled,
-                      self.activeSessionId != nil,
-                      self.playback.state.isPlaying,
-                      self.playback.state.track != nil else { continue }
+                guard self.playback.transportState.isPlaying,
+                      self.playback.transportState.track != nil else { continue }
                 self.checkpoint()
             }
         }
@@ -195,24 +199,23 @@ final class SessionService {
     /// Adopt the newest active session and restore its queue position paused.
     /// QueueService.restore() runs before this service is constructed.
     private func checkForRestorableSession() {
-        guard isEnabled else { return }
-        let ctx = ModelContext(modelContainer)
-        var desc = FetchDescriptor<ListeningSession>(
-            sortBy: [SortDescriptor(\.startedAt, order: .reverse)])
-        desc.fetchLimit = 64
-        let sessions = (try? ctx.fetch(desc)) ?? []
-        let active = sessions.filter { $0.status == .active }
-        guard let latest = active.first else { return }
-        // Defensive: a crash may leave several active sessions; close the extras.
-        for extra in active.dropFirst() {
-            extra.statusRaw = SessionStatus.ended.rawValue
-            extra.endedAt = Date()
+        if isEnabled {
+            let ctx = ModelContext(modelContainer)
+            var desc = FetchDescriptor<ListeningSession>(
+                sortBy: [SortDescriptor(\.startedAt, order: .reverse)])
+            desc.fetchLimit = 64
+            let active = ((try? ctx.fetch(desc)) ?? []).filter { $0.status == .active }
+            activeSessionId = active.first?.id
+            for extra in active.dropFirst() {
+                extra.statusRaw = SessionStatus.ended.rawValue
+                extra.endedAt = Date()
+            }
+            try? ctx.save()
         }
-        try? ctx.save()
-        guard queue.current() != nil else { return }
-        let posMs = queue.lastPositionMs ?? latest.currentPositionMs ?? 0
-        activeSessionId = latest.id
-        playback.restoreCurrentPaused(atMs: posMs)
+        guard let current = queue.current() else { return }
+        // An old checkpoint for another item must never seek the restored item.
+        let position = queue.currentTrackId == current.track.id ? queue.lastPositionMs : nil
+        playback.restoreCurrentPaused(atMs: position)
     }
 
     // MARK: - System events (sleep / wake / terminate)
@@ -231,25 +234,19 @@ final class SessionService {
         ) { [weak self] _ in MainActor.assumeIsolated { self?.handleTerminate() } }
     }
 
-    private func handleSleep() {
-        guard isEnabled else { return }
-        wasPlayingBeforeSleep = playback.state.isPlaying
+    func handleSleep() {
         checkpoint()
+        playback.pause()
     }
 
-    private func handleWake() {
-        guard isEnabled else { return }
-        // Best-effort resync: was playing before sleep and currently stopped → resume playback.
-        if wasPlayingBeforeSleep,
-           playback.state.track != nil,
-           !playback.state.isPlaying {
-            playback.toggle()
-        }
+    func handleWake() {
+        // Wake never grants new playback intent.
+        playback.pause()
         checkpoint()
     }
 
     private func handleTerminate() {
-        guard isEnabled else { return }
         checkpoint()
+        playback.pause()
     }
 }

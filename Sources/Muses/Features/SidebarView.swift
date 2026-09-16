@@ -4,46 +4,74 @@ import SwiftData
 
 /// Apple Music Web left nav: Search / Home / New, then Library + playlists, profile at the bottom.
 struct SidebarView: View {
+    var onSettingsCategoryChange: () -> Void = {}
     @Binding var selection: SidebarSection
-    @Binding var showSettings: Bool
-    @Binding var showAbout: Bool
-    @Binding var initialSettingsCategory: SettingsCategory?
     @Binding var selectedPlaylist: Playlist?
     @Binding var selectedYouTubeImport: YouTubeImport?
     @Binding var isCollapsed: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(PlaylistService.self) private var playlistService
     @Environment(YouTubeImportService.self) private var importService
-    @Environment(YouTubeAccountService.self) private var youTubeAccount
     @Environment(YouTubePlaylistSyncService.self) private var playlistSync
+    @AppStorage(PrefKey.settingsLastPane) private var settingsPane = SettingsCategory.general.rawValue
     @State private var playlists: [Playlist] = []
     @Query(sort: \YouTubeImport.importedAt, order: .reverse) private var ytImports: [YouTubeImport]
     @State private var showCreatePlaylist = false
     @State private var showPlaylistChoice = false
     @State private var showImportPlaylist = false
     @State private var operationError: String?
+    @FocusState private var focusedDestination: SidebarSection?
 
     init(
         selection: Binding<SidebarSection>,
-        showSettings: Binding<Bool>,
-        showAbout: Binding<Bool>,
-        initialSettingsCategory: Binding<SettingsCategory?>,
         selectedPlaylist: Binding<Playlist?>,
         selectedYouTubeImport: Binding<YouTubeImport?>,
-        isCollapsed: Binding<Bool> = .constant(false)
+        isCollapsed: Binding<Bool> = .constant(false),
+        onSettingsCategoryChange: @escaping () -> Void = {}
     ) {
+        self.onSettingsCategoryChange = onSettingsCategoryChange
         _selection = selection
-        _showSettings = showSettings
-        _showAbout = showAbout
-        _initialSettingsCategory = initialSettingsCategory
         _selectedPlaylist = selectedPlaylist
         _selectedYouTubeImport = selectedYouTubeImport
         _isCollapsed = isCollapsed
     }
 
+    private var settingsNavigation: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(SettingsCategory.allCases) { category in
+                        if !isCollapsed, category == .youtube { sectionLabel(tr("Content", "内容", zhHant: "內容")) }
+                        if !isCollapsed, category == .diagnostics { sectionLabel(tr("Maintenance & Help", "维护与帮助", zhHant: "維護與說明")) }
+                        let selected = (SettingsCategory(rawValue: settingsPane) ?? .general).destination == category
+                        Button { onSettingsCategoryChange(); settingsPane = category.rawValue } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: category.toolbarIcon).frame(width: 18)
+                                if !isCollapsed { Text(category.sidebarLabel) }
+                                Spacer(minLength: 0)
+                            }
+                            .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                            .padding(.horizontal, 10)
+                            .frame(maxWidth: .infinity, minHeight: AppleMusicTokens.navItemHeight, alignment: .leading)
+                            .settingsSelection(selected)
+                            .foregroundStyle(BrandColors.textPrimary)
+                        }
+                        .buttonStyle(.plain)
+                        .help(category.label)
+                        .accessibilityLabel(category.label)
+                        .accessibilityAddTraits(selected ? .isSelected : [])
+                    }
+                }
+            }
+            Spacer(minLength: 8)
+        }
+    }
+
     var body: some View {
         Group {
-            if isCollapsed {
+            if selection == .settings {
+                settingsNavigation
+            } else if isCollapsed {
                 collapsedBody
             } else {
                 expandedBody
@@ -53,8 +81,12 @@ struct SidebarView: View {
         .padding(.bottom, 10)
         .frame(width: isCollapsed ? AppleMusicTokens.sidebarCollapsedWidth : AppleMusicTokens.sidebarWidth)
         .frame(maxHeight: .infinity, alignment: .top)
-        .musesGlass(in: SidebarPaneShape.shape, role: .persistentChrome)
-        .clipShape(SidebarPaneShape.shape)
+        .background {
+            Color.clear
+                .musesGlass(in: SidebarPaneShape.shape, role: .persistentChrome)
+                .ignoresSafeArea(.container, edges: .top)
+                .allowsHitTesting(false)
+        }
         .sheet(isPresented: $showCreatePlaylist) {
             NewPlaylistSheet(isPresented: $showCreatePlaylist) { name in
                 playlistService.create(name: name)
@@ -100,6 +132,9 @@ struct SidebarView: View {
         .onReceive(NotificationCenter.default.publisher(for: .musesNavigateYouTubeImport)) { _ in
             selection = .playlists
         }
+        .onChange(of: isCollapsed) { _, _ in
+            focusedDestination = selection
+        }
         .onChange(of: selection) { _, new in
             if new != .playlists {
                 selectedPlaylist = nil
@@ -110,45 +145,20 @@ struct SidebarView: View {
 
     private var expandedBody: some View {
         VStack(alignment: .leading, spacing: 2) {
-            TrafficLightsPad()
-                .padding(.top, WindowChromeMetrics.trafficLightTopInset)
-                .padding(.bottom, 2)
-
-            HStack(spacing: 8) {
-                HStack(spacing: 6) {
-                    MusesMark(size: 20)
-                    Text("Muses")
-                        .font(BrandFont.muses(22))
-                        .foregroundStyle(BrandColors.textPrimary)
-                }
-                Spacer(minLength: 0)
-                Button {
-                    withAnimation(MusesMotion.drawerAnimation(reduceMotion: reduceMotion)) {
-                        isCollapsed = true
-                    }
-                } label: {
-                    Image(systemName: "sidebar.leading")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(BrandColors.textSecondary)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(tr("Collapse Sidebar", "折叠边栏"))
-                .accessibilityLabel(tr("Collapse Sidebar", "折叠边栏"))
-            }
-            .padding(.horizontal, 10)
-            .padding(.bottom, 4)
-
-            navRow("magnifyingglass", tr("Search", "搜索"), .search)
-            navRow("house.fill", tr("Home", "首页"), .home)
-            navRow("square.grid.2x2.fill", tr("Discover", "发现"), .new)
+            ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+            navRow("magnifyingglass", SidebarSection.search.title, .search)
+            navRow("house.fill", SidebarSection.home.title, .home)
+            navRow("square.grid.2x2.fill", SidebarSection.new.title, .new)
 
             sectionLabel(tr("Library", "资料库"))
-            navRow("music.note", tr("Songs", "歌曲"), .songs)
-            navRow("square.stack", tr("Albums", "专辑"), .albums)
-            navRow("person.2", tr("Artists", "艺术家"), .artists)
-            navRow("clock.arrow.circlepath", tr("History", "历史记录"), .history)
+            navRow("music.note", SidebarSection.songs.title, .songs)
+            navRow("square.stack", SidebarSection.albums.title, .albums)
+            navRow("person.2", SidebarSection.artists.title, .artists)
+            navRow("heart.fill", SidebarSection.liked.title, .liked)
+            navRow("play.rectangle.fill", SidebarSection.musicVideos.title, .musicVideos)
+            navRow("person.crop.rectangle.stack", SidebarSection.subscriptions.title, .subscriptions)
+            navRow("clock.arrow.circlepath", SidebarSection.history.title, .history)
 
             sectionLabel(tr("Playlists", "歌单"))
             HStack(spacing: 3) {
@@ -163,8 +173,7 @@ struct SidebarView: View {
                     accessibility: tr("Add Playlist", "添加歌单")
                 ) { showPlaylistChoice = true }
             }
-            ScrollView {
-                VStack(spacing: 1) {
+            VStack(spacing: 1) {
                     ForEach(orderedItems) { item in
                         PlaylistSidebarRow(
                             item: item,
@@ -172,12 +181,19 @@ struct SidebarView: View {
                         ) { handlePlaylistTap(item) }
                         .contextMenu {
                             Button(tr("Open", "打开")) { handlePlaylistTap(item) }
+                            if let importID = item.youTubeImportId,
+                               let imported = ytImports.first(where: { $0.id == importID }),
+                               let url = URL(string: imported.url),
+                               let target = YouTubeShareTarget(url: url) {
+                                YouTubeShareMenu(target: target)
+                            }
                             Button(tr("Remove", "移除"), role: .destructive) {
                                 removeSidebarItem(item)
                             }
                         }
                     }
                 }
+            }
             }
 
             Spacer(minLength: 8)
@@ -187,47 +203,31 @@ struct SidebarView: View {
 
     private var collapsedBody: some View {
         VStack(spacing: 6) {
-            TrafficLightsPad()
-                .padding(.top, WindowChromeMetrics.trafficLightTopInset)
-                .padding(.bottom, 2)
-
-            Button {
-                withAnimation(MusesMotion.drawerAnimation(reduceMotion: reduceMotion)) {
-                    isCollapsed = false
-                }
-            } label: {
-                Image(systemName: "sidebar.leading")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(BrandColors.textPrimary.opacity(0.85))
-                    .frame(width: 32, height: 32)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(BrandColors.surface.opacity(0.8))
-                    )
-            }
-            .buttonStyle(.plain)
-            .help(tr("Expand Sidebar", "展开边栏"))
-            .accessibilityLabel(tr("Expand Sidebar", "展开边栏"))
-            .padding(.bottom, 6)
-
-            collapsedNavRow("magnifyingglass", tr("Search", "搜索"), .search)
-            collapsedNavRow("house.fill", tr("Home", "首页"), .home)
-            collapsedNavRow("square.grid.2x2.fill", tr("Discover", "发现"), .new)
+            ScrollView {
+            VStack(spacing: 6) {
+            collapsedNavRow("magnifyingglass", SidebarSection.search.title, .search)
+            collapsedNavRow("house.fill", SidebarSection.home.title, .home)
+            collapsedNavRow("square.grid.2x2.fill", SidebarSection.new.title, .new)
 
             Divider()
                 .padding(.horizontal, 16)
                 .padding(.vertical, 4)
 
-            collapsedNavRow("music.note", tr("Songs", "歌曲"), .songs)
-            collapsedNavRow("square.stack", tr("Albums", "专辑"), .albums)
-            collapsedNavRow("person.2", tr("Artists", "艺术家"), .artists)
-            collapsedNavRow("clock.arrow.circlepath", tr("History", "历史记录"), .history)
-            collapsedNavRow("music.note.list", tr("Playlists", "歌单"), .playlists) {
+            collapsedNavRow("music.note", SidebarSection.songs.title, .songs)
+            collapsedNavRow("square.stack", SidebarSection.albums.title, .albums)
+            collapsedNavRow("person.2", SidebarSection.artists.title, .artists)
+            collapsedNavRow("heart.fill", SidebarSection.liked.title, .liked)
+            collapsedNavRow("play.rectangle.fill", SidebarSection.musicVideos.title, .musicVideos)
+            collapsedNavRow("person.crop.rectangle.stack", SidebarSection.subscriptions.title, .subscriptions)
+            collapsedNavRow("clock.arrow.circlepath", SidebarSection.history.title, .history)
+            collapsedNavRow("music.note.list", SidebarSection.playlists.title, .playlists) {
                 selectedPlaylist = nil
                 selectedYouTubeImport = nil
                 NotificationCenter.default.post(name: .musesShowPlaylistsOverview, object: nil)
             }
 
+            }
+            }
             Spacer(minLength: 8)
             collapsedProfileRow
         }
@@ -241,7 +241,6 @@ struct SidebarView: View {
     ) -> some View {
         let on = isNavSelected(tag)
         return Button {
-            showSettings = false
             if tag == .search {
                 NotificationCenter.default.post(name: .musesFocusSearch, object: nil)
                 extra?()
@@ -255,14 +254,16 @@ struct SidebarView: View {
             Image(systemName: icon)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(on && AppleMusicChrome.selectedNavUsesAccent
-                                 ? BrandColors.magenta : BrandColors.textPrimary.opacity(on ? 1 : 0.85))
+                                 ? BrandColors.accent : BrandColors.textPrimary.opacity(on ? 1 : 0.85))
                 .frame(width: 36, height: 36)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(on ? BrandColors.magenta.opacity(0.18) : Color.clear)
+                        .fill(on ? BrandColors.accent.opacity(0.18) : Color.clear)
+                        .selectionHalo(on)
                 )
         }
         .buttonStyle(.plain)
+        .focused($focusedDestination, equals: tag)
         .accessibilityAddTraits(on ? .isSelected : [])
         .accessibilityLabel(title)
         .help(title)
@@ -270,15 +271,19 @@ struct SidebarView: View {
 
     private var collapsedProfileRow: some View {
         Button {
-            showSettings = true
+            NotificationCenter.default.post(name: .musesOpenSettings, object: nil)
         } label: {
-            Image(systemName: "person.crop.circle.fill")
-                .font(.system(size: 24))
-                .foregroundStyle(BrandColors.textSecondary)
-                .frame(width: 36, height: 36)
+            VStack(spacing: 4) {
+                Image(systemName: "gearshape").font(.system(size: 16, weight: .semibold))
+                Text(tr("Settings", "设置", zhHant: "設定")).font(.system(size: 10, weight: .medium))
+            }
+                .foregroundStyle(selection == .settings ? BrandColors.accent : BrandColors.textSecondary)
+                .frame(width: 72, height: 48)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(tr("Settings", "设置"))
+        .accessibilityAddTraits(selection == .settings ? .isSelected : [])
+        .help(SidebarNavPolicy.settingsFooterTitle())
         .accessibilityLabel(tr("Open Settings", "打开设置"))
     }
 
@@ -303,7 +308,6 @@ struct SidebarView: View {
                         extra: (() -> Void)? = nil) -> some View {
         let on = isNavSelected(tag)
         return Button {
-            showSettings = false
             if tag == .search {
                 NotificationCenter.default.post(name: .musesFocusSearch, object: nil)
                 extra?()
@@ -323,41 +327,24 @@ struct SidebarView: View {
                 Spacer(minLength: 0)
             }
             .foregroundStyle(on && AppleMusicChrome.selectedNavUsesAccent
-                             ? BrandColors.magenta : BrandColors.textPrimary.opacity(on ? 1 : 0.85))
+                             ? BrandColors.accent : BrandColors.textPrimary.opacity(on ? 1 : 0.85))
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, minHeight: AppleMusicTokens.navItemHeight, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(on ? BrandColors.textPrimary.opacity(0.08) : Color.clear)
-            )
+            .settingsSelection(on)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focused($focusedDestination, equals: tag)
         .accessibilityAddTraits(on ? .isSelected : [])
         .accessibilityLabel(title)
     }
 
     private var profileRow: some View {
-        Button {
-            showSettings = true
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "person.crop.circle.fill")
-                    .font(.system(size: 22))
-                    .foregroundStyle(BrandColors.textSecondary)
-                Text(youTubeAccount.account?.channel?.title
-                     ?? tr("Settings", "设置"))
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(BrandColors.textPrimary)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+        navRow("gearshape", tr("Settings", "设置", zhHant: "設定"), .settings) {
+            NotificationCenter.default.post(name: .musesOpenSettings, object: nil)
         }
-        .buttonStyle(.plain)
-        .help(tr("Settings", "设置"))
-        .accessibilityLabel(tr("Open Settings", "打开设置"))
+        .help(SidebarNavPolicy.settingsFooterTitle())
+        .accessibilityLabel(tr("Open Settings", "打开设置", zhHant: "開啟設定"))
     }
 
     private var mergedItems: [SidebarPlaylistItem] {
@@ -392,7 +379,6 @@ struct SidebarView: View {
     }
 
     private func handlePlaylistTap(_ item: SidebarPlaylistItem) {
-        showSettings = false
         selection = .playlists
         switch item.origin {
         case .local:

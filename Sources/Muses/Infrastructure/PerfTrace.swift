@@ -22,13 +22,19 @@ enum PerfTrace {
         let duration: TimeInterval?
     }
 
+    static let capacity = 1024
     private static var records: [Record] = []
     private static let log = AppLog.for("PerfTrace")
+
+    private static func append(_ record: Record) {
+        if records.count >= capacity { records.removeFirst(records.count - capacity + 1) }
+        records.append(record)
+    }
 
     /// Records an instantaneous event (e.g. "first content available").
     static func event(_ name: String) {
         let stamp = Date()
-        records.append(Record(name: name, timestamp: stamp, duration: nil))
+        append(Record(name: name, timestamp: stamp, duration: nil))
         log.info("perf.event \(name) @\(stamp)")
     }
 
@@ -49,7 +55,7 @@ enum PerfTrace {
     static func end(_ interval: Interval) {
         let end = Date()
         let dur = end.timeIntervalSince(interval.start)
-        records.append(Record(name: interval.name, timestamp: interval.start,
+        append(Record(name: interval.name, timestamp: interval.start,
                               duration: dur))
         log.info("perf.end \(interval.name) dur=\(dur)s")
     }

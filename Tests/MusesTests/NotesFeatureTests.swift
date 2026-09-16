@@ -6,6 +6,47 @@ import Testing
 @MainActor
 @Suite("Notes and Bookmarks")
 struct NotesFeatureTests {
+    @Test("save failure rolls back notes and bookmarks and remains retryable")
+    func saveFailureIsAtomic() throws {
+        let container = try makeContainer()
+        let track = try seedTrack(container)
+        let working = NotesService(modelContainer: container, enabledProvider: { true })
+        #expect(working.setTrackNote(trackId: track.id, content: "Original"))
+        enum Failure: Error { case diskFull }
+        let failing = NotesService(modelContainer: container, enabledProvider: { true },
+                                   saveContext: { _ in throw Failure.diskFull })
+        #expect(!failing.setTrackNote(trackId: track.id, content: "Unsaved draft"))
+        #expect(failing.lastError != nil)
+        #expect(failing.revision == 0)
+        #expect(working.note(forTrack: track.id)?.content == "Original")
+        #expect(failing.addBookmark(trackId: track.id, timestampMs: 42, title: nil, note: nil) == nil)
+        #expect(working.bookmarks(forTrack: track.id).isEmpty)
+        #expect(working.setTrackNote(trackId: track.id, content: "Retried"))
+        #expect(working.note(forTrack: track.id)?.content == "Retried")
+    }
+
+    @Test("notes and bookmarks survive closing and reopening an on-disk store")
+    func coldStoreReopen() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("notes.sqlite")
+        let id: UUID = try autoreleasepool {
+            let container = try makeModelContainer(storeURL: url)
+            let track = try seedTrack(container)
+            let service = NotesService(modelContainer: container, enabledProvider: { true })
+            #expect(service.setTrackNote(trackId: track.id, content: "Cold restart note"))
+            #expect(service.addBookmark(trackId: track.id, timestampMs: 63.8, title: "Verse", note: nil) != nil)
+            return track.id
+        }
+        let reopened = try makeModelContainer(storeURL: url)
+        let readOnly = NotesService(modelContainer: reopened, enabledProvider: { false })
+        #expect(readOnly.note(forTrack: id)?.content == "Cold restart note")
+        #expect(readOnly.bookmarks(forTrack: id).first?.timestampMs == 63.8)
+        #expect(readOnly.searchNotes(query: "restart").count == 1)
+        #expect(!readOnly.setTrackNote(trackId: id, content: "Lost"))
+        #expect(readOnly.lastError != nil)
+    }
+
     private func makeContainer() throws -> ModelContainer {
         try makeModelContainer(inMemory: true)
     }
@@ -61,4 +102,24 @@ struct NotesFeatureTests {
         #expect(enabled.note(forTrack: track.id)?.content == "saved")
         #expect(enabled.bookmarks(forTrack: track.id).isEmpty)
     }
+    @Test("saved drafts survive service recreation and bookmark changes; invalid times fail")
+    func persistedDraftAndBookmarkValidation() throws {
+        let container = try makeContainer()
+        let service = NotesService(modelContainer: container, enabledProvider: { true })
+        let track = try seedTrack(container)
+        #expect(service.setTrackNote(trackId: track.id, content: "Listen again"))
+        let id = try #require(service.addBookmark(trackId: track.id, timestampMs: 63.8, title: "Verse", note: nil))
+        #expect(service.updateBookmark(id: id, title: "Chorus", note: "Keep this"))
+        let restored = NotesService(modelContainer: container, enabledProvider: { true })
+        #expect(restored.note(forTrack: track.id)?.content == "Listen again")
+        #expect(restored.bookmarks(forTrack: track.id).first?.timestampMs == 63.8)
+        #expect(restored.bookmarks(forTrack: track.id).first?.title == "Chorus")
+        for time in [-1.0, Double.nan, Double.infinity, Double.greatestFiniteMagnitude] {
+            #expect(service.addBookmark(trackId: track.id, timestampMs: time, title: nil, note: nil) == nil)
+            #expect(service.lastError != nil)
+        }
+        #expect(service.bookmarks(forTrack: track.id).count == 1)
+        #expect(restored.searchNotes(query: "again").count == 1)
+    }
+
 }

@@ -21,7 +21,7 @@ struct PlaylistSidebarRow: View {
                 }
                 Text(item.name)
                     .lineLimit(1)
-                    .foregroundStyle(isSelected ? BrandColors.magenta : BrandColors.textPrimary)
+                    .foregroundStyle(isSelected ? BrandColors.accent : BrandColors.textPrimary)
                 Spacer(minLength: 0)
             }
             .padding(.vertical, 6)
@@ -29,7 +29,7 @@ struct PlaylistSidebarRow: View {
             .frame(maxWidth: .infinity, minHeight: AppleMusicTokens.navItemHeight, alignment: .leading)
             .contentShape(Rectangle())
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                Capsule()
                     .fill(isSelected ? BrandColors.textPrimary.opacity(0.08) : Color.clear)
             )
         }
@@ -42,7 +42,7 @@ struct PlaylistSidebarRow: View {
 
     private var accessibilityLabel: String {
         item.isYouTube
-            ? tr("\(item.name), YouTube playlist", "\(item.name),YouTube 歌单")
-            : tr("\(item.name), playlist", "\(item.name),歌单")
+            ? tr("\(item.name), YouTube playlist", "\(item.name),YouTube 歌单", zhHant: "\(item.name),YouTube 歌單")
+            : tr("\(item.name), playlist", "\(item.name),歌单", zhHant: "\(item.name),歌單")
     }
 }

@@ -9,7 +9,6 @@ struct HomeView: View {
     @Environment(YouTubeSearchService.self) var youTubeSearch
     @Environment(HomeDiscoveryService.self) var discovery
     @Environment(WebHomeSessionController.self) var webHome
-    @Environment(FocusService.self) var focus
     @Environment(YouTubeAccountService.self) var youTubeAccount
     @Environment(GlobalSearchService.self) var globalSearch
     @Query(sort: \YouTubeImport.importedAt, order: .reverse) var imports: [YouTubeImport]
@@ -71,12 +70,11 @@ struct HomeView: View {
                     webRecoveryBanner
                 }
 
-                if !youTubeAccount.isConnected {
-                    guestBanner
-                } else if youTubeAccount.channelState.errorMessage != nil
-                            || youTubeAccount.playlistsState.errorMessage != nil
-                            || youTubeAccount.subscriptionsState.errorMessage != nil
-                            || youTubeAccount.likedVideosState.errorMessage != nil {
+                if youTubeAccount.isConnected,
+                   youTubeAccount.channelState.errorMessage != nil
+                    || youTubeAccount.playlistsState.errorMessage != nil
+                    || youTubeAccount.subscriptionsState.errorMessage != nil
+                    || youTubeAccount.likedVideosState.errorMessage != nil {
                     accountRefreshFailureBanner
                 }
 
@@ -91,11 +89,7 @@ struct HomeView: View {
                     .padding(.horizontal, AppleMusicTokens.contentPaddingX)
                 }
 
-                if focus.isActive {
-                    focusState
-                } else {
-                    discoveryShelves
-                }
+                discoveryShelves
 
                 if !activeImports.isEmpty {
                     importedPlaylistsShelf
@@ -172,11 +166,15 @@ struct HomeDiscoveryEmptyState: View {
                 .font(.subheadline)
                 .foregroundStyle(BrandColors.textSecondary)
             HStack(spacing: 10) {
-                Button(tr("Search", "搜索"), action: onSearch)
-                Button(tr("Retry", "重试"), action: onRetry)
+                Button(tr("Search", "搜索"), systemImage: "magnifyingglass", action: onSearch)
+                .labelStyle(ActionIconLabelStyle())
+                .help(tr("Search", "搜索"))
+                Button(tr("Retry", "重试"), systemImage: "arrow.clockwise", action: onRetry)
+                .labelStyle(ActionIconLabelStyle())
+                .help(tr("Retry", "重试"))
             }
-            .buttonStyle(.bordered)
-            .tint(BrandColors.magenta)
+            .musesAction()
+            .tint(BrandColors.accent)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -198,9 +196,11 @@ struct DiscoveryFailureStrip: View {
                 .font(.subheadline)
                 .foregroundStyle(BrandColors.textSecondary)
             Spacer()
-            Button(tr("Retry", "重试"), action: onRetry)
-                .buttonStyle(.bordered)
-                .tint(BrandColors.magenta)
+            Button(tr("Retry", "重试"), systemImage: "arrow.clockwise", action: onRetry)
+                .labelStyle(ActionIconLabelStyle())
+                .help(tr("Retry", "重试"))
+                .musesAction()
+                .tint(BrandColors.accent)
         }
         .padding(14)
         .background(BrandColors.surface,
@@ -231,8 +231,10 @@ struct DiscoveryUnavailableShelf: View {
                     .foregroundStyle(BrandColors.textSecondary)
             }
             Spacer()
-            Button(tr("Retry", "重试"), action: onRetry)
-                .buttonStyle(.bordered)
+            Button(tr("Retry", "重试"), systemImage: "arrow.clockwise", action: onRetry)
+                .labelStyle(ActionIconLabelStyle())
+                .help(tr("Retry", "重试"))
+                .musesAction()
                 .controlSize(.small)
         }
         .padding(.horizontal, AppleMusicTokens.contentPaddingX)

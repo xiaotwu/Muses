@@ -72,10 +72,10 @@ struct PlaylistSidebarAdapterTests {
 
     @Test("detect: Single video links")
     func detectVideo() {
-        #expect(YouTubeLinkKind.detect("https://www.youtube.com/watch?v=abc123") == .video)
-        #expect(YouTubeLinkKind.detect("https://youtu.be/abc123") == .video)
-        #expect(YouTubeLinkKind.detect("https://www.youtube.com/shorts/abc123") == .video)
-        #expect(YouTubeLinkKind.detect("https://www.youtube.com/embed/abc123") == .video)
+        #expect(YouTubeLinkKind.detect("https://www.youtube.com/watch?v=abc12345678") == .video)
+        #expect(YouTubeLinkKind.detect("https://youtu.be/abc12345678") == .video)
+        #expect(YouTubeLinkKind.detect("https://www.youtube.com/shorts/abc12345678") == .video)
+        #expect(YouTubeLinkKind.detect("https://www.youtube.com/embed/abc12345678") == .video)
     }
 
     @Test("detect: Invalid, empty, or non-YouTube link returns unknown")

@@ -1,6 +1,19 @@
 import SwiftData
 import SwiftUI
 
+private struct UnresolvedCatalogNotice: View {
+    let count: Int
+    var body: some View {
+        Label(tr("\(count) songs have unresolved catalog identities. They remain available in Songs.",
+                 "\(count) 首歌曲的目录身份尚未解析，仍可在「歌曲」中播放。",
+                 zhHant: "\(count) 首歌曲的目錄身分尚未解析，仍可在「歌曲」中播放。"),
+              systemImage: "info.circle")
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
 // MARK: - Releases (Albums) Overview
 
 enum ReleaseFilter: String, CaseIterable, Identifiable {
@@ -38,6 +51,7 @@ struct CatalogReleasesView: View {
     @Environment(YouTubeCatalogService.self) private var catalog
     @Environment(PlaybackService.self) private var playback
     @State private var releases: [CatalogReleaseProjection] = []
+    @State private var unresolvedCount = 0
     @State private var loading = true
     @State private var searchQuery = ""
     @State private var filter: ReleaseFilter = .all
@@ -81,6 +95,7 @@ struct CatalogReleasesView: View {
             VStack(alignment: .leading, spacing: 20) {
                 pageHeader
                 filterBar
+                if unresolvedCount > 0 { UnresolvedCatalogNotice(count: unresolvedCount) }
 
                 if loading {
                     CatalogLoadingGrid()
@@ -89,8 +104,9 @@ struct CatalogReleasesView: View {
                         icon: "square.stack",
                         title: tr("No albums yet", "还没有专辑"),
                         subtitle: tr(
-                            "Add songs or import playlists to see your albums here.",
-                            "添加歌曲或导入歌单后即可在此查看专辑。"
+                            "Import an official YouTube Music album to establish its catalog identity.",
+                            "导入官方 YouTube Music 专辑以确认其目录身份。",
+                            zhHant: "匯入官方 YouTube Music 專輯以確認其目錄身分。"
                         ),
                         onRefresh: refresh
                     )
@@ -178,9 +194,9 @@ struct CatalogReleasesView: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .frame(maxWidth: 240)
-            .background(BrandColors.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(BrandColors.surface, in: Capsule())
             .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                Capsule()
                     .stroke(BrandColors.hairline, lineWidth: 1)
             )
 
@@ -196,7 +212,7 @@ struct CatalogReleasesView: View {
                             .padding(.vertical, 6)
                             .background(
                                 filter == item
-                                ? BrandColors.magenta
+                                ? BrandColors.accent
                                 : BrandColors.surface,
                                 in: Capsule()
                             )
@@ -231,9 +247,9 @@ struct CatalogReleasesView: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(BrandColors.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(BrandColors.surface, in: Capsule())
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    Capsule()
                         .stroke(BrandColors.hairline, lineWidth: 1)
                 )
                 .foregroundStyle(BrandColors.textPrimary)
@@ -244,6 +260,7 @@ struct CatalogReleasesView: View {
 
     private func load() {
         releases = catalog.releases()
+        unresolvedCount = catalog.unresolvedCounts().releases
         loading = false
     }
 
@@ -297,9 +314,9 @@ struct CatalogReleaseDetailView: View {
         if minutes >= 60 {
             let hours = minutes / 60
             let remMin = minutes % 60
-            return tr("\(hours) hr \(remMin) min", "\(hours) 小时 \(remMin) 分钟")
+            return tr("\(hours) hr \(remMin) min", "\(hours) 小时 \(remMin) 分钟", zhHant: "\(hours) 小時 \(remMin) 分鐘")
         }
-        return tr("\(minutes) minutes", "\(minutes) 分钟")
+        return tr("\(minutes) minutes", "\(minutes) 分钟", zhHant: "\(minutes) 分鐘")
     }
 
     var body: some View {
@@ -321,13 +338,6 @@ struct CatalogReleaseDetailView: View {
 
     private var topNavigationBar: some View {
         HStack(spacing: 8) {
-            ChromeIconButton(
-                systemName: "chevron.backward",
-                help: tr("Back", "返回"),
-                accessibility: tr("Back", "返回")
-            ) {
-                selection = nil
-            }
             Text(tr("Albums", "专辑"))
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(BrandColors.textSecondary)
@@ -355,10 +365,10 @@ struct CatalogReleaseDetailView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text(release.kind == .single ? tr("SINGLE", "单曲") : (release.kind == .ep ? tr("EP", "EP") : tr("ALBUM", "专辑")))
                     .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(BrandColors.magenta)
+                    .foregroundStyle(BrandColors.accent)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
-                    .background(BrandColors.magenta.opacity(0.12), in: Capsule())
+                    .background(BrandColors.accent.opacity(0.12), in: Capsule())
 
                 Text(release.title)
                     .font(.system(size: 26, weight: .bold))
@@ -374,10 +384,10 @@ struct CatalogReleaseDetailView: View {
                     HStack(spacing: 4) {
                         Text(release.artistName)
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(BrandColors.magenta)
+                            .foregroundStyle(BrandColors.accent)
                         Image(systemName: "chevron.right")
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(BrandColors.magenta.opacity(0.8))
+                            .foregroundStyle(BrandColors.accent.opacity(0.8))
                     }
                 }
                 .buttonStyle(.plain)
@@ -387,7 +397,7 @@ struct CatalogReleaseDetailView: View {
                         Text("\(year)")
                         Text("•")
                     }
-                    Text(tr("\(release.tracks.count) songs", "\(release.tracks.count) 首歌曲"))
+                    Text(tr("\(release.tracks.count) songs", "\(release.tracks.count) 首歌曲", zhHant: "\(release.tracks.count) 首歌曲"))
                     if totalDurationSeconds > 0 {
                         Text("•")
                         Text(formattedDuration)
@@ -410,7 +420,7 @@ struct CatalogReleaseDetailView: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 18)
                         .padding(.vertical, 8)
-                        .background(BrandColors.magenta, in: Capsule())
+                        .background(BrandColors.accent, in: Capsule())
                     }
                     .buttonStyle(.plain)
 
@@ -480,7 +490,7 @@ struct CatalogReleaseDetailView: View {
                     trackRow(index: index + 1, snapshot: track)
                 }
             }
-            .background(BrandColors.surface.opacity(0.5), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(BrandColors.surface.opacity(0.5), in: Capsule())
         }
     }
 
@@ -495,7 +505,7 @@ struct CatalogReleaseDetailView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(snapshot.title)
                     .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
-                    .foregroundStyle(isCurrent ? BrandColors.magenta : BrandColors.textPrimary)
+                    .foregroundStyle(isCurrent ? BrandColors.accent : BrandColors.textPrimary)
                     .lineLimit(1)
                 Text(snapshot.artist)
                     .font(.system(size: 11))
@@ -549,13 +559,13 @@ struct CatalogReleaseDetailView: View {
                     } label: {
                         HStack(spacing: 5) {
                             Image(systemName: "plus.circle.fill")
-                            Text(tr("Import \(missing.count) Missing Tracks", "导入 \(missing.count) 首缺失曲目"))
+                            Text(tr("Import \(missing.count) Missing Tracks", "导入 \(missing.count) 首缺失曲目", zhHant: "導入 \(missing.count) 首缺失曲目"))
                         }
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(BrandColors.magenta, in: Capsule())
+                        .background(BrandColors.accent, in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
@@ -599,10 +609,10 @@ struct CatalogReleaseDetailView: View {
                                     Text(tr("Add", "添加"))
                                 }
                                 .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(BrandColors.magenta)
+                                .foregroundStyle(BrandColors.accent)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 3)
-                                .background(BrandColors.magenta.opacity(0.12), in: Capsule())
+                                .background(BrandColors.accent.opacity(0.12), in: Capsule())
                             }
                             .buttonStyle(.plain)
                         }
@@ -612,7 +622,7 @@ struct CatalogReleaseDetailView: View {
                         } label: {
                             Image(systemName: "play.circle.fill")
                                 .font(.system(size: 16))
-                                .foregroundStyle(BrandColors.magenta)
+                                .foregroundStyle(BrandColors.accent)
                         }
                         .buttonStyle(.plain)
                     }
@@ -620,7 +630,7 @@ struct CatalogReleaseDetailView: View {
                     .padding(.vertical, 8)
                 }
             }
-            .background(BrandColors.surface.opacity(0.5), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(BrandColors.surface.opacity(0.5), in: Capsule())
         }
     }
 
@@ -636,11 +646,13 @@ struct CatalogReleaseDetailView: View {
     }
 
     private func checkOnlineTracklist() {
+        guard !isLoadingOnlineTracks else { return }
+        onlineTracksError = nil
         isLoadingOnlineTracks = true
         hasCheckedOnline = true
         Task {
             do {
-                let entries = try await catalog.fetchAlbumOnlineTracks(release: release)
+                let entries = try await catalog.fetchAlbumOnlineTracks(release: release, forceRefresh: true)
                 await MainActor.run {
                     self.onlineTracks = entries
                     self.isLoadingOnlineTracks = false
@@ -682,7 +694,8 @@ struct CatalogReleaseDetailView: View {
                 entry: entry,
                 releaseStableID: release.stableID,
                 albumTitle: release.title,
-                artistName: release.artistName
+                artistName: release.artistName,
+                saveToLibrary: false
             ) {
                 playback.playTrack(snapshot, context: release.tracks, from: .album)
             }
@@ -717,6 +730,7 @@ struct CatalogArtistsView: View {
     @Environment(YouTubeCatalogService.self) private var catalog
     @Environment(PlaybackService.self) private var playback
     @State private var artists: [CatalogArtistProjection] = []
+    @State private var unresolvedCount = 0
     @State private var loading = true
     @State private var searchQuery = ""
     @State private var sort: ArtistSort = .name
@@ -743,6 +757,7 @@ struct CatalogArtistsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 pageHeader
                 filterBar
+                if unresolvedCount > 0 { UnresolvedCatalogNotice(count: unresolvedCount) }
 
                 if loading {
                     CatalogLoadingGrid()
@@ -751,8 +766,9 @@ struct CatalogArtistsView: View {
                         icon: "person.2",
                         title: tr("No artists yet", "还没有艺术家"),
                         subtitle: tr(
-                            "Add songs or import playlists to see your artists here.",
-                            "添加歌曲或导入歌单后即可在此查看艺术家。"
+                            "Artists appear when imported metadata includes a verified channel or browse ID.",
+                            "导入元数据包含可确认的频道或浏览 ID 时，会在此显示艺人。",
+                            zhHant: "匯入中繼資料包含可確認的頻道或瀏覽 ID 時，會在此顯示藝人。"
                         ),
                         onRefresh: refresh
                     )
@@ -771,7 +787,7 @@ struct CatalogArtistsView: View {
                         ForEach(filteredArtists) { artist in
                             ArtistObjectView(
                                 name: artist.name,
-                                detail: tr("\(artist.tracks.count) songs", "\(artist.tracks.count) 首歌曲"),
+                                detail: tr("\(artist.tracks.count) songs", "\(artist.tracks.count) 首歌曲", zhHant: "\(artist.tracks.count) 首歌曲"),
                                 artwork: artistArtwork(artist),
                                 size: 190,
                                 showsHoverPlay: !artist.tracks.isEmpty,
@@ -838,9 +854,9 @@ struct CatalogArtistsView: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .frame(maxWidth: 240)
-            .background(BrandColors.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(BrandColors.surface, in: Capsule())
             .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                Capsule()
                     .stroke(BrandColors.hairline, lineWidth: 1)
             )
 
@@ -868,9 +884,9 @@ struct CatalogArtistsView: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(BrandColors.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(BrandColors.surface, in: Capsule())
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    Capsule()
                         .stroke(BrandColors.hairline, lineWidth: 1)
                 )
                 .foregroundStyle(BrandColors.textPrimary)
@@ -881,6 +897,7 @@ struct CatalogArtistsView: View {
 
     private func load() {
         artists = catalog.artists()
+        unresolvedCount = catalog.unresolvedCounts().artists
         loading = false
     }
 
@@ -950,13 +967,6 @@ struct CatalogArtistDetailView: View {
 
     private var topNavigationBar: some View {
         HStack(spacing: 8) {
-            ChromeIconButton(
-                systemName: "chevron.backward",
-                help: tr("Back", "返回"),
-                accessibility: tr("Back", "返回")
-            ) {
-                selection = nil
-            }
             Text(tr("Artists", "艺术家"))
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(BrandColors.textSecondary)
@@ -987,10 +997,10 @@ struct CatalogArtistDetailView: View {
                     .foregroundStyle(BrandColors.textPrimary)
 
                 HStack(spacing: 8) {
-                    Text(tr("\(artist.tracks.count) songs in library", "\(artist.tracks.count) 首歌曲在资料库"))
+                    Text(tr("\(artist.tracks.count) songs in library", "\(artist.tracks.count) 首歌曲在资料库", zhHant: "\(artist.tracks.count) 首歌曲在資料庫"))
                     if !artist.releases.isEmpty {
                         Text("•")
-                        Text(tr("\(artist.releases.count) albums", "\(artist.releases.count) 张专辑"))
+                        Text(tr("\(artist.releases.count) albums", "\(artist.releases.count) 张专辑", zhHant: "\(artist.releases.count) 張專輯"))
                     }
                 }
                 .font(.system(size: 13))
@@ -1007,7 +1017,7 @@ struct CatalogArtistDetailView: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 18)
                         .padding(.vertical, 8)
-                        .background(BrandColors.magenta, in: Capsule())
+                        .background(BrandColors.accent, in: Capsule())
                     }
                     .buttonStyle(.plain)
 
@@ -1083,7 +1093,7 @@ struct CatalogArtistDetailView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(track.title)
                                 .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
-                                .foregroundStyle(isCurrent ? BrandColors.magenta : BrandColors.textPrimary)
+                                .foregroundStyle(isCurrent ? BrandColors.accent : BrandColors.textPrimary)
                                 .lineLimit(1)
                             if let album = track.albumTitle {
                                 Text(album)
@@ -1119,7 +1129,7 @@ struct CatalogArtistDetailView: View {
                     )
                 }
             }
-            .background(BrandColors.surface.opacity(0.5), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(BrandColors.surface.opacity(0.5), in: Capsule())
         }
     }
 
@@ -1170,11 +1180,16 @@ struct CatalogArtistDetailView: View {
                             .foregroundStyle(BrandColors.textSecondary)
                     }
                     .padding(.vertical, 20)
+                } else if let onlineError {
+                    Text(onlineError).foregroundStyle(.secondary)
+                    Button(tr("Retry", "重试", zhHant: "重試"), systemImage: "arrow.clockwise", action: toggleOnlineDiscovery)
+                        .labelStyle(ActionIconLabelStyle())
+                        .help(tr("Retry", "重试", zhHant: "重試"))
                 } else if let disco = discography {
                     // Popular Songs
                     if !disco.topTracks.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(tr("Popular Songs", "热门歌曲"))
+                            Text(tr("From this YouTube channel", "来自此 YouTube 频道", zhHant: "來自此 YouTube 頻道"))
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundStyle(BrandColors.textPrimary)
 
@@ -1183,7 +1198,7 @@ struct CatalogArtistDetailView: View {
                                     onlineTrackRow(index: idx + 1, entry: entry)
                                 }
                             }
-                            .background(BrandColors.surface.opacity(0.5), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .background(BrandColors.surface.opacity(0.5), in: Capsule())
                         }
                     }
 
@@ -1253,10 +1268,10 @@ struct CatalogArtistDetailView: View {
                     Text(tr("Add", "添加"))
                 }
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(BrandColors.magenta)
+                .foregroundStyle(BrandColors.accent)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
-                .background(BrandColors.magenta.opacity(0.12), in: Capsule())
+                .background(BrandColors.accent.opacity(0.12), in: Capsule())
             }
             .buttonStyle(.plain)
 
@@ -1265,7 +1280,7 @@ struct CatalogArtistDetailView: View {
             } label: {
                 Image(systemName: "play.circle.fill")
                     .font(.system(size: 16))
-                    .foregroundStyle(BrandColors.magenta)
+                    .foregroundStyle(BrandColors.accent)
             }
             .buttonStyle(.plain)
         }
@@ -1307,7 +1322,7 @@ struct CatalogArtistDetailView: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
-                .background(BrandColors.magenta, in: Capsule())
+                .background(BrandColors.accent, in: Capsule())
             }
             .buttonStyle(.plain)
         }
@@ -1326,11 +1341,13 @@ struct CatalogArtistDetailView: View {
     }
 
     private func toggleOnlineDiscovery() {
+        guard !isLoadingOnline else { return }
+        onlineError = nil
         hasExpandedOnline = true
         isLoadingOnline = true
         Task {
             do {
-                let disco = try await catalog.fetchArtistOnlineDiscography(artist: artist)
+                let disco = try await catalog.fetchArtistOnlineDiscography(artist: artist, forceRefresh: true)
                 await MainActor.run {
                     self.discography = disco
                     self.isLoadingOnline = false
@@ -1350,7 +1367,7 @@ struct CatalogArtistDetailView: View {
 
     private func playOnlineTrack(_ entry: YTDlpBridge.YTDlpPlaylistEntry) {
         Task {
-            if let snapshot = try? catalog.importOnlineTrack(entry: entry, artistName: artist.name) {
+            if let snapshot = try? catalog.importOnlineTrack(entry: entry, artistName: artist.name, saveToLibrary: false) {
                 playback.playTrack(snapshot, context: orderedTracks, from: .artist)
             }
         }
@@ -1418,8 +1435,10 @@ struct CatalogEmptyState: View {
             Button(action: onRefresh) {
                 Label(tr("Refresh", "刷新"), systemImage: "arrow.clockwise")
             }
-            .buttonStyle(.borderedProminent)
-            .tint(BrandColors.magenta)
+            .labelStyle(ActionIconLabelStyle())
+            .help(tr("Refresh", "刷新"))
+            .musesAction(prominent: true)
+            .tint(BrandColors.accent)
         }
         .frame(maxWidth: .infinity, minHeight: 320)
     }
@@ -1436,14 +1455,16 @@ struct CatalogStateBadge: View {
             Image(systemName: "clock.badge.exclamationmark")
                 .font(.caption.weight(.semibold))
                 .padding(6)
-                .background(.ultraThinMaterial, in: Circle())
+                .background(BrandColors.surface, in: Circle())
+                .overlay(Circle().stroke(BrandColors.textPrimary.opacity(0.28), lineWidth: 1))
                 .help(tr("Cached metadata is stale", "缓存元数据已过期"))
         case .unavailable:
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(BrandColors.magenta)
+                .foregroundStyle(BrandColors.accent)
                 .padding(6)
-                .background(.ultraThinMaterial, in: Circle())
+                .background(BrandColors.surface, in: Circle())
+                .overlay(Circle().stroke(BrandColors.textPrimary.opacity(0.28), lineWidth: 1))
                 .help(tr("Currently unavailable", "当前不可用"))
         }
     }

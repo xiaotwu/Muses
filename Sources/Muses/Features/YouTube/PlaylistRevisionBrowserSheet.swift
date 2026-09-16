@@ -109,7 +109,7 @@ struct PlaylistRevisionBrowserSheet: View {
                     Image(systemName: revisionSymbol(revision.kind))
                         .font(.system(size: 15, weight: .semibold))
                         .frame(width: 22)
-                        .foregroundStyle(selected ? BrandColors.magenta : BrandColors.textSecondary)
+                        .foregroundStyle(selected ? BrandColors.accent : BrandColors.textSecondary)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(revisionLabel(revision.kind))
                             .font(.callout.weight(.semibold))
@@ -118,7 +118,7 @@ struct PlaylistRevisionBrowserSheet: View {
                             .foregroundStyle(BrandColors.textSecondary)
                     }
                     Spacer()
-                    Text(tr("\(revision.itemCount) songs", "\(revision.itemCount) 首"))
+                    Text(tr("\(revision.itemCount) songs", "\(revision.itemCount) 首", zhHant: "\(revision.itemCount) 首"))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(BrandColors.textSecondary)
                 }
@@ -127,7 +127,7 @@ struct PlaylistRevisionBrowserSheet: View {
             .buttonStyle(.plain)
             .accessibilityLabel(tr(
                 "\(revisionLabel(revision.kind)), \(revision.itemCount) songs, \(revision.createdAt.formatted(date: .complete, time: .shortened))",
-                "\(revisionLabel(revision.kind))，\(revision.itemCount) 首，\(revision.createdAt.formatted(date: .complete, time: .shortened))"))
+                "\(revisionLabel(revision.kind))，\(revision.itemCount) 首，\(revision.createdAt.formatted(date: .complete, time: .shortened))", zhHant: "\(revisionLabel(revision.kind))，\(revision.itemCount) 首，\(revision.createdAt.formatted(date: .complete, time: .shortened))"))
 
             Button {
                 togglePin(revision)
@@ -142,12 +142,12 @@ struct PlaylistRevisionBrowserSheet: View {
                                                 : tr("Pin version", "固定版本"))
         }
         .padding(10)
-        .background(selected ? BrandColors.magenta.opacity(0.12) : Color.clear,
+        .background(selected ? BrandColors.accent.opacity(0.12) : Color.clear,
                     in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         .overlay {
             if selected {
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .stroke(BrandColors.magenta.opacity(0.55), lineWidth: 1)
+                    .stroke(BrandColors.accent.opacity(0.55), lineWidth: 1)
             }
         }
     }
@@ -220,7 +220,7 @@ struct PlaylistRevisionBrowserSheet: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(tr(
             "\(comparison.insertedCount) inserted, \(comparison.removedCount) removed, \(comparison.movedCount) moved",
-            "新增 \(comparison.insertedCount) 项，移除 \(comparison.removedCount) 项，移动 \(comparison.movedCount) 项"))
+            "新增 \(comparison.insertedCount) 项，移除 \(comparison.removedCount) 项，移动 \(comparison.movedCount) 项", zhHant: "新增 \(comparison.insertedCount) 項，移除 \(comparison.removedCount) 項，移動 \(comparison.movedCount) 項"))
     }
 
     private func changeRow(_ change: YouTubePlaylistRevisionChange) -> some View {
@@ -266,8 +266,8 @@ struct PlaylistRevisionBrowserSheet: View {
             Button(tr("Restore Current", "恢复当前歌单")) {
                 pendingRestoreID = selectedRevisionID
             }
-            .buttonStyle(.borderedProminent)
-            .tint(BrandColors.magenta)
+            .musesAction(prominent: true)
+            .tint(BrandColors.accent)
             .disabled(selectedRevisionID == nil)
         }
         .padding(14)
@@ -380,13 +380,13 @@ struct PlaylistRevisionBrowserSheet: View {
         switch change.kind {
         case .inserted:
             return tr("Inserted at \((change.toPosition ?? 0) + 1)",
-                      "新增至第 \((change.toPosition ?? 0) + 1) 位")
+                      "新增至第 \((change.toPosition ?? 0) + 1) 位", zhHant: "新增至第 \((change.toPosition ?? 0) + 1) 位")
         case .removed:
             return tr("Removed from \((change.fromPosition ?? 0) + 1)",
-                      "从第 \((change.fromPosition ?? 0) + 1) 位移除")
+                      "从第 \((change.fromPosition ?? 0) + 1) 位移除", zhHant: "從第 \((change.fromPosition ?? 0) + 1) 位移除")
         case .moved:
             return tr("Moved \((change.fromPosition ?? 0) + 1) → \((change.toPosition ?? 0) + 1)",
-                      "从第 \((change.fromPosition ?? 0) + 1) 位移至第 \((change.toPosition ?? 0) + 1) 位")
+                      "从第 \((change.fromPosition ?? 0) + 1) 位移至第 \((change.toPosition ?? 0) + 1) 位", zhHant: "從第 \((change.fromPosition ?? 0) + 1) 位移至第 \((change.toPosition ?? 0) + 1) 位")
         }
     }
 }

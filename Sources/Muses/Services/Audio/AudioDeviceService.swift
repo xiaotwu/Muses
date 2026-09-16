@@ -22,6 +22,11 @@ final class AudioDeviceService {
     private let eventBus: PlaybackEventBus?
     private let enabledProvider: () -> Bool
     private let pollProvider: () -> Bool
+    private let enumerateDevices: () -> [AudioDevice]
+    private let readDefault: () -> UInt32?
+    private let writeDefault: (UInt32) -> OSStatus
+    private let onUnexpectedDisconnect: () -> Void
+    private(set) var lastError: OSStatus?
     private var pollTask: Task<Void, Never>?
     private(set) var revision: Int = 0
 
@@ -38,7 +43,15 @@ final class AudioDeviceService {
          enabledProvider: @escaping () -> Bool = {
         UserDefaults.standard.bool(forKey: PrefKey.ffAudioNerd)
     },
-         pollProvider: @escaping () -> Bool = { true }) {
+         pollProvider: @escaping () -> Bool = { true },
+         enumerateDevices: @escaping () -> [AudioDevice] = { AudioDeviceService.enumerate() },
+         readDefault: @escaping () -> UInt32? = { AudioDeviceService.defaultDeviceID() },
+         writeDefault: @escaping (UInt32) -> OSStatus = { AudioDeviceService.writeSystemDefault($0) },
+         onUnexpectedDisconnect: @escaping () -> Void = {}) {
+        self.onUnexpectedDisconnect = onUnexpectedDisconnect
+        self.enumerateDevices = enumerateDevices
+        self.readDefault = readDefault
+        self.writeDefault = writeDefault
         self.eventBus = eventBus
         self.enabledProvider = enabledProvider
         self.pollProvider = pollProvider
@@ -46,50 +59,72 @@ final class AudioDeviceService {
 
     /// Refreshes the device list and default id. Called at launch and when toggling the setting.
     func refresh() {
-        devices = Self.enumerate()
-        defaultDeviceID = Self.defaultDeviceID()
-        restorePreferredDevice()
+        devices = enumerateDevices().filter { $0.channels > 0 }
+        defaultDeviceID = readDefault()
+        lastObservedDefault = defaultDeviceID
+        lastError = devices.isEmpty || defaultDeviceID == nil ? kAudioHardwareBadDeviceError : nil
         revision &+= 1
     }
 
     /// Starts the lightweight 2s poll that detects default-device changes and posts the event. Idempotent.
     func startPolling() {
-        guard pollTask == nil, isEnabled, pollProvider() else { return }
+        guard pollTask == nil, pollProvider() else { return }
         refresh()
         pollTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled, let self {
+            while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(2)) } catch { return }
-                guard !Task.isCancelled else { return }
-                let cur = Self.defaultDeviceID()
-                if cur != self.lastObservedDefault {
-                    self.lastObservedDefault = cur
-                    self.defaultDeviceID = cur
-                    self.devices = Self.enumerate()
-                    self.revision &+= 1
-                    self.eventBus?.post(.outputDeviceChanged)
-                }
+                guard !Task.isCancelled, let self else { return }
+                self.pollOutputChange()
             }
         }
+    }
+
+    /// A removed output pauses playback. Switching between available outputs
+    /// or reconnecting only updates device state and never grants play intent.
+    func pollOutputChange() {
+        let current = readDefault()
+        guard current != lastObservedDefault else { return }
+        let previous = lastObservedDefault
+        let available = enumerateDevices().filter { $0.channels > 0 }
+        lastObservedDefault = current
+        defaultDeviceID = current
+        devices = available
+        lastError = available.isEmpty || current == nil ? kAudioHardwareBadDeviceError : nil
+        revision &+= 1
+        if let previous, current == nil || !available.contains(where: { $0.id == previous }) {
+            onUnexpectedDisconnect()
+        }
+        eventBus?.post(.outputDeviceChanged)
     }
 
     /// Switches the system default output device (best-effort). Returns the OSStatus on failure; never fabricates success.
     @discardableResult
     func setDefault(_ id: UInt32) -> OSStatus {
-        var dev = id
-        var addr = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain)
-        let status = withUnsafeMutablePointer(to: &dev) { ptr in
-            AudioObjectSetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil,
-                                        UInt32(MemoryLayout<UInt32>.size), ptr)
+        guard devices.contains(where: { $0.id == id && $0.channels > 0 }) else {
+            lastError = kAudioHardwareBadDeviceError
+            return kAudioHardwareBadDeviceError
         }
-        if status == noErr {
-            UserDefaults.standard.set(name(for: id), forKey: PrefKey.audioPreferredOutputDevice)
-            defaultDeviceID = id
-            revision &+= 1
+        let status = writeDefault(id)
+        guard status == noErr else { lastError = status; return status }
+        guard readDefault() == id else {
+            lastError = kAudioHardwareUnspecifiedError
+            return kAudioHardwareUnspecifiedError
         }
-        return status
+        lastError = nil
+        UserDefaults.standard.set(name(for: id), forKey: PrefKey.audioPreferredOutputDevice)
+        defaultDeviceID = id
+        lastObservedDefault = id
+        revision &+= 1
+        eventBus?.post(.outputDeviceChanged)
+        return noErr
+    }
+
+    static func writeSystemDefault(_ id: UInt32) -> OSStatus {
+        var device = id
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        return AudioObjectSetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil,
+                                          UInt32(MemoryLayout<UInt32>.size), &device)
     }
 
     /// Remembered preferred device name (nil = not set).
@@ -125,6 +160,7 @@ final class AudioDeviceService {
                                                      0, nil, &size)
         guard status == noErr else { return [] }
         let count = Int(size) / MemoryLayout<AudioDeviceID>.size
+        guard count > 0 else { return [] }
         ids = [AudioDeviceID](unsafeUninitializedCapacity: count) { buf, initialized in
             status = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr,
                                                   0, nil, &size, buf.baseAddress!)
@@ -134,6 +170,7 @@ final class AudioDeviceService {
         return ids.compactMap { id -> AudioDevice? in
             guard let name = propertyName(id) else { return nil }
             let ch = outputChannels(id)
+            guard ch > 0 else { return nil }
             return AudioDevice(id: UInt32(id), name: name, channels: ch)
         }
     }
@@ -148,7 +185,7 @@ final class AudioDeviceService {
         let status = withUnsafeMutablePointer(to: &id) { ptr in
             AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, ptr)
         }
-        return status == noErr ? UInt32(id) : nil
+        return status == noErr && id != 0 ? UInt32(id) : nil
     }
 
     private static func propertyName(_ id: AudioDeviceID) -> String? {
@@ -178,14 +215,6 @@ final class AudioDeviceService {
         let status2 = AudioObjectGetPropertyData(AudioDeviceID(id), &addr, 0, nil, &size, raw)
         guard status2 == noErr else { return 0 }
         let abl = raw.assumingMemoryBound(to: AudioBufferList.self)
-        var channels = 0
-        let nBuffers = Int(abl.pointee.mNumberBuffers)
-        let buffers = withUnsafePointer(to: &abl.pointee.mBuffers) { ptr in
-            ptr.withMemoryRebound(to: AudioBuffer.self, capacity: nBuffers) { $0 }
-        }
-        for i in 0..<nBuffers {
-            channels += Int(buffers[i].mNumberChannels)
-        }
-        return channels
+        return UnsafeMutableAudioBufferListPointer(abl).reduce(0) { $0 + Int($1.mNumberChannels) }
     }
 }

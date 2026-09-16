@@ -25,6 +25,7 @@ struct PlayerBar: View {
     @State private var showVolume = false
     @State private var isDraggingScrubber = false
     @State private var scrubFraction: Double = 0
+    @State private var scrubTrackID: UUID?
     @State private var isTrackHovered = false
     @FocusState private var artworkFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -34,36 +35,28 @@ struct PlayerBar: View {
             cornerRadius: AppleMusicTokens.capsuleCorner,
             style: .continuous
         )
-        ZStack {
-            HStack(spacing: 12) {
-                PlaybackTransport()
-                if playback.state.track == nil {
-                    Spacer(minLength: 8)
-                } else {
-                    playingIdentity
-                        .frame(maxWidth: .infinity)
-                }
-                trailing
+        HStack(spacing: 12) {
+            PlaybackTransport()
+                .disabled(!hasTrack)
+                .opacity(hasTrack ? 1 : 0.45)
+            Group {
+                if hasTrack { playingIdentity } else { idleIdentity }
             }
-            if playback.state.track == nil {
-                HStack(spacing: 8) {
-                    MusesMark(size: 30)
-                    Text(tr("Not Playing", "未在播放"))
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(BrandColors.textSecondary)
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(tr("Not Playing", "未在播放"))
-            }
+            .frame(maxWidth: .infinity)
+            trailing
+
         }
         .padding(.horizontal, 14)
         .frame(maxWidth: AppleMusicTokens.capsuleWidth)
         .frame(height: PlayerDockMetrics.height)
         .musesGlass(in: shape, role: .player)
         .overlay(alignment: .top) {
-            progressTrack
-                .padding(.horizontal, PlayerDockMetrics.progressHorizontalInset)
-                .padding(.top, PlayerDockMetrics.progressTopInset)
+            if PlayerIdlePolicy.showsProgress(hasTrack: hasTrack) {
+                progressTrack
+                    .disabled(!hasTrack)
+                    .padding(.horizontal, PlayerDockMetrics.progressHorizontalInset)
+                    .padding(.top, PlayerDockMetrics.progressTopInset)
+            }
         }
         .clipShape(shape)
         .overlay(
@@ -75,6 +68,12 @@ struct PlayerBar: View {
             Button(tr("Lyrics", "歌词")) { onLyricsTap() }
                 .disabled(playback.state.track == nil)
             Button(tr("Queue", "队列")) { onQueueTap() }
+        }
+        .onChange(of: playback.state.track?.id) { _, _ in
+            isDraggingScrubber = false
+            scrubFraction = 0
+            scrubTrackID = nil
+            isTrackHovered = false
         }
         .onReceive(NotificationCenter.default.publisher(for: .musesRestorePlayerArtworkFocus)) { _ in
             guard playback.state.track != nil else { return }
@@ -94,12 +93,12 @@ struct PlayerBar: View {
                     .fill(BrandColors.textPrimary.opacity(0.18))
                     .frame(height: trackHeight)
                 Capsule()
-                    .fill(BrandColors.magenta)
+                    .fill(BrandColors.accent)
                     .frame(width: geo.size.width * fraction, height: trackHeight)
 
                 if (isTrackHovered || isDraggingScrubber) && playback.state.duration > 0 {
                     Circle()
-                        .fill(Color.white)
+                        .fill(BrandColors.textPrimary)
                         .frame(width: 8, height: 8)
                         .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
                         .offset(x: max(0, min(geo.size.width - 8, geo.size.width * fraction - 4)))
@@ -111,12 +110,15 @@ struct PlayerBar: View {
                 DragGesture(minimumDistance: 0)
                     .onChanged { gesture in
                         guard playback.state.duration > 0 else { return }
+                        if !isDraggingScrubber { scrubTrackID = playback.state.track?.id }
                         isDraggingScrubber = true
                         let f = max(0, min(1, gesture.location.x / geo.size.width))
                         scrubFraction = f
                     }
                     .onEnded { gesture in
-                        guard playback.state.duration > 0 else { return }
+                        defer { isDraggingScrubber = false; scrubTrackID = nil }
+                        guard isDraggingScrubber, scrubTrackID == playback.state.track?.id,
+                              playback.state.duration > 0 else { return }
                         let f = max(0, min(1, gesture.location.x / geo.size.width))
                         playback.seek(to: f * playback.state.duration)
                         isDraggingScrubber = false
@@ -145,6 +147,34 @@ struct PlayerBar: View {
         }
     }
 
+    private var hasTrack: Bool { playback.state.track != nil }
+
+    private var idleIdentity: some View {
+        HStack(spacing: 10) {
+            Image(nsImage: TrayIcon.menuBarImage)
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(BrandColors.textPrimary)
+                .padding(8)
+                .frame(width: PlayerDockMetrics.art, height: PlayerDockMetrics.art)
+                .background(BrandColors.textPrimary.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(tr("Not Playing", "未在播放"))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(BrandColors.textPrimary)
+                Text("Muses").font(.caption).foregroundStyle(BrandColors.textSecondary)
+            }
+            .lineLimit(1)
+            Spacer(minLength: 8)
+            Text("— / —").font(.caption2.monospacedDigit())
+                .foregroundStyle(BrandColors.textSecondary)
+                .accessibilityHidden(true)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(tr("Not Playing", "未在播放"))
+    }
+
     private var playingIdentity: some View {
         HStack(spacing: 10) {
             Button(action: onArtworkTap) {
@@ -162,7 +192,7 @@ struct PlayerBar: View {
             .help(tr("Open Now Playing", "打开正在播放"))
             .accessibilityLabel(tr(
                 "Open Now Playing for \(playback.state.track?.title ?? "")",
-                "打开 \(playback.state.track?.title ?? "") 的正在播放页面"
+                "打开 \(playback.state.track?.title ?? "") 的正在播放页面", zhHant: "打開 \(playback.state.track?.title ?? "") 的正在播放頁面"
             ))
             .accessibilityHint(tr(
                 "Shows the full Now Playing view",
@@ -187,32 +217,40 @@ struct PlayerBar: View {
             let currentPos = isDraggingScrubber ? scrubFraction * playback.state.duration : playback.state.position
             Text("\(format(currentPos))  /  \(format(playback.state.duration))")
                 .font(.caption2.monospacedDigit())
-                .foregroundStyle(isDraggingScrubber ? BrandColors.magenta : BrandColors.textSecondary)
+                .foregroundStyle(isDraggingScrubber ? BrandColors.accent : BrandColors.textSecondary)
                 .fixedSize()
         }
     }
 
     private var trailing: some View {
         HStack(spacing: 4) {
-            dockButton("quote.bubble", selected: lyricsActive,
-                       help: tr("Lyrics", "歌词"), action: onLyricsTap)
-                .opacity(playback.state.track == nil ? 0.35 : 1)
-                .disabled(playback.state.track == nil)
-            dockButton("list.bullet", selected: queueActive,
-                       help: tr("Queue", "队列"), action: onQueueTap)
-            Button { showVolume.toggle() } label: {
-                ChromeGlyph(systemName: volumeIcon, selected: showVolume,
-                            size: 14, hit: PlayerDockMetrics.play)
+            if PlayerIdlePolicy.showsLyrics(hasTrack: hasTrack) {
+                dockButton("quote.bubble", selected: lyricsActive,
+                           help: tr("Lyrics", "歌词"), action: onLyricsTap)
+                    .disabled(!hasTrack)
+                    .opacity(hasTrack ? 1 : 0.45)
             }
-            .buttonStyle(.plain)
-            .help(tr("Volume", "音量"))
-            .accessibilityLabel(tr("Volume", "音量"))
-            .accessibilityValue("\(Int((playback.volume * 100).rounded()))%")
-            .popover(isPresented: $showVolume, arrowEdge: .top) {
-                LiquidGlassVolumeBar(width: 210, height: 34)
-                    .padding(6)
+            if PlayerIdlePolicy.showsQueue(hasTrack: hasTrack) {
+                dockButton("list.bullet", selected: queueActive,
+                           help: tr("Queue", "队列"), action: onQueueTap)
             }
-            youtubeButton
+            if PlayerIdlePolicy.showsVolume(hasTrack: hasTrack) {
+                Button { showVolume.toggle() } label: {
+                    ChromeGlyph(systemName: volumeIcon, selected: showVolume,
+                                size: 14, hit: PlayerDockMetrics.play)
+                }
+                .buttonStyle(.plain)
+                .help(tr("Volume", "音量"))
+                .accessibilityLabel(tr("Volume", "音量"))
+                .accessibilityValue("\(Int((playback.volume * 100).rounded()))%")
+                .popover(isPresented: $showVolume, arrowEdge: .top) {
+                    LiquidGlassVolumeBar(width: 210, height: 34)
+                        .padding(6)
+                }
+            }
+            if PlayerIdlePolicy.showsYouTube(hasTrack: hasTrack) {
+                youtubeButton
+            }
         }
     }
 
@@ -283,7 +321,7 @@ struct PlaybackTransport: View {
                             .frame(width: playHit + 5, height: playHit + 5)
                         Circle()
                             .trim(from: 0, to: fraction)
-                            .stroke(BrandColors.magenta, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                            .stroke(BrandColors.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                             .rotationEffect(.degrees(-90))
                             .frame(width: playHit + 5, height: playHit + 5)
                     }

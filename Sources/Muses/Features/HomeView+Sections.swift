@@ -107,14 +107,49 @@ extension HomeView {
                 .padding(.horizontal, AppleMusicTokens.contentPaddingX)
             }
 
-            ForEach(sections) { section in
+            listenAgainShelf
+
+            ForEach(sections.filter {
+                !ListenAgainEmptyPolicy.hidesDiscoverySection(id: $0.id, title: $0.title)
+            }) { section in
                 discoveryShelf(section, suppressFailureStrip: !failedSections.isEmpty)
             }
-        } else if let fallbackError, fallbackEntries.isEmpty {
-            DiscoveryFailureStrip(message: fallbackError, onRetry: loadFallback)
+        } else {
+            listenAgainShelf
+            if let fallbackError, fallbackEntries.isEmpty {
+                DiscoveryFailureStrip(message: fallbackError, onRetry: loadFallback)
+                    .padding(.horizontal, AppleMusicTokens.contentPaddingX)
+            } else if !fallbackEntries.isEmpty {
+                fallbackShelf
+            }
+        }
+    }
+
+    var listenAgainShelf: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            SectionHeader(title: tr("Listen again", "再听一次"))
+            if ListenAgainEmptyPolicy.showsRecentCards(hasRecents: !supportedRecent.isEmpty) {
+                ResponsiveCarousel(
+                    cardSize: MusicObjectMetrics.albumRail,
+                    spacing: 18,
+                    alignment: .top
+                ) {
+                    ForEach(supportedRecent) { snapshot in
+                        squareCard(
+                            .track(snapshot),
+                            sectionItems: supportedRecent.map(DiscoveryItem.track)
+                        )
+                    }
+                }
+            } else {
+                Text(tr(
+                    "Play something and it will show up here.",
+                    "播放内容后会出现在这里。"
+                ))
+                .font(.subheadline)
+                .foregroundStyle(BrandColors.textSecondary)
                 .padding(.horizontal, AppleMusicTokens.contentPaddingX)
-        } else if !fallbackEntries.isEmpty {
-            fallbackShelf
+            }
         }
     }
 
@@ -123,7 +158,7 @@ extension HomeView {
         let items = section.items.filter(isPresentableDiscoveryItem)
         switch section.status {
         case .loading:
-            squareShelfSkeleton(title: section.title)
+            squareShelfSkeleton(title: section.localizedTitle)
         case .failed(let message):
             if !suppressFailureStrip {
                 DiscoveryFailureStrip(
@@ -156,14 +191,16 @@ extension HomeView {
                                  items: [DiscoveryItem]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
-                SectionHeader(title: section.title,
+                SectionHeader(title: section.localizedTitle,
                               subtitle: sourceAwareSubtitle(section))
                 Spacer()
                 continuationButton(for: section)
-                Button(tr("Play all", "全部播放")) {
+                Button(tr("Play all", "全部播放"), systemImage: "play.fill") {
                     playAll(items.filter(isPlayableDiscoveryItem))
                 }
-                .buttonStyle(.bordered)
+                .labelStyle(ActionIconLabelStyle())
+                .help(tr("Play all", "全部播放"))
+                .musesAction()
                 .controlSize(.small)
             }
             .padding(.trailing, AppleMusicTokens.contentPaddingX)
@@ -405,10 +442,22 @@ extension HomeView {
                     .background(BrandColors.textPrimary.opacity(0.08),
                                 in: Capsule())
             }
+            if HomeGuestStatusPolicy.unsignedInShowsSingleCue,
+               !youTubeAccount.isConnected {
+                Button(tr("Sign In", "登录"), systemImage: "person.badge.key.fill") {
+                    NotificationCenter.default.post(
+                        name: .musesOpenSettings, object: SettingsCategory.youtube)
+                }
+                .labelStyle(ActionIconLabelStyle())
+                .help(tr("Sign In", "登录"))
+                .musesAction()
+                .controlSize(.small)
+                .tint(BrandColors.accent)
+            }
         }
         .foregroundStyle(BrandColors.textSecondary)
         .padding(.horizontal, AppleMusicTokens.contentPaddingX)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: youTubeAccount.isConnected ? .combine : .contain)
     }
 
     var homeSourceStatusText: String {
@@ -457,8 +506,10 @@ extension HomeView {
                     .lineLimit(2)
             }
             Spacer()
-            Button(tr("Retry", "重试")) { discovery.reload() }
-                .buttonStyle(.bordered)
+            Button(tr("Retry", "重试"), systemImage: "arrow.clockwise") { discovery.reload() }
+                .labelStyle(ActionIconLabelStyle())
+                .help(tr("Retry", "重试"))
+                .musesAction()
                 .controlSize(.small)
         }
         .foregroundStyle(BrandColors.textSecondary)
@@ -478,7 +529,7 @@ extension HomeView {
     var staleBannerDetail: String {
         let updated = discovery.lastUpdatedAt.map {
             tr("Updated \($0.formatted(date: .abbreviated, time: .shortened))",
-               "更新于 \($0.formatted(date: .abbreviated, time: .shortened))")
+               "更新于 \($0.formatted(date: .abbreviated, time: .shortened))", zhHant: "更新於 \($0.formatted(date: .abbreviated, time: .shortened))")
         }
         return [updated, discovery.lastRefreshError]
             .compactMap { $0 }
@@ -512,46 +563,25 @@ extension HomeView {
                     .lineLimit(2)
             }
             Spacer()
-            Button(tr("Retry", "重试")) { discovery.reload() }
-                .buttonStyle(.bordered)
-            Button(tr("Settings", "设置")) {
+            Button(tr("Retry", "重试"), systemImage: "arrow.clockwise") { discovery.reload() }
+                .labelStyle(ActionIconLabelStyle())
+                .help(tr("Retry", "重试"))
+                .musesAction()
+            Button {
                 NotificationCenter.default.post(
                     name: .musesOpenSettings, object: SettingsCategory.youtube)
+            } label: {
+                MusesSymbol(size: 18)
             }
-            .buttonStyle(.bordered)
+            .help(tr("Settings", "设置"))
+            .accessibilityLabel(tr("Settings", "设置"))
+            .musesAction()
         }
         .padding(14)
         .background(BrandColors.surface,
                     in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .padding(.horizontal, AppleMusicTokens.contentPaddingX)
         .accessibilityElement(children: .contain)
-    }
-
-    var guestBanner: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "person.crop.circle.badge.plus")
-                .font(.system(size: 18, weight: .semibold))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(tr("Make Home yours", "让首页更懂你"))
-                    .font(.subheadline.weight(.semibold))
-                Text(tr("Guest discovery and playback already work. Sign in to add your YouTube likes, subscriptions, and owned playlists.",
-                        "访客发现与播放已经可用。登录后可加入你的 YouTube 点赞、订阅和自有歌单。"))
-                    .font(.caption)
-                    .foregroundStyle(BrandColors.textSecondary)
-                    .lineLimit(2)
-            }
-            Spacer()
-            Button(tr("Sign In", "登录")) {
-                NotificationCenter.default.post(
-                    name: .musesOpenSettings, object: SettingsCategory.youtube)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(BrandColors.magenta)
-        }
-        .padding(14)
-        .background(BrandColors.surface,
-                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .padding(.horizontal, AppleMusicTokens.contentPaddingX)
     }
 
     var accountRefreshFailureBanner: some View {
@@ -569,28 +599,17 @@ extension HomeView {
                     .foregroundStyle(BrandColors.textSecondary)
             }
             Spacer()
-            Button(tr("Retry", "重试")) {
+            Button(tr("Retry", "重试"), systemImage: "arrow.clockwise") {
                 Task { await youTubeAccount.refresh() }
             }
-            .buttonStyle(.bordered)
+                .labelStyle(ActionIconLabelStyle())
+                .help(tr("Retry", "重试"))
+            .musesAction()
         }
         .padding(14)
         .background(BrandColors.surface,
                     in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .padding(.horizontal, AppleMusicTokens.contentPaddingX)
-    }
-
-    var focusState: some View {
-        EmptyStateView(
-            icon: "brain.head.profile",
-            title: tr("Focusing", "专注中"),
-            subtitle: tr(
-                "Discovery is hidden while Focus Mode is active. Your playlists stay available.",
-                "专注模式开启时会隐藏发现内容；歌单仍可使用。"
-            )
-        )
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 28)
     }
 
     func refreshRecentlyPlayed() {
@@ -600,20 +619,12 @@ extension HomeView {
 
     func loadFallback() {
         fallbackTask?.cancel()
-        fallbackLoading = true
-        fallbackError = nil
-        fallbackTask = Task {
-            do {
-                let entries = try await youTubeSearch.search(query: "official music", limit: 18)
-                guard !Task.isCancelled else { return }
-                fallbackEntries = entries.filter(YouTubeMusicTrust.isTrustedHomeEntry)
-            } catch {
-                guard !Task.isCancelled else { return }
-                fallbackError = tr("YouTube Music discovery is unavailable.",
-                                   "YouTube Music 发现内容暂不可用。")
-            }
-            fallbackLoading = false
-        }
+        fallbackTask = nil
+        fallbackLoading = false
+        fallbackEntries = []
+        fallbackError = tr("Official discovery is unavailable. Enable discovery or try again later.",
+                           "官方发现内容暂不可用，请开启发现功能或稍后重试。",
+                           zhHant: "官方探索內容暫不可用，請啟用探索功能或稍後重試。")
     }
 
     func play(_ snapshot: TrackSnapshot,
@@ -638,7 +649,7 @@ extension HomeView {
             duration: card.duration
         )
         do {
-            let snapshot = try await youTubeSearch.importAsTrack(entry: entry)
+            let snapshot = try await youTubeSearch.resolveTrack(entry: entry)
             let entries = (siblings ?? itemsContaining(card)).compactMap { item -> YTDlpBridge.YTDlpPlaylistEntry? in
                 guard case .youTube(let sibling) = item,
                       let siblingVideoID = sibling.playableVideoID else { return nil }
@@ -655,14 +666,14 @@ extension HomeView {
         } catch {
             interactionError = tr(
                 "This YouTube Music item could not be prepared: \(error.localizedDescription)",
-                "无法准备此 YouTube Music 内容：\(error.localizedDescription)"
+                "无法准备此 YouTube Music 内容：\(error.localizedDescription)", zhHant: "無法準備此 YouTube Music 內容：\(error.localizedDescription)"
             )
         }
     }
 
     func play(_ entry: YTDlpBridge.YTDlpPlaylistEntry) async {
         do {
-            let snapshot = try await youTubeSearch.importAsTrack(entry: entry)
+            let snapshot = try await youTubeSearch.resolveTrack(entry: entry)
             let context = TrackSnapshot.playbackContext(
                 playing: snapshot,
                 youTubeEntries: fallbackEntries
@@ -672,7 +683,7 @@ extension HomeView {
         } catch {
             interactionError = tr(
                 "This YouTube Music item could not be prepared: \(error.localizedDescription)",
-                "无法准备此 YouTube Music 内容：\(error.localizedDescription)"
+                "无法准备此 YouTube Music 内容：\(error.localizedDescription)", zhHant: "無法準備此 YouTube Music 內容：\(error.localizedDescription)"
             )
         }
     }
@@ -711,7 +722,7 @@ extension HomeView {
                         id: videoID, title: card.title,
                         uploader: card.uploader, duration: card.duration)
                     do {
-                        let snapshot = try await youTubeSearch.importAsTrack(entry: entry)
+                        let snapshot = try await youTubeSearch.resolveTrack(entry: entry)
                         snapshots.append(snapshot)
                     } catch {
                         failedTitles.append(card.title)
@@ -727,7 +738,7 @@ extension HomeView {
             }
             interactionError = failedTitles.isEmpty ? nil : tr(
                 "Playing available songs. Could not prepare: \(failedTitles.joined(separator: ", "))",
-                "正在播放可用歌曲。以下内容无法准备：\(failedTitles.joined(separator: "、"))"
+                "正在播放可用歌曲。以下内容无法准备：\(failedTitles.joined(separator: "、"))", zhHant: "正在播放可用歌曲。以下內容無法準備：\(failedTitles.joined(separator: "、"))"
             )
             playback.playTrack(first, context: snapshots, from: .search)
         }
@@ -768,7 +779,7 @@ extension HomeView {
     func discoverySectionHeader(_ section: HomeSection) -> some View {
         HStack(alignment: .firstTextBaseline) {
             SectionHeader(
-                title: section.title,
+                title: section.localizedTitle,
                 subtitle: sourceAwareSubtitle(section))
             Spacer()
             continuationButton(for: section)
@@ -796,13 +807,13 @@ extension HomeView {
             } label: {
                 Label(tr("More", "更多"), systemImage: "chevron.right.circle")
             }
-            .buttonStyle(.bordered)
+            .musesAction()
             .controlSize(.small)
             .disabled(webHome.status == .refreshing || webHome.status == .checking)
             .help(tr("Load more from this personalized section",
                      "从此个性化区段加载更多内容"))
-            .accessibilityLabel(tr("Load more (section.title)",
-                                   "加载更多(section.title)"))
+            .accessibilityLabel(tr("Load more from \(section.title)",
+                                   "加载更多：\(section.title)", zhHant: "載入更多：\(section.title)"))
         }
     }
 
@@ -864,11 +875,11 @@ extension HomeView {
         let source: String
         if section.source == .cached {
             let origin = section.cachedOrigin?.label ?? HomeSource.publicDiscovery.label
-            source = tr("Saved · \(origin)", "已保存 · \(origin)")
+            source = tr("Saved · \(origin)", "已保存 · \(origin)", zhHant: "已保存 · \(origin)")
         } else {
             source = section.source.label
         }
-        guard let subtitle = section.subtitle, !subtitle.isEmpty,
+        guard let subtitle = section.localizedSubtitle, !subtitle.isEmpty,
               !subtitle.localizedCaseInsensitiveContains(source) else { return source }
         return "\(subtitle) · \(source)"
     }
@@ -880,7 +891,6 @@ private struct MoodChipButton: View {
 
     @State private var isHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
         Button(action: action) {
@@ -890,18 +900,13 @@ private struct MoodChipButton: View {
                 .padding(.horizontal, 16)
                 .frame(height: 34)
                 .background {
-                    if reduceTransparency {
-                        BrandColors.surface
-                    } else {
-                        Capsule()
-                            .fill(.ultraThinMaterial)
-                            .overlay(
-                                Capsule()
-                                    .fill(isHovered ? BrandColors.textPrimary.opacity(0.10) : BrandColors.textPrimary.opacity(0.04))
-                            )
-                    }
+                    Capsule()
+                        .fill(BrandColors.surface)
+                        .overlay(
+                            Capsule()
+                                .fill(isHovered ? BrandColors.textPrimary.opacity(0.10) : Color.clear)
+                        )
                 }
-                .clipShape(Capsule())
                 .overlay {
                     Capsule()
                         .stroke(isHovered ? BrandColors.textPrimary.opacity(0.28) : BrandColors.hairline, lineWidth: 1)

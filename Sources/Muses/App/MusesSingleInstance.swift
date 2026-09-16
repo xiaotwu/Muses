@@ -3,6 +3,31 @@ import AppKit
 /// Same bundle ID can still launch twice from different `.app` paths (dev builds /
 /// worktrees). The second process must not open the SwiftData store.
 enum MusesSingleInstance {
+    static let mainSceneID = "main"
+    @MainActor private static let configuredMainWindows = NSHashTable<NSWindow>.weakObjects()
+    @MainActor static var createMainWindow: (() -> Void)?
+    @MainActor static var pendingSettings = false
+    @MainActor static var pendingVideoPresentation = false
+    @MainActor static var pendingSearchRoute: GlobalSearchRoute?
+
+    @MainActor
+    static func requestSettings(_ category: SettingsCategory? = nil) {
+        if let category {
+            UserDefaults.standard.set(category.destination.rawValue, forKey: PrefKey.settingsLastPane)
+        }
+        pendingSearchRoute = nil
+        pendingSettings = true
+        orderFrontMainWindow()
+        NotificationCenter.default.post(name: .musesOpenSettings, object: category)
+    }
+    @MainActor
+    static func requestSearchNavigation(_ route: GlobalSearchRoute) {
+        pendingSettings = false
+        pendingSearchRoute = route
+        orderFrontMainWindow()
+        NotificationCenter.default.post(name: .musesNavigateFromSearch, object: route)
+    }
+
     static let mainWindowAutosaveName = "MusesMainWindow"
     static let mainWindowIdentifier = NSUserInterfaceItemIdentifier("Muses.main-window")
 
@@ -26,7 +51,7 @@ enum MusesSingleInstance {
 
     @MainActor
     static func isMainWindow(_ window: NSWindow) -> Bool {
-        window.identifier == mainWindowIdentifier
+        configuredMainWindows.contains(window) || window.identifier == mainWindowIdentifier
             || window.frameAutosaveName == mainWindowAutosaveName
     }
 
@@ -41,7 +66,11 @@ enum MusesSingleInstance {
     @discardableResult
     static func orderFrontMainWindow() -> Bool {
         NSApp.activate(ignoringOtherApps: true)
-        guard let window = mainWindow(in: NSApp.windows) else { return false }
+        guard let window = mainWindow(in: NSApp.windows) else {
+            guard let createMainWindow else { return false }
+            createMainWindow()
+            return true
+        }
         if window.isMiniaturized { window.deminiaturize(nil) }
         window.makeKeyAndOrderFront(nil)
         return true
@@ -51,6 +80,7 @@ enum MusesSingleInstance {
     /// remain in AppKit's native titlebar hierarchy.
     @MainActor
     static func configureMainWindow(_ window: NSWindow) {
+        configuredMainWindows.add(window)
         window.identifier = mainWindowIdentifier
         window.setFrameAutosaveName(mainWindowAutosaveName)
         window.isMovableByWindowBackground = true
@@ -62,7 +92,9 @@ enum MusesSingleInstance {
         window.titlebarAppearsTransparent = true
         window.styleMask.insert(.fullSizeContentView)
         window.titlebarSeparatorStyle = .none
-        window.toolbar?.isVisible = false
+        window.toolbar?.isVisible = true
+        window.toolbar?.allowsUserCustomization = false
+        window.toolbarStyle = .unified
         window.contentMinSize = NSSize(
             width: WindowChromeMetrics.minimumWidth,
             height: WindowChromeMetrics.minimumHeight

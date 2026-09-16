@@ -4,23 +4,31 @@ import SwiftUI
 ///
 /// Shows real metadata: codec/container/bitrate/sample rate/bit depth/channels/source/
 /// output device/replayGain/EQ state/volume. Unavailable fields render "Unknown" and are never fabricated.
-/// Embeds the existing MetalSpectrumView plus an entry point to the EQ editor. Gated by `ffAudioNerd`.
+/// Embeds the shared spectrum renderer plus an entry point to the EQ editor. Gated by `ffAudioNerd`.
 struct AudioInfoPanel: View {
     @Environment(PlaybackService.self) private var playback
     @Environment(AudioDeviceService.self) private var deviceService
     @AppStorage(PrefKey.eqActivePresetId) private var eqPresetId: String = "Flat"
     @State private var showEQ = false
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(tr("Audio Info", "音频信息"))
-                .font(.title2).fontWeight(.bold)
-                .foregroundStyle(BrandColors.textPrimary)
+            HStack {
+                Text(tr("Audio Info", "音频信息"))
+                    .font(.title2).fontWeight(.bold)
+                    .foregroundStyle(BrandColors.textPrimary)
+                Spacer()
+                Button(tr("Close", "关闭"), systemImage: "xmark") { dismiss() }
+                    .labelStyle(ActionIconLabelStyle())
+                    .help(tr("Close", "关闭"))
+                    .keyboardShortcut(.cancelAction)
+            }
 
             // Metadata rows (purely model-driven).
             let rows = AudioInfoModel.rows(
-                track: playback.state.track, defaultDeviceName: currentDeviceName,
-                eqPresetId: eqPresetId, volume: Double(playback.volume))
+                track: playback.transportState.track, defaultDeviceName: currentDeviceName,
+                eqPresetId: playback.eqBypassed ? tr("Bypassed", "已旁路", zhHant: "已旁路") : eqPresetId, volume: Double(playback.volume))
             GroupBox(tr("Track", "曲目")) {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(rows, id: \.label) { row in
@@ -37,14 +45,22 @@ struct AudioInfoPanel: View {
 
             // Output device selection.
             GroupBox(tr("Output Device", "输出设备")) {
-                devicePicker.padding(8)
+                VStack(alignment: .leading, spacing: 8) {
+                    devicePicker
+                    Text(tr("Changes the macOS default output for all apps.", "更改所有应用使用的 macOS 默认输出。", zhHant: "更改所有 App 使用的 macOS 預設輸出。"))
+                        .font(.caption).foregroundStyle(.secondary)
+                    if let status = deviceService.lastError {
+                        Text(tr("Output device unavailable", "输出设备不可用", zhHant: "輸出裝置無法使用") + " (\(status))")
+                            .font(.caption).foregroundStyle(BrandColors.textPrimary)
+                    }
+                }.padding(8)
             }
 
-            // Spectrum view (existing, reused).
             GroupBox(tr("Spectrum", "频谱")) {
-                MetalSpectrumView()
-                    .frame(height: 90)
-                    .padding(8)
+                VStack(alignment: .leading, spacing: 8) {
+                    SpectrumView().frame(height: 90)
+                    StreamingEQAvailabilityNote()
+                }.padding(8)
             }
 
             // EQ entry point.
@@ -53,8 +69,8 @@ struct AudioInfoPanel: View {
             } label: {
                 Label(tr("Open EQ Editor", "打开 EQ 编辑器"), systemImage: "slider.vertical.3")
             }
-            .buttonStyle(.bordered)
-            .tint(BrandColors.magenta)
+            .musesAction()
+            .tint(BrandColors.accent)
         }
         .padding(20)
         .frame(width: 420)

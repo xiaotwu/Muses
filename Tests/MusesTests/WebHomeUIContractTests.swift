@@ -36,9 +36,9 @@ struct WebHomeUIContractTests {
         #expect(source.contains("enableUsingDefaultBrowser"))
         #expect(source.contains("Ready to check"))
 
-        // Technical detail is folded into "Advanced" instead of being sprawled across the main UI
-        #expect(source.contains("PrefKey.ytShowAdvanced"))
-        #expect(source.contains("DisclosureGroup"))
+        // Preferences are expanded; diagnostics has a first-level sidebar destination.
+        #expect(!source.contains("NavigationLink"))
+        #expect(source.contains("destination == .diagnostics"))
 
         // The removal management actions and recovery entry points must still exist
         #expect(source.contains("Could not read browser session"))
@@ -52,12 +52,17 @@ struct WebHomeUIContractTests {
         #expect(source.contains("never changes this selection"))
     }
 
-    @Test("settings sheet gates the yt-dlp wizard behind the advanced toggle")
-    func settingsSheetWizardContract() throws {
+    @Test("settings exposes the yt-dlp wizard in the diagnostics category")
+    func settingsWindowWizardContract() throws {
         let sheet = try read("Sources/Muses/Features/Settings/SettingsSheet.swift")
-        #expect(sheet.contains("PrefKey.ytShowAdvanced"))
-        #expect(sheet.contains("showYtAdvanced"))
-        #expect(sheet.contains("if showYtAdvanced"))
+        let account = try read("Sources/Muses/Features/Settings/YouTubeSettingsView.swift")
+        let detail = try #require(account.range(of: "destination == .diagnostics"))
+        let wizard = try #require(account.range(of: "YTDlpConfigWizard()"))
+        #expect(wizard.lowerBound > detail.lowerBound)
+        #expect(!sheet.contains("YTDlpConfigWizard()"))
+        #expect(sheet.contains("SettingsPage"))
+        #expect(!sheet.contains("Quit Muses"))
+        #expect(!sheet.contains("Connect YouTube in Settings"))
     }
 
     @Test("Home identifies live and saved sources and labels continuation for VoiceOver")
@@ -70,6 +75,10 @@ struct WebHomeUIContractTests {
         #expect(source.contains("fetchContinuation"))
         #expect(source.contains(".accessibilityLabel"))
         #expect(source.contains("Load more"))
+        #expect(source.contains("Public discovery"))
+        #expect(source.contains("Sign In"))
+        #expect(!source.contains("Make Home yours"))
+        #expect(!source.contains("guestBanner"))
     }
 
     @Test("build kill switch omits the enhancement provider")

@@ -1,0 +1,62 @@
+import Foundation
+import Testing
+@testable import Muses
+
+@Suite("External playback entry") @MainActor
+struct ExternalPlaybackRouterTests {
+    @Test func acceptsOnlyUnambiguousVideoLinks() {
+        for text in ["muses://play?v=abcdefghijk", "https://youtu.be/abcdefghijk",
+                     "https://music.youtube.com/watch?v=abcdefghijk", "https://www.youtube.com/shorts/abcdefghijk"] {
+            #expect(ExternalPlaybackRoute(url: URL(string: text)!) == .video("abcdefghijk"))
+        }
+        for text in ["muses://play?v=short", "muses://play?v=abcdefghijk&v=abcdefghijl",
+                     "muses://play?v=abcdefghijk&trackId=bad", "https://evilyoutube.com/watch?v=abcdefghijk",
+                     "https://youtube.com.evil.org/watch?v=abcdefghijk", "https://youtube.com/channel/abcdefghijk",
+                     "https://user@youtube.com/watch?v=abcdefghijk", "https://youtube.com/playlist?list=abcdefghijk"] {
+            #expect(ExternalPlaybackRoute(url: URL(string: text)!) == nil)
+        }
+        let id = UUID()
+        #expect(ExternalPlaybackRoute(url: URL(string: "muses://play?trackId=\(id)")!) == .track(id))
+    }
+
+    @Test func importLinksRejectForeignHostsAndMalformedVideoIDs() {
+        for text in ["https://evilyoutube.com/watch?v=abcdefghijk", "https://example.com/playlist?list=PLtest",
+                     "https://youtube.com/watch?v=short", "https://youtube.com/playlist?list=PLone&list=PLtwo"] {
+            #expect(YouTubeImportURL(text) == nil)
+        }
+        #expect(YouTubeImportURL("https://music.youtube.com/watch?v=abcdefghijk&list=PLtest") == .playlist("PLtest"))
+        #expect(YouTubeImportURL("https://youtu.be/abcdefghijk") == .video("abcdefghijk"))
+    }
+
+    @Test func latestRequestWinsAndDuplicatesCoalesce() async {
+        let engine = RecordingEngine()
+        let playback = PlaybackService(engine: engine, queue: QueueService())
+        var pending: [String: CheckedContinuation<TrackSnapshot, any Error>] = [:]
+        var resolutions = 0
+        let router = ExternalPlaybackRouter(playback: playback) { route in
+            guard case .video(let id) = route else { throw ExternalPlaybackRouter.RoutingError.notFound }
+            resolutions += 1
+            return try await withCheckedThrowingContinuation { pending[id] = $0 }
+        }
+        let first = URL(string: "muses://play?v=abcdefghijk")!
+        router.open(first)
+        for _ in 0..<100 where pending["abcdefghijk"] == nil { await Task.yield() }
+        router.open(first)
+        #expect(resolutions == 1)
+        router.open(URL(string: "muses://play?v=abcdefghijl")!)
+        for _ in 0..<100 where pending["abcdefghijl"] == nil { await Task.yield() }
+        func track(_ id: String) -> TrackSnapshot {
+            TrackSnapshot(id: UUID(), title: id, artist: "Artist", albumTitle: nil,
+                          durationSeconds: 120, youTubeId: id, artworkUrl: nil,
+                          sampleRate: nil, bitDepth: nil, codec: nil, isLossless: false)
+        }
+        let latest = track("abcdefghijl")
+        pending.removeValue(forKey: "abcdefghijl")?.resume(returning: latest)
+        for _ in 0..<100 where playback.state.track?.id != latest.id { await Task.yield() }
+        pending.removeValue(forKey: "abcdefghijk")?.resume(returning: track("abcdefghijk"))
+        for _ in 0..<20 { await Task.yield() }
+        #expect(playback.state.track?.id == latest.id)
+        #expect(router.errorMessage == nil)
+        playback.pause()
+    }
+}

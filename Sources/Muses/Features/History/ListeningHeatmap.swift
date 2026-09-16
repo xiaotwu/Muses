@@ -109,7 +109,7 @@ struct ListeningHeatmapView: View {
                             .minimumScaleFactor(0.65)
                             .frame(width: cellSize)
                             .accessibilityLabel(tr("Hour \(hourLabel(hour))",
-                                                   "小时 \(hourLabel(hour))"))
+                                                   "小时 \(hourLabel(hour))", zhHant: "小時 \(hourLabel(hour))"))
                     }
                 }
                 ForEach(heatmap.rows) { row in
@@ -236,15 +236,15 @@ struct ListeningHeatmapView: View {
                                             Text(ListeningFormat.duration(cell.totalMs))
                                                 .font(.callout.monospacedDigit())
                                             Spacer()
-                                            Text(tr("\(cell.trackCount) songs", "\(cell.trackCount) 首"))
-                                            Text(tr("\(cell.artistCount) artists", "\(cell.artistCount) 位艺人"))
+                                            Text(tr("\(cell.trackCount) songs", "\(cell.trackCount) 首", zhHant: "\(cell.trackCount) 首"))
+                                            Text(tr("\(cell.artistCount) artists", "\(cell.artistCount) 位艺人", zhHant: "\(cell.artistCount) 位藝人"))
                                         }
                                         .font(.caption)
                                         .foregroundStyle(BrandColors.textPrimary)
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 7)
                                         .background(selectedCellID == cell.id
-                                                    ? BrandColors.magenta.opacity(0.12)
+                                                    ? BrandColors.accent.opacity(0.12)
                                                     : Color.clear,
                                                     in: RoundedRectangle(cornerRadius: 7,
                                                                          style: .continuous))
@@ -273,14 +273,14 @@ struct ListeningHeatmapView: View {
                         .font(.headline)
                     if heatmap.range == .allTime {
                         Text(tr("Average \(ListeningFormat.duration(cell.intensityMs)) per matching weekday; \(ListeningFormat.duration(cell.totalMs)) total across \(cell.sampleDayCount) days.",
-                                "对应星期平均 \(ListeningFormat.duration(cell.intensityMs))；\(cell.sampleDayCount) 天共 \(ListeningFormat.duration(cell.totalMs))。"))
+                                "对应星期平均 \(ListeningFormat.duration(cell.intensityMs))；\(cell.sampleDayCount) 天共 \(ListeningFormat.duration(cell.totalMs))。", zhHant: "對應星期平均 \(ListeningFormat.duration(cell.intensityMs))；\(cell.sampleDayCount) 天共 \(ListeningFormat.duration(cell.totalMs))。"))
                             .font(.callout)
                     } else {
                         Text(ListeningFormat.duration(cell.totalMs))
                             .font(.callout.weight(.semibold))
                     }
                     Text(tr("\(cell.eventCount) plays · \(cell.trackCount) songs · \(cell.artistCount) artists",
-                            "\(cell.eventCount) 次播放 · \(cell.trackCount) 首歌曲 · \(cell.artistCount) 位艺人"))
+                            "\(cell.eventCount) 次播放 · \(cell.trackCount) 首歌曲 · \(cell.artistCount) 位艺人", zhHant: "\(cell.eventCount) 次播放 · \(cell.trackCount) 首歌曲 · \(cell.artistCount) 位藝人"))
                         .font(.caption)
                         .foregroundStyle(BrandColors.textSecondary)
                 }
@@ -318,14 +318,14 @@ struct ListeningHeatmapView: View {
         guard level != .none else {
             return BrandColors.textSecondary.opacity(contrast == .increased ? 0.08 : 0.035)
         }
-        return BrandColors.magenta.opacity(level.opacity)
+        return BrandColors.accent.opacity(level.opacity)
     }
 
     private func cellStroke(_ level: ListeningHeatmapLevel, selected: Bool) -> Color {
         if selected { return BrandColors.textPrimary }
         if level == .none { return BrandColors.textSecondary.opacity(0.30) }
         return differentiateWithoutColor || contrast == .increased
-            ? BrandColors.textPrimary.opacity(0.60) : BrandColors.magenta.opacity(0.62)
+            ? BrandColors.textPrimary.opacity(0.60) : BrandColors.accent.opacity(0.62)
     }
 
     private func minuteHint(_ milliseconds: Int) -> String {
@@ -376,11 +376,11 @@ struct ListeningHeatmapView: View {
         if heatmap.range == .allTime {
             return tr(
                 "Average \(ListeningFormat.duration(cell.intensityMs)), total \(ListeningFormat.duration(cell.totalMs)), \(cell.trackCount) songs, \(cell.artistCount) artists",
-                "平均 \(ListeningFormat.duration(cell.intensityMs))，总计 \(ListeningFormat.duration(cell.totalMs))，\(cell.trackCount) 首歌曲，\(cell.artistCount) 位艺人")
+                "平均 \(ListeningFormat.duration(cell.intensityMs))，总计 \(ListeningFormat.duration(cell.totalMs))，\(cell.trackCount) 首歌曲，\(cell.artistCount) 位艺人", zhHant: "平均 \(ListeningFormat.duration(cell.intensityMs))，總計 \(ListeningFormat.duration(cell.totalMs))，\(cell.trackCount) 首歌曲，\(cell.artistCount) 位藝人")
         }
         return tr(
             "\(ListeningFormat.duration(cell.totalMs)), \(cell.trackCount) songs, \(cell.artistCount) artists",
-            "\(ListeningFormat.duration(cell.totalMs))，\(cell.trackCount) 首歌曲，\(cell.artistCount) 位艺人")
+            "\(ListeningFormat.duration(cell.totalMs))，\(cell.trackCount) 首歌曲，\(cell.artistCount) 位艺人", zhHant: "\(ListeningFormat.duration(cell.totalMs))，\(cell.trackCount) 首歌曲，\(cell.artistCount) 位藝人")
     }
 
     private var summaryAccessibilityLabel: String {
@@ -388,7 +388,7 @@ struct ListeningHeatmapView: View {
         let active = mostActiveRow.map(rowLabel) ?? tr("none", "无")
         return tr(
             "Listening summary. Total \(ListeningFormat.duration(heatmap.totalMs)). Peak interval \(peak). Most active date \(active).",
-            "收听摘要。总计 \(ListeningFormat.duration(heatmap.totalMs))。高峰时段 \(peak)。最活跃日期 \(active)。")
+            "收听摘要。总计 \(ListeningFormat.duration(heatmap.totalMs))。高峰时段 \(peak)。最活跃日期 \(active)。", zhHant: "收聽摘要。總計 \(ListeningFormat.duration(heatmap.totalMs))。高峰時段 \(peak)。最活躍日期 \(active)。")
     }
 }
 

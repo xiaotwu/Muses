@@ -9,6 +9,7 @@ enum GlobalSearchRoute {
 
 /// Owns the presentation boundary of the single auxiliary Search window.
 struct SearchWindowRoot: View {
+    @Environment(GlobalSearchService.self) private var search
     @Environment(\.dismissWindow) private var dismissWindow
     @State private var showYouTubeLink = false
 
@@ -18,6 +19,16 @@ struct SearchWindowRoot: View {
             onDismiss: close,
             onRoute: navigate
         )
+        .toolbar {
+            ToolbarItemGroup(placement: .navigation) {
+                Button(tr("Back", "后退", zhHant: "返回"), systemImage: "arrow.left") { search.musicCatalog.back() }
+                    .disabled(!search.musicCatalog.canGoBack)
+                    .keyboardShortcut("[", modifiers: .command)
+                Button(tr("Forward", "前进", zhHant: "前進"), systemImage: "arrow.right") { search.musicCatalog.forward() }
+                    .disabled(!search.musicCatalog.canGoForward)
+                    .keyboardShortcut("]", modifiers: .command)
+            }
+        }
         .sheet(isPresented: $showYouTubeLink) {
             AddYouTubeLinkSheet(isPresented: $showYouTubeLink)
         }
@@ -28,10 +39,8 @@ struct SearchWindowRoot: View {
     }
 
     private func navigate(_ route: GlobalSearchRoute) {
-        NotificationCenter.default.post(name: .musesNavigateFromSearch, object: route)
-        if MusesSingleInstance.orderFrontMainWindow() {
-            close()
-        }
+        MusesSingleInstance.requestSearchNavigation(route)
+        close()
     }
 }
 
@@ -61,13 +70,35 @@ struct GlobalSearchView: View {
             windowHeader
             VStack(alignment: .leading, spacing: 0) {
                 searchChrome
+                if let error = search.youtubeError ?? (search.wasCancelled ? tr("Search cancelled", "搜索已取消", zhHant: "搜尋已取消") : nil) {
+                    HStack {
+                        Text(error).font(.callout)
+                        Spacer()
+                        Button(tr("Retry", "重试", zhHant: "重試"), systemImage: "arrow.clockwise") {
+                            search.retrySearch()
+                        }
+                        .labelStyle(ActionIconLabelStyle())
+                        .help(tr("Retry", "重试", zhHant: "重試"))
+                        .disabled(search.isSearchingYouTube)
+                    }.padding(.vertical, 10)
+                }
 
                 ScrollView {
-                    Group {
+                    VStack(alignment: .leading, spacing: 0) {
                         if trimmedQuery.isEmpty {
                             searchLanding
                         } else {
-                            searchResults
+                            if search.scope.searchesYouTube { StructuredCatalogSearchView() }
+                            if search.musicCatalog.detail == nil { searchResults }
+                            if search.canLoadMore && search.musicCatalog.detail == nil {
+                                Button(tr("Load more results", "加载更多结果", zhHant: "載入更多結果"), systemImage: "arrow.down.circle") {
+                                    search.loadMore()
+                                }
+                                .labelStyle(ActionIconLabelStyle())
+                                .help(tr("Load more results", "加载更多结果", zhHant: "載入更多結果"))
+                                .disabled(search.isSearchingYouTube)
+                                .padding()
+                            }
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -87,7 +118,9 @@ struct GlobalSearchView: View {
         .background(SearchWindowConfigurator(colorScheme: colorScheme).frame(width: 0, height: 0))
         .ignoresSafeArea(edges: .top)
         .onExitCommand(perform: handleEscape)
+        .onDisappear { if search.isSearchingYouTube { search.cancelSearch() } }
         .onAppear {
+            if search.wasCancelled { search.retrySearch() }
             refreshSavedYouTubeIDs()
             searchFieldFocused = true
         }
@@ -128,9 +161,15 @@ struct GlobalSearchView: View {
                         .focused($searchFieldFocused)
                         .onSubmit(activateTopResult)
                     if search.isSearchingYouTube {
+                        Button { search.cancelSearch() } label: {
+                            Image(systemName: "stop.circle")
+                        }
+                        .buttonStyle(.plain)
+                        .help(tr("Cancel Search", "取消搜索", zhHant: "取消搜尋"))
+                        .accessibilityLabel(tr("Cancel Search", "取消搜索", zhHant: "取消搜尋"))
                         ProgressView()
                             .controlSize(.small)
-                            .accessibilityLabel(tr("Searching YouTube Music", "正在搜索 YouTube Music"))
+                            .accessibilityLabel(tr("Searching YouTube", "正在搜索 YouTube", zhHant: "正在搜尋 YouTube"))
                     }
                     if !search.query.isEmpty {
                         Button {
@@ -149,7 +188,7 @@ struct GlobalSearchView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: SearchWindowPolicy.controlHeight)
                 .background(BrandColors.textPrimary.opacity(0.06),
-                            in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                            in: Capsule())
 
                 Button { showYouTubeLink = true } label: {
                     Image(systemName: SearchChromePolicy.addMusicSystemImage)
@@ -159,15 +198,15 @@ struct GlobalSearchView: View {
                             width: SearchWindowPolicy.controlHeight,
                             height: SearchWindowPolicy.controlHeight
                         )
-                        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .musesGlass(
-                    in: RoundedRectangle(cornerRadius: 12, style: .continuous),
+                    in: Capsule(),
                     role: .compactControl
                 )
                 .overlay {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    Capsule()
                         .stroke(BrandColors.textPrimary.opacity(0.18), lineWidth: 1)
                 }
                 .help(tr("Paste YouTube Link", "粘贴 YouTube 链接"))
@@ -179,7 +218,7 @@ struct GlobalSearchView: View {
             )) {
                 Text(tr("All", "全部")).tag(GlobalSearchScope.all)
                 Text(tr("Library", "资料库")).tag(GlobalSearchScope.library)
-                Text("YouTube Music").tag(GlobalSearchScope.youtube)
+                Text("YouTube").tag(GlobalSearchScope.youtube)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -269,7 +308,7 @@ struct GlobalSearchView: View {
                                 ForEach(search.catalogArtistResults.prefix(10)) { artist in
                                     ArtistObjectView(
                                         name: artist.name,
-                                        detail: tr("\(artist.tracks.count) songs", "\(artist.tracks.count) 首歌曲"),
+                                        detail: tr("\(artist.tracks.count) songs", "\(artist.tracks.count) 首歌曲", zhHant: "\(artist.tracks.count) 首歌曲"),
                                         artwork: ArtworkSource.resolve(
                                             remoteURL: artist.artworkURL,
                                             youTubeId: artist.tracks.first?.youTubeId),
@@ -307,15 +346,31 @@ struct GlobalSearchView: View {
                 }
 
                 if !search.youtubeResults.isEmpty {
-                    resultSection(title: "YouTube Music") {
+                    resultSection(title: tr("YouTube · Additional results", "YouTube · 补充结果", zhHant: "YouTube · 補充結果")) {
                         LazyVStack(spacing: 0) {
-                            ForEach(search.youtubeResults.prefix(16), id: \.id) { entry in
+                            ForEach(search.youtubeResults, id: \.id) { entry in
+                                if entry.resourceKind == .video {
                                 GlobalSearchYouTubeRow(entry: entry,
                                                        isSaved: savedYouTubeIDs.contains(entry.id)) {
                                     Task { await playYouTube(entry) }
                                 }
                                 .youTubeEntryContextMenu(entry: entry) {
                                     Task { await playYouTube(entry) }
+                                }
+                                } else if let url = entry.resourceURL {
+                                    Button { NSWorkspace.shared.open(url) } label: {
+                                        HStack {
+                                            Image(systemName: entry.resourceKind == .channel ? "person.crop.circle" : "music.note.list")
+                                            Text(entry.title)
+                                            Spacer()
+                                            Text(entry.resourceKind == .channel
+                                                 ? tr("Channel", "频道", zhHant: "頻道")
+                                                 : tr("Playlist", "歌单", zhHant: "播放清單"))
+                                                .foregroundStyle(.secondary)
+                                            Image(systemName: "arrow.up.right")
+                                        }.padding(.vertical, 12).contentShape(Rectangle())
+                                    }.buttonStyle(.plain)
+                                    .help(tr("Open in YouTube", "在 YouTube 中打开", zhHant: "在 YouTube 中開啟"))
                                 }
                             }
                         }
@@ -325,13 +380,17 @@ struct GlobalSearchView: View {
         } else if search.isSearchingYouTube {
             SearchStatusView(
                 systemName: "magnifyingglass",
-                title: tr("Searching YouTube Music…", "正在搜索 YouTube Music…"),
+                title: tr("Searching YouTube…", "正在搜索 YouTube…", zhHant: "正在搜尋 YouTube…"),
                 showsProgress: true
             )
+        } else if search.wasCancelled {
+            SearchStatusView(systemName: "stop.circle", title: tr("Search cancelled", "搜索已取消", zhHant: "搜尋已取消"))
+        } else if search.youtubeError != nil {
+            SearchStatusView(systemName: "exclamationmark.magnifyingglass", title: tr("Search unavailable", "搜索暂不可用", zhHant: "搜尋暫不可用"))
         } else {
             SearchStatusView(
                 systemName: "magnifyingglass",
-                title: tr("No results for “\(trimmedQuery)”", "没有“\(trimmedQuery)”的结果"),
+                title: tr("No results for “\(trimmedQuery)”", "没有“\(trimmedQuery)”的结果", zhHant: "沒有“\(trimmedQuery)”的結果"),
                 subtitle: tr("Try another title, artist, album, or video.",
                              "请尝试其他歌曲名、艺术家、专辑或视频。")
             )
@@ -386,10 +445,13 @@ struct GlobalSearchView: View {
     }
 
     private func playYouTube(_ entry: YTDlpBridge.YTDlpPlaylistEntry) async {
+        guard entry.resourceKind == .video else {
+            if let url = entry.resourceURL { NSWorkspace.shared.open(url) }
+            return
+        }
         guard let searchService = search.youTubeSearch else { return }
         do {
-            let snapshot = try await searchService.importAsTrack(entry: entry)
-            savedYouTubeIDs.insert(entry.id)
+            let snapshot = try await searchService.resolveTrack(entry: entry)
             let context = TrackSnapshot.playbackContext(
                 playing: snapshot,
                 youTubeEntries: search.youtubeResults

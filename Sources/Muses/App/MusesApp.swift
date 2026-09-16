@@ -4,10 +4,12 @@ import AppKit
 
 @main
 struct MusesApp: App {
+    @NSApplicationDelegateAdaptor(MusesAppDelegate.self) private var appDelegate
     let modelContainer: ModelContainer
     /// True when the on-disk library could not be opened and the session is empty in-memory.
     let usedInMemoryFallback: Bool
     let libraryService: LibraryService
+    let externalPlaybackRouter: ExternalPlaybackRouter
     let playbackService: PlaybackService
     let importService: YouTubeImportService
     let searchService: YouTubeSearchService
@@ -21,18 +23,15 @@ struct MusesApp: App {
     let runtimeCapabilities: RuntimeCapabilities
     let historyService: HistoryService
     let contextService: ContextService
-    let automationService: AutomationService
     let sessionService: SessionService
-    let inboxService: InboxService
     let notesService: NotesService
-    let focusService: FocusService
     let audioDeviceService: AudioDeviceService
     // Home dynamic discovery: provider abstraction + cache-first + per-section failure.
     let homeDiscoveryService: HomeDiscoveryService
     /// Optional, isolated YouTube Music Web Home control plane. It is
     /// build-gated, user-consented, and never participates in playback.
     let webHomeSessionController: WebHomeSessionController
-    // Situational recommendations for the New tab: deterministic scoring over History/Context/Sessions/Focus/Inbox/Library.
+    // Situational recommendations for the New tab: deterministic scoring over History/Context/Sessions/Library.
     let situationalRecommendationService: SituationalRecommendationService
     // YouTube account (real Google OAuth 2.0 PKCE + Data API): feeds Home personalization
     // signals (subscribed channels / liked videos → artist names). Credentials and tokens live
@@ -49,6 +48,10 @@ struct MusesApp: App {
 
     init() {
         MusesSingleInstance.yieldIfOtherInstanceRunning()
+        _ = L10n.traditionalStrings
+        // Music windows are not document-tabbed; this also removes Show Tab Bar /
+        // Show All Tabs from View (no CommandGroupPlacement exists for those items).
+        NSWindow.allowsAutomaticWindowTabbing = false
         // Brand wordmark font: register early so the first screen's "Muses" wordmark already uses MonteCarlo.
         FontLoader.registerMonteCarlo()
         YTCookieSource.migrateChromeIfNeeded()
@@ -58,13 +61,27 @@ struct MusesApp: App {
         // Global hotkeys / mini player / desktop lyrics remain off by default; the menu bar icon is on.
         UserDefaults.standard.register(defaults: FeatureFlagDefaults.enabledByDefault)
         UserDefaults.standard.register(defaults: WebHomePreferenceDefaults.values)
+        UserDefaults.standard.register(defaults: AppearancePreferenceDefaults.values)
         #if DEBUG
         let storeLoad: MusesStoreLoadResult
-        if ProcessInfo.processInfo.environment["MUSES_IN_MEMORY_STORE"] == "1" {
-            storeLoad = MusesStoreLoadResult(
-                container: try! makeModelContainer(inMemory: true),
-                usedInMemoryFallback: false
-            )
+        // Validation bundles stay isolated even when Finder relaunches them without environment flags.
+        if Bundle.main.bundleIdentifier == "com.muses.validation"
+            || ProcessInfo.processInfo.environment["MUSES_IN_MEMORY_STORE"] == "1" {
+            // An explicit disposable fixture enables disk-migration UI tests.
+            // Relaunching without the flag always returns to an in-memory store.
+            let fixture = ProcessInfo.processInfo.environment["MUSES_VALIDATION_STORE"]
+                .map { URL(fileURLWithPath: $0).resolvingSymlinksInPath() }
+            if let fixture, (fixture.path.hasPrefix("/private/tmp/") || fixture.path.hasPrefix("/tmp/")),
+               fixture.lastPathComponent == "migration-ui-fixture.sqlite",
+               FileManager.default.fileExists(atPath: fixture.path),
+               let container = try? makeModelContainer(storeURL: fixture) {
+                storeLoad = MusesStoreLoadResult(container: container, usedInMemoryFallback: false)
+            } else {
+                storeLoad = MusesStoreLoadResult(
+                    container: try! makeModelContainer(inMemory: true),
+                    usedInMemoryFallback: false
+                )
+            }
         } else {
             storeLoad = makeYouTubeNativeModelContainerWithFallback()
         }
@@ -92,9 +109,19 @@ struct MusesApp: App {
             queue: queue,
             library: library
         )
+        let activeEQ = UserDefaults.standard.string(forKey: PrefKey.eqActivePresetId) ?? "Flat"
+        let recommendationCatalog = PublicMusicCatalogProvider()
+        playbackService.recommendationProvider = { videoID in
+            try await recommendationCatalog.recommendations(after: videoID)
+        }
+        let customEQ = (try? container.mainContext.fetch(FetchDescriptor<EQPreset>()))?
+            .first { $0.id.uuidString == activeEQ }?.bands
+        playbackService.restoreEQSettings(defaults: .standard,
+            presetBands: customEQ ?? BuiltinEQPresets.all.first { $0.name == activeEQ }?.bands ?? EQPresets.flat)
         self.importService = YouTubeImportService(bridge: ytdlpBridge,
                                                   modelContainer: container,
                                                   catalog: catalogService)
+        self.externalPlaybackRouter = ExternalPlaybackRouter(playback: playbackService, importer: importService, container: container)
         self.searchService = YouTubeSearchService(bridge: ytdlpBridge,
                                                   modelContainer: container)
         self.playlistService = PlaylistService(modelContainer: container)
@@ -126,43 +153,22 @@ struct MusesApp: App {
                                              eventBus: playbackService.eventBus,
                                              playback: playbackService,
                                              queue: queue)
-        // Focus mode: subscription-free, holds the live state; links back to the current ListeningSession (read-only).
-        // ffFocusMode is on by default; with no session started, isActive stays false and never suppresses discovery surfaces.
-        self.focusService = FocusService(modelContainer: container,
-                                         eventBus: playbackService.eventBus,
-                                         playback: playbackService,
-                                         sessionService: sessionService)
         // Audio output devices: Core Audio enumeration/switching (best-effort), with a 2s poll detecting default-device changes.
-        let audioDevices = AudioDeviceService(eventBus: playbackService.eventBus)
+        let audioDevices = AudioDeviceService(eventBus: playbackService.eventBus,
+            onUnexpectedDisconnect: { [weak playbackService] in playbackService?.pause() })
         self.audioDeviceService = audioDevices
         Task { @MainActor in audioDevices.startPolling() }
-        // Inbox: subscribes to the event bus (.trackStarted→listening) and maintains InboxItem rows;
-        // at launch, expired snoozes are restored to unheard. ffInbox is on by default.
-        self.inboxService = InboxService(modelContainer: container,
-                                         eventBus: playbackService.eventBus)
-        inboxService.restoreDueSnoozes()
-        // Context automation: subscribes to the event bus and matches AutomationRule triggers/conditions/actions.
-        // ffAutomation is on by default. Action handlers wire into library/inbox/playback.
-        self.automationService = AutomationService(
-            modelContainer: container,
-            eventBus: playbackService.eventBus,
-            contextProvider: { [weak contextService] in contextService?.capture() },
-            actionHandler: AutomationService.makeDefaultActionHandler(
-                library: library, inbox: inboxService, playback: playbackService))
         let indexer = SpotlightIndexer(modelContainer: container)
         self.spotlightIndexer = indexer
         // Index into Spotlight asynchronously after launch.
         Task { @MainActor in indexer.indexAll() }
 
-        // Home dynamic discovery service: the default provider runs themed yt-dlp ytsearch,
-        // injected via the searchService.search closure (which calls the @MainActor YTDlpBridge inside).
-        // ffDiscovery is on by default; when off, load() is a no-op and HomeView falls back to the existing behavior.
+        // Public discovery reads source endpoints without substituting keyword search.
+        // Unavailable official content remains an explicit failure.
         // Note: an escaping closure in a struct init cannot capture a not-fully-initialized self, hence the local bindings.
-        let ytSearchSvc = searchService
         let ytBridge = ytdlpBridge
         let discoveryProvider = YTDlpDiscoveryProvider(
-            fetchPlaylist: { url in try await ytBridge.fetchPlaylist(url: url) },
-            search: { query, limit in try await ytSearchSvc.search(query: query, limit: limit) }
+            fetchPlaylist: { url in try await ytBridge.fetchPlaylist(url: url) }
         )
         // YouTube account service: Google OAuth 2.0 PKCE + YouTube Data API.
         // OAuth client configuration is held by the app build and tokens live in the macOS
@@ -203,15 +209,12 @@ struct MusesApp: App {
             accountChannelIDProvider: { [weak youTubeAccount] in
                 youTubeAccount?.activeChannelID
             })
-        // Situational recommendations for the New tab (reads only History/Context/Focus/Inbox/Library + imported YouTube).
+        // Situational recommendations for the New tab (reads only History/Context/Library + imported YouTube).
         // ffSituationalNew is on by default; when off, compute() returns empty and NewView falls back to RecommendationService.
         self.situationalRecommendationService = SituationalRecommendationService(
             library: library,
             historyService: historyService,
-            contextService: contextService,
-            focusService: focusService,
-            inboxService: inboxService,
-            modelContainer: container)
+            contextService: contextService)
 
         // GitHub Release update check (replaces the old Sparkle auto-updater).
         // The `checkForUpdates` preference controls automatic checks; no more than one per 24h.
@@ -225,39 +228,37 @@ struct MusesApp: App {
 
         // Command registry: centralizes existing command handling so menu shortcuts and global hotkeys share one handler.
         let registry = CommandRegistry()
-        registry.register(CommandRegistry.togglePlayback) { [weak playbackService] in
+        registry.register(CommandRegistry.togglePlayback, handler: { [weak playbackService] in
             playbackService?.toggle()
-        }
-        registry.register(CommandRegistry.next) { [weak playbackService] in
+        }, enabled: { [weak playbackService] in playbackService?.transportState.track != nil })
+        registry.register(CommandRegistry.next, handler: { [weak playbackService] in
             playbackService?.next()
-        }
-        registry.register(CommandRegistry.previous) { [weak playbackService] in
+        }, enabled: { [weak playbackService] in playbackService?.transportState.track != nil })
+        registry.register(CommandRegistry.previous, handler: { [weak playbackService] in
             playbackService?.previous()
-        }
-        registry.register(CommandRegistry.likeCurrent) { [weak playbackService, weak library] in
+        }, enabled: { [weak playbackService] in playbackService?.transportState.track != nil })
+        registry.register(CommandRegistry.likeCurrent, handler: { [weak playbackService, weak library] in
             guard let id = playbackService?.state.track?.id else { return }
             library?.toggleLike(id: id)
-        }
+        }, enabled: { [weak playbackService] in playbackService?.transportState.track != nil })
         registry.register(CommandRegistry.toggleQueue) {
             NotificationCenter.default.post(name: .musesToggleQueue, object: nil)
         }
-        registry.register(CommandRegistry.toggleNowPlaying) {
+        registry.register(CommandRegistry.toggleNowPlaying, handler: {
             NotificationCenter.default.post(name: .musesToggleNowPlaying, object: nil)
-        }
+        }, enabled: { [weak playbackService] in playbackService?.transportState.track != nil })
         registry.register(CommandRegistry.focusSearch) {
             NotificationCenter.default.post(name: .musesFocusSearch, object: nil)
         }
         self.commandRegistry = registry
-        self.runtimeCapabilities = RuntimeCapabilities()
 
         // Desktop integration services: construction + wiring.
-        // Hotkey dispatcher: existing commands go through commandRegistry; desktop-only actions (volume/mini/lyrics/focus/inbox) are called directly.
+        // Hotkey dispatcher: existing commands go through commandRegistry; desktop-only actions (volume/mini/lyrics) are called directly.
         // Note: an escaping closure in a struct init cannot capture self, hence local bindings with weak capture lists.
         let playback = playbackService
         let lib = library
-        let inbox = inboxService
         let lyricsSvc = lyricsService
-        GlobalHotkeyService.sharedDispatcher = { [weak registry, weak playback, weak inbox] action in
+        GlobalHotkeyService.sharedDispatcher = { [weak registry, weak playback] action in
             switch action {
             case GlobalHotkeyService.actionPlayPause, GlobalHotkeyService.actionNext,
                  GlobalHotkeyService.actionPrevious, GlobalHotkeyService.actionLike:
@@ -267,17 +268,13 @@ struct MusesApp: App {
             case GlobalHotkeyService.actionVolumeDown:
                 playback?.setVolume(max(0, (playback?.volume ?? 0.8) - 0.05))
             case GlobalHotkeyService.actionMute:
-                playback?.setVolume(playback?.volume ?? 0 > 0 ? 0 : 0.8)
-            case GlobalHotkeyService.actionAddToInbox:
-                if let snap = playback?.state.track { inbox?.add(snap, source: .automation) }
+                playback?.toggleMute()
             case GlobalHotkeyService.actionShowHidePlayer:
                 MusesSingleInstance.orderFrontMainWindow()
             case GlobalHotkeyService.actionShowMiniPlayer:
                 NotificationCenter.default.post(name: .musesOpenMiniPlayer, object: nil)
             case GlobalHotkeyService.actionShowLyrics:
                 NotificationCenter.default.post(name: .musesToggleDesktopLyrics, object: nil)
-            case GlobalHotkeyService.actionToggleFocus:
-                NotificationCenter.default.post(name: .musesToggleFocusMode, object: nil)
             default: break
             }
         }
@@ -286,17 +283,15 @@ struct MusesApp: App {
             shortcutProvider: { GlobalHotkeyService.loadShortcuts() },
             dispatcher: { GlobalHotkeyService.sharedDispatcher?($0) })
         self.globalHotkeyService = hotkeys
+        self.runtimeCapabilities = RuntimeCapabilities(playback: playbackService, hotkeys: hotkeys, devices: audioDevices)
 
         let tray = TrayController(
             trackProvider: { [weak playback] in playback?.state.track },
-            isPlayingProvider: { [weak playback] in playback?.state.isPlaying ?? false },
+            isPlayingProvider: { [weak playback] in playback?.transportState.isPlaying ?? false },
             onPlayPause: { [weak registry] in registry?.execute(CommandRegistry.togglePlayback) },
             onNext: { [weak registry] in registry?.execute(CommandRegistry.next) },
             onPrevious: { [weak registry] in registry?.execute(CommandRegistry.previous) },
             onLike: { [weak registry] in registry?.execute(CommandRegistry.likeCurrent) },
-            onAddToInbox: { [weak playback, weak inbox] in
-                if let snap = playback?.state.track { inbox?.add(snap, source: .automation) }
-            },
             onOpenMini: { NotificationCenter.default.post(name: .musesOpenMiniPlayer, object: nil) },
             onOpenMain: {
                 MusesSingleInstance.orderFrontMainWindow()
@@ -348,12 +343,10 @@ struct MusesApp: App {
             }
         }
 
-        // Repair / artist backfill / enrichment are library-wide walks. Keep
-        // them off the init path so the first window can appear.
-        let deferredImport = importService
+        // Rebuild catalog caches after composition. Historical identities are
+        // never backfilled or merged during startup.
         let deferredCatalog = youTubeCatalogService
         Task { @MainActor in
-            deferredImport.repairYouTubeLibrary()
             deferredCatalog.rebuildFromTrackMetadata()
         }
 
@@ -368,11 +361,18 @@ struct MusesApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: MusesSingleInstance.mainSceneID) {
             ThemeApplier {
                 RootView()
+                    .onAppear {
+                        appDelegate.playback = playbackService
+                        if #available(macOS 15.0, *) {
+                            MusesAppShortcuts.updateAppShortcutParameters()
+                        }
+                    }
                     .environment(libraryService)
                     .environment(playbackService)
+                    .environment(externalPlaybackRouter)
                     .environment(importService)
                     .environment(searchService)
                     .environment(playlistService)
@@ -385,11 +385,8 @@ struct MusesApp: App {
                     .environment(runtimeCapabilities)
                     .environment(historyService)
                     .environment(contextService)
-                    .environment(automationService)
                     .environment(sessionService)
-                    .environment(inboxService)
                     .environment(notesService)
-                    .environment(focusService)
                     .environment(audioDeviceService)
                     .environment(homeDiscoveryService)
                     .environment(webHomeSessionController)
@@ -401,18 +398,7 @@ struct MusesApp: App {
                     .modelContainer(modelContainer)
                     .background(MiniPlayerOpener())
                     .onOpenURL { url in
-                        // deep link: muses://play?trackId=<id> — playback invoked by Spotlight / external callers
-                        guard let trackId = SpotlightIndexer.trackId(from: url) else { return }
-                        AppLog.for("MusesApp").info("deep link trackId: \(trackId)")
-                        let context = modelContainer.mainContext
-                        let descriptor = FetchDescriptor<Track>()
-                        guard let track = (try? context.fetch(descriptor))?
-                            .first(where: { $0.id == trackId }) else {
-                            AppLog.for("MusesApp").warning("deep link: track \(trackId) not found")
-                            return
-                        }
-                        let snap = TrackSnapshot(from: track)
-                        playbackService.playTrack(snap, context: [snap], from: .songs)
+                        externalPlaybackRouter.open(url)
                     }
             }
         }
@@ -420,7 +406,14 @@ struct MusesApp: App {
         // idempotent AppKit bridge makes the titlebar transparent and extends
         // content beneath it without letting scene updates replace the native
         // traffic-light cluster.
-        .defaultSize(width: 1280, height: 800)
+        .windowToolbarStyle(.unified)
+        .defaultSize(
+            width: WindowChromeMetrics.defaultWidth,
+            height: WindowChromeMetrics.defaultHeight
+        )
+        .commands {
+            MusesAppCommands(commandRegistry: commandRegistry, sleepTimer: sleepTimer)
+        }
         Window(tr("Search Muses", "搜索 Muses"), id: SearchWindowPolicy.sceneID) {
             ThemeApplier {
                 SearchWindowRoot()
@@ -438,11 +431,8 @@ struct MusesApp: App {
                     .environment(runtimeCapabilities)
                     .environment(historyService)
                     .environment(contextService)
-                    .environment(automationService)
                     .environment(sessionService)
-                    .environment(inboxService)
                     .environment(notesService)
-                    .environment(focusService)
                     .environment(audioDeviceService)
                     .environment(homeDiscoveryService)
                     .environment(webHomeSessionController)
@@ -465,97 +455,166 @@ struct MusesApp: App {
                 MiniPlayerView()
                     .environment(libraryService)
                     .environment(playbackService)
-                    .environment(focusService)
                     .environment(audioDeviceService)
                     .modelContainer(modelContainer)
             }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 240, height: 380)
-        .commands {
-            // Replaces the system About: opens the standard About panel (reads the Info.plist version).
-            CommandGroup(replacing: .appInfo) {
-                Button(tr("About Muses", "关于 Muses")) {
-                    NSApp.orderFrontStandardAboutPanel(nil)
-                }
+
+
+    }
+}
+
+/// App menu, File, View, and Playback. Settings… / ⌘, open the integrated main-window destination.
+private struct MusesAppCommands: Commands {
+    let commandRegistry: CommandRegistry
+    let sleepTimer: SleepTimerService
+    @Environment(\.openWindow) private var openWindow
+    @AppStorage(PrefKey.sidebarCollapsed) private var isSidebarCollapsed = false
+    @AppStorage(PrefKey.ffMiniPlayer) private var miniEnabled = false
+    @AppStorage(PrefKey.language) private var languageRaw = AppLanguage.system.rawValue
+
+    var body: some Commands {
+        let _ = languageRaw
+        CommandGroup(replacing: .appSettings) {
+            Button(tr("Settings…", "设置…", zhHant: "設定…")) {
+                MusesSingleInstance.requestSettings()
             }
-            CommandGroup(replacing: .appSettings) {
-                Button(tr("Settings…", "设置…")) {
-                    NotificationCenter.default.post(name: .musesOpenSettings, object: nil)
-                }
-                .keyboardShortcut(",", modifiers: .command)
-            }
-            // Playback control shortcuts (handled centrally via CommandRegistry; global hotkeys reuse the same handlers)
-            CommandGroup(after: .toolbar) {
-                Divider()
-                Button(tr("Play/Pause", "播放/暂停")) {
-                    commandRegistry.execute(CommandRegistry.togglePlayback)
-                }
-                .keyboardShortcut("p", modifiers: .command)
+            .keyboardShortcut(",", modifiers: .command)
+        }
 
-                Button(tr("Previous", "上一首")) {
-                    commandRegistry.execute(CommandRegistry.previous)
-                }
-                .keyboardShortcut(.leftArrow, modifiers: .command)
-
-                Button(tr("Next", "下一首")) {
-                    commandRegistry.execute(CommandRegistry.next)
-                }
-                .keyboardShortcut(.rightArrow, modifiers: .command)
-
-                Divider()
-
-                Button(tr("Like Current Song", "收藏当前歌曲")) {
-                    commandRegistry.execute(CommandRegistry.likeCurrent)
-                }
-                .keyboardShortcut("l", modifiers: .command)
-
-                Button(tr("Toggle Queue", "切换队列")) {
-                    commandRegistry.execute(CommandRegistry.toggleQueue)
-                }
-                .keyboardShortcut("k", modifiers: .command)
-
-                Button(tr("Now Playing", "正在播放")) {
-                    commandRegistry.execute(CommandRegistry.toggleNowPlaying)
-                }
-                .keyboardShortcut("o", modifiers: .command)
-
-                Button(tr("Search", "搜索")) {
-                    commandRegistry.execute(CommandRegistry.focusSearch)
-                }
-                .keyboardShortcut("f", modifiers: .command)
-
-                // Sleep timer
-                Divider()
-                Menu(tr("Sleep Timer", "睡眠定时器")) {
-                    Button(tr("15 min", "15 分钟")) { sleepTimer.start(minutes: 15) }
-                    Button(tr("30 min", "30 分钟")) { sleepTimer.start(minutes: 30) }
-                    Button(tr("45 min", "45 分钟")) { sleepTimer.start(minutes: 45) }
-                    Button(tr("60 min", "60 分钟")) { sleepTimer.start(minutes: 60) }
-                    Divider()
-                    Button(tr("Cancel Timer", "取消定时器")) { sleepTimer.cancel() }
-                        .disabled(!sleepTimer.isActive)
-                }
-                if sleepTimer.isActive {
-                    Text("\(tr("Sleep Timer", "睡眠定时器")):\(sleepTimer.remainingFormatted)")
-                }
-
-                // Focus mode: opens the FocusView panel (via notification; RootView presents it as a sheet).
-                Divider()
-                Button(tr("Focus Mode", "专注模式")) {
-                    NotificationCenter.default.post(name: .musesToggleFocusMode, object: nil)
-                }
-                if focusService.isActive {
-                    Text("\(tr("Focus", "专注")):\(focusService.remainingFormatted)")
-                }
-
-                // Audio info (Audio Nerd Mode): opens the AudioInfoPanel (via notification → RootView sheet).
-                Divider()
-                Button(tr("Audio Info", "音频信息")) {
-                    NotificationCenter.default.post(name: .musesToggleAudioInfo, object: nil)
-                }
+        CommandGroup(replacing: .appInfo) {
+            Button(tr("About Muses", "关于 Muses")) {
+                NSApp.orderFrontStandardAboutPanel(nil)
             }
         }
+
+        CommandGroup(replacing: .newItem) {
+            Button(tr("Main Window", "主窗口", zhHant: "主視窗")) {
+                if !MusesSingleInstance.orderFrontMainWindow() {
+                    openWindow(id: MusesSingleInstance.mainSceneID)
+                }
+            }
+            .keyboardShortcut("m", modifiers: [.command, .shift])
+
+            Button(tr("New MiniPlayer Window", "新建迷你播放器窗口")) {
+                NotificationCenter.default.post(name: .musesOpenMiniPlayer, object: nil)
+            }
+            .disabled(!miniEnabled)
+
+            Button(tr("Search", "搜索")) {
+                commandRegistry.execute(CommandRegistry.focusSearch)
+            }
+            .keyboardShortcut("f", modifiers: .command)
+        }
+
+        CommandGroup(replacing: .sidebar) {
+            Button(isSidebarCollapsed
+                   ? tr("Show Sidebar", "显示边栏")
+                   : tr("Hide Sidebar", "隐藏边栏")) {
+                isSidebarCollapsed.toggle()
+            }
+            .keyboardShortcut("s", modifiers: [.command, .control])
+
+            Divider()
+
+            Button(SidebarSection.home.title) { navigate(.home) }
+            Button(SidebarSection.new.title) { navigate(.new) }
+            Button(SidebarSection.songs.title) { navigate(.songs) }
+            Button(SidebarSection.albums.title) { navigate(.albums) }
+            Button(SidebarSection.artists.title) { navigate(.artists) }
+            Button(SidebarSection.liked.title) { navigate(.liked) }
+            Button(SidebarSection.musicVideos.title) { navigate(.musicVideos) }
+            Button(SidebarSection.subscriptions.title) { navigate(.subscriptions) }
+            Button(SidebarSection.history.title) { navigate(.history) }
+            Button(SidebarSection.playlists.title) { navigate(.playlists) }
+        }
+
+        CommandMenu(tr("Playback", "播放")) {
+            Button(tr("Play/Pause", "播放/暂停")) {
+                commandRegistry.execute(CommandRegistry.togglePlayback)
+            }
+            .keyboardShortcut("p", modifiers: .command)
+            .disabled(!commandRegistry.isEnabled(CommandRegistry.togglePlayback))
+
+            Button(tr("Previous", "上一首")) {
+                commandRegistry.execute(CommandRegistry.previous)
+            }
+            .keyboardShortcut(.leftArrow, modifiers: .command)
+            .disabled(!commandRegistry.isEnabled(CommandRegistry.previous))
+
+            Button(tr("Next", "下一首")) {
+                commandRegistry.execute(CommandRegistry.next)
+            }
+            .keyboardShortcut(.rightArrow, modifiers: .command)
+            .disabled(!commandRegistry.isEnabled(CommandRegistry.next))
+
+            Divider()
+
+            Button(tr("Like Current Song", "收藏当前歌曲")) {
+                commandRegistry.execute(CommandRegistry.likeCurrent)
+            }
+            .keyboardShortcut("l", modifiers: .command)
+            .disabled(!commandRegistry.isEnabled(CommandRegistry.likeCurrent))
+
+            Button(tr("Toggle Queue", "切换队列")) {
+                commandRegistry.execute(CommandRegistry.toggleQueue)
+            }
+            .keyboardShortcut("k", modifiers: .command)
+
+            Button(tr("Now Playing", "正在播放")) {
+                commandRegistry.execute(CommandRegistry.toggleNowPlaying)
+            }
+            .keyboardShortcut("o", modifiers: .command)
+            .disabled(!commandRegistry.isEnabled(CommandRegistry.toggleNowPlaying))
+
+            Button(tr("Lyrics", "歌词")) {
+                NotificationCenter.default.post(name: .musesToggleLyrics, object: nil)
+            }
+            .keyboardShortcut("l", modifiers: [.command, .shift])
+            .disabled(!commandRegistry.isEnabled(CommandRegistry.togglePlayback))
+
+            Button(tr("Watch YouTube Video", "观看 YouTube 视频")) {
+                NotificationCenter.default.post(name: .musesShowYouTubeVideo, object: nil)
+            }
+            .keyboardShortcut("v", modifiers: [.command, .shift])
+            .disabled(!commandRegistry.isEnabled(CommandRegistry.togglePlayback))
+
+            Divider()
+
+            Menu(tr("Sleep Timer", "睡眠定时器")) {
+                Button(tr("15 min", "15 分钟")) { sleepTimer.start(minutes: 15) }
+                Button(tr("30 min", "30 分钟")) { sleepTimer.start(minutes: 30) }
+                Button(tr("45 min", "45 分钟")) { sleepTimer.start(minutes: 45) }
+                Button(tr("60 min", "60 分钟")) { sleepTimer.start(minutes: 60) }
+                Divider()
+                Button(tr("Cancel Timer", "取消定时器")) { sleepTimer.cancel() }
+                    .disabled(!sleepTimer.isActive)
+            }
+            if sleepTimer.isActive {
+                Text("\(tr("Sleep Timer", "睡眠定时器")):\(sleepTimer.remainingFormatted)")
+            }
+
+            Divider()
+
+            Button(tr("Audio Info", "音频信息")) {
+                NotificationCenter.default.post(name: .musesToggleAudioInfo, object: nil)
+            }
+        }
+
+        CommandGroup(replacing: .help) {
+            Button(tr("Muses Help", "Muses 帮助")) {
+                NSWorkspace.shared.open(MenuBarPolicy.helpDocumentationURL)
+            }
+        }
+    }
+
+    private func navigate(_ section: SidebarSection) {
+        NotificationCenter.default.post(
+            name: .musesNavigateFromSearch,
+            object: GlobalSearchRoute.section(section)
+        )
     }
 }
 
@@ -566,6 +625,11 @@ private struct MiniPlayerOpener: View {
     @AppStorage(PrefKey.ffMiniPlayer) private var miniEnabled = false
     var body: some View {
         Color.clear.frame(width: 0, height: 0)
+            .onAppear {
+                // OpenWindowAction belongs to the scene, not a retained RootView.
+                // Keep this route available after the last browse window closes.
+                MusesSingleInstance.createMainWindow = { openWindow(id: MusesSingleInstance.mainSceneID) }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .musesOpenMiniPlayer)) { _ in
                 guard miniEnabled else { return }
                 openWindow(id: "mini-player")

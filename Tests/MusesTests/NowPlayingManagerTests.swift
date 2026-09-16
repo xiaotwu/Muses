@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import MediaPlayer
+import AppKit
 @testable import Muses
 
 @MainActor
@@ -15,6 +16,7 @@ struct NowPlayingManagerTests {
         let manager = NowPlayingManager(
             playback,
             bindsRemoteCommands: false,
+            artworkLoader: { _ in nil },
             publishInfo: { published.append($0) }
         )
 
@@ -46,6 +48,7 @@ struct NowPlayingManagerTests {
         let manager = NowPlayingManager(
             playback,
             bindsRemoteCommands: false,
+            artworkLoader: { _ in nil },
             publishInfo: { _ in }
         )
         // Give the manager a moment to perform the initial updateInfo
@@ -61,6 +64,7 @@ struct NowPlayingManagerTests {
         let manager = NowPlayingManager(
             playback,
             bindsRemoteCommands: false,
+            artworkLoader: { _ in nil },
             publishInfo: { _ in }
         )
         let snap = TrackSnapshot(id: UUID(), title: "Remote", artist: "Artist",
@@ -89,6 +93,7 @@ struct NowPlayingManagerTests {
         let manager = NowPlayingManager(
             playback,
             bindsRemoteCommands: false,
+            artworkLoader: { _ in nil },
             publishInfo: { _ in }
         )
 
@@ -107,4 +112,41 @@ struct NowPlayingManagerTests {
 
         #expect(manager.observationLifecycleStartCount == 1)
     }
+    @Test("System media artwork rejects the previous track's delayed cover")
+    func rejectsStaleArtwork() async throws {
+        let engine = RecordingEngine()
+        let playback = PlaybackService(youtubeEngine: engine, queue: QueueService())
+        var requests: [String: CheckedContinuation<NSImage?, Never>] = [:]
+        var published: [String: Any] = [:]
+        let manager = NowPlayingManager(playback, bindsRemoteCommands: false,
+            artworkLoader: { url in await withCheckedContinuation { requests[url.lastPathComponent] = $0 } },
+            publishInfo: { published = $0 })
+        func snapshot(_ name: String) -> TrackSnapshot {
+            TrackSnapshot(id: UUID(), title: name, artist: "Artist", albumTitle: nil,
+                          durationSeconds: 60, youTubeId: "test-video",
+                          artworkUrl: "https://example.com/\(name)", sampleRate: nil,
+                          bitDepth: nil, codec: nil, isLossless: false)
+        }
+        let first = snapshot("first"), second = snapshot("second")
+        playback.playTrack(first, context: [first], from: .songs)
+        let deadline = ContinuousClock.now + .seconds(3)
+        while requests["first"] == nil && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let firstRequest = try #require(requests["first"])
+        #expect(published[MPMediaItemPropertyArtwork] is MPMediaItemArtwork)
+        playback.playTrack(second, context: [second], from: .songs)
+        while requests["second"] == nil && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let secondRequest = try #require(requests["second"])
+        secondRequest.resume(returning: NSImage(size: .init(width: 202, height: 202)))
+        try await Task.sleep(for: .milliseconds(50))
+        firstRequest.resume(returning: NSImage(size: .init(width: 101, height: 101)))
+        try await Task.sleep(for: .milliseconds(50))
+        #expect((published[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork)?.image(at: NSSize(width: 300, height: 300))?.size.width == 202)
+        #expect(published[MPMediaItemPropertyTitle] as? String == "second")
+        withExtendedLifetime(manager) {}
+    }
+
 }

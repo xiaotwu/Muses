@@ -13,6 +13,10 @@ struct QueueItem: Identifiable, Equatable, Sendable, Codable {
     var priority: Int?
     /// History state label. Set only once the item moves into `history`; always nil in items/upNext.
     var historyState: QueueHistoryState?
+    /// Collection occurrence to resume after this manually inserted item.
+    var collectionAnchorID: UUID?
+    /// Source video of the public YouTube Music Mix; nil for explicit user items.
+    var recommendationSourceVideoID: String?
 
     init(id: UUID = UUID(), track: TrackSnapshot,
          queuedAt: Date = .init(), fromContext: QueueSource = .songs,
@@ -86,11 +90,15 @@ struct TrackSnapshot: Identifiable, Equatable, Sendable, Codable {
     /// other rows are ephemeral `youTubeId` snapshots so Next/Previous has collection context.
     static func playbackContext(
         playing: TrackSnapshot,
-        youTubeEntries: [YTDlpBridge.YTDlpPlaylistEntry]
+        youTubeEntries: [YTDlpBridge.YTDlpPlaylistEntry],
+        selectedIndex: Int? = nil
     ) -> [TrackSnapshot] {
         guard !youTubeEntries.isEmpty else { return [playing] }
-        let mapped = youTubeEntries.map { entry -> TrackSnapshot in
-            if playing.youTubeId == entry.id { return playing }
+        let entries = youTubeEntries.filter { $0.resourceKind == .video }
+        let selected = selectedIndex.flatMap { entries.indices.contains($0) && entries[$0].id == playing.youTubeId ? $0 : nil }
+            ?? entries.firstIndex { $0.id == playing.youTubeId }
+        let mapped = entries.enumerated().map { index, entry -> TrackSnapshot in
+            if index == selected { return playing }
             return TrackSnapshot(
                 id: UUID(),
                 title: entry.title,

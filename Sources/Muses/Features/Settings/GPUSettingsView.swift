@@ -5,9 +5,13 @@ struct GPUSettingsView: View {
     @AppStorage(PrefKey.gpuAcceleration) var gpuAcceleration = true
 
     var body: some View {
-        Section(tr("Performance", "性能")) {
-            Toggle(tr("GPU Acceleration", "GPU 加速"), isOn: $gpuAcceleration)
-                .tint(BrandColors.magenta)
-        }
+        Section {
+            Toggle(tr("Metal Spectrum Rendering", "Metal 频谱渲染", zhHant: "Metal 頻譜算繪"), isOn: $gpuAcceleration)
+                .tint(BrandColors.accent)
+            Text(tr("Applies to the spectrum display in Audio Info.",
+                    "仅作用于音频信息中的频谱显示。"))
+                .font(.caption)
+                .foregroundStyle(BrandColors.textSecondary)
+        } header: { Text(tr("Performance", "性能")).font(.headline.weight(.semibold)) }
     }
 }

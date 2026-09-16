@@ -51,4 +51,14 @@ struct GlassSurfaceTests {
         #expect(GlassMode.mode(reduceTransparency: false, increaseContrast: true,
                               supportsGlass: false) == .opaque)
     }
+
+    @Test("content badges stay opaque and do not use glass roles")
+    func contentBadgesStayOpaque() {
+        #expect(!ContentGlassPolicy.badgesUseMaterial)
+        #expect(ContentGlassPolicy.badgesUseOpaqueScrim)
+        #expect(!ContentGlassPolicy.browsingCardsUseGlassEffect)
+        #expect(!ContentBadgeStyle.usesMaterial)
+        #expect(MusesGlassRole.persistentChrome.isInteractive == false)
+        #expect(MusesGlassRole.player.isInteractive)
+    }
 }

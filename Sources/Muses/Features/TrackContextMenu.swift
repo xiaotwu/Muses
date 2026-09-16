@@ -59,30 +59,41 @@ struct TrackContextMenu: ViewModifier {
 }
 
 /// Context menu for a YouTube discovery result that has not necessarily been
-/// persisted as a `Track` yet. Queue and Inbox actions resolve the existing
-/// library row (or create the lazy YouTube row) through the shared search
-/// service before handing the snapshot to the existing services.
+/// persisted as a `Track` yet. Queue actions resolve the existing library row
+/// (or create the lazy YouTube row) through the shared search service before
+/// handing the snapshot to the existing services.
 private struct YouTubeEntryContextMenu: ViewModifier {
     let entry: YTDlpBridge.YTDlpPlaylistEntry
     let onPlay: () -> Void
+    @State private var saveFailed = false
 
     @Environment(YouTubeSearchService.self) private var search
     @Environment(PlaybackService.self) private var playback
-    @Environment(InboxService.self) private var inbox
+
+    private var isCurrent: Bool { playback.transportState.track?.youTubeId == entry.id }
 
     func body(content: Content) -> some View {
         content.contextMenu {
-            Button(tr("Play", "播放"), systemImage: "play.fill", action: onPlay)
+            Button(isCurrent ? playback.primaryAction.title : tr("Play", "播放"),
+                   systemImage: isCurrent ? playback.primaryAction.symbol : "play.fill") {
+                if isCurrent { playback.toggle() } else { onPlay() }
+            }
             Button(tr("Play Next", "下一首播放"), systemImage: "text.insert") {
                 resolve { playback.queue.playNext($0) }
+            }
+            Button(tr("Save to Library", "保存到资料库", zhHant: "儲存至資料庫"), systemImage: "plus") {
+                Task {
+                    do { _ = try await search.importAsTrack(entry: entry) }
+                    catch { saveFailed = true }
+                }
             }
             Button(tr("Add to Queue", "加入队列"), systemImage: "text.badge.plus") {
                 resolve { playback.queue.addToQueue($0) }
             }
-            Button(tr("Add to Inbox", "加入收件箱"), systemImage: "tray.and.arrow.down") {
-                resolve { inbox.add($0) }
-            }
             if let url = YouTubeContextMenuLink.watchURL(videoID: entry.id) {
+                if let target = YouTubeShareTarget(url: url) {
+                    YouTubeShareMenu(target: target)
+                }
                 Button(tr("Copy Link", "复制链接"), systemImage: "link") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(url.absoluteString, forType: .string)
@@ -100,11 +111,16 @@ private struct YouTubeEntryContextMenu: ViewModifier {
                 .accessibilityLabel(tr("Open on YouTube", "在 YouTube 打开"))
             }
         }
+        .alert(tr("Could not save to Library", "无法保存到资料库", zhHant: "無法儲存至資料庫"), isPresented: $saveFailed) {
+            Button(tr("OK", "好", zhHant: "好"), role: .cancel) {}
+        } message: {
+            Text(tr("Try saving this item again.", "请重试保存此项目。", zhHant: "請重試儲存此項目。"))
+        }
     }
 
     private func resolve(_ action: @escaping @MainActor (TrackSnapshot) -> Void) {
         Task { @MainActor in
-            guard let snapshot = try? await search.importAsTrack(entry: entry) else { return }
+            guard let snapshot = try? await search.resolveTrack(entry: entry) else { return }
             action(snapshot)
         }
     }
@@ -131,19 +147,22 @@ struct TrackContextMenuItems: View {
     var removeTitle: String = tr("Remove from Playlist", "从歌单移除")
     var showsPlayNext = true
     var showsAddToQueue = true
-    var showsInbox = true
     var onEditTrack: (() -> Void)? = nil
     var onTrackNotes: (() -> Void)? = nil
     var onCreatePlaylist: (() -> Void)? = nil
 
     @Environment(PlaybackService.self) private var playback
     @Environment(LibraryService.self) private var library
-    @Environment(InboxService.self) private var inbox
     @Environment(PlaylistService.self) private var playlistService
+
+    private var isCurrent: Bool { playback.transportState.track?.id == snapshot.id }
 
     @ViewBuilder
     var body: some View {
-        Button(tr("Play", "播放"), systemImage: "play.fill", action: onPlay)
+        Button(isCurrent ? playback.primaryAction.title : tr("Play", "播放"),
+                   systemImage: isCurrent ? playback.primaryAction.symbol : "play.fill") {
+                if isCurrent { playback.toggle() } else { onPlay() }
+            }
         if showsPlayNext {
             Button(tr("Play Next", "下一首播放"), systemImage: "text.insert") {
                 playback.queue.playNext(snapshot)
@@ -154,13 +173,11 @@ struct TrackContextMenuItems: View {
                 playback.queue.addToQueue(snapshot)
             }
         }
-        if showsInbox {
-            Button(tr("Add to Inbox", "加入收件箱"), systemImage: "tray.and.arrow.down") {
-                inbox.add(snapshot)
-            }
-        }
         if !snapshot.youTubeId.isEmpty,
            let url = URL(string: "https://youtu.be/\(snapshot.youTubeId)") {
+            if let target = YouTubeShareTarget(kind: .video, id: snapshot.youTubeId) {
+                YouTubeShareMenu(target: target)
+            }
             Button(tr("Copy Link", "复制链接"), systemImage: "link") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(url.absoluteString, forType: .string)
@@ -258,7 +275,7 @@ extension View {
                                   onRemoveFromContainer: onRemoveFromContainer))
     }
 
-    /// Adds the standard playback/queue/inbox/link menu to a remote YouTube
+    /// Adds the standard playback/queue/link menu to a remote YouTube
     /// result while preserving the surface's existing collection-aware play action.
     func youTubeEntryContextMenu(
         entry: YTDlpBridge.YTDlpPlaylistEntry,

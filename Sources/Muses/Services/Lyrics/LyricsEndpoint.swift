@@ -7,7 +7,7 @@ import Foundation
 enum LyricsEndpoint {
     /// LRCLIB exact-match endpoint. Returns a single lyric (with plainLyrics / syncedLyrics).
     /// Example: `https://lrclib.net/api/get?track_name=One%20More%20Time&artist_name=Daft%20Punk`
-    static func lrclib(track: String, artist: String, album: String?) -> URL {
+    static func lrclib(track: String, artist: String, album: String?, duration: Double? = nil) -> URL {
         var components = URLComponents(string: "https://lrclib.net/api/get")!
         var items: [URLQueryItem] = [
             URLQueryItem(name: "track_name", value: track),
@@ -15,6 +15,9 @@ enum LyricsEndpoint {
         ]
         if let album, !album.isEmpty {
             items.append(URLQueryItem(name: "album_name", value: album))
+        }
+        if let duration, duration.isFinite, duration > 0 {
+            items.append(URLQueryItem(name: "duration", value: String(Int(duration.rounded()))))
         }
         components.queryItems = items
         return components.url!

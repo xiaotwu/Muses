@@ -8,6 +8,7 @@ enum MusesMotion {
     static let collectionDeckSnap: TimeInterval = 0.22
     static let collectionListTransition: TimeInterval = 0.29
     static let collectionCardActivation: TimeInterval = 0.30
+    static let collectionActivationEmbers: TimeInterval = 0.52
 
     static func hoverAnimation(reduceMotion: Bool) -> Animation? {
         reduceMotion ? nil : .easeOut(duration: hover)

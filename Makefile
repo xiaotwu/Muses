@@ -9,7 +9,7 @@
 #   make icon        生成 AppIcon.icns
 #   make dmg         仅打 DMG(假设 build/Muses.app 已存在)
 #   make ytdlp       拷入 yt-dlp 二进制到 Resources/
-#   make clean       清 build/ 与 .build/release(保留 .build 供 test)
+#   make clean       清除所有 build/ 和 .build/ 产物
 
 SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
@@ -19,7 +19,7 @@ BUILD_DIR := build
 
 # 默认 ad-hoc;正式发布用 `make release MUSES_SIGN_IDENTITY="Developer ID Application: ..."`
 MUSES_SIGN_IDENTITY ?= -
-MUSES_VERSION ?= 0.4.0
+MUSES_VERSION ?= 0.5.0
 
 .PHONY: all test build app release icon dmg ytdlp clean
 
@@ -39,7 +39,7 @@ app: $(SCRIPTS)/build-app.sh
 # 需在调用前 export:
 #   MUSES_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
 #   MUSES_NOTARY_PROFILE="muses"   (xcrun notarytool keychain profile)
-#   MUSES_VERSION=0.4.0
+#   MUSES_VERSION=0.5.0
 release: app
 	MUSES_VERSION="$(MUSES_VERSION)" ./$(SCRIPTS)/sign-update.sh
 	MUSES_VERSION="$(MUSES_VERSION)" ./$(SCRIPTS)/notarize.sh
@@ -56,4 +56,4 @@ ytdlp: $(SCRIPTS)/copy-ytdlp.sh
 
 clean:
 	rm -rf $(BUILD_DIR)
-	rm -rf .build/release
+	rm -rf .build

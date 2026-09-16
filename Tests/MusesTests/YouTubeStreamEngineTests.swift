@@ -86,6 +86,7 @@ struct YouTubeStreamEngineTests {
         await engine.awaitHybridWorkForTests()
         #expect(engine.state.error == nil)
         #expect(engine.isInFallbackMode)
+        #expect(engine.state.audioProcessing == .streamOnly)
         #expect(engine.state.buffering == false)
     }
 
@@ -238,10 +239,15 @@ struct YouTubeStreamEngineTests {
         #expect(!engine.state.isPlaying)
         #expect(!engine._hasActivePlayback)
 
+        #expect(engine.state.audioProcessing == .waitingForDownload)
+        let bands = [EQBand(frequency: 1000, gain: 4, q: 1)]
+        engine.setEQ(bands)
         engine.play()
         engine.pause()
         await engine.awaitHybridWorkForTests()
 
+        #expect(engine.state.audioProcessing == .available)
+        #expect(engine._appliedEQGains.first == 4)
         #expect(!engine.state.isPlaying)
         #expect(!engine._isStreamingMode)
         #expect(!engine._hasActivePlayback)

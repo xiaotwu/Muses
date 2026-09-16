@@ -20,7 +20,7 @@ struct SpectrumTapFFTTests {
         // 1kHz lands roughly mid-band under the log mapping 20Hz..20kHz (around bins 30-45)
         let maxVal = bands.max() ?? 0
         let peakIdx = bands.firstIndex(of: maxVal) ?? -1
-        #expect(peakIdx > 20 && peakIdx < 55)
+        #expect((35...37).contains(peakIdx))
         #expect(maxVal > 0.1)   // a sine wave should show clear energy
     }
 

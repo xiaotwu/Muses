@@ -88,17 +88,24 @@ struct AcceptanceFixesTests {
     func youtubePlaybackContext() {
         let playing = TrackSnapshot(
             id: UUID(), title: "Hit", artist: "A", albumTitle: nil,
-            durationSeconds: 10, youTubeId: "vid-b",
+            durationSeconds: 10, youTubeId: "video00000b",
             artworkUrl: nil,
             sampleRate: nil, bitDepth: nil, codec: nil, isLossless: false)
         let entries = [
-            YTDlpBridge.YTDlpPlaylistEntry(id: "vid-a", title: "A", uploader: "U"),
-            YTDlpBridge.YTDlpPlaylistEntry(id: "vid-b", title: "Hit", uploader: "A"),
-            YTDlpBridge.YTDlpPlaylistEntry(id: "vid-c", title: "C", uploader: "U")
+            YTDlpBridge.YTDlpPlaylistEntry(id: "video00000a", title: "A", uploader: "U"),
+            YTDlpBridge.YTDlpPlaylistEntry(id: "video00000b", title: "Hit", uploader: "A"),
+            YTDlpBridge.YTDlpPlaylistEntry(id: "video00000c", title: "C", uploader: "U")
         ]
         let context = TrackSnapshot.playbackContext(playing: playing, youTubeEntries: entries)
-        #expect(context.count == 3)
+        guard context.count == 3 else { Issue.record("Expected three playable siblings"); return }
         #expect(context[1].id == playing.id)
-        #expect(context.map(\.youTubeId) == ["vid-a", "vid-b", "vid-c"])
+        #expect(context.map(\.youTubeId) == ["video00000a", "video00000b", "video00000c"])
+        let repeated = TrackSnapshot.playbackContext(playing: playing, youTubeEntries: [entries[1], entries[0], entries[1]], selectedIndex: 2)
+        #expect(repeated[2].id == playing.id)
+        #expect(repeated[0].id != playing.id)
+        #expect(repeated[0].youTubeId == repeated[2].youTubeId)
+        let queue = QueueService()
+        queue.play(playing, context: repeated, from: .search)
+        #expect(queue.currentIndex == 2)
     }
 }

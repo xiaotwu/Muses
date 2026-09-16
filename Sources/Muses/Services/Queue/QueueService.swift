@@ -5,6 +5,7 @@ import SwiftData
 @Observable
 @MainActor
 final class QueueService {
+    private(set) var smartShuffle = SmartShuffleState()
     var items: [QueueItem] = []
     var currentIndex: Int = -1
     var upNext: [QueueItem] = []
@@ -13,49 +14,45 @@ final class QueueService {
     var shuffle: Bool = false
     private var originalOrder: [QueueItem] = []
     /// Crash recovery: the playing track/position from the last checkpoint. Written by PlaybackService checkpoints.
+    private(set) var insertedCurrent: QueueItem?
     var currentTrackId: UUID?
     var lastPositionMs: Double?
     /// Advanced Queue: queue groups (ascending by `order`), persisted into `QueueState.groupsJSON`.
     var groups: [QueueGroup] = []
-    /// Focus Mode queue lock: `play()` must not replace the collection; manual next/edit still work.
-    var replacementLocked = false
 
     /// Injected by `MusesApp` after container creation so `persist()`/`restore()` can reach SwiftData.
     var modelContext: ModelContext?
 
     func play(_ track: TrackSnapshot, context: [TrackSnapshot], from: QueueSource) {
-        if replacementLocked {
-            if let idx = items.firstIndex(where: { $0.track.id == track.id }) {
-                currentIndex = idx
-                persist()
-                return
-            }
-            playNext(track)
-            return
-        }
-        items = context.map { t in
+        smartShuffle = SmartShuffleState(enabled: smartShuffle.enabled)
+        insertedCurrent = nil
+        let resolvedContext = context.contains(where: { $0.id == track.id }) ? context : [track] + context
+        items = resolvedContext.map { t in
             QueueItem(id: UUID(), track: t,
                       queuedAt: .init(), fromContext: from)
         }
         originalOrder = items
-        currentIndex = context.firstIndex(where: { $0.id == track.id }) ?? 0
+        currentIndex = resolvedContext.firstIndex(where: { $0.id == track.id }) ?? 0
         upNext.removeAll()
         persist()
     }
 
     func playNext(_ track: TrackSnapshot) {
+        if smartShuffle.pending?.track.youTubeId == track.youTubeId { smartShuffle.pending = nil }
         let item = QueueItem(track: track)
         upNext.insert(item, at: 0)
         persist()
     }
 
     func addToQueue(_ track: TrackSnapshot) {
+        if smartShuffle.pending?.track.youTubeId == track.youTubeId { smartShuffle.pending = nil }
         let item = QueueItem(track: track)
         upNext.append(item)
         persist()
     }
 
     func current() -> QueueItem? {
+        if let insertedCurrent { return insertedCurrent }
         guard currentIndex >= 0, currentIndex < items.count else { return nil }
         return items[currentIndex]
     }
@@ -64,6 +61,10 @@ final class QueueService {
     /// an explicit switch below the listening threshold → `.skipped`, everything else → `.played` (natural completion / switched away after real listening).
     /// `PlaybackService` passes it from the displacement heuristic; the completion path uses the default `.played`.
     func next(as state: QueueHistoryState = .played) -> QueueItem? {
+        recordSmartShufflePlayback(state)
+        if let pending = smartShuffle.pending, recommendationExclusions.contains(pending.track.youTubeId) {
+            smartShuffle.pending = nil
+        }
         if var cur = current() {
             cur.historyState = state
             history.insert(cur, at: 0)
@@ -72,47 +73,59 @@ final class QueueService {
 
         sortUpNextByPriority()
         if !upNext.isEmpty {
-            let popped = upNext.removeFirst()
+            var popped = upNext.removeFirst()
+            popped.collectionAnchorID = items.indices.contains(currentIndex) ? items[currentIndex].id : nil
+            insertedCurrent = popped
             persist()
             return popped
         }
-        guard !items.isEmpty else { return nil }
+        if recommendationIsDue, var recommendation = smartShuffle.pending {
+            smartShuffle.pending = nil
+            smartShuffle.collectionPlayed = 0
+            recommendation.collectionAnchorID = items.indices.contains(currentIndex) ? items[currentIndex].id : nil
+            insertedCurrent = recommendation
+            persist()
+            return recommendation
+        }
+        guard !items.isEmpty else { persist(); return nil }
         switch repeatMode {
         case .one:
+            persist()
             return current()
         case .all:
-            if currentIndex >= items.count {
-                currentIndex = 0
-                persist()
-                return current()
-            }
-            let next = currentIndex + 1
-            if next < items.count {
-                currentIndex = next
-                persist()
-                return current()
-            } else {
-                currentIndex = next
-                persist()
-                return nil
+            currentIndex = (currentIndex + 1) % items.count
+            if currentIndex == 0 {
+                smartShuffle.countedOccurrences.removeAll()
+                smartShuffle.playedVideoIDs.removeAll()
             }
         case .off:
             let next = currentIndex + 1
-            guard next < items.count else { return nil }
+            guard next < items.count else { persist(); return nil }
             currentIndex = next
-            persist()
-            return current()
         }
+        insertedCurrent = nil
+        persist()
+        return current()
     }
 
     func previous() -> QueueItem? {
         if let h = history.first {
             history.removeFirst()
+            if let insertedCurrent { upNext.insert(insertedCurrent, at: 0) }
             if let idx = items.firstIndex(where: { $0.id == h.id }) {
                 currentIndex = idx
+                insertedCurrent = nil
+            } else {
+                var restored = h
+                restored.historyState = nil
+                insertedCurrent = restored
+                if let anchor = h.collectionAnchorID,
+                   let index = items.firstIndex(where: { $0.id == anchor }) {
+                    currentIndex = index
+                }
             }
             persist()
-            return h
+            return current()
         }
         guard currentIndex > 0 else { return current() }
         currentIndex -= 1
@@ -150,6 +163,9 @@ final class QueueService {
     func peekNext() -> QueueItem? {
         sortUpNextByPriority()
         if let first = upNext.first { return first }
+        if repeatMode == .one { return current() }
+        if recommendationWillBeDue, let pending = smartShuffle.pending,
+           !recommendationExclusions.contains(pending.track.youTubeId) { return pending }
         guard !items.isEmpty else { return nil }
         let following = currentIndex + 1
         if following < items.count { return items[following] }
@@ -299,8 +315,64 @@ final class QueueService {
         guard history.indices.contains(index) else { return }
         var entry = history.remove(at: index)
         entry.historyState = nil
+        entry.recommendationSourceVideoID = nil
         upNext.append(entry)
         persist()
+    }
+
+    // MARK: - Smart Shuffle
+
+    func setSmartShuffle(_ enabled: Bool) {
+        smartShuffle.enabled = enabled
+        if !enabled {
+            smartShuffle.pending = nil; smartShuffle.collectionPlayed = 0
+            upNext.removeAll { $0.recommendationSourceVideoID != nil }
+        }
+        persist()
+    }
+
+    var needsRecommendation: Bool {
+        smartShuffle.enabled && repeatMode != .one && smartShuffle.pending == nil
+            && insertedCurrent == nil && smartShuffle.collectionPlayed >= 2
+    }
+
+    var recommendationExclusions: Set<String> {
+        Set((items + upNext + [current()].compactMap { $0 }).map { $0.track.youTubeId })
+            .union(smartShuffle.playedVideoIDs)
+    }
+
+    @discardableResult
+    func stageRecommendation(_ track: TrackSnapshot, sourceVideoID: String, collectionID: UUID) -> Bool {
+        guard needsRecommendation, smartShuffle.collectionID == collectionID,
+              current()?.track.youTubeId == sourceVideoID,
+              track.youTubeId.count == 11, MusicCatalogParser.validID(track.youTubeId),
+              !recommendationExclusions.contains(track.youTubeId) else { return false }
+        var item = QueueItem(track: track)
+        item.recommendationSourceVideoID = sourceVideoID
+        smartShuffle.pending = item
+        persist()
+        return true
+    }
+
+    private var recommendationIsDue: Bool {
+        smartShuffle.enabled && repeatMode != .one && smartShuffle.collectionPlayed >= 3
+            && current()?.recommendationSourceVideoID == nil
+    }
+
+    private var recommendationWillBeDue: Bool {
+        let countCurrent = insertedCurrent == nil && current().map { !smartShuffle.countedOccurrences.contains($0.id) } == true
+        return smartShuffle.enabled && repeatMode != .one
+            && smartShuffle.collectionPlayed + (countCurrent ? 1 : 0) >= 3
+            && current()?.recommendationSourceVideoID == nil
+    }
+
+    private func recordSmartShufflePlayback(_ state: QueueHistoryState) {
+        guard smartShuffle.enabled, repeatMode != .one, let current = current() else { return }
+        smartShuffle.playedVideoIDs.insert(current.track.youTubeId)
+        if insertedCurrent == nil, state == .played,
+           smartShuffle.countedOccurrences.insert(current.id).inserted {
+            smartShuffle.collectionPlayed += 1
+        }
     }
 
     // MARK: - Persistence
@@ -313,6 +385,8 @@ final class QueueService {
         let upNextJSON = (try? String(data: encoder.encode(upNext), encoding: .utf8)) ?? "[]"
         let historyJSON = (try? String(data: encoder.encode(history), encoding: .utf8)) ?? "[]"
         let groupsJSON = (try? String(data: encoder.encode(groups), encoding: .utf8)) ?? "[]"
+        let smartJSON = try? String(data: encoder.encode(smartShuffle), encoding: .utf8)
+        let insertedJSON = insertedCurrent.flatMap { try? String(data: encoder.encode($0), encoding: .utf8) }
 
         let existing = (try? ctx.fetch(FetchDescriptor<QueueState>())) ?? []
         let row: QueueState
@@ -324,10 +398,14 @@ final class QueueService {
                              repeatModeRaw: repeatMode.rawValue, shuffle: shuffle,
                              currentTrackId: currentTrackId, lastPositionMs: lastPositionMs,
                              groupsJSON: groupsJSON)
+            row.smartShuffleJSON = smartJSON
+            row.insertedCurrentJSON = insertedJSON
             ctx.insert(row)
             try? ctx.save()
             return
         }
+        row.smartShuffleJSON = smartJSON
+        row.insertedCurrentJSON = insertedJSON
         row.itemsJSON = itemsJSON
         row.currentIndex = currentIndex
         row.upNextJSON = upNextJSON
@@ -352,6 +430,12 @@ final class QueueService {
         history = (try? decoder.decode([QueueItem].self, from: Data(row.historyJSON.utf8))) ?? []
         let decodedGroups = (row.groupsJSON.flatMap { try? decoder.decode([QueueGroup].self, from: Data($0.utf8)) }) ?? []
         groups = decodedGroups.sorted { $0.order < $1.order }
+        insertedCurrent = row.insertedCurrentJSON.flatMap { try? decoder.decode(QueueItem.self, from: Data($0.utf8)) }
+        smartShuffle = row.smartShuffleJSON.flatMap { try? decoder.decode(SmartShuffleState.self, from: Data($0.utf8)) } ?? SmartShuffleState()
+        if !smartShuffle.enabled {
+            smartShuffle.pending = nil
+            upNext.removeAll { $0.recommendationSourceVideoID != nil }
+        }
         currentIndex = row.currentIndex
         if let m = RepeatMode(rawValue: row.repeatModeRaw) { repeatMode = m }
         shuffle = row.shuffle

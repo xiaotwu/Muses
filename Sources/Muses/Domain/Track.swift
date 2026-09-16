@@ -40,6 +40,10 @@ final class Track {
     var lastPlayedAt: Date?
     var playCount: Int
     var liked: Bool
+    /// nil preserves membership for every row created before this field existed.
+    var libraryMember: Bool?
+
+    var isInLibrary: Bool { libraryMember != false }
     /// Playlist occurrences referencing this playable YouTube media row.
     /// To-many is required because one video may appear more than once in one
     /// or several playlists while each occurrence keeps its own item identity.
@@ -54,8 +58,9 @@ final class Track {
          addedAt: Date = .init(), lastPlayedAt: Date? = nil, playCount: Int = 0, liked: Bool = false,
          bitRate: Int? = nil, channels: Int? = nil, mediaKind: TrackMediaKind = .song,
          releaseCatalogID: String? = nil, releaseOrder: Int? = nil,
-         artistCatalogID: String? = nil) {
+         artistCatalogID: String? = nil, isInLibrary: Bool = true) {
         self.id = id
+        self.libraryMember = isInLibrary
         self.title = title; self.artist = artist
         self.albumTitle = albumTitle; self.albumArtist = albumArtist
         self.durationMs = durationMs; self.trackNo = trackNo; self.discNo = discNo

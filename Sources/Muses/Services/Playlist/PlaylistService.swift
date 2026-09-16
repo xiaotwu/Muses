@@ -176,6 +176,7 @@ final class PlaylistService {
         let existingTrackIds = (p.items ?? []).compactMap { $0.track?.id }
         if existingTrackIds.contains(trackId) { return }
 
+        t.libraryMember = true
         let nextOrder = (p.items ?? []).map { $0.order }.max() ?? -1
         let item = PlaylistItem(order: nextOrder + 1, playlist: p, track: t)
         ctx.insert(item)

@@ -1,10 +1,10 @@
 import SwiftUI
 import AppKit
 
-/// Liquid Glass volume bar, faithfully matching Figure 4:
-/// [AirPlay (magenta)] | [=====O-------] [Speaker]
+/// Shared volume and output control:
+/// [Mute] [graduated volume scale] [percentage] [output selector]
 ///
-/// Features a custom pill-shaped knob, continuous drag scrubbing, audio device selection,
+/// A graduated scale supports continuous drag, keyboard adjustment, audio device selection,
 /// and instant mute toggle with remembered audible volume restoration.
 struct LiquidGlassVolumeBar: View {
     @Environment(PlaybackService.self) private var playback
@@ -16,8 +16,6 @@ struct LiquidGlassVolumeBar: View {
 
     @State private var isDragging = false
     @State private var dragVolume: Float = 0
-    @State private var rememberedAudibleVolume: Float = 0.8
-    @State private var isHovered = false
 
     private var currentVolume: Float {
         isDragging ? dragVolume : playback.volume
@@ -29,41 +27,27 @@ struct LiquidGlassVolumeBar: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
-            // Left: AirPlay icon in magenta with output menu
-            airplayMenu
-
-            // Divider: Vertical hairline
-            Rectangle()
-                .fill(Color.white.opacity(0.20))
-                .frame(width: 1, height: 16)
-
-            // Center: Custom slider track with white fill and pill knob
-            sliderTrack
-                .frame(maxWidth: .infinity)
-
-            // Right: Speaker icon button toggling mute
+        HStack(spacing: 10) {
             speakerButton
+            sliderTrack.frame(maxWidth: .infinity)
+            Text("\(Int((currentVolume * 100).rounded()))%")
+                .font(.caption.monospacedDigit()).frame(width: 34)
+                .accessibilityHidden(true)
+            outputMenu
         }
         .padding(.horizontal, 10)
         .frame(width: width, height: height)
         .musesGlass(in: Capsule(), role: .compactControl)
-        .overlay(
-            Capsule()
-                .stroke(isHovered ? Color.white.opacity(0.25) : BrandColors.hairline, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.22), radius: 8, y: 3)
-        .onHover { isHovered = $0 }
-        .onAppear {
-            if playback.volume > 0.05 {
-                rememberedAudibleVolume = playback.volume
-            }
-        }
+
     }
 
-    // MARK: - AirPlay Output Menu
+    // MARK: - Audio Output Menu
 
-    private var airplayMenu: some View {
+    private var currentOutputName: String? {
+        outputDevices.first { $0.id == audioDevices?.defaultDeviceID }?.name
+    }
+
+    private var outputMenu: some View {
         Menu {
             if outputDevices.isEmpty {
                 Text(tr("No audio outputs available", "无可用音频输出"))
@@ -80,66 +64,49 @@ struct LiquidGlassVolumeBar: View {
                         } icon: {
                             Image(systemName: device.id == audioDevices?.defaultDeviceID
                                 ? "checkmark"
-                                : "speaker.wave.2")
+                                : AudioOutputGlyphPolicy.systemImage(forDeviceName: device.name))
                         }
                     }
                 }
             }
         } label: {
-            Image(systemName: "airplayaudio")
+            Image(systemName: "hifispeaker.and.homepod")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(BrandColors.magenta)
+                .foregroundStyle(BrandColors.textPrimary)
                 .frame(width: 26, height: 26)
                 .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .frame(width: 26, height: 26)
-        .help(tr("Audio output", "音频输出"))
-        .accessibilityLabel(tr("Choose audio output", "选择音频输出"))
+        .help(AudioOutputGlyphPolicy.accessibilityLabel(forDeviceName: currentOutputName))
+        .accessibilityLabel(AudioOutputGlyphPolicy.accessibilityLabel(forDeviceName: currentOutputName))
     }
 
-    // MARK: - Custom Slider Track (Figure 4)
+    // MARK: - Graduated Volume Scale
 
     private var sliderTrack: some View {
         GeometryReader { geo in
             let availableWidth = max(10, geo.size.width)
-            let knobWidth: CGFloat = 14
-            let knobHeight: CGFloat = 18
-            let travelWidth = max(1, availableWidth - knobWidth)
             let fraction = CGFloat(min(1.0, max(0.0, currentVolume)))
-            let knobX = knobWidth / 2 + fraction * travelWidth
 
-            ZStack(alignment: .leading) {
-                // Inactive track: dark translucent capsule
-                Capsule()
-                    .fill(Color.white.opacity(0.18))
-                    .frame(height: 4.5)
-
-                // Active filled track: solid white
-                Capsule()
-                    .fill(Color.white)
-                    .frame(width: min(availableWidth, knobX), height: 4.5)
-
-                // Distinct pill knob matching Fig 4
-                Capsule()
-                    .fill(Color.white)
-                    .frame(width: knobWidth, height: knobHeight)
-                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
-                    .position(x: knobX, y: geo.size.height / 2)
+            HStack(spacing: 2) {
+                ForEach(0..<24, id: \.self) { index in
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(Double(index) / 24 < Double(fraction)
+                              ? BrandColors.accent : BrandColors.textPrimary.opacity(0.15))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 8 + CGFloat(index) * 0.45)
+                }
             }
+            .frame(height: geo.size.height)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
                         isDragging = true
-                        let clampedX = min(travelWidth, max(0, value.location.x - knobWidth / 2))
-                        let newFraction = Float(clampedX / travelWidth)
-                        dragVolume = min(1.0, max(0.0, newFraction))
+                        dragVolume = VolumeScaleMapping.volume(at: value.location.x, width: availableWidth)
                         playback.setVolume(dragVolume)
-                        if dragVolume > 0.05 {
-                            rememberedAudibleVolume = dragVolume
-                        }
                     }
                     .onEnded { _ in
                         isDragging = false
@@ -147,6 +114,10 @@ struct LiquidGlassVolumeBar: View {
             )
         }
         .frame(height: height)
+        .focusable()
+        .focusEffectDisabled()
+        .onKeyPress(.leftArrow) { playback.setVolume(max(0, playback.volume - 0.05)); return .handled }
+        .onKeyPress(.rightArrow) { playback.setVolume(min(1, playback.volume + 0.05)); return .handled }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(tr("Volume", "音量"))
         .accessibilityValue("\(Int((currentVolume * 100).rounded()))%")
@@ -188,13 +159,13 @@ struct LiquidGlassVolumeBar: View {
         return "speaker.wave.2.fill"
     }
 
-    private func toggleMute() {
-        if playback.volume <= 0.001 {
-            let target = rememberedAudibleVolume > 0.05 ? rememberedAudibleVolume : 0.7
-            playback.setVolume(target)
-        } else {
-            rememberedAudibleVolume = playback.volume
-            playback.setVolume(0)
-        }
+    private func toggleMute() { playback.toggleMute() }
+}
+
+/// Pointer positions map to the full visible scale, independently of window width.
+enum VolumeScaleMapping {
+    static func volume(at x: CGFloat, width: CGFloat) -> Float {
+        guard x.isFinite, width.isFinite, width > 0 else { return 0 }
+        return Float(min(1, max(0, x / width)))
     }
 }

@@ -28,7 +28,7 @@ struct AudioQualitySettingsView: View {
     @State private var cacheBytes: Int64 = 0
 
     var body: some View {
-        Section(tr("Download Quality", "下载音质")) {
+        Section {
             if let q = playback.state.quality, playback.state.track != nil {
                 LabeledContent(tr("Now playing", "正在播放")) {
                     Text(playingLabel(q))
@@ -40,14 +40,14 @@ struct AudioQualitySettingsView: View {
                     Text(opt.label).tag(opt.rawValue)
                 }
             }
-            .pickerStyle(.radioGroup)
+            .pickerStyle(.menu)
             .onChange(of: ytQuality) { _, _ in
                 playback.reloadCurrent()
                 cacheBytes = MediaFileCache.totalBytes()
             }
-        }
+        } header: { Text(tr("Download Quality", "下载音质")).font(.headline.weight(.semibold)) }
 
-        Section(tr("Media cache", "媒体缓存")) {
+        Section {
             LabeledContent(tr("Size", "占用")) {
                 Text(ByteCountFormatter.string(fromByteCount: cacheBytes, countStyle: .file))
             }
@@ -56,8 +56,8 @@ struct AudioQualitySettingsView: View {
                 cacheBytes = 0
                 playback.reloadCurrent()
             }
-            .buttonStyle(.bordered)
-        }
+            .musesAction()
+        } header: { Text(tr("Media cache", "媒体缓存")).font(.headline.weight(.semibold)) }
         .onAppear { cacheBytes = MediaFileCache.totalBytes() }
     }
 

@@ -18,13 +18,17 @@ final class DesktopLyricsController {
     func setEnabled(_ enabled: Bool, playback: PlaybackService, library: LibraryService,
                     lyrics: LyricsService) {
         if enabled {
-            if panel == nil { panel = makePanel() }
-            let host = NSHostingView(rootView:
-                DesktopLyricsOverlayView()
-                    .environment(playback)
-                    .environment(library)
-                    .environment(lyrics))
-            panel?.contentView = host
+            if panel == nil {
+                let created = makePanel()
+                let host = NSHostingView(rootView:
+                    DesktopLyricsOverlayView()
+                        .environment(playback)
+                        .environment(library)
+                        .environment(lyrics))
+                host.sizingOptions = []
+                created.contentView = host
+                panel = created
+            }
             panel?.orderFrontRegardless()
         } else {
             panel?.orderOut(nil)
@@ -37,6 +41,7 @@ final class DesktopLyricsController {
         let panel = NSPanel(contentRect: NSRect(x: 200, y: 200, width: 700, height: 120),
                              styleMask: [.borderless, .nonactivatingPanel],
                              backing: .buffered, defer: false)
+        panel.title = tr("Desktop Lyrics", "桌面歌词", zhHant: "桌面歌詞")
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.isOpaque = false
@@ -56,51 +61,77 @@ final class DesktopLyricsController {
 struct DesktopLyricsOverlayView: View {
     @Environment(PlaybackService.self) private var playback
     @Environment(LyricsService.self) private var service
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @AppStorage(PrefKey.lyricsSource) private var provider = "lrclib"
+    @AppStorage(PrefKey.lyricsIntelligence) private var intelligentMatching = true
     @State private var lines: [LyricLine]?
     @State private var loadedTrackId: UUID?
     @State private var lrcOffsetMs: Int = 0
+    @State private var isLoading = false
+    @State private var source: LyricsSource?
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 0.1, paused: !playback.state.isPlaying)) { _ in
+        TimelineView(.animation(minimumInterval: 0.1, paused: !playback.transportState.isPlaying)) { _ in
             content
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
-            Color.black.opacity(0.35)
+            Color.black.opacity(reduceTransparency ? 1 : 0.72)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         )
-        .onAppear { loadLyrics() }
-        .onChange(of: playback.state.track?.id) { _, _ in loadLyrics() }
+        .task(id: "\(playback.transportState.track?.id.uuidString ?? ""):\(service.selectionRevision):\(provider):\(intelligentMatching)") { await loadLyrics() }
     }
 
     private var content: some View {
         let offset = Double(service.manualOffsetMs + lrcOffsetMs) / 1000.0
-        let position = playback.state.position
-        let idx = lines.flatMap { LyricsView.currentLineIndex(in: $0, at: position, offset: offset) }
-        let text = idx.flatMap { i in lines?[safe: i]?.text } ?? tr("No lyrics", "无歌词")
+        let position = playback.transportState.position
+        let text = Self.displayText(lines: lines, at: position, offset: offset, isLoading: isLoading)
         return Text(text)
             .font(.system(size: 30, weight: .semibold))
             .foregroundStyle(.white)
             .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .help(source == nil ? "" : source == .lrclib ? "LRCLIB" : source == .musixmatch ? "Musixmatch" : tr("Saved lyrics", "已保存的歌词"))
             .multilineTextAlignment(.center)
             .padding(.horizontal, 16).padding(.vertical, 12)
             .frame(maxWidth: .infinity)
     }
 
-    private func loadLyrics() {
-        guard let track = playback.state.track else {
-            lines = nil; loadedTrackId = nil; lrcOffsetMs = 0; return
+    static func displayText(lines: [LyricLine]?, at position: Double,
+                            offset: Double = 0, isLoading: Bool = false) -> String {
+        if isLoading {
+            return tr("Loading lyrics…", "正在加载歌词…", zhHant: "正在載入歌詞…")
         }
-        guard track.id != loadedTrackId else { return }
+        guard let lines, !lines.isEmpty else {
+            return tr("No lyrics", "无歌词", zhHant: "無歌詞")
+        }
+        if let index = LyricsView.currentLineIndex(in: lines, at: position, offset: offset) {
+            return lines[index].text
+        }
+        if lines.contains(where: { $0.time != nil }) {
+            return tr("Lyrics begin soon", "歌词即将开始", zhHant: "歌詞即將開始")
+        }
+        return tr("Unsynced lyrics — open Now Playing to read", "非同步歌词，请在正在播放中阅读", zhHant: "非同步歌詞，請在正在播放中閱讀")
+    }
+
+    private func loadLyrics() async {
+        guard let track = playback.transportState.track else {
+            lines = nil; loadedTrackId = nil; lrcOffsetMs = 0; isLoading = false; return
+        }
         loadedTrackId = track.id
         lines = nil
-        service.manualOffsetMs = track.lyricsOffsetMs ?? 0
-        if let cached = service.fetchCached(track: track) { apply(cached); return }
-        Task {
-            if let r = await service.fetch(track: track) { apply(r) }
-        }
+        lrcOffsetMs = 0
+        isLoading = true
+        source = nil
+        service.prepareOffset(for: track)
+        let result = await service.load(track: track)
+        guard !Task.isCancelled, playback.transportState.track?.id == track.id else { return }
+        isLoading = false
+        if let result { apply(result) }
     }
 
     private func apply(_ result: LyricsResult) {
+        source = result.source
         lrcOffsetMs = result.offsetMs ?? 0
         if let synced = result.syncedLyrics, !synced.isEmpty {
             lines = LyricsService.parseLRC(synced)
@@ -109,11 +140,5 @@ struct DesktopLyricsOverlayView: View {
                 LyricLine(id: UUID(), time: nil, text: String($0))
             }
         } else { lines = nil }
-    }
-}
-
-private extension Array {
-    subscript(safe index: Int) -> Element? {
-        indices.contains(index) ? self[index] : nil
     }
 }

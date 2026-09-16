@@ -81,13 +81,13 @@ final class SpectrumTap {
     ///     kept for backward compatibility with older callers).
     /// - Returns: band array normalized to 0...1, of length bandCount.
     private func ensureFFTCapacity(sampleCount n: Int) {
-        let nextN = 1 << (Int.bitWidth - n.leadingZeroBitCount)
+        let nextN = 1 << (Int.bitWidth - (n - 1).leadingZeroBitCount)
         if nextN != fftN {
             fftN = nextN
             let log2n = vDSP_Length(Int(log2(Double(max(fftN, 2)))))
             fftSetup = vDSP.FFT(log2n: log2n, radix: .radix2, ofType: DSPSplitComplex.self)
-            realIn = [Float](repeating: 0, count: fftN)
-            imagIn = [Float](repeating: 0, count: fftN)
+            realIn = [Float](repeating: 0, count: fftN / 2)
+            imagIn = [Float](repeating: 0, count: fftN / 2)
             realOut = [Float](repeating: 0, count: fftN / 2)
             imagOut = [Float](repeating: 0, count: fftN / 2)
             magnitudes = [Float](repeating: 0, count: fftN / 2)
@@ -111,11 +111,11 @@ final class SpectrumTap {
         }
 
         vDSP_vmul(samples, 1, window, 1, &windowed, 1, vDSP_Length(n))
-        for i in 0..<fftN { realIn[i] = 0; imagIn[i] = 0 }
-        realIn.withUnsafeMutableBufferPointer { dstBuf in
-            windowed.withUnsafeBufferPointer { srcBuf in
-                dstBuf.baseAddress!.update(from: srcBuf.baseAddress!, count: n)
-            }
+        // Real FFT input packs even samples into real and odd samples into imaginary.
+        // Zero-pad the final pair when the input is not a power of two.
+        for i in 0..<(fftN / 2) {
+            realIn[i] = i * 2 < n ? windowed[i * 2] : 0
+            imagIn[i] = i * 2 + 1 < n ? windowed[i * 2 + 1] : 0
         }
 
         realIn.withUnsafeMutableBufferPointer { realInputBuffer in

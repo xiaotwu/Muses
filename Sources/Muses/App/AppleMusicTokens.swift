@@ -21,10 +21,10 @@ enum AppleMusicSpacing {
     static let tableCell: CGFloat = 9
 }
 
-/// Measured 2026-08-20 from live `music.apple.com` CSS (`--keyColor`, page, type).
+/// Shared geometry with the approved adaptive monochrome accent (2026-09-16).
 enum AppleMusicTokens {
-    static let keyColorHex = "FA586A"
-    static let keyColorRGB = (r: 250.0 / 255.0, g: 88.0 / 255.0, b: 106.0 / 255.0)
+    static let keyColorHex = "FAFAFC"
+    static let keyColorRGB = (r: 250.0 / 255.0, g: 250.0 / 255.0, b: 252.0 / 255.0)
     static let darkPageRGB = (r: 31.0 / 255.0, g: 31.0 / 255.0, b: 31.0 / 255.0)
     static let lightPageRGB = (r: 1.0, g: 1.0, b: 1.0)
     static let pageTitleSize: CGFloat = 34
@@ -74,13 +74,10 @@ enum AppleMusicChrome {
 enum LibraryChromePolicy {
     static let sidebarIsPermanent = true
     static let collapsedWidth: CGFloat = AppleMusicTokens.sidebarCollapsedWidth
-
-    /// Music Inbox was a revisit/triage queue. Hidden from chrome; tables remain.
-    static let showsInbox = false
 }
 
 enum ChromeGlyphStyle {
-    static let selectedGlowRadius: CGFloat = 0
+    static let selectedGlowRadius: CGFloat = 5
     static let selectedUsesAccent = true
 }
 
@@ -173,6 +170,42 @@ enum HomePagePolicy {
     static let additionalShelvesUseSquareCards = true
 }
 
+enum ContentGlassPolicy {
+    static let browsingCardsUseGlassEffect = false
+    static let badgesUseMaterial = false
+    static let badgesUseOpaqueScrim = true
+}
+
+enum ListenAgainEmptyPolicy {
+    static let localSectionID = "listen-again"
+
+    static func placeholderCardCount(hasRecents: Bool, isLoading: Bool) -> Int { 0 }
+
+    static func showsEmptyCopy(hasRecents: Bool) -> Bool { !hasRecents }
+
+    static func showsRecentCards(hasRecents: Bool) -> Bool { hasRecents }
+
+    /// Local recents own this slot. Hide remote shelves with the same id or title
+    /// so Web Home cannot render a second Listen again row.
+    static func hidesDiscoverySection(id: String, title: String) -> Bool {
+        if id == localSectionID { return true }
+        let folded = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return folded == "listen again" || title == "再听一次"
+    }
+}
+
+enum EmptyStatePolicy {
+    static let songsEmptyOpensSearch = true
+    static let hidesNoOpPlaybackControls = false
+    static let playlistsUnavailableRetries = true
+}
+
+enum HomeGuestStatusPolicy {
+    /// Unsigned-in Home keeps one cue: the short status plus Sign In.
+    static let unsignedInShowsSingleCue = true
+    static let unsignedInHidesGuestBanner = true
+}
+
 enum NewPagePolicy {
     static let featuredUsesLandscapeEditorialCards = true
     static let bestNewSongsUsesAdaptiveMatrix = true
@@ -180,15 +213,37 @@ enum NewPagePolicy {
 }
 
 enum SettingsChromePolicy {
-    static func showsAccount(isPresented: Bool) -> Bool { isPresented }
-    static func allowsUnderlyingInteraction(isPresented: Bool) -> Bool { !isPresented }
-    static func allowsBrowseInteraction(isPresented: Bool) -> Bool {
-        allowsUnderlyingInteraction(isPresented: isPresented)
-    }
+    static let accountLivesInYouTubePane = true
+    static func showsAccount(isPresented: Bool) -> Bool { false }
+    static let presentsInMainWindow = true
     static let dismissesTransientOverlaysOnPresentation = true
-    static let presentsAsFloatingGlass = true
-    static let stickyTitle = true
-    static let usesLiquidGlass = true
+}
+
+enum MenuBarPolicy {
+    static let playbackCommandsLiveInPlaybackMenu = true
+    static let playbackCommandsAreNotInViewMenu = true
+    static let viewMenuIncludesSidebarToggle = true
+    static let viewMenuIncludesLibraryDestinations = true
+    static let fileMenuOmitsDuplicateLibraryWindow = true
+    static let fileMenuIncludesMiniPlayerWindow = true
+    static let searchLivesInFileMenu = true
+    static let searchIsNotInPlaybackMenu = true
+    /// Show Tab Bar / Show All Tabs come from AppKit window tabbing, not a
+    /// CommandGroupPlacement. Disabling automatic tabbing removes them.
+    static let viewMenuOmitsWindowTabs = true
+    static let helpOpensProjectDocs = true
+    static let helpDocumentationURL = URL(string: "https://xiaotwu.github.io/Muses/")!
+}
+
+enum SettingsPanePolicy {
+    static let gpuAccelerationLivesInAppearance = true
+    static let gpuAccelerationLivesInGeneral = false
+}
+
+enum SidebarNavPolicy {
+    static let includesRecently = false
+    static func newTitle() -> String { tr("New", "新发现") }
+    static func settingsFooterTitle() -> String { tr("Settings", "设置") }
 }
 
 enum PlayerLayoutPolicy {
@@ -217,6 +272,45 @@ enum PlayerControlPolicy {
     static let nowPlayingOpensFromArtwork = true
 }
 
+enum PlayerIdlePolicy {
+    static let showsQueueWhenIdle = true
+    static let showsIdentityMarkWhenIdle = true
+
+    static func showsTransport(hasTrack: Bool) -> Bool { true }
+    static func showsLyrics(hasTrack: Bool) -> Bool { true }
+    static func showsVolume(hasTrack: Bool) -> Bool { true }
+    static func showsYouTube(hasTrack: Bool) -> Bool { true }
+    static func showsProgress(hasTrack: Bool) -> Bool { true }
+    static func showsQueue(hasTrack: Bool) -> Bool { hasTrack || showsQueueWhenIdle }
+    static func showsIdentityMark(hasTrack: Bool) -> Bool {
+        !hasTrack && showsIdentityMarkWhenIdle
+    }
+}
+
+enum AudioOutputGlyphPolicy {
+    static let usesAirPlaySymbol = false
+    static let defaultSystemImage = "speaker.wave.2"
+
+    static func systemImage(forDeviceName name: String?) -> String {
+        guard let name, !name.isEmpty else { return defaultSystemImage }
+        let lower = name.lowercased()
+        if lower.contains("airplay") { return "airplayaudio" }
+        if lower.contains("headphone")
+            || lower.contains("airpods")
+            || lower.contains("beats") {
+            return "headphones"
+        }
+        return defaultSystemImage
+    }
+
+    static func accessibilityLabel(forDeviceName name: String?) -> String {
+        if systemImage(forDeviceName: name) == "airplayaudio" {
+            return tr("AirPlay", "AirPlay")
+        }
+        return tr("Audio output", "音频输出")
+    }
+}
+
 enum QueueChromePolicy {
     static let isIntegratedTrailingPane = true
     static let isDetachedRoundedCard = false
@@ -239,7 +333,7 @@ enum StationCardHitPolicy {
 }
 
 enum TrafficLightsPolicy {
-    static let livesInSidebar = true
+    static let livesInToolbar = true
     /// Standard buttons stay in AppKit's titlebar hierarchy. SwiftUI only
     /// reserves a transparent region beneath them.
     static let reparentsStandardButtons = false
@@ -256,8 +350,19 @@ enum WindowChromeMetrics {
     /// Native AppKit buttons stay where `NSWindow` places them. SwiftUI only
     /// reserves this transparent pad so wordmark/nav cannot collide.
     static let trafficLightTopInset: CGFloat = 0
+    /// Product default main window (`MusesApp` scene default). Scenario A lock.
+    static let defaultWidth: CGFloat = 1280
+    static let defaultHeight: CGFloat = 800
     static let minimumWidth: CGFloat = 840
     static let minimumHeight: CGFloat = 600
+}
+
+/// Same-round verification lock: one appearance and one main-window geometry.
+/// Switch theme, size, or scenario in a later named round — never together.
+enum VerificationLockPolicy {
+    static let scenarioATheme = AppTheme.system
+    static let scenarioAWindowWidth: CGFloat = WindowChromeMetrics.defaultWidth
+    static let scenarioAWindowHeight: CGFloat = WindowChromeMetrics.defaultHeight
 }
 
 enum PlaylistListPolicy {

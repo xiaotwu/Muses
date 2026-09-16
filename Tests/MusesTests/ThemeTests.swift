@@ -73,7 +73,7 @@ struct ThemeTests {
             NSAppearance(named: .aqua)!,
         ]
         let tokens: [Color] = [
-            BrandColors.background, BrandColors.surface, BrandColors.magenta,
+            BrandColors.background, BrandColors.surface, BrandColors.accent,
             BrandColors.textPrimary,
             BrandColors.textSecondary, BrandColors.hairline, BrandColors.scrim,
         ]

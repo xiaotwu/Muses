@@ -7,7 +7,7 @@ import SwiftData
 /// - `ListeningSession` @Model persists + status computed properties;
 /// - `SessionService` subscribes to the event bus: `trackStarted` opens/continues the active session and writes the crash-recovery slot,
 ///   `trackSeeked` updates the position, and `trackCompleted` (queue drained) ends the session;
-/// - The feature flag prevents persistence and restoration when disabled.
+/// - The feature flag prevents listening statistics, but not playback recovery.
 /// - Launch restoration loads the existing queue item, seeks to the persisted
 ///   position, and stays paused without presenting a decision dialog.
 /// - Older active sessions remain restorable and never replace the saved queue.
@@ -145,6 +145,29 @@ struct ListeningSessionTests {
         _ = svc
     }
 
+    @Test("video pause checkpoints active video position rather than suspended native time")
+    func videoPositionCheckpoint() throws {
+        let container = try makeContainer()
+        let q = makeQueue(container: container)
+        let (playback, engine) = makePlayback(queue: q)
+        let svc = SessionService(modelContainer: container, eventBus: playback.eventBus,
+                                 playback: playback, queue: q, enabledProvider: { true })
+        let track = snap("A")
+        engine.state.track = track
+        engine.state.position = 64
+        engine.state.duration = 200
+        q.play(track, context: [track], from: .songs)
+        playback.play()
+        let video = playback.beginVideoSession(videoId: track.youTubeId)
+        video.didBecomeReady()
+        video.receive(position: 82, duration: 200, playerState: 1)
+        video.receive(position: 83, duration: 200, playerState: 2)
+        #expect(engine.state.position == 64)
+        #expect(queueStateRow(container)?.lastPositionMs == 83_000)
+        playback.finishVideoSession(video, resume: false)
+        _ = svc
+    }
+
     @Test("trackCompleted with queue exhaustion ends session")
     func completionWithExhaustionEndsSession() throws {
         let container = try makeContainer()
@@ -198,7 +221,7 @@ struct ListeningSessionTests {
 
     // MARK: - Feature flag gating
 
-    @Test("ffSessions disabled: trackStarted does not persist or load restore track")
+    @Test("ffSessions disabled: recovery loads paused without creating listening statistics")
     func disabledFlagNoOps() async throws {
         let container = try makeContainer()
         let restored = snap("Restored")
@@ -213,8 +236,29 @@ struct ListeningSessionTests {
         bus.post(.trackStarted(snap("A")))
         try await Task.sleep(for: .milliseconds(100))
         #expect(fetchSessions(container).count == 1)
-        #expect(local.loadCallCount == 0)
+        #expect(local.loadCallCount == 1)
+        #expect(!playback.transportState.isPlaying)
         _ = svc
+    }
+
+    @Test("Sleep and wake remain paused even when listening statistics are disabled")
+    func sleepWakeWithoutStatistics() async throws {
+        let container = try makeContainer()
+        let q = makeQueue(container: container)
+        let (playback, _) = makePlayback(queue: q)
+        let svc = SessionService(modelContainer: container, eventBus: playback.eventBus,
+                                 playback: playback, queue: q, enabledProvider: { false })
+        let track = snap("Sleep")
+        playback.playTrack(track, context: [track], from: .songs)
+        try await Task.sleep(for: .milliseconds(100))
+        playback.seek(to: 25)
+        svc.handleSleep()
+        #expect(!playback.transportState.isPlaying)
+        #expect(q.currentTrackId == track.id)
+        #expect(q.lastPositionMs == 25_000)
+        svc.handleWake()
+        #expect(playback.primaryAction == .play)
+        #expect(fetchSessions(container).isEmpty)
     }
 
     // MARK: - Startup restore

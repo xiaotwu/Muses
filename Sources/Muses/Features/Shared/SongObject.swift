@@ -23,7 +23,6 @@ struct SongObjectView: View {
     var onPlay: () -> Void
     var onRemove: (() -> Void)? = nil
     var onQueue: (() -> Void)? = nil
-    var onInbox: (() -> Void)? = nil
     var onOverflow: (() -> Void)? = nil
 
     @State private var hovering = false
@@ -90,7 +89,7 @@ struct SongObjectView: View {
                     Image(systemName: isLiked ? "heart.fill" : "heart")
                         .font(.caption)
                 }
-                .foregroundStyle(isLiked ? BrandColors.magenta : BrandColors.textSecondary)
+                .foregroundStyle(isLiked ? BrandColors.accent : BrandColors.textSecondary)
                 .buttonStyle(.plain)
                 .help(isLiked ? tr("Unlike", "取消收藏") : tr("Like", "收藏"))
                 .accessibilityLabel(isLiked ? tr("Unlike", "取消收藏") : tr("Like", "收藏"))
@@ -106,7 +105,7 @@ struct SongObjectView: View {
             if showsPlayButton {
                 Button(action: onPlay) {
                     Image(systemName: "play.fill")
-                        .foregroundStyle(BrandColors.magenta)
+                        .foregroundStyle(BrandColors.accent)
                 }
                 .buttonStyle(.plain)
                 .help(tr("Play", "播放"))
@@ -121,16 +120,6 @@ struct SongObjectView: View {
                 .buttonStyle(.plain)
                 .help(tr("Add to Queue", "加入队列"))
                 .accessibilityLabel(tr("Add to Queue", "加入队列"))
-            }
-
-            if let onInbox {
-                Button(action: onInbox) {
-                    Image(systemName: "tray.and.arrow.down")
-                        .foregroundStyle(BrandColors.textSecondary)
-                }
-                .buttonStyle(.plain)
-                .help(tr("Save to Inbox", "保存到收件箱"))
-                .accessibilityLabel(tr("Save to Inbox", "保存到收件箱"))
             }
 
             if let onOverflow {

@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import SwiftData
 @testable import Muses
 
 @MainActor
@@ -47,6 +48,41 @@ struct QueueServiceTests {
         #expect(n2?.track.title == "b")
     }
 
+    @Test("Inserted playback is the actual current item and survives persistence")
+    func insertedCurrentRoundTrip() throws {
+        let container = try makeModelContainer(inMemory: true)
+        let q = QueueService()
+        q.modelContext = ModelContext(container)
+        let collection = [snap("a"), snap("b")]
+        q.play(collection[0], context: collection, from: .album)
+        q.playNext(snap("x"))
+        let inserted = q.next()
+        #expect(q.current()?.id == inserted?.id)
+        #expect(q.currentIndex == 0)
+        let restored = QueueService()
+        restored.modelContext = ModelContext(container)
+        restored.restore()
+        #expect(restored.current()?.track.title == "x")
+        #expect(restored.currentIndex == 0)
+        #expect(restored.next()?.track.title == "b")
+        #expect(restored.history.map(\.track.title) == ["x", "a"])
+        #expect(restored.previous()?.track.title == "x")
+        #expect(restored.current()?.track.title == "x")
+        #expect(restored.next()?.track.title == "b")
+    }
+
+    @Test("Returning from an insertion keeps it available after the previous collection item")
+    func previousFromInsertion() {
+        let q = QueueService()
+        let collection = [snap("a"), snap("b")]
+        q.play(collection[0], context: collection, from: .album)
+        q.playNext(snap("x"))
+        _ = q.next()
+        #expect(q.previous()?.track.title == "a")
+        #expect(q.next()?.track.title == "x")
+        #expect(q.next()?.track.title == "b")
+    }
+
     @Test("repeat one keeps current")
     func repeatOne() {
         let q = QueueService()
@@ -63,9 +99,9 @@ struct QueueServiceTests {
         let ctx = [snap("a"), snap("b")]
         q.play(ctx[1], context: ctx, from: .album)
         q.setRepeat(.all)
-        _ = q.next()
         let n = q.next()
         #expect(n?.track.title == "a")
+        #expect(q.history.map(\.track.title) == ["b"])
     }
 
     @Test("previous navigates history")

@@ -6,17 +6,16 @@ import SwiftUI
 ///
 /// Owns an `NSStatusItem`; menu content refreshes the current track on
 /// `PlaybackEventBus.trackStarted`. Feature flag `PrefKey.ffTray` (off by default):
-/// off → hides and releases the status item. Left-click opens the modern Figure 2 Liquid Glass
+/// off → hides and releases the status item. Left-click opens the shared Liquid Glass
 /// player card popover (`MenuBarPlayerView`), while right-click opens the fast standard menu.
 @MainActor
-final class TrayController {
+final class TrayController: NSObject, NSPopoverDelegate {
     private let trackProvider: () -> TrackSnapshot?
     private let isPlayingProvider: () -> Bool
     private let onPlayPause: () -> Void
     private let onNext: () -> Void
     private let onPrevious: () -> Void
     private let onLike: () -> Void
-    private let onAddToInbox: () -> Void
     private let onOpenMini: () -> Void
     private let onOpenMain: () -> Void
     private let onQuit: () -> Void
@@ -25,6 +24,8 @@ final class TrayController {
 
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
+    private var localDismissMonitor: Any?
+    private var globalDismissMonitor: Any?
     private(set) var revision: Int = 0
 
     init(trackProvider: @escaping () -> TrackSnapshot?,
@@ -33,7 +34,6 @@ final class TrayController {
          onNext: @escaping () -> Void,
          onPrevious: @escaping () -> Void,
          onLike: @escaping () -> Void,
-         onAddToInbox: @escaping () -> Void,
          onOpenMini: @escaping () -> Void,
          onOpenMain: @escaping () -> Void,
          onQuit: @escaping () -> Void,
@@ -45,12 +45,12 @@ final class TrayController {
         self.onNext = onNext
         self.onPrevious = onPrevious
         self.onLike = onLike
-        self.onAddToInbox = onAddToInbox
         self.onOpenMini = onOpenMini
         self.onOpenMain = onOpenMain
         self.onQuit = onQuit
         self.playbackService = playback
         self.audioDevices = audioDevices
+        super.init()
     }
 
     /// Toggles the tray: enabled → create and build the menu; disabled → release it. Idempotent.
@@ -62,6 +62,7 @@ final class TrayController {
             }
             rebuild()
         } else {
+            removeDismissMonitors()
             popover?.performClose(nil)
             popover = nil
             if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
@@ -81,7 +82,7 @@ final class TrayController {
         guard let item = statusItem else { return }
         let track = trackProvider()
         item.button?.title = ""
-        item.button?.image = TrayIcon.templateImage()
+        item.button?.image = TrayIcon.menuBarImage
         item.button?.imagePosition = .imageOnly
         item.button?.imageScaling = .scaleProportionallyDown
         item.button?.toolTip = track.map { "\($0.title) — \($0.artist)" } ?? tr("Muses", "Muses")
@@ -132,7 +133,8 @@ final class TrayController {
 
         let p = NSPopover()
         p.behavior = .transient
-        p.animates = true
+        p.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        p.delegate = self
 
         let cardView = MenuBarPlayerView(
             onOpenMain: { [weak self] in
@@ -149,11 +151,42 @@ final class TrayController {
 
         let hosting = NSHostingController(rootView: cardView)
         p.contentViewController = hosting
-        p.contentSize = NSSize(width: 310, height: 185)
+        hosting.sizingOptions = [.preferredContentSize]
+        p.contentSize = hosting.view.fittingSize
 
         self.popover = p
         p.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
         p.contentViewController?.view.window?.makeKey()
+        installDismissMonitors()
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        removeDismissMonitors()
+    }
+
+    private func installDismissMonitors() {
+        removeDismissMonitors()
+        localDismissMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            MainActor.assumeIsolated {
+                if let self, let popover = self.popover, popover.isShown,
+                   event.window !== popover.contentViewController?.view.window,
+                   event.window !== self.statusItem?.button?.window,
+                   event.window?.level != .popUpMenu {
+                    popover.performClose(nil)
+                }
+            }
+            return event
+        }
+        globalDismissMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            MainActor.assumeIsolated { self?.popover?.performClose(nil) }
+        }
+    }
+
+    private func removeDismissMonitors() {
+        if let localDismissMonitor { NSEvent.removeMonitor(localDismissMonitor) }
+        if let globalDismissMonitor { NSEvent.removeMonitor(globalDismissMonitor) }
+        localDismissMonitor = nil
+        globalDismissMonitor = nil
     }
 
     @objc private func menuAction(_ sender: NSMenuItem) {
@@ -163,7 +196,6 @@ final class TrayController {
         case .next:         onNext()
         case .previous:     onPrevious()
         case .like:         onLike()
-        case .addToInbox:   onAddToInbox()
         case .openMini:     onOpenMini()
         case .openMain:     onOpenMain()
         case .quit:         onQuit()
@@ -175,28 +207,23 @@ final class TrayController {
 /// Menu-bar template mark: the bundled logo, white knocked out so macOS can
 /// invert it for light and dark menu bars.
 enum TrayIcon {
-    static let symbolName = "music.note"
-    static let symbolPointSize: CGFloat = 15
+    static let logoImage = loadLogo()
+    static let menuBarImage: NSImage = {
+        let url = Bundle.module.url(forResource: "MenuBarMark", withExtension: "png", subdirectory: "Resources")
+        let image = url.flatMap { NSImage(contentsOf: $0) }
+        return templateImage(from: image, pointSize: 18, sourceInsetFraction: 0.2)
+    }()
+    static let settingsImage = templateImage(pointSize: 24)
 
     static func loadLogo() -> NSImage? {
         let url = Bundle.main.url(forResource: "logo", withExtension: "png")
             ?? Bundle.module.url(forResource: "logo", withExtension: "png")
+            ?? Bundle.module.url(forResource: "logo", withExtension: "png", subdirectory: "Resources")
         return url.flatMap { NSImage(contentsOf: $0) }
     }
 
-    static func templateImage(from source: NSImage? = nil, pointSize: CGFloat = 18) -> NSImage {
-        if source == nil,
-           let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Muses") {
-            let configuration = NSImage.SymbolConfiguration(
-                pointSize: min(symbolPointSize, pointSize),
-                weight: .semibold
-            )
-            let image = symbol.withSymbolConfiguration(configuration) ?? symbol
-            image.isTemplate = true
-            return image
-        }
-
-        let src = source ?? loadLogo() ?? NSImage(size: NSSize(width: pointSize, height: pointSize))
+    static func templateImage(from source: NSImage? = nil, pointSize: CGFloat = 18, sourceInsetFraction: CGFloat = 0) -> NSImage {
+        let src = source ?? logoImage ?? NSImage(size: NSSize(width: pointSize, height: pointSize))
         let scale: CGFloat = 2
         let px = max(Int((pointSize * scale).rounded()), 1)
         guard let rep = NSBitmapImageRep(
@@ -218,7 +245,10 @@ enum TrayIcon {
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
         src.draw(in: NSRect(x: 0, y: 0, width: px, height: px),
-                 from: .zero,
+                 from: sourceInsetFraction > 0
+                    ? NSRect(origin: .zero, size: src.size).insetBy(dx: src.size.width * sourceInsetFraction,
+                                                                  dy: src.size.height * sourceInsetFraction)
+                    : .zero,
                  operation: .copy,
                  fraction: 1,
                  respectFlipped: true,
@@ -267,7 +297,7 @@ enum TrayMenuModel {
     struct Item: Equatable, Sendable {
         enum Kind: Int, Sendable, Equatable {
             case header = 0, playPause = 1, next = 2, previous = 3, like = 4,
-                 addToInbox = 5, openMini = 6, openMain = 7, quit = 8, separator = 99
+                 openMini = 5, openMain = 6, quit = 7, separator = 99
         }
         let kind: Kind
         let title: String
@@ -294,7 +324,6 @@ enum TrayMenuModel {
         out.append(Item(kind: .next, title: tr("Next", "下一首"), enabled: track != nil))
         out.append(Item(kind: .separator, title: "", enabled: false))
         out.append(Item(kind: .like, title: tr("Like", "收藏"), enabled: track != nil))
-        out.append(Item(kind: .addToInbox, title: tr("Add to Inbox", "加入收件箱"), enabled: track != nil))
         out.append(Item(kind: .separator, title: "", enabled: false))
         out.append(Item(kind: .openMini, title: tr("Open Mini Player", "打开迷你播放器"), enabled: true))
         out.append(Item(kind: .openMain, title: tr("Open Muses", "打开 Muses"), enabled: true))

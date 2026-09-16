@@ -7,9 +7,9 @@ struct NotificationsSettingsView: View {
     @State private var authorizationRequested = false
 
     var body: some View {
-        Section(tr("Notifications", "通知")) {
+        Section {
             Toggle(tr("Notify on Track Change", "换歌时通知"), isOn: $trackChangeEnabled)
-                .tint(BrandColors.magenta)
+                .tint(BrandColors.accent)
                 .onChange(of: trackChangeEnabled) { _, on in
                     if on && !authorizationRequested {
                         Task { _ = try? await UNUserNotificationCenter.current()
@@ -17,6 +17,6 @@ struct NotificationsSettingsView: View {
                         authorizationRequested = true
                     }
                 }
-        }
+        } header: { Text(tr("Notifications", "通知")).font(.headline.weight(.semibold)) }
     }
 }

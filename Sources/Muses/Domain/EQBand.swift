@@ -3,7 +3,7 @@ import Foundation
 struct EQBand: Codable, Equatable, Sendable {
     var frequency: Double      // Hz
     var gain: Float            // dB, -24...24
-    var q: Float               // Bandwidth factor, 0.1...10
+    var q: Float               // Legacy persisted key: bandwidth in octaves, not resonance Q.
 
     init(frequency: Double, gain: Float, q: Float) {
         self.frequency = frequency; self.gain = gain; self.q = q

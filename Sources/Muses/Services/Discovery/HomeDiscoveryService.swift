@@ -376,7 +376,7 @@ final class HomeDiscoveryService {
         if let artist = input.topArtistNames.first {
             placeholders.append(HomeSection(
                 id: "top-artist",
-                title: tr("Mixed for you · \(artist)", "为你精选 · \(artist)"),
+                title: tr("Mixed for you · \(artist)", "为你精选 · \(artist)", zhHant: "為你精選 · \(artist)"),
                 subtitle: tr("From YouTube Music", "来自 YouTube Music"),
                 kind: .youTubeCarousel, items: [], status: .loading))
         }
@@ -394,7 +394,7 @@ final class HomeDiscoveryService {
         if let liked = input.likedArtistNames.first, liked != input.topArtistNames.first {
             placeholders.append(HomeSection(
                 id: "from-liked",
-                title: tr("Because you like \(liked)", "因为你喜欢 \(liked)"),
+                title: tr("Because you like \(liked)", "因为你喜欢 \(liked)", zhHant: "因為你喜歡 \(liked)"),
                 subtitle: tr("From YouTube Music", "来自 YouTube Music"),
                 kind: .youTubeCarousel, items: [], status: .loading))
         }

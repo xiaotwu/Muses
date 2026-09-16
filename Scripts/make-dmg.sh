@@ -5,12 +5,12 @@
 # 产物:build/Muses-$VER.dmg
 #
 # 用法:
-#   MUSES_VERSION=0.4.0 ./Scripts/make-dmg.sh
-#   MUSES_VERSION=0.4.0 MUSES_SIGN_IDENTITY="Developer ID Application: ..." ./Scripts/make-dmg.sh
+#   MUSES_VERSION=0.5.0 ./Scripts/make-dmg.sh
+#   MUSES_VERSION=0.5.0 MUSES_SIGN_IDENTITY="Developer ID Application: ..." ./Scripts/make-dmg.sh
 
 set -euo pipefail
 
-VER="${MUSES_VERSION:-0.4.0}"
+VER="${MUSES_VERSION:-0.5.0}"
 APP="build/Muses.app"
 STAGING="build/dmg-staging"
 DMG="build/Muses-${VER}.dmg"

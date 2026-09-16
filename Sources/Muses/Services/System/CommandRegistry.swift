@@ -29,7 +29,7 @@ final class CommandRegistry {
     }
 
     func execute(_ id: String) {
-        guard let h = handlers[id] else { return }
+        guard isEnabled(id), let h = handlers[id] else { return }
         h()
     }
 

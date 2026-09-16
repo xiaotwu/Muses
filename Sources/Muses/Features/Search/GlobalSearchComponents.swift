@@ -75,7 +75,7 @@ struct SearchCategoryButton: View {
             HStack(spacing: 12) {
                 Image(systemName: systemName)
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(BrandColors.magenta)
+                    .foregroundStyle(BrandColors.accent)
                     .frame(width: 28, height: 28)
                 Text(title)
                     .font(.system(size: 15, weight: .semibold))
@@ -114,7 +114,7 @@ struct GlobalSearchTrackRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(snapshot.title)
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(isCurrent ? BrandColors.magenta : BrandColors.textPrimary)
+                        .foregroundStyle(isCurrent ? BrandColors.accent : BrandColors.textPrimary)
                         .lineLimit(1)
                     Text([snapshot.artist, snapshot.albumTitle]
                         .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " — "))
@@ -175,7 +175,7 @@ struct GlobalSearchYouTubeRow: View {
             .buttonStyle(.plain)
             if isSaved {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(BrandColors.magenta)
+                    .foregroundStyle(BrandColors.accent)
                     .help(tr("In Library", "已在资料库中"))
                     .accessibilityLabel(tr("In Library", "已在资料库中"))
             }
@@ -240,10 +240,10 @@ struct GlobalSearchNoteRow: View {
             HStack(alignment: .top, spacing: 11) {
                 Image(systemName: "note.text")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(BrandColors.magenta)
+                    .foregroundStyle(BrandColors.accent)
                     .frame(width: 42, height: 42)
                     .background(BrandColors.surface,
-                                in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                in: Capsule())
                 VStack(alignment: .leading, spacing: 2) {
                     Text(hit.ownerTitle)
                         .font(.system(size: 14, weight: .medium))

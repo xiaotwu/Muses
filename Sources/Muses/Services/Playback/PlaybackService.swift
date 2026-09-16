@@ -3,18 +3,29 @@ import Foundation
 @Observable
 @MainActor
 final class PlaybackService {
+    private(set) var eqBands: [EQBand] = EQPresets.flat
+    private(set) var eqBypassed = false
+    private var eqDefaults: UserDefaults?
     /// The single production playback backend is YouTubeStreamEngine.
     var state: PlayerState { engine.state }
+    var transportState: PlayerState { videoSession?.state ?? state }
+    private(set) var videoSession: VideoPlaybackSession?
+    private var videoSuspensions: [UUID: (token: UUID, sequence: UInt64, trackId: UUID?)] = [:]
     private let engine: any PlayerEngine
+    private var spectrumOwner: UUID?
     private var spectrumHandler: ((SpectrumFrame) -> Void)?
     let queue: QueueService
     /// Library service used to record play history (`recordPlay`). Optional in tests (nil skips recording).
     weak var library: LibraryService?
-    /// Cross-feature playback event bus (History/Session/Context/Inbox/Focus subscribe).
+    /// Cross-feature playback event bus (History/Session/Context subscribe).
     /// Owned by PlaybackService as a singleton; external subscribers register via `eventBus.subscribe`.
     let eventBus = PlaybackEventBus()
     private(set) var volume: Float
+    private var lastAudibleVolume: Float
+    private let volumeDefaults: UserDefaults
     private var completionObserver: Task<Void, Never>?
+    private var recommendationTask: Task<Void, Never>?
+    var recommendationProvider: (@Sendable (String) async throws -> [MusicCatalogItem])?
     private var lastCompletedTrackId: UUID?
     /// Canonical user intent. Engine state can temporarily be false while an
     /// asynchronous load is buffering, so it cannot by itself decide whether a
@@ -46,13 +57,18 @@ final class PlaybackService {
     }
 
     init(engine: any PlayerEngine, queue: QueueService,
-         library: LibraryService? = nil) {
+         library: LibraryService? = nil, volumeDefaults: UserDefaults = .standard) {
+        self.volumeDefaults = volumeDefaults
         self.engine = engine
         self.queue = queue
         self.library = library
-        let stored = UserDefaults.standard.object(forKey: PrefKey.volume) as? Double
-            ?? Double(UserDefaults.standard.object(forKey: PrefKey.volume) as? Float ?? 0.8)
-        self.volume = max(0, min(1, Float(stored)))
+        let stored = volumeDefaults.object(forKey: PrefKey.volume) as? Double
+            ?? Double(volumeDefaults.object(forKey: PrefKey.volume) as? Float ?? 0.8)
+        let initialVolume = stored.isFinite ? max(0, min(1, Float(stored))) : 0.8
+        self.volume = initialVolume
+        let remembered = volumeDefaults.double(forKey: PrefKey.lastAudibleVolume)
+        self.lastAudibleVolume = initialVolume > 0 ? initialVolume
+            : (remembered.isFinite && remembered > 0 ? Float(min(1, remembered)) : 0.8)
         engine.setVolume(volume)
         setupCompletionHandlers()
         observeCompletion()
@@ -87,16 +103,14 @@ final class PlaybackService {
         postCompletedForCurrent()
 
         // Queue exhausted (repeat off, last track, no inserted item) → stop
-        if queue.repeatMode == .off,
-           queue.currentIndex >= queue.items.count - 1,
-           queue.upNext.isEmpty {
+        if queue.peekNext() == nil {
             playbackRequested = false
             state.isPlaying = false
             return
         }
 
         // Try the gapless hand-off
-        if engine.playPrepared() {
+        if !queue.smartShuffle.enabled && engine.playPrepared() {
             // Gapless success: advance the queue to the new current track and fire the same start events as load().
             _ = queue.next()
             lastCompletedTrackId = nil
@@ -116,21 +130,10 @@ final class PlaybackService {
     /// Shares the queue-advance logic with an explicit next(), bypassing displacement recording.
     private func advanceWithoutDisplacement() {
         guard let item = queue.next() else {
-            // .all wrap-around: the first call returns nil; call once more to land back on the first item
-            if queue.repeatMode == .all {
-                if let item2 = queue.next() {
-                    playbackRequested = true
-                    scheduleLoad(item2.track)
-                } else {
-                    playbackRequested = false
-                    completionEligibleIdentity = nil
-                    state.isPlaying = false
-                }
-            } else {
-                playbackRequested = false
-                completionEligibleIdentity = nil
-                state.isPlaying = false
-            }
+            playbackRequested = false
+            completionEligibleIdentity = nil
+            engine.pause()
+            state.isPlaying = false
             return
         }
         playbackRequested = true
@@ -139,6 +142,7 @@ final class PlaybackService {
 
     /// Preloads the next queued track into the current engine (the precondition for local gapless playback).
     private func prepareNext() {
+        guard !queue.smartShuffle.enabled else { return }
         guard let nextItem = queue.peekNext(),
               let currentTrackId = state.track?.id else { return }
         let seq = loadSeq
@@ -153,11 +157,13 @@ final class PlaybackService {
 
     /// Re-load the current track (used when the user changes yt-dlp quality).
     func reloadCurrent() {
+        retireVideoSession()
         guard let track = state.track else { return }
         scheduleLoad(track)
     }
 
     func playTrack(_ track: TrackSnapshot, context: [TrackSnapshot], from: QueueSource) {
+        retireVideoSession()
         // Direct selection: if a track is playing, record its displacement first (the user switched away from it).
         postDisplacementForCurrent()
         playbackRequested = true
@@ -169,6 +175,15 @@ final class PlaybackService {
     }
 
     func toggle() {
+        if let videoSession {
+            videoSession.setPlaying(!videoSession.requestedPlay)
+            return
+        }
+        if state.error != nil, let track = state.track {
+            playbackRequested = true
+            scheduleLoad(track)
+            return
+        }
         if playbackRequested || state.isPlaying {
             pause()
         } else {
@@ -176,10 +191,17 @@ final class PlaybackService {
         }
     }
 
+    var primaryAction: PlaybackPrimaryAction {
+        if let videoSession { return videoSession.requestedPlay ? .pause : .play }
+        if state.error != nil { return .retry }
+        return playbackRequested || state.isPlaying ? .pause : .play
+    }
+
     /// Idempotent play entry point for system commands and overlay restoration.
     /// During buffering this records intent only; `load(_:)` applies the latest
     /// intent after its await instead of overriding a newer pause.
     func play() {
+        if let videoSession { videoSession.setPlaying(true); return }
         let wasRequested = playbackRequested
         playbackRequested = true
         guard let track = state.track else { return }
@@ -196,6 +218,7 @@ final class PlaybackService {
     }
 
     func pause() {
+        if let videoSession { videoSession.setPlaying(false); return }
         let wasActive = playbackRequested || state.isPlaying
         playbackRequested = false
         completionEligibleIdentity = nil
@@ -204,6 +227,84 @@ final class PlaybackService {
         if wasActive, let track = state.track, startedTrackId == track.id {
             eventBus.post(.trackPaused(track))
         }
+    }
+
+    func beginVideoSession(videoId: String) -> VideoPlaybackSession {
+        retireVideoSession()
+        let start = videoPlaybackStart(for: videoId)
+        let track = state.track?.youTubeId == videoId ? state.track : nil
+        let session = VideoPlaybackSession(videoId: videoId, track: track, start: start)
+        let token = beginNativePlaybackSuspension()
+        videoSuspensions[session.id] = (token, loadSeq, state.track?.id)
+        videoSession = session
+        session.onVolumeChange = { [weak self, weak session] value in
+            guard let self, let session, self.videoSession === session else { return }
+            self.storeVolume(value)
+        }
+        session.onEnded = { [weak session] in session?.requestClose() }
+        session.onStateChange = { [weak self, weak session] playing in
+            guard let self, let session, self.videoSession === session,
+                  let track = session.state.track else { return }
+            if playing {
+                if self.startedTrackId == track.id { self.eventBus.post(.trackResumed(track)) }
+                else { self.markStarted(track) }
+            } else {
+                self.eventBus.post(.trackPaused(track))
+            }
+        }
+        return session
+    }
+
+    /// Called only after WebKit has acknowledged pausing every media element.
+    /// A replaced session can release its token but cannot seek a newer load.
+    func finishVideoSession(_ session: VideoPlaybackSession, resume: Bool) {
+        guard let owner = videoSuspensions.removeValue(forKey: session.id) else { return }
+        let ownsTransport = videoSession === session
+        let isCurrent = ownsTransport && owner.sequence == loadSeq
+            && owner.trackId == state.track?.id && session.videoId == state.track?.youTubeId
+        if ownsTransport { videoSession = nil }
+        if isCurrent {
+            if session.ready, session.state.error == nil {
+                engine.seek(to: session.state.position)
+                if let trackId = state.track?.id {
+                    eventBus.post(.trackSeeked(trackId: trackId, toMs: session.state.position * 1000))
+                }
+            }
+            playbackRequested = resume && session.requestedPlay && !session.ended
+        }
+        session.sendCommand = nil
+        session.surface = nil
+        session.onVolumeChange = nil
+        session.onStateChange = nil
+        session.onClose = nil
+        session.onEnded = nil
+        endNativePlaybackSuspension(owner.token, resume: isCurrent ? resume : true)
+        if isCurrent, session.ended, session.state.error == nil {
+            postCompletedForCurrent()
+            startedTrackId = nil
+            advanceWithoutDisplacement()
+        }
+    }
+
+    private func retireVideoSession() {
+        guard let session = videoSession else { return }
+        // Capture displacement position before dropping transport ownership.
+        if session.ready, session.state.error == nil, session.videoId == state.track?.youTubeId {
+            engine.seek(to: session.state.position)
+        }
+        videoSession = nil
+        session.requestClose()
+    }
+
+    /// Snapshot before suspension: buffering retains user intent, while a
+    /// paused track stays paused when opened in the independent video surface.
+    func videoPlaybackStart(for videoId: String) -> VideoPlaybackStart {
+        guard state.track?.youTubeId == videoId else {
+            return VideoPlaybackStart(volume: volume)
+        }
+        return VideoPlaybackStart(position: state.position,
+                                  shouldPlay: playbackRequested || state.isPlaying,
+                                  volume: volume)
     }
 
     /// Silence native audio without discarding desired play intent. The video
@@ -251,51 +352,81 @@ final class PlaybackService {
         }
     }
     func seek(to time: Double) {
+        if let videoSession { videoSession.seek(to: time); return }
+        guard time.isFinite else { return }
         engine.seek(to: time)
         if let track = state.track {
             eventBus.post(.trackSeeked(trackId: track.id, toMs: time * 1000.0))
         }
     }
     func setVolume(_ v: Float) {
+        guard v.isFinite else { return }
+        videoSession?.setVolume(v)
+        storeVolume(v)
+    }
+
+    func toggleMute() {
+        setVolume(volume > 0 ? 0 : lastAudibleVolume)
+    }
+
+    private func storeVolume(_ v: Float) {
         volume = max(0, min(1, v))
-        UserDefaults.standard.set(Double(volume), forKey: PrefKey.volume)
+        volumeDefaults.set(Double(volume), forKey: PrefKey.volume)
+        if volume > 0 {
+            lastAudibleVolume = volume
+            volumeDefaults.set(Double(volume), forKey: PrefKey.lastAudibleVolume)
+        }
         engine.setVolume(volume)
     }
     func setEQ(_ bands: [EQBand]) {
-        engine.setEQ(bands)
+        guard bands.count <= 32, bands.allSatisfy({ $0.frequency.isFinite && $0.gain.isFinite && $0.q.isFinite }) else { return }
+        eqBands = bands
+        if let data = try? JSONEncoder().encode(bands) { eqDefaults?.set(data, forKey: PrefKey.eqCurrentBands) }
+        engine.setEQ(eqBypassed ? [] : bands)
     }
-    func installSpectrumHandler(_ h: @escaping (SpectrumFrame) -> Void) {
+
+    func setEQBypassed(_ bypassed: Bool) {
+        eqBypassed = bypassed
+        eqDefaults?.set(bypassed, forKey: PrefKey.eqBypassed)
+        engine.setEQ(bypassed ? [] : eqBands)
+    }
+
+    func restoreEQSettings(defaults: UserDefaults, presetBands: [EQBand]) {
+        eqDefaults = defaults
+        eqBypassed = defaults.bool(forKey: PrefKey.eqBypassed)
+        let saved = defaults.data(forKey: PrefKey.eqCurrentBands)
+            .flatMap { try? JSONDecoder().decode([EQBand].self, from: $0) }
+        setEQ(saved ?? presetBands)
+    }
+    @discardableResult
+    func installSpectrumHandler(_ h: @escaping (SpectrumFrame) -> Void) -> UUID {
+        let owner = UUID()
+        spectrumOwner = owner
         spectrumHandler = h
         engine.installSpectrumTap(h)
+        AppLog.for("Spectrum").notice("handler count=1")
+        return owner
     }
-    func removeSpectrumHandler() {
+    func removeSpectrumHandler(owner: UUID? = nil) {
+        if let owner, owner != spectrumOwner { return }
+        spectrumOwner = nil
         spectrumHandler = nil
         engine.removeSpectrumTap()
+        AppLog.for("Spectrum").notice("handler count=0")
     }
 
     func next() {
+        retireVideoSession()
         // Explicit next: record the current track's displacement (skip/stop) first.
         // The same displacement heuristic labels queue history: below the listening threshold → .skipped, otherwise .played.
         let isSkip = currentDisplacementIsSkip()
         postDisplacementForCurrent(isSkip: isSkip)
         let historyTag: QueueHistoryState = isSkip ? .skipped : .played
         guard let item = queue.next(as: historyTag) else {
-            // .all wrap-around: the first call returns nil; call once more to land back on the first item
-            if queue.repeatMode == .all {
-                if let item2 = queue.next(as: historyTag) {
-                    playbackRequested = true
-                    scheduleLoad(item2.track)
-                } else {
-                    playbackRequested = false
-                    completionEligibleIdentity = nil
-                    state.isPlaying = false
-                }
-            } else {
-                // .off at the end or empty queue → stop
-                playbackRequested = false
-                completionEligibleIdentity = nil
-                state.isPlaying = false
-            }
+            playbackRequested = false
+            completionEligibleIdentity = nil
+            engine.pause()
+            state.isPlaying = false
             return
         }
         playbackRequested = true
@@ -303,6 +434,7 @@ final class PlaybackService {
     }
 
     func previous() {
+        retireVideoSession()
         // Explicit previous: record the current track's displacement first.
         postDisplacementForCurrent()
         guard let item = queue.previous() else { return }
@@ -332,6 +464,7 @@ final class PlaybackService {
     }
 
     private func scheduleLoad(_ track: TrackSnapshot, resumeMs: Double? = nil) {
+        retireVideoSession()
         loadSeq &+= 1
         let seq = loadSeq
         completionEligibleIdentity = nil
@@ -469,6 +602,7 @@ final class PlaybackService {
     private func didStart(_ track: TrackSnapshot) {
         library?.recordPlay(trackId: track.id)
         eventBus.post(.trackStarted(track))
+        requestSmartRecommendation()
         prepareNext()
     }
 
@@ -476,6 +610,37 @@ final class PlaybackService {
         guard startedTrackId != track.id else { return }
         startedTrackId = track.id
         didStart(track)
+    }
+
+    func setSmartShuffle(_ enabled: Bool) {
+        recommendationTask?.cancel()
+        queue.setSmartShuffle(enabled)
+        if enabled { requestSmartRecommendation() }
+        else { prepareNext() }
+    }
+
+    private func requestSmartRecommendation() {
+        recommendationTask?.cancel()
+        guard queue.needsRecommendation, let provider = recommendationProvider,
+              let current = queue.current() else { return }
+        let collectionID = queue.smartShuffle.collectionID
+        recommendationTask = Task { [weak self] in
+            do {
+                let candidates = try await provider(current.track.youTubeId)
+                guard let self, !Task.isCancelled, self.queue.current()?.id == current.id,
+                      self.queue.smartShuffle.collectionID == collectionID else { return }
+                for candidate in candidates where candidate.kind == .song {
+                    guard let entry = candidate.playableEntry else { continue }
+                    let snapshot = TrackSnapshot(id: UUID(), title: entry.title, artist: entry.uploader ?? "",
+                        albumTitle: entry.album, durationSeconds: entry.duration ?? 0, youTubeId: entry.id,
+                        artworkUrl: candidate.artwork?.absoluteString ?? YouTubeThumbnail.urlString(videoId: entry.id),
+                        sampleRate: nil, bitDepth: nil, codec: nil, isLossless: false)
+                    if self.queue.stageRecommendation(snapshot, sourceVideoID: current.track.youTubeId, collectionID: collectionID) { break }
+                }
+            } catch {
+                // No trusted candidate: continue the collection unchanged.
+            }
+        }
     }
 
     /// Emits a displacement event for the current track on an explicit switch (next/previous/direct selection).
@@ -532,9 +697,7 @@ final class PlaybackService {
                     // Natural completion: emit .trackCompleted and advance without displacement recording, avoiding a skip/stop misread.
                     self.postCompletedForCurrent()
                     // Queue exhausted (repeat off, last track, no inserted item) → stop
-                    if self.queue.repeatMode == .off,
-                       self.queue.currentIndex >= self.queue.items.count - 1,
-                       self.queue.upNext.isEmpty {
+                    if self.queue.peekNext() == nil {
                         self.playbackRequested = false
                         self.completionEligibleIdentity = nil
                         self.state.isPlaying = false

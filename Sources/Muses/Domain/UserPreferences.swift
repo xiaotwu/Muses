@@ -47,12 +47,14 @@ enum AppTheme: String, CaseIterable, Codable {
 /// App language. `system` follows the system language; `en`/`zh` override it.
 enum AppLanguage: String, CaseIterable, Codable {
     case system, en, zh
+    case zhHant = "zh-Hant"
 
     var displayName: String {
         switch self {
-        case .system: return tr("System", "跟随系统")
+        case .system: return tr("System", "跟随系统", zhHant: "跟隨系統")
         case .en:     return "English"
         case .zh:     return "简体中文"
+        case .zhHant: return "繁體中文"
         }
     }
 }
@@ -87,8 +89,16 @@ enum PrefKey {
     /// Now Playing lyrics presentation: inline/lyricsOnly/minimal.
     static let nowPlayingLyricsMode = "muses.nowPlaying.lyricsMode"
     static let theme = "muses.theme"
+    /// Last selected Settings pane (`SettingsCategory.rawValue`).
+    static let settingsLastPane = "muses.settings.lastPane"
+    static let sidebarCollapsed = "muses.sidebarCollapsed"
     static let eqActivePresetId = "muses.eq.activePresetId"
+    static let eqCurrentBands = "muses.eq.currentBands"
+    static let eqBypassed = "muses.eq.bypassed"
     static let lyricsSource = "muses.lyrics.source"
+    static let lyricsIntelligence = "muses.lyrics.intelligence"
+    static let lyricsTranslationLanguage = "muses.lyrics.translationLanguage"
+    static let lyricsRomanization = "muses.lyrics.romanization"
     static let audioQuality = "muses.audio.quality"
     static let checkForUpdates = "muses.updates.checkAutomatically"
     static let lastUpdateCheckAt = "muses.updates.lastCheckAt"
@@ -111,15 +121,13 @@ enum PrefKey {
     /// Disclosure toggle for YouTube technical details, shown to advanced users; everyone else sees only one-click connect.
     static let ytShowAdvanced = "muses.yt.showAdvanced"
     static let notificationsTrackChange = "muses.notifications.trackChange"
-    static let crossfadeSeconds = "muses.playback.crossfadeSeconds"
-    static let replayGainEnabled = "muses.playback.replayGainEnabled"
     static let volume = "muses.playback.volume"
+    static let lastAudibleVolume = "muses.playback.lastAudibleVolume"
     static let gpuAcceleration = "muses.gpuAcceleration"
     static let language = "muses.language"
     static let ytAudioQuality = "muses.yt.quality"
     /// IFrame suggested video quality: auto / hd1080 / hd720 / large / medium.
     static let ytVideoQuality = "muses.yt.videoQuality"
-    static let hoverPreviewSound = "muses.ui.hoverPreviewSound"
     static let sidebarPlaylistOrder = "muses.ui.sidebarPlaylistOrder"
     /// Resume the audio queue after the YouTube video overlay is closed.
     static let resumeAfterVideo = "muses.playback.resumeAfterVideo"
@@ -127,22 +135,16 @@ enum PrefKey {
     static let ffSmartHistory       = "muses.ff.smartHistory"
     static let ffSessions           = "muses.ff.sessions"
     static let ffAdvancedQueue      = "muses.ff.advancedQueue"
-    static let ffInbox              = "muses.ff.inbox"
     static let ffNotes              = "muses.ff.notes"
-    static let ffAdvancedLyrics     = "muses.ff.advancedLyrics"
-    static let ffFocusMode          = "muses.ff.focusMode"
     static let ffAudioNerd          = "muses.ff.audioNerd"
     static let ffContext             = "muses.ff.context"
-    static let ffAutomation         = "muses.ff.automation"
     static let ffMiniPlayer         = "muses.ff.miniPlayer"
     static let ffTray                = "muses.ff.tray"
     static let ffDesktopLyrics      = "muses.ff.desktopLyrics"
     static let ffGlobalHotkeys      = "muses.ff.globalHotkeys"
-    /// Optional local-music hardening: after a move/rename, re-associate the Track row using a content fingerprint of the first 64KB.
-    static let ffLocalHardening     = "muses.ff.localHardening"
     /// Dynamic Home discovery: Home's remote discovery sections come from a provider, cache-first with per-section failure.
     static let ffDiscovery          = "muses.ff.discovery"
-    /// Situational recommendations on the New tab: deterministic scoring based on History/Context/Sessions/Focus.
+    /// Situational recommendations on the New tab: deterministic scoring based on History/Context/Sessions.
     static let ffSituationalNew     = "muses.ff.situationalNew"
     /// Global hotkey bindings (JSON-encoded [action: HotkeyShortcut]).
     static let globalHotkeys        = "muses.globalHotkeys.bindings"
@@ -163,12 +165,9 @@ enum FeatureFlagDefaults {
         PrefKey.ffSmartHistory: true,
         PrefKey.ffSessions: true,
         PrefKey.ffAdvancedQueue: true,
-        PrefKey.ffInbox: true,
         PrefKey.ffNotes: true,
         PrefKey.ffContext: true,
-        PrefKey.ffAutomation: true,
         PrefKey.ffAudioNerd: true,
-        PrefKey.ffFocusMode: true,
         PrefKey.ffDiscovery: true,
         PrefKey.ffSituationalNew: true,
         PrefKey.ffTray: true
@@ -183,5 +182,12 @@ enum WebHomePreferenceDefaults {
         PrefKey.webHomeConsentVersion: 0,
         PrefKey.webHomeDefaultBrowserConsent: false,
         PrefKey.webHomeBrowserSource: ""
+    ]
+}
+
+enum AppearancePreferenceDefaults {
+    @MainActor
+    static let values: [String: Any] = [
+        PrefKey.theme: AppTheme.system.rawValue
     ]
 }

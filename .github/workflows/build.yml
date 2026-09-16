@@ -1,0 +1,27 @@
+name: macOS build
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version
+      - name: Tests
+        run: swift test --no-parallel
+      - name: Package preview
+        env:
+          MUSES_VERSION: 0.5.0
+        run: |
+          ./Scripts/build-app.sh --identity -
+          ./Scripts/sign-update.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Muses-preview
+          path: build/Muses-*.zip

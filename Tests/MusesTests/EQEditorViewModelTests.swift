@@ -26,8 +26,7 @@ struct EQEditorViewModelTests {
 
         // The playback facade writes EQ bands; direct engine inspection would
         // require exposing implementation details.
-        // Verify no crash and a matching band count. AVAudioUnitEQ has 32 bands; we configure 10,
-        // so the first 10 carry the set gains and the remaining 22 are bypassed.
+        // Verify no crash and a matching band count. The editor is 10-band.
         // `eq` is private, so verify behaviorally: setting EQ flat again must reset it.
         playback.setEQ(EQPresets.flat)
         #expect(bands.count == 10)
