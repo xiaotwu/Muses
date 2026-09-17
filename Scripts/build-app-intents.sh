@@ -10,7 +10,12 @@ python3 - "$ROOT" "$CONFIGURATION" "$WORK" <<'PY'
 from pathlib import Path
 import sys
 root, configuration, work = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
-values = sorted(root.glob(f'.build/out/Intermediates.noindex/Muses.build/{configuration}/Muses-p.build/Objects-normal/*/*.swiftconstvalues'))
+derived_data = root / '.build/out'
+values = sorted(
+    path for path in derived_data.rglob('*.swiftconstvalues')
+    if configuration in path.parts
+    and path.parent.parent.parent.name in {'Muses.build', 'Muses-p.build'}
+)
 if not values:
     raise SystemExit('App Intents compiler metadata is missing. Build with the Xcode SwiftPM backend before packaging.')
 (work / 'values').write_text('\n'.join(map(str, values)) + '\n')
