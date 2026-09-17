@@ -15,6 +15,16 @@ jobs:
         run: swift --version
       - name: Tests
         run: swift test --no-parallel
+      - name: Generate App Intents metadata
+        run: |
+          xcodebuild \
+            -workspace .swiftpm/xcode/package.xcworkspace \
+            -scheme Muses \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            -derivedDataPath .build/out \
+            CODE_SIGNING_ALLOWED=NO \
+            build
       - name: Package preview
         env:
           MUSES_VERSION: 0.5.0
