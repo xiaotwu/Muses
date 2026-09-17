@@ -1,6 +1,68 @@
 import Foundation
 import os
 
+/// Bridges `Process.terminationHandler` to async code with a Dispatch deadline.
+/// Dispatch owns the deadline, so timeout delivery does not depend on Swift's
+/// cooperative executor having spare capacity under CI or application load.
+private final class ProcessDeadline: @unchecked Sendable {
+    private enum WaitAction {
+        case schedule
+        case resume(Bool)
+    }
+
+    private enum State {
+        case pending
+        case waiting(CheckedContinuation<Bool, Never>)
+        case finished(Bool)
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State.pending)
+
+    func processDidExit() { finish(timedOut: false) }
+
+    func wait(timeout: TimeInterval) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let action = state.withLock { state -> WaitAction in
+                switch state {
+                case .pending:
+                    state = .waiting(continuation)
+                    return .schedule
+                case .finished(let timedOut):
+                    return .resume(timedOut)
+                case .waiting:
+                    preconditionFailure("ProcessDeadline may only be awaited once")
+                }
+            }
+            switch action {
+            case .resume(let timedOut):
+                continuation.resume(returning: timedOut)
+            case .schedule:
+                DispatchQueue.global(qos: .utility).asyncAfter(
+                    deadline: .now() + max(0, timeout)
+                ) { [self] in
+                    finish(timedOut: true)
+                }
+            }
+        }
+    }
+
+    private func finish(timedOut: Bool) {
+        let continuation = state.withLock { state -> CheckedContinuation<Bool, Never>? in
+            switch state {
+            case .pending:
+                state = .finished(timedOut)
+                return nil
+            case .waiting(let waiting):
+                state = .finished(timedOut)
+                return waiting
+            case .finished:
+                return nil
+            }
+        }
+        continuation?.resume(returning: timedOut)
+    }
+}
+
 /// Runs yt-dlp subprocesses off the `@MainActor`, with concurrency throttling.
 ///
 /// A previous implementation ran `Process.run()` plus a 20ms `process.isRunning`
@@ -88,6 +150,9 @@ actor YTDlpRunner {
                 errHandle.readDataToEndOfFile()
             }
 
+            let deadline = ProcessDeadline()
+            process.terminationHandler = { _ in deadline.processDidExit() }
+
             do {
                 try process.run()
             } catch {
@@ -96,22 +161,15 @@ actor YTDlpRunner {
                 throw YTDlpBridge.YTDlpError.notFound
             }
 
-            // Timeout watchdog: on expiry set the flag and terminate. The flag
-            // distinguishes "we killed it for a timeout" from "yt-dlp itself was
-            // killed by a signal" (the latter still takes the exitCode path,
-            // preserving the old behavior).
-            let timedOut = OSAllocatedUnfairLock(initialState: false)
-            let watchdog = Task.detached(priority: .utility) { () -> Void in
-                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                if process.isRunning {
-                    timedOut.withLock { $0 = true }
-                    process.terminate()
-                }
+            // A detached Swift watchdog can begin late on a saturated executor.
+            // The Dispatch-backed deadline starts from launch deterministically.
+            let timedOut = await deadline.wait(timeout: timeout)
+            if timedOut, process.isRunning {
+                process.terminate()
             }
-            // Blocks waiting for exit, but we are in a detached task, so the
-            // main thread is not occupied.
+            // Reap the process before consuming the pipes. Real yt-dlp is one
+            // executable; this also keeps the runner's Process lifetime clear.
             process.waitUntilExit()
-            watchdog.cancel()
 
             let outData = await outRead.value
             let errData = await errRead.value
@@ -120,7 +178,7 @@ actor YTDlpRunner {
             let stderr = String(data: errData, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-            if timedOut.withLock({ $0 }) {
+            if timedOut {
                 throw YTDlpBridge.YTDlpError.timeout
             }
             let status = process.terminationStatus

@@ -83,8 +83,7 @@ struct YTDlpBridgeTests {
     func timeoutThrowsTimeout() async throws {
         let bin = try makeFakeBinary(script: """
             #!/bin/sh
-            sleep 5
-            echo done
+            exec sleep 5
             """)
         let bridge = YTDlpBridge(binaryPath: bin)
         do {
