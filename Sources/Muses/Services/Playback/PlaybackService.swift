@@ -9,6 +9,13 @@ final class PlaybackService {
     /// The single production playback backend is YouTubeStreamEngine.
     var state: PlayerState { engine.state }
     var transportState: PlayerState { videoSession?.state ?? state }
+    /// Capability snapshots used by Dock and menu commands. These reflect the
+    /// current queue rather than merely the presence of a track.
+    var canGoNext: Bool { queue.current() != nil && queue.peekNext() != nil }
+    var canGoPrevious: Bool {
+        guard queue.current() != nil else { return false }
+        return queue.currentIndex > 0 || !queue.history.isEmpty
+    }
     private(set) var videoSession: VideoPlaybackSession?
     private var videoSuspensions: [UUID: (token: UUID, sequence: UInt64, trackId: UUID?)] = [:]
     private let engine: any PlayerEngine

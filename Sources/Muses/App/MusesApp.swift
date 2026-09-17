@@ -536,19 +536,19 @@ private struct MusesAppCommands: Commands {
                 commandRegistry.execute(CommandRegistry.togglePlayback)
             }
             .keyboardShortcut("p", modifiers: .command)
-            .disabled(!commandRegistry.isEnabled(CommandRegistry.togglePlayback))
+            .disabled(!playbackCommandEnabled(CommandRegistry.togglePlayback))
 
             Button(tr("Previous", "上一首")) {
                 commandRegistry.execute(CommandRegistry.previous)
             }
             .keyboardShortcut(.leftArrow, modifiers: .command)
-            .disabled(!commandRegistry.isEnabled(CommandRegistry.previous))
+            .disabled(!playbackCommandEnabled(CommandRegistry.previous))
 
             Button(tr("Next", "下一首")) {
                 commandRegistry.execute(CommandRegistry.next)
             }
             .keyboardShortcut(.rightArrow, modifiers: .command)
-            .disabled(!commandRegistry.isEnabled(CommandRegistry.next))
+            .disabled(!playbackCommandEnabled(CommandRegistry.next))
 
             Divider()
 
@@ -556,30 +556,31 @@ private struct MusesAppCommands: Commands {
                 commandRegistry.execute(CommandRegistry.likeCurrent)
             }
             .keyboardShortcut("l", modifiers: .command)
-            .disabled(!commandRegistry.isEnabled(CommandRegistry.likeCurrent))
+            .disabled(!playbackCommandEnabled(CommandRegistry.likeCurrent))
 
             Button(tr("Toggle Queue", "切换队列")) {
                 commandRegistry.execute(CommandRegistry.toggleQueue)
             }
             .keyboardShortcut("k", modifiers: .command)
+            .disabled(!ContentKeyboardScope.acceptsShortcuts)
 
             Button(tr("Now Playing", "正在播放")) {
                 commandRegistry.execute(CommandRegistry.toggleNowPlaying)
             }
             .keyboardShortcut("o", modifiers: .command)
-            .disabled(!commandRegistry.isEnabled(CommandRegistry.toggleNowPlaying))
+            .disabled(!playbackCommandEnabled(CommandRegistry.toggleNowPlaying))
 
             Button(tr("Lyrics", "歌词")) {
                 NotificationCenter.default.post(name: .musesToggleLyrics, object: nil)
             }
             .keyboardShortcut("l", modifiers: [.command, .shift])
-            .disabled(!commandRegistry.isEnabled(CommandRegistry.togglePlayback))
+            .disabled(!playbackCommandEnabled(CommandRegistry.togglePlayback))
 
             Button(tr("Watch YouTube Video", "观看 YouTube 视频")) {
                 NotificationCenter.default.post(name: .musesShowYouTubeVideo, object: nil)
             }
             .keyboardShortcut("v", modifiers: [.command, .shift])
-            .disabled(!commandRegistry.isEnabled(CommandRegistry.togglePlayback))
+            .disabled(!playbackCommandEnabled(CommandRegistry.togglePlayback))
 
             Divider()
 
@@ -615,6 +616,10 @@ private struct MusesAppCommands: Commands {
             name: .musesNavigateFromSearch,
             object: GlobalSearchRoute.section(section)
         )
+    }
+
+    private func playbackCommandEnabled(_ command: String) -> Bool {
+        ContentKeyboardScope.acceptsShortcuts && commandRegistry.isEnabled(command)
     }
 }
 

@@ -11,7 +11,9 @@ enum ExternalPlaybackRoute: Equatable, Sendable {
                   url.port == nil, url.path.isEmpty || url.path == "/",
                   let parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
             let identifiers = (parts.queryItems ?? []).filter { ["v", "trackId"].contains($0.name) }
-            guard identifiers.count == 1, let value = identifiers.first?.value else { return nil }
+            guard identifiers.count == 1,
+                  (parts.queryItems ?? []).count == 1,
+                  let value = identifiers.first?.value else { return nil }
             if identifiers[0].name == "trackId" {
                 guard let id = UUID(uuidString: value) else { return nil }
                 self = .track(id)
@@ -61,7 +63,7 @@ final class ExternalPlaybackRouter {
             try Task.checkCancellation()
             let context = ModelContext(container)
             guard let track = try context.fetch(FetchDescriptor<Track>(predicate: #Predicate { $0.id == id })).first,
-                  track.youTubeId != nil else { throw RoutingError.notFound }
+                  !track.youTubeId.isEmpty else { throw RoutingError.notFound }
             return TrackSnapshot(from: track)
         }
     }
@@ -87,7 +89,12 @@ final class ExternalPlaybackRouter {
                 if self.playback.transportState.track?.id == track.id {
                     if !self.playback.transportState.isPlaying { self.playback.play() }
                 } else {
-                    self.playback.playTrack(track, context: [track], from: .songs)
+                    // A deep link to an item already in the active queue is a
+                    // selection within that collection, not a request to discard it.
+                    let existingContext = self.playback.queue.items.map(\.track)
+                    let context = existingContext.contains(where: { $0.id == track.id })
+                        ? existingContext : [track]
+                    self.playback.playTrack(track, context: context, from: .songs)
                 }
             } catch {
                 guard !Task.isCancelled, self.requestID == token else { return }

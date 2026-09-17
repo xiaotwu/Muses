@@ -300,7 +300,6 @@ struct CollectionDeckStage<Controls: View>: View {
                 .allowsHitTesting(false)
             }
             .focusable()
-            .focusEffectDisabled()
             .focused($deckFocused)
             .onKeyPress(.leftArrow) {
                 guard ContentKeyboardScope.acceptsShortcuts else { return .ignored }
@@ -1023,7 +1022,6 @@ private struct CollectionDeckScrubber: View {
         }
         .frame(height: CollectionDeckScrubberMetrics.totalHeight)
         .focusable()
-        .focusEffectDisabled()
         .focused($focused)
         .onKeyPress(.leftArrow) {
             guard isEnabled else { return .ignored }

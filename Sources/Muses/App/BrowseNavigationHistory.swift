@@ -59,6 +59,7 @@ struct BrowseRouteSnapshot: Codable, Equatable {
     let kind: String
     let value: String
     let accountChannelID: String?
+    let settingsPath: [String]
 
     init(route: BrowseRoute, accountChannelID: String?) {
         version = 1
@@ -72,6 +73,11 @@ struct BrowseRouteSnapshot: Codable, Equatable {
         case .artist(let id): kind = "artist"; value = id
         }
         self.accountChannelID = (kind == "channel" || route == .section(.subscriptions)) ? accountChannelID : nil
+        if case .settings(_, let path) = route {
+            self.settingsPath = path.map(\.rawValue)
+        } else {
+            self.settingsPath = []
+        }
     }
 
     var requiresAccount: Bool { kind == "channel" || (kind == "section" && value == SidebarSection.subscriptions.rawValue) }
@@ -83,7 +89,9 @@ struct BrowseRouteSnapshot: Codable, Equatable {
         }
         switch kind {
         case "channel": return value.hasPrefix("UC") ? .channel(value) : nil
-        case "settings": return SettingsCategory(rawValue: value).map { .settings($0.destination.rawValue, []) }
+        case "settings":
+            let path = settingsPath.compactMap(SettingsDestination.init(rawValue:))
+            return SettingsCategory(rawValue: value).map { .settings($0.destination.rawValue, path) }
         case "section": return SidebarSection(rawValue: value).map(BrowseRoute.section)
         case "playlist": return UUID(uuidString: value).map(BrowseRoute.playlist)
         case "import": return UUID(uuidString: value).map(BrowseRoute.youTubeImport)
@@ -91,6 +99,28 @@ struct BrowseRouteSnapshot: Codable, Equatable {
         case "artist": return YouTubeCatalogIdentity.isResolvedArtist(value) ? .artist(value) : nil
         default: return nil
         }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case version, kind, value, accountChannelID, settingsPath
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decode(Int.self, forKey: .version)
+        kind = try container.decode(String.self, forKey: .kind)
+        value = try container.decode(String.self, forKey: .value)
+        accountChannelID = try container.decodeIfPresent(String.self, forKey: .accountChannelID)
+        settingsPath = try container.decodeIfPresent([String].self, forKey: .settingsPath) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(version, forKey: .version)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(value, forKey: .value)
+        try container.encodeIfPresent(accountChannelID, forKey: .accountChannelID)
+        try container.encode(settingsPath, forKey: .settingsPath)
     }
 
     static func read(defaults: UserDefaults = .standard) -> Self? {

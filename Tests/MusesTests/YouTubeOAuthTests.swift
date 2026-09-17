@@ -223,6 +223,30 @@ struct YouTubeOAuthTests {
         }
     }
 
+    @Test("refresh(): invalid_grant is an expired authorization, not a transient exchange failure")
+    func refreshInvalidGrant() async throws {
+        let kc = InMemoryKeychain()
+        let session = GoogleOAuthSession(
+            keychain: kc,
+            presenter: StubPresenter(),
+            tokenExchange: { _ in
+                (Data(#"{"error":"invalid_grant","error_description":"Token has been revoked"}"#.utf8),
+                 Self.http400())
+            }
+        )
+        try session.saveConfig(GoogleOAuthConfig(
+            clientID: "cid", clientSecret: "csec",
+            redirectURI: "muses:/oauth", scopes: []))
+        try session.storeTokens(OAuthTokenSet(
+            accessToken: "expired", refreshToken: "revoked",
+            expiresAt: Date().addingTimeInterval(-60),
+            scope: GoogleOAuthConfig.readOnlyScope))
+
+        await #expect(throws: OAuthError.authorizationExpired) {
+            _ = try await session.refresh()
+        }
+    }
+
     // MARK: - Data API parsing (stub http)
 
     @Test("DataAPI: channel() parses snippet.title; subscriptions parses resourceId.channelId")
@@ -443,7 +467,36 @@ struct YouTubeOAuthTests {
         })
         await account.refresh()
         #expect(account.isConnected == false)
+        #expect(account.connectionState == .expired)
         #expect(account.account == nil)
+    }
+
+    @Test("AccountService: revoked refresh token becomes recoverable expired state")
+    func accountRefreshRevokedTokenExpiresConnection() async throws {
+        let kc = InMemoryKeychain()
+        let session = GoogleOAuthSession(
+            keychain: kc,
+            presenter: StubPresenter(),
+            tokenExchange: { _ in
+                (Data(#"{"error":"invalid_grant"}"#.utf8), Self.http400())
+            }
+        )
+        try session.saveConfig(GoogleOAuthConfig(
+            clientID: "cid", clientSecret: "csec",
+            redirectURI: "muses:/oauth", scopes: []))
+        try session.storeTokens(OAuthTokenSet(
+            accessToken: "expired", refreshToken: "revoked",
+            expiresAt: Date().addingTimeInterval(-60),
+            scope: GoogleOAuthConfig.readOnlyScope))
+        let account = YouTubeAccountService(session: session)
+
+        await account.refresh()
+
+        #expect(!account.isConnected)
+        #expect(account.connectionState == .expired)
+        #expect(account.account == nil)
+        #expect(!session.isConnected)
+        #expect(account.lastError == OAuthError.authorizationExpired.errorDescription)
     }
 
     @Test("AccountService: signals() returns nil without snapshot")
@@ -492,6 +545,9 @@ struct YouTubeOAuthTests {
 
     private nonisolated static func http200() -> HTTPURLResponse {
         HTTPURLResponse(url: URL(string: "https://x")!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+    }
+    private nonisolated static func http400() -> HTTPURLResponse {
+        HTTPURLResponse(url: URL(string: "https://x")!, statusCode: 400, httpVersion: nil, headerFields: nil)!
     }
     private nonisolated static func http401() -> HTTPURLResponse {
         HTTPURLResponse(url: URL(string: "https://x")!, statusCode: 401, httpVersion: nil, headerFields: nil)!

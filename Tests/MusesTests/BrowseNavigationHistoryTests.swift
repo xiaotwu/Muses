@@ -48,7 +48,7 @@ struct BrowseNavigationHistoryTests {
         var playlist = BrowseNavigationHistory(initial: .playlist(UUID()))
         #expect(playlist.back() == .section(.playlists))
         let snapshot = BrowseRouteSnapshot(route: .settings("youtube", [.account]), accountChannelID: "UCtest")
-        #expect(snapshot.route(activeChannelID: nil) == .settings("youtube", []))
+        #expect(snapshot.route(activeChannelID: nil) == .settings("youtube", [.account]))
         let channel = BrowseRouteSnapshot(route: .channel("UCchannel"), accountChannelID: "UCowner")
         #expect(channel.route(activeChannelID: "other") == nil)
         #expect(channel.route(activeChannelID: "UCowner") == .channel("UCchannel"))

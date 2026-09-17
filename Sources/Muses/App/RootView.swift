@@ -114,7 +114,7 @@ struct RootView: View {
 
     private var browseRoute: BrowseRoute {
         if section == .subscriptions, let selectedChannelID { return .channel(selectedChannelID) }
-        if section == .settings { return .settings(settingsPane, []) }
+        if section == .settings { return .settings(settingsPane, settingsPath) }
         if section == .playlists, let selectedPlaylist { return .playlist(selectedPlaylist.id) }
         if section == .playlists, let selectedYouTubeImport { return .youTubeImport(selectedYouTubeImport.id) }
         if section == .albums, let selectedCatalogRelease { return .release(selectedCatalogRelease.stableID) }

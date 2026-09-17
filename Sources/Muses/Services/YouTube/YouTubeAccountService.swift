@@ -26,6 +26,12 @@ enum YouTubeAccountCapability: String, Sendable, CaseIterable {
     case managePlaylists
 }
 
+enum YouTubeAccountConnectionState: Equatable, Sendable {
+    case signedOut
+    case connected
+    case expired
+}
+
 /// Provider protocol for personalization signals (implemented by the account service or other local sources).
 protocol PersonalizationSignalProviding: Sendable {
     /// Returns the current signals; nil when signed out or disconnected. Must not throw (callers degrade on nil).
@@ -45,6 +51,10 @@ final class YouTubeAccountService {
 
     /// Current connection state (driven by refresh, bound to the UI).
     private(set) var isConnected: Bool = false
+    /// Keeps an expired OAuth session distinguishable from an intentional sign-out.
+    /// The distinction gives the UI a direct recovery action without conflating
+    /// OAuth with browser cookies or Web Home.
+    private(set) var connectionState: YouTubeAccountConnectionState = .signedOut
     /// Current account snapshot (filled by refresh).
     private(set) var account: YouTubeAccountSnapshot?
     /// Connecting or refreshing.
@@ -68,6 +78,7 @@ final class YouTubeAccountService {
         // Construction restores token-backed status synchronously. MusesApp
         // schedules snapshot refresh after dependency composition completes.
         self.isConnected = session.isConnected
+        self.connectionState = session.isConnected ? .connected : .signedOut
     }
 
     /// Rehydrates the non-persisted account snapshot after an app restart.
@@ -117,6 +128,7 @@ final class YouTubeAccountService {
         session.clearConfig()
         session.disconnect()
         isConnected = false
+        connectionState = .signedOut
         account = nil
     }
 
@@ -133,6 +145,7 @@ final class YouTubeAccountService {
         do {
             try await session.connect()
             isConnected = session.isConnected
+            connectionState = isConnected ? .connected : .signedOut
             guard isConnected else {
                 lastError = OAuthError.noRefreshToken.errorDescription
                 return
@@ -143,6 +156,7 @@ final class YouTubeAccountService {
         } catch let e as OAuthError {
             lastError = e.errorDescription
             isConnected = session.isConnected
+            connectionState = isConnected ? .connected : .signedOut
         } catch {
             lastError = error.localizedDescription
             isConnected = session.isConnected
@@ -189,6 +203,7 @@ final class YouTubeAccountService {
     func disconnect() {
         session.disconnect()
         isConnected = false
+        connectionState = .signedOut
         clearAccountSnapshot()
         lastError = nil
     }
@@ -228,6 +243,11 @@ final class YouTubeAccountService {
         func handle(_ error: Error) {
             if let e = error as? YouTubeDataAPIClient.DataAPIError {
                 if case .unauthorized = e { unauthorized = true }
+                firstError = firstError ?? e.errorDescription
+            } else if let e = error as? OAuthError {
+                if e == .authorizationExpired || e == .noRefreshToken {
+                    unauthorized = true
+                }
                 firstError = firstError ?? e.errorDescription
             } else {
                 firstError = firstError ?? error.localizedDescription
@@ -274,6 +294,7 @@ final class YouTubeAccountService {
         if unauthorized {
             session.disconnect()
             isConnected = false
+            connectionState = .expired
             clearAccountSnapshot()
             lastError = firstError
             return

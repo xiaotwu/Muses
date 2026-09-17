@@ -87,6 +87,7 @@ enum OAuthError: LocalizedError, Equatable, Sendable {
     case userCancelled
     case authFailed(String)          // redirect missing a code, or state mismatch
     case tokenExchangeFailed(String) // token endpoint non-200 or parse failure
+    case authorizationExpired        // refresh token revoked or rejected by Google
     case noRefreshToken
     case network(String)
 
@@ -100,8 +101,18 @@ enum OAuthError: LocalizedError, Equatable, Sendable {
             tr("OAuth authorization failed: \(m)", "OAuth 授权失败:\(m)", zhHant: "OAuth 授權失敗:\(m)")
         case .tokenExchangeFailed(let m):
             tr("OAuth token exchange failed: \(m)", "OAuth 令牌交换失败:\(m)", zhHant: "OAuth 令牌交換失敗:\(m)")
+        case .authorizationExpired:
+            tr(
+                "Your YouTube authorization has expired. Sign in again.",
+                "YouTube 授权已失效，请重新登录。",
+                zhHant: "YouTube 授權已失效，請重新登入。"
+            )
         case .noRefreshToken:
-            tr("No refresh token; sign in again", "无 refresh token,无法刷新(需重新登录)")
+            tr(
+                "No refresh token; sign in again",
+                "缺少刷新令牌，请重新登录。",
+                zhHant: "缺少更新令牌，請重新登入。"
+            )
         case .network(let m):
             tr("Network error: \(m)", "网络错误:\(m)", zhHant: "網路錯誤:\(m)")
         }
@@ -316,6 +327,9 @@ final class GoogleOAuthSession {
         req.httpBody = Self.percentEncoded(body).data(using: .utf8)
         let (data, resp) = try await send(req)
         guard resp.statusCode == 200 else {
+            if Self.isInvalidGrantResponse(data, statusCode: resp.statusCode) {
+                throw OAuthError.authorizationExpired
+            }
             throw OAuthError.tokenExchangeFailed("HTTP \(resp.statusCode): \(Self.truncate(data))")
         }
         let parsed = try? JSONDecoder().decode(TokenResponse.self, from: data)
@@ -394,6 +408,21 @@ final class GoogleOAuthSession {
         let s = String(data: data, encoding: .utf8) ?? ""
         return s.prefix(maxLength).description
     }
+
+    /// Google uses `invalid_grant` when a refresh token was revoked, expired,
+    /// or otherwise can no longer authorize the app. Keep this distinct from
+    /// transient endpoint failures so the UI can offer the correct recovery.
+    nonisolated static func isInvalidGrantResponse(_ data: Data, statusCode: Int) -> Bool {
+        guard statusCode == 400 || statusCode == 401,
+              let payload = try? JSONDecoder().decode(OAuthEndpointError.self, from: data) else {
+            return false
+        }
+        return payload.error == "invalid_grant"
+    }
+}
+
+private struct OAuthEndpointError: Decodable {
+    let error: String
 }
 
 /// Token endpoint response (JSON).

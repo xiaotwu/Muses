@@ -33,7 +33,6 @@ struct QueueDrawerView: View {
                 .musesGlass(in: SidebarPaneShape.trailingShape, role: .persistentChrome)
                 .clipShape(SidebarPaneShape.trailingShape)
                 .focusable()
-                .focusEffectDisabled()
                 .focused($focusedTarget, equals: .drawer)
                 .onKeyPress(.escape) {
                     guard renameTarget == nil else { return .ignored }

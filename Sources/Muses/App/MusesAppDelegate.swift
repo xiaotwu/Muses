@@ -24,8 +24,10 @@ final class MusesAppDelegate: NSObject, NSApplicationDelegate {
         let active = playback?.transportState.track != nil
         add(playback?.transportState.isPlaying == true ? tr("Pause", "暂停") : tr("Play", "播放"),
             action: #selector(togglePlayback), enabled: active, to: menu)
-        add(tr("Previous", "上一首"), action: #selector(previous), enabled: active, to: menu)
-        add(tr("Next", "下一首"), action: #selector(next), enabled: active, to: menu)
+        add(tr("Previous", "上一首"), action: #selector(previous),
+            enabled: playback?.canGoPrevious == true, to: menu)
+        add(tr("Next", "下一首"), action: #selector(next),
+            enabled: playback?.canGoNext == true, to: menu)
         return menu
     }
 

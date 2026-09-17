@@ -54,6 +54,26 @@ struct AcceptanceFixesTests {
         #expect(MusesMotion.overlayAnimation(reduceMotion: false) != nil)
     }
 
+    @Test("Dock capabilities follow the actual queue, not just the current track")
+    func dockCapabilitiesFollowQueue() {
+        let queue = QueueService()
+        let playback = PlaybackService(engine: RecordingEngine(), queue: queue)
+        #expect(!playback.canGoNext)
+        #expect(!playback.canGoPrevious)
+        let first = TrackSnapshot(id: UUID(), title: "One", artist: "A", albumTitle: nil,
+                                  durationSeconds: 10, youTubeId: "dock0000001", artworkUrl: nil,
+                                  sampleRate: nil, bitDepth: nil, codec: nil, isLossless: false)
+        let second = TrackSnapshot(id: UUID(), title: "Two", artist: "A", albumTitle: nil,
+                                   durationSeconds: 10, youTubeId: "dock0000002", artworkUrl: nil,
+                                   sampleRate: nil, bitDepth: nil, codec: nil, isLossless: false)
+        queue.play(first, context: [first, second], from: .songs)
+        #expect(playback.canGoNext)
+        #expect(!playback.canGoPrevious)
+        queue.next()
+        #expect(playback.canGoPrevious)
+        playback.pause()
+    }
+
     @Test("cookie source labels are bilingual")
     func cookieSourceDisplayNameBilingual() {
         let none = YTCookieSource.none.displayName

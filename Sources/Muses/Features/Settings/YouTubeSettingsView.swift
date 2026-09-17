@@ -138,22 +138,29 @@ struct YouTubeSettingsView: View {
                     if account.isConnected {
                         VStack(alignment: .leading, spacing: 2) {
                             Label(
-                                account.account?.channel?.title ?? tr("Connected", "已连接"),
+                                account.account?.channel?.title ?? tr("Connected", "已连接", zhHant: "已連接"),
                                 systemImage: "checkmark.circle.fill")
                                 .font(.title3.weight(.semibold))
                                 .foregroundStyle(BrandColors.textPrimary)
-                            Text(tr("YouTube connected", "已连接 YouTube"))
+                            Text(tr("YouTube connected", "已连接 YouTube", zhHant: "已連接 YouTube"))
                                 .font(.caption)
                                 .foregroundStyle(BrandColors.textSecondary)
                         }
                     } else {
                         VStack(alignment: .leading, spacing: 2) {
-                            Label(tr("Not connected", "未连接"),
+                            Label(account.connectionState == .expired
+                                  ? tr("Session expired", "登录已过期", zhHant: "登入已過期")
+                                  : tr("Not connected", "未连接", zhHant: "未連接"),
                                   systemImage: "person.crop.circle.badge.questionmark")
                                 .font(.title3.weight(.semibold))
                                 .foregroundStyle(BrandColors.textSecondary)
-                            Text(tr("Connect your YouTube account to personalize Home.",
-                                    "连接你的 YouTube 账号以个性化首页。"))
+                            Text(account.connectionState == .expired
+                                 ? tr("Your YouTube session expired. Sign in again to restore account access.",
+                                      "YouTube 登录已过期。请重新登录以恢复账号访问。",
+                                      zhHant: "YouTube 登入已過期。請重新登入以恢復帳號存取。")
+                                 : tr("Connect your YouTube account to personalize Home.",
+                                      "连接你的 YouTube 账号以个性化首页。",
+                                      zhHant: "連接你的 YouTube 帳號以個人化首頁。"))
                                 .font(.caption)
                                 .foregroundStyle(BrandColors.textSecondary)
                         }
@@ -195,6 +202,16 @@ struct YouTubeSettingsView: View {
                 if let err = account.lastError {
                     Text(err).font(.caption).foregroundStyle(.red)
                         .padding(.top, 4)
+                }
+                if account.connectionState == .expired {
+                    Label(
+                        tr("Reconnect below to authorize this Mac again. Browser cookies and Web Home are separate.",
+                           "请使用下方按钮重新授权此 Mac。浏览器 Cookie 与 Web 首页权限彼此独立。",
+                           zhHant: "請使用下方按鈕重新授權此 Mac。瀏覽器 Cookie 與 Web 首頁權限彼此獨立。"),
+                        systemImage: "arrow.clockwise.circle")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .padding(.top, 2)
                 }
                 if isBrowserSessionUnavailable {
                     browserSessionHelpRow
@@ -251,7 +268,9 @@ struct YouTubeSettingsView: View {
             Button {
                 connectAndPersonalize()
             } label: {
-                Label(tr("Connect YouTube", "连接 YouTube"),
+                Label(account.connectionState == .expired
+                      ? tr("Sign In Again", "重新登录", zhHant: "重新登入")
+                      : tr("Connect YouTube", "连接 YouTube", zhHant: "連接 YouTube"),
                       systemImage: "safari")
                     .frame(maxWidth: .infinity)
             }
@@ -484,17 +503,17 @@ struct YouTubeSettingsView: View {
     private var webHomeStatusText: String {
         switch webHome.status {
         case .closed:
-            webHome.isEnabled
-                ? tr("Ready to check", "等待检查")
-                : tr("Off", "已关闭")
-        case .disabledByBuild: tr("Unavailable in this build", "此构建不可用")
-        case .pendingConsent: tr("Waiting for confirmation", "等待确认")
-        case .checking: tr("Checking…", "正在检查…")
-        case .refreshing: tr("Refreshing…", "正在刷新…")
-        case .available: tr("Available", "可用")
-        case .expired: tr("Session expired", "会话已过期")
-        case .accountMismatch: tr("Account mismatch", "账号不匹配")
-        case .shapeChanged: tr("Response changed", "响应结构已变化")
+                webHome.isEnabled
+                ? tr("Ready to check", "等待检查", zhHant: "等待檢查")
+                : tr("Off", "已关闭", zhHant: "已關閉")
+        case .disabledByBuild: tr("Unavailable in this build", "此构建不可用", zhHant: "此版本不可用")
+        case .pendingConsent: tr("Waiting for confirmation", "等待确认", zhHant: "等待確認")
+        case .checking: tr("Checking…", "正在检查…", zhHant: "正在檢查…")
+        case .refreshing: tr("Refreshing…", "正在刷新…", zhHant: "正在重新整理…")
+        case .available: tr("Available", "可用", zhHant: "可用")
+        case .expired: tr("Session expired", "会话已过期", zhHant: "工作階段已過期")
+        case .accountMismatch: tr("Account mismatch", "账号不匹配", zhHant: "帳號不相符")
+        case .shapeChanged: tr("Response changed", "响应结构已变化", zhHant: "回應結構已變更")
         case .unavailable(let code): webHomeUnavailableStatusText(code)
         }
     }
@@ -502,37 +521,37 @@ struct YouTubeSettingsView: View {
     private func webHomeUnavailableStatusText(_ code: HomeFetchFailureCode) -> String {
         switch code {
         case .cookieSourceUnavailable:
-            tr("Could not read browser session", "无法读取浏览器会话")
+            tr("Could not read browser session", "无法读取浏览器会话", zhHant: "無法讀取瀏覽器工作階段")
         case .sessionExpired:
-            tr("Browser sign-in expired", "浏览器登录已过期")
+            tr("Browser sign-in expired", "浏览器登录已过期", zhHant: "瀏覽器登入已過期")
         case .consentOrCaptchaRequired:
-            tr("Browser action required", "需要在浏览器中完成操作")
+            tr("Browser action required", "需要在浏览器中完成操作", zhHant: "需要在瀏覽器中完成操作")
         case .identityUnavailable:
-            tr("Could not verify channel", "无法核验频道")
+            tr("Could not verify channel", "无法核验频道", zhHant: "無法驗證頻道")
         case .rateLimited:
-            tr("Temporarily rate-limited", "暂时受到频率限制")
+            tr("Temporarily rate-limited", "暂时受到频率限制", zhHant: "暫時受到頻率限制")
         case .offline:
-            tr("Offline", "网络离线")
+            tr("Offline", "网络离线", zhHant: "網路離線")
         case .timedOut:
-            tr("Timed out", "检查超时")
+            tr("Timed out", "检查超时", zhHant: "檢查逾時")
         case .helperCrashed:
-            tr("Helper stopped", "Helper 已停止")
+            tr("Helper stopped", "Helper 已停止", zhHant: "Helper 已停止")
         case .protocolMismatch:
-            tr("Helper version mismatch", "Helper 版本不匹配")
+            tr("Helper version mismatch", "Helper 版本不匹配", zhHant: "Helper 版本不相符")
         case .responseTooLarge:
-            tr("Response too large", "响应过大")
+            tr("Response too large", "响应过大", zhHant: "回應過大")
         case .malformedResponse:
-            tr("Invalid helper response", "Helper 响应无效")
+            tr("Invalid helper response", "Helper 响应无效", zhHant: "Helper 回應無效")
         case .oauthRequired:
-            tr("YouTube account required", "需要连接 YouTube 账号")
+            tr("YouTube account required", "需要连接 YouTube 账号", zhHant: "需要連接 YouTube 帳號")
         case .accountMismatch:
-            tr("Account mismatch", "账号不匹配")
+            tr("Account mismatch", "账号不匹配", zhHant: "帳號不相符")
         case .shapeChanged:
-            tr("Response changed", "响应结构已变化")
+            tr("Response changed", "响应结构已变化", zhHant: "回應結構已變更")
         case .disabled:
-            tr("Off", "已关闭")
+            tr("Off", "已关闭", zhHant: "已關閉")
         case .baselineUnavailable:
-            tr("Public Home unavailable", "公共首页暂不可用")
+            tr("Public Home unavailable", "公共首页暂不可用", zhHant: "公共首頁暫不可用")
         }
     }
 

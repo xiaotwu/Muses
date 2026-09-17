@@ -6,6 +6,7 @@ import Foundation
 struct PlayYouTubeLinkIntent: AppIntent {
     static let title: LocalizedStringResource = "Play YouTube Link"
     static let description = IntentDescription("Play a YouTube video or song in Muses.")
+    static let openAppWhenRun = true
 
     @Parameter(title: "YouTube Link")
     var link: URL
