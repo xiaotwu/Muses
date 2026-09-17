@@ -302,6 +302,7 @@ The following findings are candidates for separately scoped investigation. They 
 
 ## Commit attribution
 
+Never add automated-assistant attribution, co-author trailers, or generator branding to git commits, tags, or PR bodies.
 
 ## Approved visual revision — 2026-09-16
 
