@@ -11,6 +11,8 @@ enum YouTubePlaylistSyncError: LocalizedError, Sendable, Equatable {
     case conflictsRequireResolution(Int)
     case writePermissionRequired
     case remoteWritesDisabled
+    case rehearsalTargetMismatch
+    case explicitConfirmationRequired
     case remoteChangedSincePreview
     case manualConfirmationRequired(sequence: Int)
     case incompleteRemote(itemCount: Int, pageCount: Int,
@@ -39,6 +41,16 @@ enum YouTubePlaylistSyncError: LocalizedError, Sendable, Equatable {
             return tr(
                 "Remote playlist writes are disabled until sandbox rehearsal is approved",
                 "沙盒演练获批前，远端歌单写入保持关闭")
+        case .rehearsalTargetMismatch:
+            return tr(
+                "This playlist is outside the approved rehearsal target",
+                "此歌单不在已批准的演练目标范围内",
+                zhHant: "此歌單不在已批准的演練目標範圍內")
+        case .explicitConfirmationRequired:
+            return tr(
+                "Review the exact account, playlist, and operations before confirming Push",
+                "确认推送前，请核对确切账号、歌单和操作",
+                zhHant: "確認推送前，請核對確切帳號、歌單和操作")
         case .remoteChangedSincePreview:
             return tr(
                 "The remote playlist changed after preview; review a new Push plan",
@@ -63,9 +75,40 @@ enum YouTubePlaylistSyncError: LocalizedError, Sendable, Equatable {
 
 enum YouTubePushExecutionPolicy: Sendable, Equatable {
     case disabled
+    case rehearsal(playlistID: String, accountChannelID: String)
     case enabledForTesting
 
-    var allowsRemoteWrites: Bool { self == .enabledForTesting }
+    static func applicationOwned(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Self {
+        let playlistID = environment["MUSES_YOUTUBE_PUSH_REHEARSAL_PLAYLIST_ID"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let accountChannelID = environment["MUSES_YOUTUBE_PUSH_REHEARSAL_ACCOUNT_CHANNEL_ID"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let playlistID, !playlistID.isEmpty,
+              let accountChannelID, !accountChannelID.isEmpty else {
+            return .disabled
+        }
+        return .rehearsal(
+            playlistID: playlistID, accountChannelID: accountChannelID)
+    }
+
+    func allowsRemoteWrites(playlistID: String, accountChannelID: String?) -> Bool {
+        switch self {
+        case .disabled:
+            false
+        case .rehearsal(let approvedPlaylistID, let approvedAccountChannelID):
+            playlistID == approvedPlaylistID
+                && accountChannelID == approvedAccountChannelID
+        case .enabledForTesting:
+            true
+        }
+    }
+
+    var requiresExplicitConfirmation: Bool {
+        if case .rehearsal = self { return true }
+        return false
+    }
 }
 
 enum YouTubePushFaultPoint: Sendable, Equatable {
@@ -96,6 +139,9 @@ extension YouTubePullPreview: Identifiable {
 struct YouTubePushPreview: Sendable, Equatable {
     let importID: UUID
     let batchID: UUID
+    let playlistID: String
+    let playlistTitle: String
+    let accountChannelID: String
     let baseRevisionID: UUID
     let localRevisionID: UUID
     let remoteRevisionID: UUID
@@ -337,6 +383,9 @@ final class YouTubePlaylistSyncService {
         }
         try context.save()
         return .init(importID: importID, batchID: batchID,
+                     playlistID: imported.playlistId,
+                     playlistTitle: imported.title,
+                     accountChannelID: account.activeChannelID ?? "",
                      baseRevisionID: pull.baseRevisionID,
                      localRevisionID: pull.localRevisionID,
                      remoteRevisionID: pull.remoteRevisionID,
@@ -345,10 +394,7 @@ final class YouTubePlaylistSyncService {
 
     /// Runs only unfinished operations and persists after each remote result.
     /// A failed batch can call this method again without replaying completed work.
-    func resumePush(batchID: UUID) async throws {
-        guard pushExecutionPolicy.allowsRemoteWrites else {
-            throw YouTubePlaylistSyncError.remoteWritesDisabled
-        }
+    func resumePush(batchID: UUID, userConfirmed: Bool = false) async throws {
         guard let account else {
             throw YouTubePlaylistSyncError.signInRequired
         }
@@ -372,6 +418,17 @@ final class YouTubePlaylistSyncService {
         try verifyAccount(imported, account: account)
         guard account.ownsPlaylist(imported.playlistId) else {
             throw YouTubePlaylistSyncError.notOwned
+        }
+        guard pushExecutionPolicy != .disabled else {
+            throw YouTubePlaylistSyncError.remoteWritesDisabled
+        }
+        guard pushExecutionPolicy.allowsRemoteWrites(
+            playlistID: imported.playlistId,
+            accountChannelID: account.activeChannelID) else {
+            throw YouTubePlaylistSyncError.rehearsalTargetMismatch
+        }
+        if pushExecutionPolicy.requiresExplicitConfirmation, !userConfirmed {
+            throw YouTubePlaylistSyncError.explicitConfirmationRequired
         }
         let desired = try batch.decodeDesiredSnapshot()
         guard Self.hasSameDesiredSequence(Self.localSnapshot(imported), desired) else {

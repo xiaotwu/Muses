@@ -74,7 +74,8 @@ struct YouTubeAlbumDetailView: View {
         }
         .sheet(item: $pushPreview) { preview in
             PlaylistPushPreviewSheet(preview: preview) {
-                try await playlistSync.resumePush(batchID: preview.batchID)
+                try await playlistSync.resumePush(
+                    batchID: preview.batchID, userConfirmed: true)
             } onCancel: {
                 try playlistSync.discardPush(batchID: preview.batchID)
             }

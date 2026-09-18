@@ -802,6 +802,46 @@ struct YouTubePlaylistSyncRecoveryTests {
         #expect(await fixture.server.insertRequestCount() == 0)
     }
 
+    @Test("rehearsal Push requires an exact target and explicit confirmation")
+    func rehearsalPushIsNarrowlyAuthorized() async throws {
+        let fixture = try await pushFixture()
+        let wrongTarget = YouTubePlaylistSyncService(
+            modelContainer: fixture.container, account: fixture.account,
+            pushExecutionPolicy: .rehearsal(
+                playlistID: "another-playlist", accountChannelID: "owner"))
+        await #expect(throws: YouTubePlaylistSyncError.rehearsalTargetMismatch) {
+            try await wrongTarget.resumePush(
+                batchID: fixture.preview.batchID, userConfirmed: true)
+        }
+        #expect(await fixture.server.insertRequestCount() == 0)
+
+        let rehearsal = YouTubePlaylistSyncService(
+            modelContainer: fixture.container, account: fixture.account,
+            pushExecutionPolicy: .rehearsal(
+                playlistID: "PL", accountChannelID: "owner"))
+        await #expect(throws: YouTubePlaylistSyncError.explicitConfirmationRequired) {
+            try await rehearsal.resumePush(batchID: fixture.preview.batchID)
+        }
+        #expect(await fixture.server.insertRequestCount() == 0)
+
+        try await rehearsal.resumePush(
+            batchID: fixture.preview.batchID, userConfirmed: true)
+        #expect(await fixture.server.insertRequestCount() == 1)
+        #expect(await fixture.server.videoIDs() == ["a", "b"])
+    }
+
+    @Test("application rehearsal policy needs both exact environment values")
+    func rehearsalPolicyEnvironment() {
+        #expect(YouTubePushExecutionPolicy.applicationOwned(environment: [:]) == .disabled)
+        #expect(YouTubePushExecutionPolicy.applicationOwned(environment: [
+            "MUSES_YOUTUBE_PUSH_REHEARSAL_PLAYLIST_ID": "PL"
+        ]) == .disabled)
+        #expect(YouTubePushExecutionPolicy.applicationOwned(environment: [
+            "MUSES_YOUTUBE_PUSH_REHEARSAL_PLAYLIST_ID": " PL ",
+            "MUSES_YOUTUBE_PUSH_REHEARSAL_ACCOUNT_CHANNEL_ID": " owner "
+        ]) == .rehearsal(playlistID: "PL", accountChannelID: "owner"))
+    }
+
     @Test("Recently Deleted expires after 30 days without deleting Track rows")
     func expiredRecentlyDeletedIsPurgedLocally() throws {
         let container = try makeModelContainer(inMemory: true)

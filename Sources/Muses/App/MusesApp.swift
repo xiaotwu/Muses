@@ -171,7 +171,8 @@ struct MusesApp: App {
         let youTubeAccount = YouTubeAccountService()
         self.youTubeAccountService = youTubeAccount
         let playlistSync = YouTubePlaylistSyncService(
-            modelContainer: container, account: youTubeAccount)
+            modelContainer: container, account: youTubeAccount,
+            pushExecutionPolicy: .applicationOwned())
         self.youTubePlaylistSyncService = playlistSync
         do {
             try playlistSync.purgeExpiredRecentlyDeleted()

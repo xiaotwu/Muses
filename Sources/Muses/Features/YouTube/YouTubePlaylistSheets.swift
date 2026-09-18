@@ -246,6 +246,7 @@ struct PlaylistPushPreviewSheet: View {
     let onCancel: () throws -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var pushing = false
+    @State private var confirmedTarget = false
     @State private var errorMessage: String?
 
     var body: some View {
@@ -256,6 +257,16 @@ struct PlaylistPushPreviewSheet: View {
                     "YouTube 写入不是原子操作。Muses 会记录每个已完成步骤，以便部分失败后安全续传。"))
                 .font(.caption)
                 .foregroundStyle(BrandColors.textSecondary)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(preview.playlistTitle)
+                    .font(.headline)
+                Text("Playlist: \(preview.playlistID)")
+                Text("Account: \(preview.accountChannelID)")
+            }
+            .font(.caption.monospaced())
+            .textSelection(.enabled)
+            .accessibilityElement(children: .combine)
 
             if preview.operations.isEmpty {
                 Label(tr("YouTube already matches this local playlist", "YouTube 已与本地歌单一致"),
@@ -271,6 +282,14 @@ struct PlaylistPushPreviewSheet: View {
                     }
                 }
                 .listStyle(.inset)
+
+                Toggle(isOn: $confirmedTarget) {
+                    Text(tr(
+                        "I reviewed this exact account, playlist, and operation list",
+                        "我已核对这个确切账号、歌单和操作列表",
+                        zhHant: "我已核對這個確切帳號、歌單和操作列表"))
+                }
+                .toggleStyle(.checkbox)
             }
 
             if let errorMessage {
@@ -293,7 +312,7 @@ struct PlaylistPushPreviewSheet: View {
                     }
                     .musesAction(prominent: true)
                     .tint(BrandColors.accent)
-                    .disabled(pushing)
+                    .disabled(pushing || !confirmedTarget)
                 }
             }
         }
