@@ -7,6 +7,8 @@ title: Development
 
 Muses is a Swift 6 package with a standard SwiftPM layout, built with SwiftUI, SwiftData, AVFoundation, and Swift Testing. Target platform is macOS 14+.
 
+Home is a mode-switched product boundary. The default Muses provider ranks local library snapshots on-device. The YouTube Music provider uses anonymous Innertube as its baseline and may layer an explicitly authorized, account-matched Web response from the isolated helper. Neither network path receives Muses listening signals.
+
 ## Project layout
 
 ```
@@ -14,8 +16,8 @@ Muses/
 ├── Package.swift                  # Single package: Muses (app), MusesWebHomeHelper (one-shot helper),
 │                                  # MusesWebHomeProtocol / MusesWebHomeCore, MusesTests
 ├── Sources/
-│   ├── Muses/                     # Application sources: App, Domain, Features, Infrastructure,
-│   │                              # Persistence, Services, Resources
+│   ├── Muses/                     # App, Domain, Features, Infrastructure, Persistence,
+│   │                              # Services (Discovery, Recommendation, YouTube), Resources
 │   ├── MusesWebHomeHelper/        # Isolated one-shot helper executable
 │   ├── MusesWebHomeCore/          # Cookie jar, session client, whitelisted payload parser
 │   └── MusesWebHomeProtocol/      # Versioned stdin/stdout IPC contract
@@ -30,10 +32,11 @@ Muses/
 ./Scripts/copy-ytdlp.sh          # fetch yt-dlp into Sources/Muses/Resources (git-ignored)
 swift build                      # debug build
 make test                        # full suite: swift test --no-parallel
-swift test --filter WebHome      # focused suite
+swift test --filter InnertubeHome # focused parser/request/privacy suite
+swift test --filter WebHome       # focused signed-in helper suite
 make app                         # assemble build/Muses.app
 make app MUSES_SIGN_IDENTITY="Apple Development: you (TEAMID)"
-MUSES_VERSION=0.4.0 make dmg
+MUSES_VERSION=0.5.0 make dmg
 ```
 
 Google OAuth configuration is injected at packaging time through build environment variables:
@@ -49,7 +52,9 @@ They are never committed, never logged, and are not present unless you inject th
 
 - Source code, identifiers, and comments are English; user-visible strings go through `tr(_ en:, _ zhHans:)`.
 - Comments explain intent and invariants; no phase-number prefixes, no store-generation "V" labels in naming.
-- Engineering, UX, privacy, and verification rules live in [AGENTS.md](../AGENTS.md) — read it before changing playback, queue, persistence, packaging, or the Web Home boundary.
+- Engineering, UX, privacy, and verification rules live in [AGENTS.md](../AGENTS.md) — read it before changing playback, queue, persistence, packaging, or the signed-in Home boundary.
+- Keep Home providers behind `HomeDiscoveryProvider`. Muses and YouTube Music caches are mode-partitioned; guest and account scopes remain physically separate inside each mode.
+- The anonymous Innertube request must never contain cookies, authorization headers or locally derived recommendation signals. Continuation tokens stay in memory and are not encoded into saved snapshots.
 
 ## Release runbook
 
@@ -63,7 +68,7 @@ They are never committed, never logged, and are not present unless you inject th
 ```bash
 MUSES_GOOGLE_OAUTH_CLIENT_ID=... MUSES_GOOGLE_OAUTH_CLIENT_SECRET=... MUSES_WEB_HOME_ENABLED=YES \
     ./Scripts/build-app.sh --identity "$MUSES_SIGN_IDENTITY"
-MUSES_VERSION=0.4.0 ./Scripts/make-dmg.sh
+MUSES_VERSION=0.5.0 ./Scripts/make-dmg.sh
 # Notarization, when credentials exist:
 ./Scripts/notarize.sh
 ```
@@ -71,16 +76,16 @@ MUSES_VERSION=0.4.0 ./Scripts/make-dmg.sh
 ### Publish a release
 
 ```bash
-git tag -a v0.4.0 -m "Muses 0.4.0" && git push origin v0.4.0
-gh release create v0.4.0 build/Muses-0.4.0.dmg --title "Muses 0.4.0" --notes "…"
+git tag -a v0.5.0 -m "Muses 0.5.0" && git push origin v0.5.0
+gh release create v0.5.0 build/Muses-0.5.0.dmg --title "Muses 0.5.0" --notes "…"
 ```
 
 ### Pre-release checklist
 
-- [ ] `make test` green (455+ tests across 60 suites)
+- [ ] `make test` green
 - [ ] `codesign --verify --deep --strict` on the app and the bundled helper
 - [ ] Helper present at `Contents/Helpers/MusesWebHomeHelper`, mode 0700, same-signature chain
-- [ ] Kill switch / default-off verified (fresh install shows Web Home Off, helper never launched without consent)
+- [ ] Fresh install defaults to Muses mode; helper never launches without signed-in Home consent
 - [ ] Sensitive-material audit: no cookies/SAPISIDHASH/continuation tokens in logs, SwiftData, or caches
 - [ ] Notarization performed (if distributing beyond test users)
 

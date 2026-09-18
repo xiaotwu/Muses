@@ -3,6 +3,11 @@ import Foundation
 import CryptoKit
 @testable import Muses
 
+private actor RequestRecorder {
+    private(set) var values: [URLRequest] = []
+    func append(_ request: URLRequest) { values.append(request) }
+}
+
 /// YouTube OAuth + Keychain + Data API + personalized-signal merged unit tests.
 ///
 /// All pure logic / injectable stubs; the real Keychain, ASWebAuthenticationSession, and network are never touched.
@@ -85,6 +90,29 @@ struct YouTubeOAuthTests {
         let b = GoogleOAuthSession.generateCodeVerifier()
         #expect(a != b)
         #expect(a.count >= 40)
+    }
+
+    @Test("Desktop OAuth loopback binds a random port and accepts the first callback")
+    func randomLoopbackCallback() async throws {
+        let server = LoopbackCallbackServer()
+        let redirect = try #require(await server.start())
+        let components = try #require(URLComponents(string: redirect))
+        let port = try #require(components.port)
+        #expect(port > 0)
+
+        var callbackComponents = components
+        callbackComponents.queryItems = [
+            URLQueryItem(name: "code", value: "callback-code"),
+            URLQueryItem(name: "state", value: "callback-state")
+        ]
+        let callbackURL = try #require(callbackComponents.url)
+        let callback = await server.waitForCallback(timeoutSeconds: 2) {
+            Task {
+                _ = try? await URLSession.shared.data(from: callbackURL)
+            }
+            return true
+        }
+        #expect(callback?.query == callbackComponents.query)
     }
 
     // MARK: - connect() flow (stub presenter + stub token exchange)
@@ -322,6 +350,38 @@ struct YouTubeOAuthTests {
         try await writer.addVideo(playlistId: "PL1", videoId: "vid2")
     }
 
+    @Test("DataAPI: playlist and subscription writes encode explicit resources")
+    func dataApiPlaylistAndSubscriptionWrites() async throws {
+        let requests = RequestRecorder()
+        let client = YouTubeDataAPIClient(
+            accessTokenProvider: { "AT" },
+            http: { req in
+                await requests.append(req)
+                let url = req.url?.absoluteString ?? ""
+                if url.contains("/playlists") && req.httpMethod == "POST" {
+                    return (Data(#"{"id":"PLNEW","snippet":{"title":"New"},"contentDetails":{"itemCount":0}}"#.utf8), Self.http200())
+                }
+                if url.contains("/subscriptions") && req.httpMethod == "POST" {
+                    return (Data(#"{"id":"SUB1"}"#.utf8), Self.http200())
+                }
+                return (Data("{}".utf8), Self.http200())
+            })
+
+        let playlist = try await client.createPlaylist(title: "New", description: "desc", privacy: .unlisted)
+        #expect(playlist.id == "PLNEW")
+        try await client.deletePlaylist(id: "PLNEW")
+        #expect(try await client.subscribe(channelId: "UC1") == "SUB1")
+        try await client.unsubscribe(subscriptionId: "SUB1")
+
+        let recorded = await requests.values
+        #expect(recorded.count == 4)
+        let playlistBody = try #require(recorded[0].httpBody)
+        #expect(String(decoding: playlistBody, as: UTF8.self).contains("unlisted"))
+        #expect(String(decoding: playlistBody, as: UTF8.self).contains("desc"))
+        let subscriptionBody = try #require(recorded[2].httpBody)
+        #expect(String(decoding: subscriptionBody, as: UTF8.self).contains("UC1"))
+    }
+
     @Test("DataAPI: 401 maps to unauthorized; pagination merges pages")
     func dataApiUnauthorizedAndPaging() async throws {
         let client = YouTubeDataAPIClient(
@@ -350,9 +410,9 @@ struct YouTubeOAuthTests {
         #expect(subs.map(\.title) == ["A", "B"])
     }
 
-    // MARK: - AccountService.refresh() partial failures + signal derivation
+    // MARK: - AccountService.refresh() partial failures
 
-    @Test("AccountService: refresh partial failure tolerance; unauthorized disconnects; signals deduplication")
+    @Test("AccountService: refresh tolerates a partial endpoint failure")
     func accountRefreshTolerance() async throws {
         let kc = InMemoryKeychain()
         let session = GoogleOAuthSession(keychain: kc, presenter: StubPresenter(), tokenExchange: stubExchange)
@@ -390,12 +450,8 @@ struct YouTubeOAuthTests {
         #expect(account.isConnected == true)
         #expect(account.account?.channel?.title == "Me")
         #expect(account.account?.subscriptions.count == 2)
+        #expect(account.account?.likedVideos.map(\.channelTitle) == ["Artist B"])
         #expect(account.account?.playlists.isEmpty == true) // playlists failure degrades gracefully
-        let signals = account.signals()
-        #expect(signals != nil)
-        // Subscription dedupe (case-insensitive): "Artist A" and "artist a" merge into one.
-        #expect(signals?.subscribedChannelNames.count == 1)
-        #expect(signals?.likedArtistNames == ["Artist B"])
     }
 
     @Test("AccountService: persisted token auto-rehydrates account snapshot after restart")
@@ -497,48 +553,6 @@ struct YouTubeOAuthTests {
         #expect(account.account == nil)
         #expect(!session.isConnected)
         #expect(account.lastError == OAuthError.authorizationExpired.errorDescription)
-    }
-
-    @Test("AccountService: signals() returns nil without snapshot")
-    func signalsNilWithoutSnapshot() {
-        let account = YouTubeAccountService()
-        #expect(account.signals() == nil)
-    }
-
-    // MARK: - HomeDiscoveryInput.enriched signal merging
-
-    @Test("enriched: merges and deduplicates preserving order up to 5")
-    func enrichedMerge() {
-        let base = HomeDiscoveryInput(
-            topArtistNames: ["LocalA"],
-            recentlyPlayedArtistNames: ["Recent"],
-            likedArtistNames: ["LocalB"],
-            timeBand: .evening, hour: 19, scope: .guest)
-        let signals = PersonalizationSignals(
-            likedArtistNames: ["LocalA", "YTA", "YTB"],
-            subscribedChannelNames: ["LocalB", "Sub1", "Sub2"],
-            playlistTitles: ["PL"])
-        let enriched = base.enriched(with: signals)
-        // top: LocalA + YTA + YTB (deduped; LocalA is not added twice).
-        #expect(enriched.topArtistNames == ["LocalA", "YTA", "YTB"])
-        // liked: LocalB + Sub1 + Sub2.
-        #expect(enriched.likedArtistNames == ["LocalB", "Sub1", "Sub2"])
-        // Unchanged fields.
-        #expect(enriched.recentlyPlayedArtistNames == ["Recent"])
-        #expect(enriched.timeBand == .evening)
-        #expect(enriched.hour == 19)
-    }
-
-    @Test("enriched: merge upper limit is 5")
-    func enrichedLimit5() {
-        let base = HomeDiscoveryInput(
-            topArtistNames: [], recentlyPlayedArtistNames: [],
-            likedArtistNames: [], timeBand: .morning, hour: 8, scope: .guest)
-        let signals = PersonalizationSignals(
-            likedArtistNames: ["a", "b", "c", "d", "e", "f", "g"],
-            subscribedChannelNames: [], playlistTitles: [])
-        let enriched = base.enriched(with: signals)
-        #expect(enriched.topArtistNames.count == 5)
     }
 
     // MARK: - stubs

@@ -49,9 +49,9 @@ struct PaginationPage<Item: Sendable>: Sendable {
 
 /// YouTube Data API account and owned-playlist client.
 ///
-/// Used only for account identity and personalization signals (channels/playlists/playlistItems/subscriptions/videos?myRating=like),
+/// Used only for account identity and account-facing reads (channels/playlists/playlistItems/subscriptions/videos?myRating=like),
 /// with OAuth `Bearer` tokens. It never calls YouTube Music internal APIs and never replaces yt-dlp for playback/import.
-/// All results are Sendable value types, safe to feed across threads into `YouTubeAccountSnapshot` and recommendation signals.
+/// All results are Sendable value types, safe to feed across threads into `YouTubeAccountSnapshot`.
 struct YouTubeDataAPIClient {
     static let base = "https://www.googleapis.com/youtube/v3"
 
@@ -166,6 +166,28 @@ struct YouTubeDataAPIClient {
                                items: { $0.items })
     }
 
+    /// Creates a user-owned playlist. Callers must obtain an explicit manage
+    /// scope and keep this behind the playlist sync confirmation gate.
+    func createPlaylist(title: String, description: String? = nil,
+                        privacy: YouTubePlaylistPrivacy = .private) async throws -> YouTubePlaylist {
+        let body = PlaylistWriteBody(
+            snippet: .init(title: title, description: description),
+            status: .init(privacyStatus: privacy.rawValue))
+        let data = try await send(method: "POST",
+                                  urlString: "\(Self.base)/playlists?part=snippet,status",
+                                  body: body)
+        return try JSONDecoder().decode(YouTubePlaylist.self, from: data)
+    }
+
+    /// Deletes a playlist after the caller has verified ownership. The Data
+    /// API cannot undo this operation, so production callers must require an
+    /// explicit confirmation and a fresh ownership/read-back check.
+    func deletePlaylist(id: String) async throws {
+        guard !id.isEmpty else { throw DataAPIError.parse("missing playlist id") }
+        _ = try await send(method: "DELETE", urlString: "\(Self.base)/playlists?id=\(id)",
+                           body: Optional<PlaylistWriteBody>.none, allowEmpty: true)
+    }
+
     /// Entries of one playlist (playlistItemId/videoId/title/channel/thumbnail), fetched with pagination.
     func playlistItems(playlistId: String) async throws -> [YouTubePlaylistItem] {
         let url = "\(Self.base)/playlistItems?part=snippet,contentDetails&playlistId=\(playlistId)&maxResults=50"
@@ -264,6 +286,24 @@ struct YouTubeDataAPIClient {
         try await paginateList(url: "\(Self.base)/subscriptions?part=snippet&mine=true&maxResults=50",
                                type: SubscriptionsPage.self,
                                items: { $0.items })
+    }
+
+    /// Subscribes the connected account to a channel. This is deliberately a
+    /// separate write from the read snapshot so UI callers can refresh only
+    /// after the server acknowledges the mutation.
+    func subscribe(channelId: String) async throws -> String {
+        let body = SubscriptionWriteBody(snippet: .init(resourceId: .init(channelId: channelId)))
+        let data = try await send(method: "POST",
+                                  urlString: "\(Self.base)/subscriptions?part=snippet",
+                                  body: body)
+        return (try? JSONDecoder().decode(SubscriptionWriteResponse.self, from: data))?.id ?? ""
+    }
+
+    /// Removes a subscription by its YouTube subscription resource id.
+    func unsubscribe(subscriptionId: String) async throws {
+        guard !subscriptionId.isEmpty else { throw DataAPIError.parse("missing subscription id") }
+        _ = try await send(method: "DELETE", urlString: "\(Self.base)/subscriptions?id=\(subscriptionId)",
+                           body: Optional<SubscriptionWriteBody>.none, allowEmpty: true)
     }
 
     /// Videos the account liked (id/title/channel/thumbnail), fetched with pagination.
@@ -454,6 +494,12 @@ struct YouTubePlaylist: Codable, Sendable, Equatable {
     struct ContentDetails: Codable, Sendable { let itemCount: Int }
 }
 
+enum YouTubePlaylistPrivacy: String, Codable, Sendable, CaseIterable {
+    case `private`
+    case unlisted
+    case `public`
+}
+
 struct YouTubePlaylistItem: Codable, Sendable, Equatable {
     /// YouTube playlistItem resource id (needed for delete/reorder). Empty if unknown.
     let playlistItemId: String
@@ -501,21 +547,24 @@ struct YouTubePlaylistItem: Codable, Sendable, Equatable {
 }
 
 struct YouTubeSubscription: Codable, Sendable, Equatable {
+    let id: String
     let channelId: String
     let title: String
     let thumbnailURL: String?
-    enum CodingKeys: String, CodingKey { case snippet }
-    init(channelId: String, title: String, thumbnailURL: String?) {
-        self.channelId = channelId; self.title = title; self.thumbnailURL = thumbnailURL
+    enum CodingKeys: String, CodingKey { case id, snippet }
+    init(id: String = "", channelId: String, title: String, thumbnailURL: String?) {
+        self.id = id; self.channelId = channelId; self.title = title; self.thumbnailURL = thumbnailURL
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
         let s = try c.decode(Snippet.self, forKey: .snippet)
         self.title = s.title; self.thumbnailURL = s.thumbnails?.high?.url ?? s.thumbnails?.default?.url
         self.channelId = s.resourceId?.channelId ?? ""
     }
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        if !id.isEmpty { try c.encode(id, forKey: .id) }
         try c.encode(Snippet(title: title, thumbnails: nil, resourceId: ResourceId(channelId: channelId)), forKey: .snippet)
     }
     struct Snippet: Codable, Sendable {
@@ -606,6 +655,34 @@ private struct PlaylistItemWriteBody: Encodable, Sendable {
         let kind = "youtube#video"
         let videoId: String
     }
+}
+
+private struct PlaylistWriteBody: Encodable, Sendable {
+    let snippet: Snippet
+    let status: Status
+
+    struct Snippet: Encodable, Sendable {
+        let title: String
+        let description: String?
+    }
+    struct Status: Encodable, Sendable {
+        let privacyStatus: String
+    }
+}
+
+private struct SubscriptionWriteBody: Encodable, Sendable {
+    let snippet: Snippet
+    struct Snippet: Encodable, Sendable {
+        let resourceId: ResourceID
+    }
+    struct ResourceID: Encodable, Sendable {
+        let kind = "youtube#channel"
+        let channelId: String
+    }
+}
+
+private struct SubscriptionWriteResponse: Decodable, Sendable {
+    let id: String?
 }
 
 private struct PlaylistItemWriteResponse: Decodable, Sendable {

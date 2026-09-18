@@ -72,7 +72,7 @@ struct WebHomeUIContractTests {
         #expect(source.contains("YouTube Music personalized"))
         #expect(source.contains("Saved YouTube Music personalized"))
         #expect(source.contains("Personalized Web Home is unavailable"))
-        #expect(source.contains("fetchContinuation"))
+        #expect(source.contains("discovery.loadMore(sectionID:"))
         #expect(source.contains(".accessibilityLabel"))
         #expect(source.contains("Load more"))
         #expect(source.contains("Public discovery"))

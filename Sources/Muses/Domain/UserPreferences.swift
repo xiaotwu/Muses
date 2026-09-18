@@ -85,6 +85,8 @@ enum YTCookieSource: String, CaseIterable, Codable {
 
 /// Centralized @AppStorage key constants.
 enum PrefKey {
+    static let homeRecommendationMode = "muses.home.recommendationMode"
+    static let youtubeMusicPersonalizedHomeEnabled = "muses.youtubeMusic.personalizedHomeEnabled"
     static let nowPlayingMode = "muses.nowPlayingMode"
     /// Now Playing lyrics presentation: inline/lyricsOnly/minimal.
     static let nowPlayingLyricsMode = "muses.nowPlaying.lyricsMode"
@@ -142,7 +144,7 @@ enum PrefKey {
     static let ffTray                = "muses.ff.tray"
     static let ffDesktopLyrics      = "muses.ff.desktopLyrics"
     static let ffGlobalHotkeys      = "muses.ff.globalHotkeys"
-    /// Dynamic Home discovery: Home's remote discovery sections come from a provider, cache-first with per-section failure.
+    /// Dynamic Home discovery: sections come from the selected provider, cache-first with per-section failure.
     static let ffDiscovery          = "muses.ff.discovery"
     /// Situational recommendations on the New tab: deterministic scoring based on History/Context/Sessions.
     static let ffSituationalNew     = "muses.ff.situationalNew"
@@ -178,11 +180,26 @@ enum WebHomePreferenceDefaults {
     static let consentVersion = 2
     @MainActor
     static let values: [String: Any] = [
+        PrefKey.homeRecommendationMode: HomeRecommendationMode.muses.rawValue,
+        PrefKey.youtubeMusicPersonalizedHomeEnabled: false,
         PrefKey.webHomeEnabled: false,
         PrefKey.webHomeConsentVersion: 0,
         PrefKey.webHomeDefaultBrowserConsent: false,
         PrefKey.webHomeBrowserSource: ""
     ]
+}
+
+enum HomeRecommendationPreferenceMigration {
+    /// Existing explicit Web Home consent is the only legacy state strong
+    /// enough to migrate to YouTube Music. Every other install stays local.
+    static func apply(defaults: UserDefaults = .standard) {
+        guard defaults.object(forKey: PrefKey.homeRecommendationMode) == nil else { return }
+        let mode: HomeRecommendationMode = defaults.bool(forKey: PrefKey.webHomeEnabled)
+            ? .youtubeMusic : .muses
+        defaults.set(mode.rawValue, forKey: PrefKey.homeRecommendationMode)
+        defaults.set(defaults.bool(forKey: PrefKey.webHomeEnabled),
+                     forKey: PrefKey.youtubeMusicPersonalizedHomeEnabled)
+    }
 }
 
 enum AppearancePreferenceDefaults {

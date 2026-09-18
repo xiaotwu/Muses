@@ -59,6 +59,7 @@ struct MusesApp: App {
         // Registers only keys not explicitly set: anything the user turned off in Settings
         // stays off (their choice is never reverted).
         // Global hotkeys / mini player / desktop lyrics remain off by default; the menu bar icon is on.
+        HomeRecommendationPreferenceMigration.apply()
         UserDefaults.standard.register(defaults: FeatureFlagDefaults.enabledByDefault)
         UserDefaults.standard.register(defaults: WebHomePreferenceDefaults.values)
         UserDefaults.standard.register(defaults: AppearancePreferenceDefaults.values)
@@ -163,13 +164,6 @@ struct MusesApp: App {
         // Index into Spotlight asynchronously after launch.
         Task { @MainActor in indexer.indexAll() }
 
-        // Public discovery reads source endpoints without substituting keyword search.
-        // Unavailable official content remains an explicit failure.
-        // Note: an escaping closure in a struct init cannot capture a not-fully-initialized self, hence the local bindings.
-        let ytBridge = ytdlpBridge
-        let discoveryProvider = YTDlpDiscoveryProvider(
-            fetchPlaylist: { url in try await ytBridge.fetchPlaylist(url: url) }
-        )
         // YouTube account service: Google OAuth 2.0 PKCE + YouTube Data API.
         // OAuth client configuration is held by the app build and tokens live in the macOS
         // Keychain; the user only authorizes in the default browser. OAuth never blocks
@@ -185,27 +179,31 @@ struct MusesApp: App {
             AppLog.for("MusesApp").warning(
                 "Recently Deleted cleanup failed: \(error.localizedDescription)")
         }
-        let accountHomeProvider = YouTubeAccountHomeProvider(
-            base: discoveryProvider,
-            snapshot: { [weak youTubeAccount] in youTubeAccount?.account })
         let webHome = WebHomeSessionController(
             currentChannelIDProvider: { [weak youTubeAccount] in
                 youTubeAccount?.activeChannelID
             })
         self.webHomeSessionController = webHome
-        // A+B Home: official-account/public discovery remains the stable
-        // baseline. The optional Web adapter has its own process, consent,
-        // normalized snapshot, and physical cache partition.
-        let layeredHomeProvider = LayeredHomeProvider(
-            baseline: accountHomeProvider,
-            webEnhancement: webHome.isBuildEnabled ? webHome : nil)
+        let mode = {
+            HomeRecommendationMode(
+                rawValue: UserDefaults.standard.string(
+                    forKey: PrefKey.homeRecommendationMode) ?? ""
+            ) ?? .muses
+        }
+        let localHome = MusesHomeProvider(library: library)
+        let anonymousInnertube = AnonymousInnertubeHomeProvider(
+            client: InnertubeClient())
+        let youtubeMusicHome = YouTubeMusicHomeProvider(
+            anonymous: anonymousInnertube,
+            authenticated: webHome.isBuildEnabled ? webHome : nil)
+        let homeProvider = ModeSwitchingHomeDiscoveryProvider(
+            modeProvider: mode,
+            muses: localHome,
+            youtubeMusic: youtubeMusicHome)
         self.homeDiscoveryService = HomeDiscoveryService(
-            provider: layeredHomeProvider,
+            provider: homeProvider,
             library: library,
-            historyService: historyService,
-            youTubeSignals: { [weak youTubeAccount] in
-                await youTubeAccount?.signals()
-            },
+            modeProvider: mode,
             accountChannelIDProvider: { [weak youTubeAccount] in
                 youTubeAccount?.activeChannelID
             })

@@ -17,7 +17,7 @@ struct StructuredCatalogSearchView: View {
             if browser.detail == nil {
                 Picker(tr("Category", "类别", zhHant: "類別"), selection: Binding(get: { browser.kind }, set: { browser.search(search.query, kind: $0) })) {
                     Text(tr("All", "全部")).tag(MusicCatalogKind?.none)
-                    ForEach(MusicCatalogKind.allCases, id: \.self) { kind in
+                    ForEach(MusicCatalogKind.searchableCases, id: \.self) { kind in
                         Text(kind.title).tag(Optional(kind))
                     }
                 }.pickerStyle(.menu).fixedSize()
@@ -35,7 +35,7 @@ struct StructuredCatalogSearchView: View {
                     .font(.callout).foregroundStyle(.secondary)
             }
             if browser.detail == nil && browser.kind == nil {
-                ForEach(MusicCatalogKind.allCases, id: \.self) { kind in
+                ForEach(MusicCatalogKind.searchableCases, id: \.self) { kind in
                     let items = browser.items.filter { $0.kind == kind }
                     if !items.isEmpty {
                         HStack {

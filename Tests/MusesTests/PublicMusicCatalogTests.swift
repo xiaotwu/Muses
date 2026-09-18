@@ -30,6 +30,12 @@ struct PublicMusicCatalogTests {
         #expect(page.items.first?.artists.isEmpty == true)
     }
 
+    @Test("episodes are browse content, not a top-level search filter")
+    func searchableKindsExcludeEpisodes() {
+        #expect(MusicCatalogKind.searchableCases == [.song, .video, .album, .artist, .playlist, .podcast])
+        #expect(!MusicCatalogKind.searchableCases.contains(.episode))
+    }
+
     @Test func browsePreservesOccurrencesAndCursor() throws {
         let session = UUID()
         let page = try MusicCatalogParser.page(data([row(), row()], continuation: true), session: session, endpoint: "browse", region: "GB")

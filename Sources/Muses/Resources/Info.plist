@@ -32,7 +32,7 @@
 	<key>MusesGoogleOAuthClientSecret</key>
 	<string></string>
 	<key>MusesGoogleOAuthRedirectURI</key>
-	<string>http://127.0.0.1:53682/</string>
+	<string>http://127.0.0.1:0/</string>
 	<!-- Release kill switch; user consent remains a separate default-off preference. -->
 	<key>MusesWebHomeEnabled</key>
 	<true/>

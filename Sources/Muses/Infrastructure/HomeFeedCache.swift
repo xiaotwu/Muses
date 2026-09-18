@@ -2,10 +2,9 @@ import Foundation
 
 /// SWR cache for the Home discovery feed.
 ///
-/// Wraps `SWRCache<HomeSnapshot>`: caches the whole remote discovery section set under a stable key
-/// derived from `HomeDiscoveryInput`. `get` returns immediately (possibly stale); `isFresh` decides whether to skip the background refresh.
-/// Local sections (Recently Played/Added/Pinned/All Albums) never enter this cache — they are produced
-/// directly from the library in-memory snapshot.
+/// Wraps `SWRCache<HomeSnapshot>` and partitions snapshots by recommendation mode,
+/// account scope, and source layer. `get` returns immediately (possibly stale);
+/// `isFresh` decides whether to skip the background refresh.
 @MainActor
 final class HomeFeedCache {
     static let `default` = HomeFeedCache()
@@ -23,6 +22,7 @@ final class HomeFeedCache {
     }
 
     private struct Partition: Hashable {
+        let mode: HomeRecommendationMode
         let scope: HomeFeedScope
         let layer: Layer
     }
@@ -53,7 +53,9 @@ final class HomeFeedCache {
     }
 
     /// The key is built from stable input fields (only timeBand precision, never the hour) so jitter cannot invalidate it frequently.
-    static func key(for input: HomeDiscoveryInput) -> String {
+    static func key(for input: HomeDiscoveryInput,
+                    mode: HomeRecommendationMode = .muses) -> String {
+        guard mode == .muses else { return "feed" }
         let top = input.topArtistNames.prefix(3).joined(separator: ",")
         let liked = input.likedArtistNames.prefix(2).joined(separator: ",")
         return "feed|band=\(input.timeBand.rawValue)|top=\(top)|liked=\(liked)"
@@ -61,9 +63,10 @@ final class HomeFeedCache {
 
     func get(for input: HomeDiscoveryInput,
              layer: Layer,
+             mode: HomeRecommendationMode = .muses,
              now: Date = .init()) -> SWRCache<HomeSnapshot>.Cached? {
         guard layer != .web || input.scope != .guest,
-              let cached = cache(for: input.scope, layer: layer).get(Self.key(for: input)),
+              let cached = cache(for: input.scope, layer: layer, mode: mode).get(Self.key(for: input, mode: mode)),
               cached.value.belongs(to: input.scope),
               snapshot(cached.value, isValidFor: layer) else { return nil }
         if layer == .web,
@@ -84,39 +87,49 @@ final class HomeFeedCache {
     @discardableResult
     func set(_ snapshot: HomeSnapshot,
              for input: HomeDiscoveryInput,
-             layer: Layer) -> Bool {
+             layer: Layer,
+             mode: HomeRecommendationMode = .muses) -> Bool {
         guard snapshot.belongs(to: input.scope),
               self.snapshot(snapshot, isValidFor: layer),
               layer != .web || input.scope != .guest else { return false }
-        cache(for: input.scope, layer: layer).set(
-            Self.key(for: input), value: snapshot, fetchedAt: snapshot.fetchedAt)
+        cache(for: input.scope, layer: layer, mode: mode).set(
+            Self.key(for: input, mode: mode), value: snapshot, fetchedAt: snapshot.fetchedAt)
         return true
     }
 
-    func invalidate(scope: HomeFeedScope? = nil, layer: Layer? = nil) {
+    func invalidate(scope: HomeFeedScope? = nil,
+                    layer: Layer? = nil,
+                    mode: HomeRecommendationMode? = nil) {
         let targets = caches.filter { partition, _ in
+            (mode == nil || partition.mode == mode)
+                &&
             (scope == nil || partition.scope == scope)
                 && (layer == nil || partition.layer == layer)
         }
         for cache in targets.values { cache.clearAll() }
 
         // A requested partition may not have been opened in memory yet.
-        if let scope, let layer {
-            cache(for: scope, layer: layer).clearAll()
+        if let scope, let layer, let mode {
+            cache(for: scope, layer: layer, mode: mode).clearAll()
         }
     }
 
-    func directoryURL(for scope: HomeFeedScope, layer: Layer) -> URL {
+    func directoryURL(for scope: HomeFeedScope,
+                      layer: Layer,
+                      mode: HomeRecommendationMode = .muses) -> URL {
         directory
+            .appendingPathComponent(mode.cacheNamespace, isDirectory: true)
             .appendingPathComponent(scope.cacheNamespace, isDirectory: true)
             .appendingPathComponent(layer.directoryName, isDirectory: true)
     }
 
-    private func cache(for scope: HomeFeedScope, layer: Layer) -> SWRCache<HomeSnapshot> {
-        let partition = Partition(scope: scope, layer: layer)
+    private func cache(for scope: HomeFeedScope,
+                       layer: Layer,
+                       mode: HomeRecommendationMode) -> SWRCache<HomeSnapshot> {
+        let partition = Partition(mode: mode, scope: scope, layer: layer)
         if let cache = caches[partition] { return cache }
         let cache = SWRCache<HomeSnapshot>(
-            directory: directoryURL(for: scope, layer: layer))
+            directory: directoryURL(for: scope, layer: layer, mode: mode))
         caches[partition] = cache
         return cache
     }

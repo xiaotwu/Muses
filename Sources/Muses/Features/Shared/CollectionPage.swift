@@ -347,7 +347,8 @@ private struct CollectionTrackTable: View {
                     liked: likedIDs.contains(row.id),
                     isPlaying: matchesCurrent(row),
                     onPlay: { onPlay(row) },
-                    onToggleLike: { library.toggleLike(id: row.id) }
+                    onToggleLike: { library.toggleLike(id: row.id) },
+                    onRemove: onRemove.map { handler in { handler(row) } }
                 )
             }
             .width(min: 220, ideal: 300)
@@ -457,6 +458,20 @@ private struct CollectionTrackTable: View {
 
     @ViewBuilder
     private func contextMenu(for selectedIDs: Set<UUID>) -> some View {
+        if selectedIDs.count > 1, let onRemove {
+            Button(role: .destructive) {
+                displayedRows
+                    .filter { selectedIDs.contains($0.id) }
+                    .forEach(onRemove)
+            } label: {
+                Label(
+                    tr("Remove (selectedIDs.count) songs", "移除 (selectedIDs.count) 首歌曲"),
+                    systemImage: "minus.circle"
+                )
+            }
+            Divider()
+        }
+
         if let row = firstRow(in: selectedIDs) {
             TrackContextMenuItems(
                 snapshot: row.snapshot,
@@ -518,6 +533,7 @@ private struct CollectionTrackTitleCell: View {
     let isPlaying: Bool
     let onPlay: () -> Void
     let onToggleLike: () -> Void
+    let onRemove: (() -> Void)?
 
     @State private var hoveringArtwork = false
 
@@ -563,6 +579,19 @@ private struct CollectionTrackTitleCell: View {
             .help(liked ? tr("Unlike", "取消收藏") : tr("Like", "收藏"))
             .accessibilityLabel(liked ? tr("Unlike \(row.title)", "取消收藏 \(row.title)", zhHant: "取消喜愛項目 \(row.title)")
                                       : tr("Like \(row.title)", "收藏 \(row.title)", zhHant: "喜愛項目 \(row.title)"))
+
+            if let onRemove {
+                Button(role: .destructive, action: onRemove) {
+                    Image(systemName: "minus.circle")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(BrandColors.textSecondary)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(tr("Remove (row.title)", "移除 (row.title)", zhHant: "移除 \(row.title)"))
+                .accessibilityLabel(tr("Remove (row.title)", "移除 (row.title)", zhHant: "移除 \(row.title)"))
+            }
         }
         .frame(minHeight: 42)
     }

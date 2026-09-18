@@ -83,8 +83,8 @@ struct MusicCatalogBrowserTests {
         #expect(!browser.canGoForward)
         browser.clear()
     }
-    @Test func podcastCannotAccidentallyEnterMusicQueue() {
+    @Test func podcastEpisodeUsesUnifiedYouTubePlaybackPath() {
         let item = MusicCatalogItem(id: "video:abcdefghijk", kind: .episode, title: "Episode", subtitle: "", artwork: nil, artists: [], releases: [], channels: [])
-        #expect(item.playableEntry == nil)
+        #expect(item.playableEntry?.id == "abcdefghijk")
     }
 }

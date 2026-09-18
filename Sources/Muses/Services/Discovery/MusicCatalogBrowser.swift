@@ -106,9 +106,10 @@ final class MusicCatalogBrowser {
 
 extension MusicCatalogItem {
     var playableEntry: YTDlpBridge.YTDlpPlaylistEntry? {
-        // Podcast playback requires the episode end/continuation policy; until
-        // that integration lands, episodes remain browsable official links.
-        guard [.song, .video].contains(kind), id.hasPrefix("video:") else { return nil }
+        // Episodes use the same YouTube-backed Track/PlaybackService path as
+        // songs. Their queue context remains ordinary collection context; no
+        // synthetic podcast metadata or timing is fabricated here.
+        guard [.song, .video, .episode].contains(kind), id.hasPrefix("video:") else { return nil }
         return .init(id: String(id.dropFirst(6)), title: title,
                      uploader: artists.isEmpty ? nil : artists.map(\.title).joined(separator: ", "),
                      track: kind == .song ? title : nil, album: releases.first?.title)

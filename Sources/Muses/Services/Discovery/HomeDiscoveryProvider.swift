@@ -31,12 +31,10 @@ enum HomeFeedScope: Codable, Hashable, Sendable {
     }
 }
 
-/// Home discovery input: carries the lightweight signals a provider needs to build
-/// sections.
+/// Immutable local context available to Home providers.
 ///
-/// All fields are `Sendable` values, safe to pass across actors. The input contains only
-/// **light** history-based ordering signals (top/recent/liked artist names); strong
-/// personalization lives in New.
+/// Muses mode uses these values on-device. Network-backed providers must not encode
+/// them into requests; that privacy boundary is covered by request-construction tests.
 struct HomeDiscoveryInput: Sendable, Equatable {
     /// Artist names the user listens to most (descending by play count, up to 5).
     let topArtistNames: [String]
@@ -80,30 +78,6 @@ struct HomeDiscoveryInput: Sendable, Equatable {
             && lhs.scope == rhs.scope
     }
 
-    /// Merges YouTube account personalization signals (background refresh path): folds the
-    /// account's liked/subscribed artist names into the local seeds (deduplicated, order
-    /// preserved, capped at 5) as extra discovery seeds. `timeBand`/`hour` are unchanged.
-    func enriched(with signals: PersonalizationSignals) -> HomeDiscoveryInput {
-        func merge(_ local: [String], _ extra: [String]) -> [String] {
-            var seen = Set<String>()
-            var out: [String] = []
-            for name in local + extra {
-                let key = name.lowercased()
-                guard !key.isEmpty, seen.insert(key).inserted else { continue }
-                out.append(name)
-                if out.count >= 5 { break }
-            }
-            return out
-        }
-        return HomeDiscoveryInput(
-            topArtistNames: merge(topArtistNames, signals.likedArtistNames),
-            recentlyPlayedArtistNames: recentlyPlayedArtistNames,
-            likedArtistNames: merge(likedArtistNames, signals.subscribedChannelNames),
-            timeBand: timeBand,
-            hour: hour,
-            seedVideoIds: seedVideoIds,
-            scope: scope)
-    }
 }
 
 enum HomeFetchFailureCode: String, Codable, Sendable, Equatable {
@@ -188,13 +162,17 @@ struct HomeFetchResult: Sendable {
 @MainActor
 protocol HomeDiscoveryProvider: AnyObject {
     var hasWebEnhancement: Bool { get }
+    func hasContinuation(for sectionID: String) -> Bool
     func fetch(for input: HomeDiscoveryInput) async -> HomeFetchResult
     func more(page: Int, input: HomeDiscoveryInput) async -> [HomeSection]
+    func more(sectionID: String, input: HomeDiscoveryInput) async -> [DiscoveryItem]
 }
 
 extension HomeDiscoveryProvider {
     var hasWebEnhancement: Bool { false }
+    func hasContinuation(for sectionID: String) -> Bool { false }
     func more(page: Int, input: HomeDiscoveryInput) async -> [HomeSection] { [] }
+    func more(sectionID: String, input: HomeDiscoveryInput) async -> [DiscoveryItem] { [] }
 }
 
 /// Observable truth for the optional Web-session layer. It intentionally does

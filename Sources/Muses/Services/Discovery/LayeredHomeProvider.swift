@@ -95,6 +95,18 @@ final class LayeredHomeProvider: HomeDiscoveryProvider {
         await baseline.more(page: page, input: input)
     }
 
+    func hasContinuation(for sectionID: String) -> Bool {
+        webEnhancement?.hasContinuation(for: sectionID) == true
+            || baseline.hasContinuation(for: sectionID)
+    }
+
+    func more(sectionID: String, input: HomeDiscoveryInput) async -> [DiscoveryItem] {
+        if let webEnhancement, webEnhancement.hasContinuation(for: sectionID) {
+            return await webEnhancement.more(sectionID: sectionID, input: input)
+        }
+        return await baseline.more(sectionID: sectionID, input: input)
+    }
+
     private func result(
         baseline: HomeFetchResult,
         webSnapshot: HomeSnapshot?,

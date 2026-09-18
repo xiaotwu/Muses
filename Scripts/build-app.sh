@@ -13,7 +13,7 @@
 #   MUSES_BUILD       覆盖 CFBundleVersion(默认 1)
 #   MUSES_GOOGLE_OAUTH_CLIENT_ID       Muses 项目持有的 Desktop OAuth client ID
 #   MUSES_GOOGLE_OAUTH_CLIENT_SECRET   可选；installed-app client 通常留空
-#   MUSES_GOOGLE_OAUTH_REDIRECT_URI    可选；默认 http://127.0.0.1:53682/
+#   MUSES_GOOGLE_OAUTH_REDIRECT_URI    可选；默认 http://127.0.0.1:0/（Desktop loopback 随机端口）
 #   MUSES_WEB_HOME_ENABLED             构建级 kill switch(默认 YES)
 #
 # 用法:
@@ -90,7 +90,7 @@ PLIST="/usr/libexec/PlistBuddy"
 "$PLIST" -c "Set :CFBundleVersion $BUILD" "$CONTENTS/Info.plist"
 "$PLIST" -c "Set :MusesGoogleOAuthClientID ${MUSES_GOOGLE_OAUTH_CLIENT_ID:-}" "$CONTENTS/Info.plist"
 "$PLIST" -c "Set :MusesGoogleOAuthClientSecret ${MUSES_GOOGLE_OAUTH_CLIENT_SECRET:-}" "$CONTENTS/Info.plist"
-"$PLIST" -c "Set :MusesGoogleOAuthRedirectURI ${MUSES_GOOGLE_OAUTH_REDIRECT_URI:-http://127.0.0.1:53682/}" "$CONTENTS/Info.plist"
+"$PLIST" -c "Set :MusesGoogleOAuthRedirectURI ${MUSES_GOOGLE_OAUTH_REDIRECT_URI:-http://127.0.0.1:0/}" "$CONTENTS/Info.plist"
 "$PLIST" -c "Set :MusesWebHomeEnabled ${MUSES_WEB_HOME_ENABLED:-YES}" "$CONTENTS/Info.plist"
 
 # 6) 签名(entitlements 用源文件;--deep 覆盖 yt-dlp)。

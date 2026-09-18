@@ -56,6 +56,7 @@ final class WebHomeSessionController: HomeDiscoveryProvider {
     var isEnabled: Bool {
         buildEnabled
             && defaults.bool(forKey: PrefKey.webHomeEnabled)
+            && defaults.bool(forKey: PrefKey.youtubeMusicPersonalizedHomeEnabled)
             && defaults.integer(forKey: PrefKey.webHomeConsentVersion)
                 == WebHomePreferenceDefaults.consentVersion
             && defaults.bool(forKey: PrefKey.webHomeDefaultBrowserConsent)
@@ -165,6 +166,7 @@ final class WebHomeSessionController: HomeDiscoveryProvider {
                      forKey: PrefKey.webHomeConsentVersion)
         defaults.set(true, forKey: PrefKey.webHomeDefaultBrowserConsent)
         defaults.set(true, forKey: PrefKey.webHomeEnabled)
+        defaults.set(true, forKey: PrefKey.youtubeMusicPersonalizedHomeEnabled)
         pendingBrowserSource = nil
         status = .closed
     }
@@ -181,6 +183,7 @@ final class WebHomeSessionController: HomeDiscoveryProvider {
 
     func disableAndClearTemporarySession() async {
         defaults.set(false, forKey: PrefKey.webHomeEnabled)
+        defaults.set(false, forKey: PrefKey.youtubeMusicPersonalizedHomeEnabled)
         defaults.set(0, forKey: PrefKey.webHomeConsentVersion)
         defaults.set(false, forKey: PrefKey.webHomeDefaultBrowserConsent)
         defaults.removeObject(forKey: PrefKey.webHomeBrowserSource)
@@ -327,6 +330,10 @@ final class WebHomeSessionController: HomeDiscoveryProvider {
     }
 
     func more(page: Int, input: HomeDiscoveryInput) async -> [HomeSection] { [] }
+
+    func more(sectionID: String, input: HomeDiscoveryInput) async -> [DiscoveryItem] {
+        (try? await fetchContinuation(for: sectionID)) ?? []
+    }
 
     func hasContinuation(for sectionID: String) -> Bool {
         continuationTokensBySectionID[sectionID] != nil

@@ -56,6 +56,7 @@ enum MusicCatalogParser {
             }
             if let card = object["musicCardShelfRenderer"] as? Object,
                let title = card["title"] as? Object {
+                recognized = true
                 let adapted: Object = ["flexColumns": [
                     ["musicResponsiveListItemFlexColumnRenderer": ["text": title]],
                     ["musicResponsiveListItemFlexColumnRenderer": ["text": card["subtitle"] ?? [:]]]

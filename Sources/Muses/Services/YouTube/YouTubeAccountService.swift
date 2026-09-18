@@ -2,23 +2,12 @@ import Foundation
 import Observation
 
 /// Read-only YouTube account snapshot (Sendable): identity + owned playlists + subscribed channels + liked videos.
-/// Fetched from the Data API and cached in `YouTubeAccountService` for UI display and recommendation signals.
+/// Fetched from the Data API and cached for account-facing UI and playlist ownership checks.
 struct YouTubeAccountSnapshot: Sendable, Equatable {
     let channel: YouTubeChannel?
     let playlists: [YouTubePlaylist]
     let subscriptions: [YouTubeSubscription]
     let likedVideos: [YouTubeVideo]
-}
-
-/// Personalization signals (derived from the account snapshot) for Home/New discovery seed blending.
-/// All plain `[String]` values, safe to pass across actors.
-struct PersonalizationSignals: Sendable, Equatable {
-    /// Channel names of liked videos (deduplicated) — "the artists you like on YouTube".
-    let likedArtistNames: [String]
-    /// Subscribed channel names (deduplicated) — "the creators you follow".
-    let subscribedChannelNames: [String]
-    /// Owned playlist titles (deduplicated) for situational reference.
-    let playlistTitles: [String]
 }
 
 enum YouTubeAccountCapability: String, Sendable, CaseIterable {
@@ -32,13 +21,7 @@ enum YouTubeAccountConnectionState: Equatable, Sendable {
     case expired
 }
 
-/// Provider protocol for personalization signals (implemented by the account service or other local sources).
-protocol PersonalizationSignalProviding: Sendable {
-    /// Returns the current signals; nil when signed out or disconnected. Must not throw (callers degrade on nil).
-    func signals() async -> PersonalizationSignals?
-}
-
-/// YouTube account service: OAuth connection management + read-only Data API fetches + personalization signals.
+/// YouTube account service: OAuth connection management and read-only Data API fetches.
 ///
 /// `@MainActor @Observable` so the UI can bind `isConnected` / `account` / `isConnecting`.
 /// When offline / token expired / quota exhausted / unconfigured, `isConnected == false` and every method degrades to a no-op or nil,
@@ -313,8 +296,6 @@ final class YouTubeAccountService {
         likedVideosState = .idle
     }
 
-    // MARK: - Signals
-
     /// True when the connected account owns this YouTube playlist id.
     func ownsPlaylist(_ playlistId: String) -> Bool {
         guard isConnected, !playlistId.isEmpty else { return false }
@@ -326,35 +307,34 @@ final class YouTubeAccountService {
         return YouTubePlaylistWriteService(client: clientFactory(session))
     }
 
+    /// Subscription writes share the explicit manage-scope gate with playlist
+    /// writes. Refresh only after the server acknowledges the mutation, so a
+    /// failed request cannot create a local phantom subscription.
+    func subscribe(channelID: String) async throws {
+        guard isConnected, canManagePlaylists else { throw YouTubeAccountWriteError.manageScopeRequired }
+        _ = try await clientFactory(session).subscribe(channelId: channelID)
+        await refresh()
+    }
+
+    func unsubscribe(subscriptionID: String) async throws {
+        guard isConnected, canManagePlaylists else { throw YouTubeAccountWriteError.manageScopeRequired }
+        try await clientFactory(session).unsubscribe(subscriptionId: subscriptionID)
+        await refresh()
+    }
+
     func dataAPIClient() -> YouTubeDataAPIClient? {
         guard isConnected, canReadAccount else { return nil }
         return clientFactory(session)
     }
 
-    /// Derives the current personalization signals from the cached `account` snapshot (nil without one).
-    func signals() -> PersonalizationSignals? {
-        guard let snap = account else { return nil }
-        let liked = snap.likedVideos.map(\.channelTitle).dedupePreservingOrder()
-        let subs = snap.subscriptions.map(\.title).dedupePreservingOrder()
-        let playlists = snap.playlists.map(\.title).dedupePreservingOrder()
-        return PersonalizationSignals(
-            likedArtistNames: liked,
-            subscribedChannelNames: subs,
-            playlistTitles: playlists)
-    }
 }
 
-private extension Array where Element == String {
-    func dedupePreservingOrder(limit: Int = 20) -> [String] {
-        var seen = Set<String>()
-        var out: [String] = []
-        for v in self {
-            let key = v.lowercased()
-            if !key.isEmpty, seen.insert(key).inserted {
-                out.append(v)
-                if out.count >= limit { break }
-            }
-        }
-        return out
+enum YouTubeAccountWriteError: LocalizedError, Equatable, Sendable {
+    case manageScopeRequired
+
+    var errorDescription: String? {
+        tr("Reconnect YouTube with account-management permission to change subscriptions.",
+           "请使用账号管理权限重新连接 YouTube，才能修改订阅。",
+           zhHant: "請使用帳號管理權限重新連接 YouTube，才能修改訂閱。")
     }
 }

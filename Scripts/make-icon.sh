@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-SOURCE="logo-and-icon/logo.png"
+SOURCE="assets/logo.png"
 ICONSET="build/AppIcon.iconset"
 DEST="Sources/Muses/Resources/AppIcon.icns"
 

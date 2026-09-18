@@ -70,14 +70,6 @@ struct HomeView: View {
                     webRecoveryBanner
                 }
 
-                if youTubeAccount.isConnected,
-                   youTubeAccount.channelState.errorMessage != nil
-                    || youTubeAccount.playlistsState.errorMessage != nil
-                    || youTubeAccount.subscriptionsState.errorMessage != nil
-                    || youTubeAccount.likedVideosState.errorMessage != nil {
-                    accountRefreshFailureBanner
-                }
-
                 if let interactionError {
                     DiscoveryFailureStrip(
                         message: interactionError,
@@ -114,8 +106,17 @@ struct HomeView: View {
             accountChangeTask = nil
             discovery.cancel()
         }
-        .onChange(of: library.playRevision) { _, _ in refreshRecentlyPlayed() }
-        .onChange(of: library.metadataRevision) { _, _ in refreshRecentlyPlayed() }
+        .onChange(of: library.playRevision) { _, _ in
+            refreshRecentlyPlayed()
+            refreshLocalRecommendationsIfNeeded()
+        }
+        .onChange(of: library.likedRevision) { _, _ in
+            refreshLocalRecommendationsIfNeeded()
+        }
+        .onChange(of: library.metadataRevision) { _, _ in
+            refreshRecentlyPlayed()
+            refreshLocalRecommendationsIfNeeded()
+        }
         .onChange(of: youTubeAccount.activeChannelID) { _, _ in
             discovery.accountScopeWillChange()
             accountChangeTask?.cancel()
@@ -125,6 +126,11 @@ struct HomeView: View {
                 discovery.resumeAfterAccountScopeChange()
             }
         }
+    }
+
+    private func refreshLocalRecommendationsIfNeeded() {
+        guard discovery.recommendationMode == .muses else { return }
+        discovery.reload()
     }
 
 }

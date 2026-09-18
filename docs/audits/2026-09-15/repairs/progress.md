@@ -2,6 +2,14 @@
 
 本文件记录实施进度；原验收报告保留发现当时的事实。未列为完成的工作继续按 repair-tasks.md 执行，不把代码落地等同于跨环境全部验收。
 
+## 第十五批：当前工作区收口（2026-09-18）
+
+- 收口 Home 双来源、匿名 Innertube、结构化目录、账号 API、OAuth 随机端口及发布资源路径的组合改动；保留模式／scope 缓存隔离、只读 helper 边界和远端写入保护。
+- 审查发现并修复 Desktop OAuth loopback 的首个回调竞态：等待 continuation 现在先于浏览器启动安装，listener 仅绑定 `127.0.0.1`，启动 continuation 只恢复一次；源 Info.plist 与打包默认值统一为随机端口。
+- 新增真实本机 listener 测试，验证随机非零端口和首个 callback；Home／目录／Web Home／OAuth 专项 **77 tests / 8 suites 通过**。
+
+验证：完整串行回归 **589 tests / 85 suites 通过**；显式启用真实网络的公开目录 **10 tests / 1 suite 通过**；`swift build -c release` 和 `git diff --check` 通过。Release 有三条既有编译警告，本批未扩大。未执行任何远端账号写入；真实 helper、跨系统／硬件、辅助功能及长时矩阵仍按 R001／R009／R016／R023 保留。
+
 ## 第十四批：R010／R011／R018／R019 状态与回归补修（2026-09-17）
 
 - R010：集合页的舞台／列表模式、卡片焦点和表格选择改为有界的身份快照，可跨应用重启恢复；不保存 SwiftData 对象或排序真值。

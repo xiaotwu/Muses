@@ -40,7 +40,7 @@ struct GoogleOAuthConfig: Codable, Sendable, Equatable {
             ?? ""
         let redirectURI = environment["MUSES_GOOGLE_OAUTH_REDIRECT_URI"]
             ?? info["MusesGoogleOAuthRedirectURI"] as? String
-            ?? "http://127.0.0.1:53682/"
+            ?? "http://127.0.0.1:0/"
         let config = GoogleOAuthConfig(
             clientID: clientID,
             clientSecret: clientSecret,
@@ -67,7 +67,7 @@ struct GoogleOAuthConfig: Codable, Sendable, Equatable {
     }
 
     var loopbackPort: UInt16 {
-        UInt16(URL(string: redirectURI)?.port ?? 53682)
+        UInt16(URL(string: redirectURI)?.port ?? 0)
     }
 }
 
@@ -231,10 +231,21 @@ final class GoogleOAuthSession {
         let configuredScopes = config.scopes.isEmpty
             ? GoogleOAuthConfig.defaultScopes : config.scopes
         let scopes = requestedScopes ?? configuredScopes
+        let loopbackServer = config.isLoopbackRedirect ? LoopbackCallbackServer() : nil
+        let redirectURI: String
+        if let loopbackServer {
+            guard let preparedRedirectURI = await loopbackServer.start() else {
+                throw OAuthError.network("Unable to open the local OAuth callback listener")
+            }
+            redirectURI = preparedRedirectURI
+        } else {
+            redirectURI = config.redirectURI
+        }
+
         var components = URLComponents(string: "https://accounts.google.com/o/oauth2/v2/auth")!
         components.queryItems = [
             .init(name: "client_id", value: config.clientID),
-            .init(name: "redirect_uri", value: config.redirectURI),
+            .init(name: "redirect_uri", value: redirectURI),
             .init(name: "response_type", value: "code"),
             .init(name: "scope", value: scopes.joined(separator: " ")),
             .init(name: "code_challenge", value: challenge),
@@ -248,11 +259,10 @@ final class GoogleOAuthSession {
         guard let authURL = components.url else { throw OAuthError.authFailed("Failed to build the authorization URL") }
 
         let callback: URL
-        if config.isLoopbackRedirect {
-            let server = LoopbackCallbackServer()
-            async let accepted = server.listen(port: config.loopbackPort)
-            NSWorkspace.shared.open(authURL)
-            guard let url = await accepted else { throw OAuthError.userCancelled }
+        if let loopbackServer {
+            guard let url = await loopbackServer.waitForCallback(opening: authURL) else {
+                throw OAuthError.userCancelled
+            }
             callback = url
         } else {
             guard let url = await presenter.present(
@@ -270,20 +280,21 @@ final class GoogleOAuthSession {
             let err = items.first(where: { $0.name == "error" })?.value ?? "missing code"
             throw OAuthError.authFailed(err)
         }
-        try await exchangeCode(code, verifier: verifier, config: config)
+        try await exchangeCode(code, verifier: verifier, config: config, redirectURI: redirectURI)
     }
 
     /// Exchanges the authorization code for tokens and stores them in the Keychain.
     private func exchangeCode(_ code: String,
                               verifier: String,
-                              config: GoogleOAuthConfig) async throws {
+                              config: GoogleOAuthConfig,
+                              redirectURI: String) async throws {
         var req = URLRequest(url: URL(string: "https://oauth2.googleapis.com/token")!)
         req.httpMethod = "POST"
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         var body = [
             "code": code,
             "client_id": config.clientID,
-            "redirect_uri": config.redirectURI,
+            "redirect_uri": redirectURI,
             "code_verifier": verifier,
             "grant_type": "authorization_code"
         ]
@@ -452,6 +463,24 @@ private extension Data {
 
 /// Local HTTP listener for Google Desktop OAuth loopback redirects.
 final class LoopbackCallbackServer: @unchecked Sendable {
+    private final class StartBox: @unchecked Sendable {
+        let lock = NSLock()
+        var resumed = false
+        let continuation: CheckedContinuation<String?, Never>
+
+        init(_ continuation: CheckedContinuation<String?, Never>) {
+            self.continuation = continuation
+        }
+
+        func finish(_ redirectURI: String?) {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !resumed else { return }
+            resumed = true
+            continuation.resume(returning: redirectURI)
+        }
+    }
+
     private final class ResumeBox: @unchecked Sendable {
         let lock = NSLock()
         var resumed = false
@@ -473,13 +502,24 @@ final class LoopbackCallbackServer: @unchecked Sendable {
         }
     }
 
-    func listen(port: UInt16, timeoutSeconds: TimeInterval = 180) async -> URL? {
-        await withCheckedContinuation { (cont: CheckedContinuation<URL?, Never>) in
-            let box = ResumeBox(cont)
+    private var box: ResumeBox?
+    private var port: UInt16?
+    private var listener: NWListener?
+
+    func start() async -> String? {
+        await withCheckedContinuation { (cont: CheckedContinuation<String?, Never>) in
+            let startBox = StartBox(cont)
             do {
-                let listener = try NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: port)!)
-                box.listener = listener
-                listener.newConnectionHandler = { conn in
+                let parameters = NWParameters.tcp
+                parameters.requiredLocalEndpoint = .hostPort(
+                    host: "127.0.0.1", port: NWEndpoint.Port.any)
+                let listener = try NWListener(using: parameters)
+                self.listener = listener
+                listener.newConnectionHandler = { [weak self] conn in
+                    guard let self, let box = self.box, let port = self.port else {
+                        conn.cancel()
+                        return
+                    }
                     conn.start(queue: .main)
                     conn.receive(minimumIncompleteLength: 1, maximumLength: 8192) { data, _, _, _ in
                         let text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
@@ -494,14 +534,54 @@ final class LoopbackCallbackServer: @unchecked Sendable {
                         })
                     }
                 }
-                listener.stateUpdateHandler = { state in
-                    if case .failed = state { box.finish(nil) }
+                listener.stateUpdateHandler = { [weak self] state in
+                    guard let self else { return }
+                    switch state {
+                    case .ready:
+                        guard let port = self.listener?.port?.rawValue else {
+                            self.listener?.cancel()
+                            self.listener = nil
+                            startBox.finish(nil)
+                            return
+                        }
+                        self.port = port
+                        startBox.finish("http://127.0.0.1:\(port)/")
+                    case .failed:
+                        self.listener = nil
+                        startBox.finish(nil)
+                    default:
+                        break
+                    }
                 }
                 listener.start(queue: .main)
-                DispatchQueue.main.asyncAfter(deadline: .now() + timeoutSeconds) {
-                    box.finish(nil)
-                }
             } catch {
+                startBox.finish(nil)
+            }
+        }
+    }
+
+    func waitForCallback(opening authURL: URL,
+                         timeoutSeconds: TimeInterval = 180) async -> URL? {
+        await waitForCallback(timeoutSeconds: timeoutSeconds) {
+            NSWorkspace.shared.open(authURL)
+        }
+    }
+
+    func waitForCallback(timeoutSeconds: TimeInterval = 180,
+                         open: @escaping @Sendable () -> Bool) async -> URL? {
+        guard self.port != nil else { return nil }
+        return await withCheckedContinuation { (cont: CheckedContinuation<URL?, Never>) in
+            let box = ResumeBox(cont)
+            self.box = box
+            box.listener = self.listener
+            // Install the callback continuation before opening the browser.
+            // A fast loopback redirect must never arrive in the gap between
+            // launching the authorization URL and beginning to wait.
+            guard open() else {
+                box.finish(nil)
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeoutSeconds) {
                 box.finish(nil)
             }
         }

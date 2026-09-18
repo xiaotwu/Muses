@@ -82,6 +82,7 @@ private struct YouTubeChannelUploadsView: View {
     @State private var appendPage = false
     @State private var playRequest: YTDlpBridge.YTDlpPlaylistEntry?
     @State private var playbackError: String?
+    @State private var accountActionError: String?
 
     var body: some View {
         ScrollView {
@@ -89,6 +90,19 @@ private struct YouTubeChannelUploadsView: View {
                 HStack {
                     Text(channel.title).font(.largeTitle.bold())
                     Spacer()
+                    if !channel.id.isEmpty {
+                        Button(tr("Unsubscribe", "取消订阅")) {
+                            Task {
+                                do {
+                                    try await account.unsubscribe(subscriptionID: channel.id)
+                                } catch {
+                                    accountActionError = error.localizedDescription
+                                }
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .help(tr("Unsubscribe from this channel", "取消订阅此频道"))
+                    }
                     if let target = YouTubeShareTarget(kind: .channel, id: channel.channelId) {
                         YouTubeShareMenu(target: target)
                     }
@@ -100,6 +114,7 @@ private struct YouTubeChannelUploadsView: View {
                 Text(tr("Channel uploads", "频道上传内容")).foregroundStyle(.secondary)
                 if let message = state.errorMessage { MetadataProjectionErrorBanner(message: message) }
                 if let playbackError { MetadataProjectionErrorBanner(message: playbackError) }
+                if let accountActionError { MetadataProjectionErrorBanner(message: accountActionError) }
                 if state.isLoading { ProgressView() }
                 if case .empty = state {
                     ContentUnavailableView(tr("No public uploads available", "没有可用的公开上传内容"), systemImage: "play.rectangle")

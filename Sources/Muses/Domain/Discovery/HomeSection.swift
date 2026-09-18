@@ -8,9 +8,8 @@ import Foundation
 /// (stale-while-revalidate); the view layer resolves `AlbumRef` back to `Album` (@Model)
 /// on the main actor, mirroring `RecommendationService`'s id→album mapping.
 ///
-/// Hybrid remote discovery architecture: Home leads with external YouTube/music-world
-/// discovery, with user history as only a light ranking signal. Strongly context- and
-/// history-driven personalization lives in the New tab.
+/// Home can be produced by the private on-device Muses engine or by YouTube Music.
+/// Source and scope metadata keep presentation, caching, and recovery behavior explicit.
 
 enum HomeCardEndpointKind: String, Codable, Sendable, Hashable {
     case video

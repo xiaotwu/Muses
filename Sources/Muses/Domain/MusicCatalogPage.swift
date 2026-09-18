@@ -3,6 +3,11 @@ import Foundation
 /// Public source metadata only. Display names never determine identity or type.
 enum MusicCatalogKind: String, CaseIterable, Sendable, Codable {
     case song, video, album, artist, playlist, podcast, episode
+
+    /// Episodes are browse children of a podcast, not a top-level search source.
+    static var searchableCases: [MusicCatalogKind] {
+        [.song, .video, .album, .artist, .playlist, .podcast]
+    }
 }
 
 struct MusicCatalogLink: Equatable, Sendable, Codable {

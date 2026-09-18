@@ -107,7 +107,9 @@ extension HomeView {
                 .padding(.horizontal, AppleMusicTokens.contentPaddingX)
             }
 
-            listenAgainShelf
+            if discovery.recommendationMode == .muses {
+                listenAgainShelf
+            }
 
             ForEach(sections.filter {
                 !ListenAgainEmptyPolicy.hidesDiscoverySection(id: $0.id, title: $0.title)
@@ -442,7 +444,8 @@ extension HomeView {
                     .background(BrandColors.textPrimary.opacity(0.08),
                                 in: Capsule())
             }
-            if HomeGuestStatusPolicy.unsignedInShowsSingleCue,
+            if discovery.recommendationMode == .youtubeMusic,
+               HomeGuestStatusPolicy.unsignedInShowsSingleCue,
                !youTubeAccount.isConnected {
                 Button(tr("Sign In", "登录"), systemImage: "person.badge.key.fill") {
                     NotificationCenter.default.post(
@@ -461,6 +464,10 @@ extension HomeView {
     }
 
     var homeSourceStatusText: String {
+        if discovery.recommendationMode == .muses {
+            return tr("Recommended privately on this Mac",
+                      "由这台 Mac 私密推荐", zhHant: "由這台 Mac 私密推薦")
+        }
         let accountName = youTubeAccount.account?.channel?.title
         switch discovery.webCapability {
         case .available:
@@ -470,19 +477,19 @@ extension HomeView {
             return tr("Saved YouTube Music personalized · " + (accountName ?? "Account"),
                       "已保存的 YouTube Music 个性化 · " + (accountName ?? "账号"))
         case .unavailable, .rejected:
-            return tr("Official YouTube account + public discovery",
-                      "YouTube 官方账号内容 + 公共发现")
+            return tr("Anonymous YouTube Music discovery · signed-in enhancement unavailable",
+                      "匿名 YouTube Music 公共发现 · 登录增强不可用",
+                      zhHant: "匿名 YouTube Music 公開探索 · 登入增強不可用")
         case .notConfigured, .signedOut:
-            if youTubeAccount.activeChannelID != nil {
-                return tr("Official YouTube account + public discovery",
-                          "YouTube 官方账号内容 + 公共发现")
-            }
-            return tr("Public discovery", "公共发现")
+            return tr("Anonymous YouTube Music discovery (Public discovery)",
+                      "匿名 YouTube Music 公共发现",
+                      zhHant: "匿名 YouTube Music 公開探索")
         }
     }
 
     var homeSourceStatusIcon: String {
-        switch discovery.webCapability {
+        if discovery.recommendationMode == .muses { return "macbook" }
+        return switch discovery.webCapability {
         case .available: "person.crop.circle.fill.badge.checkmark"
         case .saved: "clock.arrow.circlepath"
         case .unavailable, .rejected: "arrow.down.right.circle"
@@ -538,7 +545,8 @@ extension HomeView {
     }
 
     var shouldShowWebRecovery: Bool {
-        guard webHome.isEnabled,
+        guard discovery.recommendationMode == .youtubeMusic,
+              webHome.isEnabled,
               !isShowingSavedWeb,
               discovery.lastRefreshError != nil else { return false }
         return switch discovery.webCapability {
@@ -556,8 +564,9 @@ extension HomeView {
                         "个性化 Web 首页暂不可用"))
                     .font(.subheadline.weight(.semibold))
                 Text(discovery.lastRefreshError
-                     ?? tr("Official account and public discovery remain available.",
-                           "YouTube 官方账号内容与公共发现仍可使用。"))
+                     ?? tr("Anonymous YouTube Music discovery remains available; retry the signed-in enhancement.",
+                           "匿名 YouTube Music 公共发现仍可使用；请重试登录增强。",
+                           zhHant: "匿名 YouTube Music 公開探索仍可使用；請重試登入增強。"))
                     .font(.caption)
                     .foregroundStyle(BrandColors.textSecondary)
                     .lineLimit(2)
@@ -789,31 +798,25 @@ extension HomeView {
 
     @ViewBuilder
     func continuationButton(for section: HomeSection) -> some View {
-        if section.source == .signedInWeb,
-           webHome.hasContinuation(for: section.id) {
+        if discovery.hasContinuation(for: section.id) {
             Button {
-                Task {
-                    do {
-                        let items = try await webHome.fetchContinuation(for: section.id)
-                        discovery.appendWebContinuation(items, to: section.id)
-                    } catch let error as WebHomeContinuationError {
-                        interactionError = continuationFailureMessage(error.code)
-                    } catch {
-                        interactionError = tr(
-                            "More recommendations are temporarily unavailable.",
-                            "暂时无法加载更多推荐。")
-                    }
-                }
+                discovery.loadMore(sectionID: section.id)
             } label: {
                 Label(tr("More", "更多"), systemImage: "chevron.right.circle")
             }
             .musesAction()
             .controlSize(.small)
-            .disabled(webHome.status == .refreshing || webHome.status == .checking)
-            .help(tr("Load more from this personalized section",
-                     "从此个性化区段加载更多内容"))
+            .disabled(discovery.loadingSectionIDs.contains(section.id))
+            .help(tr("Load more from this section",
+                     "从此区段加载更多内容"))
             .accessibilityLabel(tr("Load more from \(section.title)",
                                    "加载更多：\(section.title)", zhHant: "載入更多：\(section.title)"))
+        }
+        if let error = discovery.continuationErrors[section.id] {
+            Text(error)
+                .font(.caption)
+                .foregroundStyle(BrandColors.textSecondary)
+                .accessibilityLabel(error)
         }
     }
 
@@ -919,4 +922,3 @@ private struct MoodChipButton: View {
         .animation(MusesMotion.hoverAnimation(reduceMotion: reduceMotion), value: isHovered)
     }
 }
-

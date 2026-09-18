@@ -4,68 +4,77 @@ import Observation
 /// Home discovery service.
 ///
 /// `@MainActor @Observable`. Exposes `sections: [HomeSection]` and `isEnabled`.
-/// `load()` is cache-first: sections from `HomeFeedCache` (possibly stale) render immediately,
-/// then refresh in the background per section (each with its own status; one failure never poisons the others).
+/// `load()` is cache-first: sections from the active mode's partition (possibly stale) render
+/// immediately, then refresh in the background. One section failure never poisons the others.
 ///
 /// With `ffDiscovery` off, `load()` is a no-op and `sections` stays empty; HomeView falls back to its existing behavior.
 @MainActor
 @Observable
 final class HomeDiscoveryService {
-    /// Current discovery sections (remote discovery only; local sections are managed by HomeView).
+    /// Current sections from the selected recommendation mode.
     private(set) var sections: [HomeSection] = []
-    /// Whether remote discovery is refreshing in the background.
+    /// Whether discovery is refreshing in the background.
     private(set) var isRefreshing: Bool = false
     /// Account/input-scoped cache freshness shown by Home.
     private(set) var lastUpdatedAt: Date?
     private(set) var isShowingStale = false
     private(set) var lastRefreshError: String?
     private(set) var activeScope: HomeFeedScope = .guest
+    private(set) var activeMode: HomeRecommendationMode = .muses
     private(set) var webCapability: HomeWebCapability = .notConfigured
 
     private let provider: HomeDiscoveryProvider
     private let cache: HomeFeedCache
     private let library: LibraryService
-    private let historyService: HistoryService?
     private let enabledProvider: () -> Bool
-    /// YouTube account personalization signals (optional; injected after OAuth sign-in). Read only on the background `refresh` path,
-    /// folding liked/subscribed artist names into the discovery seeds; nil/disconnected → no effect, discovery falls back to local signals.
-    private let youTubeSignals: @Sendable () async -> PersonalizationSignals?
+    private let modeProvider: () -> HomeRecommendationMode
     private let accountChannelIDProvider: () -> String?
     private var refreshTask: Task<Void, Never>?
+    /// Invalidates every refresh and continuation when Home leaves, changes mode,
+    /// or changes account. A scope check alone is insufficient for guest-to-guest
+    /// mode changes because both requests can share the same scope.
+    private var operationID = UUID()
     private var morePage = 0
     private(set) var isLoadingMore = false
+    private(set) var loadingSectionIDs: Set<String> = []
+    private(set) var continuationErrors: [String: String] = [:]
 
     init(provider: HomeDiscoveryProvider,
          cache: HomeFeedCache = .default,
          library: LibraryService,
-         historyService: HistoryService? = nil,
          enabledProvider: @escaping () -> Bool = { UserDefaults.standard.bool(forKey: PrefKey.ffDiscovery) },
-         youTubeSignals: @escaping @Sendable () async -> PersonalizationSignals? = { nil },
+         modeProvider: @escaping () -> HomeRecommendationMode = {
+             HomeRecommendationMode(
+                rawValue: UserDefaults.standard.string(forKey: PrefKey.homeRecommendationMode) ?? ""
+             ) ?? .muses
+         },
          accountChannelIDProvider: @escaping () -> String? = { nil }) {
         self.provider = provider
         self.cache = cache
         self.library = library
-        self.historyService = historyService
         self.enabledProvider = enabledProvider
-        self.youTubeSignals = youTubeSignals
+        self.modeProvider = modeProvider
         self.accountChannelIDProvider = accountChannelIDProvider
     }
 
     var isEnabled: Bool { enabledProvider() }
+    var recommendationMode: HomeRecommendationMode { modeProvider() }
 
     // MARK: - Load
 
-    /// Cache-first load of the remote discovery sections.
+    /// Cache-first load of the selected mode's discovery sections.
     /// - Fill `sections` immediately from cache even when stale (stale-while-revalidate).
     /// - Fresh cache → skip the background spawn.
     /// - Otherwise refresh in the background: the provider yields per-section statuses that merge back into `sections`.
     func load() {
         guard isEnabled else { return }
         let input = buildInput()
+        let mode = recommendationMode
+        activeMode = mode
         activeScope = input.scope
-        let baselineCache = cache.get(for: input, layer: .baseline)
+        let baselineCache = cache.get(for: input, layer: .baseline, mode: mode)
         let webCache = provider.hasWebEnhancement
-            ? cache.get(for: input, layer: .web)
+            ? cache.get(for: input, layer: .web, mode: mode)
             : nil
         let baselineIsFresh = baselineCache.map {
             cache.isFresh($0, layer: .baseline)
@@ -117,25 +126,72 @@ final class HomeDiscoveryService {
         morePage += 1
         let page = morePage
         let input = buildInput()
+        let mode = recommendationMode
+        let operation = operationID
         isLoadingMore = true
         Task { [weak self] in
             guard let self else { return }
             let extra = await self.provider.more(page: page, input: input)
-            guard !Task.isCancelled, input.scope == self.buildInput().scope else {
+            guard !Task.isCancelled,
+                  operation == self.operationID,
+                  mode == self.recommendationMode,
+                  input.scope == self.buildInput().scope else {
                 self.isLoadingMore = false
                 return
             }
             self.sections.append(contentsOf: extra)
+            if extra.isEmpty {
+                self.lastRefreshError = tr("More Home recommendations are temporarily unavailable.",
+                                           "暂时无法加载更多首页推荐。",
+                                           zhHant: "暫時無法載入更多首頁推薦。")
+            }
             self.isLoadingMore = false
+        }
+    }
+
+    func hasContinuation(for sectionID: String) -> Bool {
+        provider.hasContinuation(for: sectionID)
+    }
+
+    func loadMore(sectionID: String) {
+        guard isEnabled,
+              provider.hasContinuation(for: sectionID),
+              loadingSectionIDs.insert(sectionID).inserted else { return }
+        let input = buildInput()
+        let mode = recommendationMode
+        let operation = operationID
+        Task { [weak self] in
+            guard let self else { return }
+            let items = await self.provider.more(sectionID: sectionID, input: input)
+            guard !Task.isCancelled,
+                  operation == self.operationID,
+                  input.scope == self.buildInput().scope,
+                  mode == self.recommendationMode else {
+                self.loadingSectionIDs.remove(sectionID)
+                return
+            }
+            self.appendContinuation(items, to: sectionID)
+            if items.isEmpty {
+                self.continuationErrors[sectionID] = tr(
+                    "This section could not load more items. Try again.",
+                    "此区段无法加载更多内容，请重试。",
+                    zhHant: "此區段無法載入更多內容，請重試。")
+            } else {
+                self.continuationErrors.removeValue(forKey: sectionID)
+            }
+            self.loadingSectionIDs.remove(sectionID)
         }
     }
 
     /// Cancels the in-flight refresh (page switches cancel).
     func cancel() {
+        operationID = UUID()
         refreshTask?.cancel()
         refreshTask = nil
         isRefreshing = false
         isLoadingMore = false
+        loadingSectionIDs.removeAll(keepingCapacity: false)
+        continuationErrors.removeAll(keepingCapacity: false)
     }
 
     /// Called when OAuth identity changes. Visible account content is cleared
@@ -143,6 +199,21 @@ final class HomeDiscoveryService {
     /// can only be reopened by that same channel scope.
     func accountScopeDidChange() {
         guard transitionToCurrentAccountScope() else { return }
+        load()
+    }
+
+    /// Applies an explicit source change without deleting either source's
+    /// saved snapshot. The target cache is read synchronously by `load()`.
+    func recommendationModeDidChange() {
+        cancel()
+        sections = []
+        lastUpdatedAt = nil
+        isShowingStale = false
+        lastRefreshError = nil
+        continuationErrors.removeAll(keepingCapacity: false)
+        webCapability = .notConfigured
+        morePage = 0
+        activeMode = recommendationMode
         load()
     }
 
@@ -186,7 +257,7 @@ final class HomeDiscoveryService {
     func clearSavedWebHomeForCurrentAccount() {
         let input = buildInput()
         guard case .account = input.scope else { return }
-        cache.invalidate(scope: input.scope, layer: .web)
+        cache.invalidate(scope: input.scope, layer: .web, mode: .youtubeMusic)
         sections.removeAll {
             $0.source == .signedInWeb || $0.cachedOrigin == .signedInWeb
         }
@@ -199,9 +270,11 @@ final class HomeDiscoveryService {
     /// Continuation pages are not written to the durable cache because the
     /// associated token chain is intentionally process-local.
     func appendWebContinuation(_ items: [DiscoveryItem], to sectionID: String) {
-        guard let index = sections.firstIndex(where: {
-            $0.id == sectionID && $0.source == .signedInWeb
-        }) else { return }
+        appendContinuation(items, to: sectionID)
+    }
+
+    private func appendContinuation(_ items: [DiscoveryItem], to sectionID: String) {
+        guard let index = sections.firstIndex(where: { $0.id == sectionID }) else { return }
         let section = sections[index]
         var seen = Set(section.items.compactMap(\.homeMediaIdentity))
         let extra = items.filter { item in
@@ -225,6 +298,7 @@ final class HomeDiscoveryService {
         lastUpdatedAt = nil
         isShowingStale = false
         lastRefreshError = nil
+        continuationErrors.removeAll(keepingCapacity: false)
         morePage = 0
         return true
     }
@@ -232,13 +306,18 @@ final class HomeDiscoveryService {
     private func refresh(input: HomeDiscoveryInput) {
         refreshTask?.cancel()
         isRefreshing = true
+        let mode = recommendationMode
+        let operation = operationID
         refreshTask = Task { [weak self] in
             guard let self else { return }
-            // Fold in YouTube account personalization signals (background path; does not affect the synchronous cache contract).
-            let enriched = await self.enrichedInput(input)
-            let result = await self.provider.fetch(for: enriched)
-            guard !Task.isCancelled, input.scope == self.buildInput().scope else { return }
-            let cachedBaseline = self.cache.get(for: input, layer: .baseline)
+            // Home never asks YouTube Data API for personalization signals.
+            // YouTube Music mode personalizes only through the isolated browser session.
+            let result = await self.provider.fetch(for: input)
+            guard !Task.isCancelled,
+                  operation == self.operationID,
+                  input.scope == self.buildInput().scope,
+                  mode == self.recommendationMode else { return }
+            let cachedBaseline = self.cache.get(for: input, layer: .baseline, mode: mode)
             let previousBaselineSections = cachedBaseline?.value.sections
                 ?? self.sections.filter {
                     $0.source != .signedInWeb && $0.cachedOrigin != .signedInWeb
@@ -265,19 +344,19 @@ final class HomeDiscoveryService {
             }
 
             if result.cacheDirectives.storeBaseline {
-                _ = self.cache.set(result.baselineSnapshot, for: input, layer: .baseline)
+                _ = self.cache.set(result.baselineSnapshot, for: input, layer: .baseline, mode: mode)
             }
 
             let webFailure = result.failures.first { $0.layer == .web }
             let webSections: [HomeSection]
             if let webSnapshot = result.webSnapshot {
                 if result.cacheDirectives.storeWeb {
-                    _ = self.cache.set(webSnapshot, for: input, layer: .web)
+                    _ = self.cache.set(webSnapshot, for: input, layer: .web, mode: mode)
                 }
                 webSections = webSnapshot.sections
                 self.webCapability = result.webCapability
             } else {
-                let savedWeb = self.cache.get(for: input, layer: .web)
+                let savedWeb = self.cache.get(for: input, layer: .web, mode: mode)
                 let savedReason = webFailure?.message
                     ?? result.failures.first(where: { $0.layer == .web })?.code.rawValue
                 webSections = savedWeb?.value.sections.map {
@@ -305,7 +384,7 @@ final class HomeDiscoveryService {
                 result.cacheDirectives.storeBaseline
                     ? result.baselineSnapshot.fetchedAt : cachedBaseline?.value.fetchedAt,
                 result.webSnapshot?.fetchedAt,
-                self.cache.get(for: input, layer: .web)?.value.fetchedAt
+                self.cache.get(for: input, layer: .web, mode: mode)?.value.fetchedAt
             ].compactMap { $0 }.max()
             self.isRefreshing = false
             PerfTrace.event("home.discovery.refreshed")
@@ -353,16 +432,18 @@ final class HomeDiscoveryService {
         return .unavailable(reason: nil)
     }
 
-    /// Folds YouTube account signals (liked/subscribed artist names) into the `input` seed list.
-    /// Called only from the background refresh; a nil `youTubeSignals` returns the input unchanged.
-    private func enrichedInput(_ input: HomeDiscoveryInput) async -> HomeDiscoveryInput {
-        guard case .account = input.scope else { return input }
-        guard let signals = await youTubeSignals() else { return input }
-        return input.enriched(with: signals)
-    }
-
     /// Loading placeholders: prefill with section titles derived from the input (titles come from provider logic, never hardcoded in views).
     private func loadingPlaceholders(for input: HomeDiscoveryInput) -> [HomeSection] {
+        if recommendationMode == .muses {
+            return [
+                HomeSection(id: "muses:on-repeat", title: tr("On Repeat", "循环热播"),
+                            kind: .youTubeCarousel, items: [], status: .loading,
+                            source: .localLibrary),
+                HomeSection(id: "muses:rediscover", title: tr("Rediscover", "重新发现"),
+                            kind: .youTubeCarousel, items: [], status: .loading,
+                            source: .localLibrary)
+            ]
+        }
         // Reuse the provider's plan naming? Its plans are private. Derive equivalent titles from the input here,
         // keeping them consistent with the provider (title generation lives in the provider; this is a placeholder only).
         var placeholders: [HomeSection] = []

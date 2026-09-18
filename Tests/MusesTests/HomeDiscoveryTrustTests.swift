@@ -5,30 +5,6 @@ import Testing
 @Suite("Home discovery trust and cache scope")
 @MainActor
 struct HomeDiscoveryTrustTests {
-    @Test("public Home rejects promotional playlists but retains official music")
-    func trustGateKeepsOnlyMusicCandidates() {
-        let official = YTDlpBridge.YTDlpPlaylistEntry(
-            id: "official", title: "Artist — Song (Official Audio)",
-            uploader: "Artist", duration: 180)
-        let topic = YTDlpBridge.YTDlpPlaylistEntry(
-            id: "topic", title: "Song", uploader: "Artist - Topic", duration: 180)
-        let promotional = YTDlpBridge.YTDlpPlaylistEntry(
-            id: "seo", title: "Top Spotify Hits 2026 | Trending TikTok Playlist",
-            uploader: "Playlist Factory", duration: 3600)
-        let assertedOfficialReupload = YTDlpBridge.YTDlpPlaylistEntry(
-            id: "reupload", title: "Chile One – Destine (Official Audio)",
-            uploader: "Unrelated Compilation Channel", duration: 180)
-        let titleStuffedWithLabel = YTDlpBridge.YTDlpPlaylistEntry(
-            id: "stuffed", title: "Tareef (Official Audio) Artist | Label Records",
-            uploader: "Label Records", duration: 180)
-
-        #expect(YouTubeMusicTrust.isTrustedHomeEntry(official))
-        #expect(YouTubeMusicTrust.isTrustedHomeEntry(topic))
-        #expect(!YouTubeMusicTrust.isTrustedHomeEntry(promotional))
-        #expect(!YouTubeMusicTrust.isTrustedHomeEntry(assertedOfficialReupload))
-        #expect(!YouTubeMusicTrust.isTrustedHomeEntry(titleStuffedWithLabel))
-    }
-
     @Test("guest and account Home caches are physically isolated")
     func feedCacheDoesNotCrossAccountBoundary() {
         let cache = HomeFeedCache(directory: FileManager.default.temporaryDirectory
@@ -171,24 +147,6 @@ struct HomeDiscoveryTrustTests {
         #expect(cached.cachedOrigin == .officialAccount)
         #expect(cached.accountChannelID == "UC_one")
         #expect(cached.staleReason == "offline")
-    }
-
-    @Test("official account content never crosses guest or account scope")
-    func accountProviderRequiresExactScope() async {
-        let baseline = StubHomeProvider(sections: [baselineSection])
-        let account = snapshot(channelID: "UC_one")
-        let provider = YouTubeAccountHomeProvider(base: baseline, snapshot: { account })
-
-        let guest = await provider.fetch(for: input(scope: .guest)).baselineSnapshot.sections
-        let other = await provider.fetch(
-            for: input(scope: .account(channelID: "UC_two"))).baselineSnapshot.sections
-        let matching = await provider.fetch(
-            for: input(scope: .account(channelID: "UC_one"))).baselineSnapshot.sections
-
-        #expect(guest.allSatisfy { $0.source != .officialAccount })
-        #expect(other.allSatisfy { $0.source != .officialAccount })
-        #expect(matching.first?.source == .officialAccount)
-        #expect(matching.first?.accountChannelID == "UC_one")
     }
 
     @Test("Web enhancement failure and account mismatch preserve baseline")

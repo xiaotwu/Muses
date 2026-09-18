@@ -21,6 +21,7 @@ struct YouTubeSettingsView: View {
 
     @AppStorage(PrefKey.ytCookieSource) private var cookieSourceRaw: String = YTCookieSource.none.rawValue
     @AppStorage(PrefKey.ytCookiePath) private var cookiePath: String = ""
+    @AppStorage(PrefKey.homeRecommendationMode) private var homeModeRaw = HomeRecommendationMode.muses.rawValue
     @State private var binaryPath: String?
     @State private var versionString: String?
     @State private var checkingVersion = false
@@ -72,6 +73,7 @@ struct YouTubeSettingsView: View {
             if let destination {
                 detail(destination)
             } else {
+                homeRecommendationSource
                 accountOverview
                 Section { accountDetails } header: { Text(tr("Account permissions & sync", "账号权限与同步")).font(.headline.weight(.semibold)) }
                 Section { webHomeDetails } header: { Text(tr("Personalized Home", "个性化首页")).font(.headline.weight(.semibold)) }
@@ -81,6 +83,9 @@ struct YouTubeSettingsView: View {
         .task {
             if let bridge { binaryPath = await bridge.locateBinary() }
             webHome.refreshDefaultBrowserSource()
+        }
+        .onChange(of: homeModeRaw) { _, _ in
+            homeDiscovery.recommendationModeDidChange()
         }
         .fileImporter(
             isPresented: $showFilePicker,
@@ -120,6 +125,29 @@ struct YouTubeSettingsView: View {
     }
 
     var destination: SettingsDestination? = nil
+
+    private var homeRecommendationSource: some View {
+        Section {
+            Picker(tr("Home source", "首页来源", zhHant: "首頁來源"), selection: $homeModeRaw) {
+                Text("Muses").tag(HomeRecommendationMode.muses.rawValue)
+                Text("YouTube Music").tag(HomeRecommendationMode.youtubeMusic.rawValue)
+            }
+            .pickerStyle(.radioGroup)
+
+            Text(homeModeRaw == HomeRecommendationMode.muses.rawValue
+                 ? tr("Private recommendations generated from your library and listening activity on this Mac. Your recommendation profile stays on this Mac.",
+                      "根据这台 Mac 上的资料库与聆听活动生成私密推荐。你的推荐档案不会离开这台 Mac。",
+                      zhHant: "根據這台 Mac 上的資料庫與聆聽活動產生私密推薦。你的推薦檔案不會離開這台 Mac。")
+                 : tr("Muses requests recommendations directly from YouTube Music. Signed-in requests may be associated with your YouTube account. Muses does not upload local listening history as recommendation input.",
+                      "Muses 会直接向 YouTube Music 请求推荐。登录后的请求可能与你的 YouTube 账号关联；Muses 不会上传本地聆听历史作为推荐输入。",
+                      zhHant: "Muses 會直接向 YouTube Music 請求推薦。登入後的請求可能與你的 YouTube 帳號關聯；Muses 不會上傳本機聆聽記錄作為推薦輸入。"))
+                .font(.caption)
+                .foregroundStyle(BrandColors.textSecondary)
+        } header: {
+            Text(tr("Home & Recommendations", "首页与推荐", zhHant: "首頁與推薦"))
+                .font(.headline.weight(.semibold))
+        }
+    }
 
     @ViewBuilder private func detail(_ destination: SettingsDestination) -> some View {
         if destination == .diagnostics {

@@ -5,6 +5,15 @@ import Foundation
 struct YouTubePlaylistWriteService: Sendable {
     let client: YouTubeDataAPIClient
 
+    func createPlaylist(title: String, description: String? = nil,
+                        privacy: YouTubePlaylistPrivacy = .private) async throws -> YouTubePlaylist {
+        try await client.createPlaylist(title: title, description: description, privacy: privacy)
+    }
+
+    func deletePlaylist(id: String) async throws {
+        try await client.deletePlaylist(id: id)
+    }
+
     @discardableResult
     func addVideo(playlistId: String, videoId: String, position: Int? = nil) async throws -> String {
         try await client.insertPlaylistItem(playlistId: playlistId, videoId: videoId, position: position)

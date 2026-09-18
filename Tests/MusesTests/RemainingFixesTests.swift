@@ -68,6 +68,10 @@ struct RemainingFixesTests {
                                      scopes: GoogleOAuthConfig.defaultScopes)
         #expect(loop.isLoopbackRedirect)
         #expect(loop.loopbackPort == 53682)
+        let random = GoogleOAuthConfig(clientID: "id", clientSecret: "s",
+                                       redirectURI: "http://127.0.0.1:0/",
+                                       scopes: GoogleOAuthConfig.defaultScopes)
+        #expect(random.loopbackPort == 0)
         let custom = GoogleOAuthConfig(clientID: "id", clientSecret: "s",
                                        redirectURI: "muses:/oauth",
                                        scopes: GoogleOAuthConfig.defaultScopes)
