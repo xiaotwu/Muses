@@ -1,6 +1,25 @@
 # R001 远端写入演练门槛
 
-日期：2026-09-18。本记录定义真实 YouTube 写入前的精确授权边界；它不是远端写入授权，也不表示演练已经执行。
+日期：2026-09-18。本记录同时保留写入前门槛和当日一次性真实演练结果。用户随后明确将 `PLVRppllwHcDw` 指定为新建、Private、可丢弃的测试歌单，并仅授权该歌单的一次 Insert、Move、Delete 和服务端复读；这一当前决定取代下方准备步骤中“不使用该 506 首歌单”的旧假设。
+
+## 真实演练结果
+
+- 目标账号频道：`UCIfafZrJVaMDXLIADDY1CGg`；目标歌单：`PLVRppllwHcDw`。执行前重新确认 OAuth playlist-management scope、账号频道、所有权、可写状态和 506 项完整 Remote Shadow。
+- 在独立 SQLite 一致性副本上运行生产 `YouTubePlaylistSyncService`；真实用户库未写入。测试视频 `dQw4w9WgXcQ` 在初始远端和本地基线中均不存在。
+- **Insert：远端成功。** 服务端返回新的 playlistItem ID；完整复读确认总数 507，测试 occurrence 位于位置 506。
+- **Move：远端写入生效，但同步批次失败。** 计划只有一个 `move`（506 → 0），服务端随后可见测试 occurrence 位于位置 0；生产服务在最终 `verifiedLocal.isStructurallyEquivalent(to: verifiedRemote)` 门槛报 `Verified remote state does not match Local after Push`，因此批次停在 `started`，没有误标为完成。
+- **Delete／恢复：成功。** 失败清理删除测试 occurrence；再次完整服务端复读确认共 506 项，所有 playlistItem ID、视频 ID 和顺序逐项等于写入前基线。
+- 首次尝试使用了一个已失效的旧 OAuth 测试构建配置，并在账号身份门槛前收到 `invalid_client`；没有发出任何歌单写请求。随后只使用通过频道、所有权和 scope 预检的有效配置执行上述演练。
+- 本轮没有重试 Move，也没有执行歌单创建／删除、订阅或其他账号写入。
+
+结论：精确目标门控、Insert、失败停止和恢复 Delete 获得了真实证据；Move 的服务端结果与本地最终对账仍有缺陷，R001 不通过，普通 Release Push 继续保持关闭。
+
+## 下一步门槛
+
+1. 在假 Data API 中加入 507 项的真实顺序形状，复现“最后一项移动到首位后远端已生效、最终结构校验失败”；记录首个结构差异的 occurrence、位置与 availability，不记录账号原始响应。
+2. 修复 Move 后 Remote Shadow 与 Local 的身份／顺序对账，并覆盖重复视频、跨页边界、响应丢失后恢复及服务端短暂旧读。
+3. 先在假服务完成 Insert → 幂等零操作 → Move → Remove → 最终精确基线的故障注入回归，再请求新的单次真实写入授权；不得沿用本次授权重试。
+4. Move 真实复验通过后，才评估现有 item Push 的受控生产策略。远端创建／删除歌单继续作为独立编排任务。
 
 ## 已实现的保护
 
