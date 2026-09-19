@@ -17,6 +17,7 @@ struct YouTubeAlbumDetailView: View {
     @State private var rows: [CollectionTrackRow] = []
     @State private var pullPreview: YouTubePullPreview?
     @State private var pushPreview: YouTubePushPreview?
+    @State private var deleteRemotePreview: YouTubePlaylistDeletePreview?
 
     private var isOwned: Bool {
         youTubeAccount.ownsPlaylist(youTubeImport.playlistId)
@@ -78,6 +79,16 @@ struct YouTubeAlbumDetailView: View {
                     batchID: preview.batchID, userConfirmed: true)
             } onCancel: {
                 try playlistSync.discardPush(batchID: preview.batchID)
+            }
+        }
+        .sheet(item: $deleteRemotePreview) { preview in
+            YouTubePlaylistDeletePreviewSheet(preview: preview) {
+                try await playlistSync.resumeDeletePlaylist(
+                    operationID: preview.id, userConfirmed: true)
+                NotificationCenter.default.post(
+                    name: .musesCloseYouTubeAlbum, object: nil)
+            } onCancel: {
+                try playlistSync.discardResourceOperation(operationID: preview.id)
             }
         }
         .confirmationDialog(
@@ -145,6 +156,27 @@ struct YouTubeAlbumDetailView: View {
                         help: tr("Add Tracks", "添加曲目"),
                         accessibility: tr("Add Tracks", "添加曲目")
                     ) { showAddTrack = true }
+                    ChromeIconButton(
+                        systemName: "trash.slash",
+                        help: tr("Delete from YouTube", "从 YouTube 删除"),
+                        accessibility: tr("Delete from YouTube", "从 YouTube 删除")
+                    ) { Task { await previewRemoteDelete() } }
+                    .disabled(syncing)
+                    if youTubeImport.remoteWriteApprovedAt != nil {
+                        ChromeIconButton(
+                            systemName: "shield.slash",
+                            help: tr("Revoke remote write approval", "撤销远端写入批准"),
+                            accessibility: tr("Revoke remote write approval", "撤销远端写入批准")
+                        ) {
+                            do {
+                                try playlistSync.revokeRemoteWriteApproval(
+                                    importID: youTubeImport.id)
+                                writeError = nil
+                            } catch {
+                                writeError = error.localizedDescription
+                            }
+                        }
+                    }
                 }
             }
 
@@ -255,6 +287,18 @@ struct YouTubeAlbumDetailView: View {
         defer { syncing = false }
         do {
             pushPreview = try await playlistSync.preparePush(importID: youTubeImport.id)
+            writeError = nil
+        } catch {
+            writeError = error.localizedDescription
+        }
+    }
+
+    private func previewRemoteDelete() async {
+        syncing = true
+        defer { syncing = false }
+        do {
+            deleteRemotePreview = try await playlistSync.prepareDeletePlaylist(
+                importID: youTubeImport.id)
             writeError = nil
         } catch {
             writeError = error.localizedDescription

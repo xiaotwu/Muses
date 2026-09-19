@@ -4,8 +4,10 @@ import SwiftData
 /// store and has no staged-migration dependency on the retired local era.
 ///
 /// Generation 2 removes InboxItem, AutomationRule, and FocusSession.
+/// Generation 3 adds the durable whole-playlist resource journal and exact-
+/// target write approval metadata.
 enum MusesSchema {
-    static let generation = 2
+    static let generation = 3
     static let version = Schema.Version(generation, 0, 0)
 
     static let models: [any PersistentModel.Type] = [
@@ -25,6 +27,7 @@ enum MusesSchema {
         YouTubePlaylistRevision.self,
         YouTubeSyncOperation.self,
         YouTubeSyncBatch.self,
+        YouTubePlaylistResourceOperation.self,
     ]
 
     static var current: Schema { Schema(models, version: version) }

@@ -159,9 +159,9 @@ struct YouTubeDataAPIClient {
         return response.items.first(where: { $0.id == channelID })?.contentDetails?.relatedPlaylists?.uploads
     }
 
-    /// Playlists owned by the account (id/title/thumbnail/itemCount), fetched with pagination.
+    /// Playlists owned by the account (id/title/thumbnail/itemCount/privacy), fetched with pagination.
     func myPlaylists() async throws -> [YouTubePlaylist] {
-        try await paginateList(url: "\(Self.base)/playlists?part=snippet,contentDetails&mine=true&maxResults=50",
+        try await paginateList(url: "\(Self.base)/playlists?part=snippet,contentDetails,status&mine=true&maxResults=50",
                                type: PlaylistListPage.self,
                                items: { $0.items })
     }
@@ -471,9 +471,12 @@ struct YouTubePlaylist: Codable, Sendable, Equatable {
     let title: String
     let thumbnailURL: String?
     let itemCount: Int
-    enum CodingKeys: String, CodingKey { case id, snippet, contentDetails }
-    init(id: String, title: String, thumbnailURL: String?, itemCount: Int) {
-        self.id = id; self.title = title; self.thumbnailURL = thumbnailURL; self.itemCount = itemCount
+    let privacy: YouTubePlaylistPrivacy?
+    enum CodingKeys: String, CodingKey { case id, snippet, contentDetails, status }
+    init(id: String, title: String, thumbnailURL: String?, itemCount: Int,
+         privacy: YouTubePlaylistPrivacy? = nil) {
+        self.id = id; self.title = title; self.thumbnailURL = thumbnailURL
+        self.itemCount = itemCount; self.privacy = privacy
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -483,15 +486,18 @@ struct YouTubePlaylist: Codable, Sendable, Equatable {
         self.thumbnailURL = s.thumbnails?.high?.url ?? s.thumbnails?.default?.url
         let d = try c.decodeIfPresent(ContentDetails.self, forKey: .contentDetails)
         self.itemCount = d?.itemCount ?? 0
+        self.privacy = try c.decodeIfPresent(Status.self, forKey: .status)?.privacyStatus
     }
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id)
         try c.encode(Snippet(title: title, thumbnails: nil), forKey: .snippet)
         try c.encodeIfPresent(ContentDetails(itemCount: itemCount), forKey: .contentDetails)
+        try c.encodeIfPresent(privacy.map(Status.init(privacyStatus:)), forKey: .status)
     }
     struct Snippet: Codable, Sendable { let title: String; let thumbnails: YouTubeChannel.Thumbnails? }
     struct ContentDetails: Codable, Sendable { let itemCount: Int }
+    struct Status: Codable, Sendable { let privacyStatus: YouTubePlaylistPrivacy }
 }
 
 enum YouTubePlaylistPrivacy: String, Codable, Sendable, CaseIterable {

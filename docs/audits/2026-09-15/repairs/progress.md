@@ -2,6 +2,16 @@
 
 本文件记录实施进度；原验收报告保留发现当时的事实。未列为完成的工作继续按 repair-tasks.md 执行，不把代码落地等同于跨环境全部验收。
 
+## 第二十批：R001 歌单资源编排与普通生产策略（2026-09-19）
+
+- 新增整歌单 Create／Delete 的独立 durable journal。创建先记录频道、标题、说明和 privacy，拿到服务端 playlist ID 后只按该 ID 复读；若响应在记录 ID 前中断，操作进入 `needsReview`，不会按标题盲目重试。删除先保存并固定完整 `beforeDelete` 快照，执行前再次核对频道、所有权、标题、完整结构指纹，删除后有界复读确认资源消失，最后才将本地导入移入 Recently Deleted。
+- 普通应用策略由“无演练环境即全局关闭”改为逐目标批准：OAuth manage scope 和账号所有权本身不构成批准；首次确认写入时只记录当前频道 + 当前 playlist ID，Push 与整歌单删除仍每次要求精确预览和 checkbox。详情页可随时撤销该歌单批准。完整 rehearsal 环境组合仍覆盖为单目标演练；只配置一半演练环境会 fail closed，测试宽松策略不进入应用组合。
+- 歌单页新增 YouTube 创建入口与两段确认；详情页明确区分“仅删除本地导入”和不可逆的“从 YouTube 删除”。创建复读同时核对 ID、标题、privacy 和所有权；远端删除保留本地恢复证据，但明确不承诺恢复相同远端 ID。
+- SwiftData schema 升至 generation 3，新增资源操作日志及 `remoteWriteApprovedAt`。假服务覆盖 Create → 服务端复读 → 本地导入、Delete → 消失复读 → 本地软删除，以及创建已提交但响应丢失时不重复创建。
+- 当前 Release 组装出的独立视觉检查副本已实机渲染：Add Playlist 中可见 Create on YouTube；创建表单的 title／description／Private-Unlisted-Public 与 disabled Review 正常；指定歌单的远端删除预览显示精确频道、标题、ID、506 项、不可逆警告和未勾选时 disabled 删除按钮。预览随后取消，没有发送远端删除请求。
+
+验证：R001／schema 专项 **45 tests / 5 suites 通过**；完整串行回归 **597 tests / 85 suites 通过**；Release 构建和 `git diff --check` 通过，仅保留三条既有编译警告。本批未创建或删除任何真实 YouTube 歌单，真实资源闭环仍需新的确切资源授权后单独验收。
+
 ## 第十九批：R001 修复后真实复验（2026-09-19）
 
 - 用户重新明确授权当前下一步的全部必要操作；执行范围收窄为同一可丢弃 Private 歌单 `PLVRppllwHcDw` 的一次 Insert、Move、Delete、安全读重试和服务端复读，不扩展到其他歌单、订阅或账号资源。
@@ -9,7 +19,7 @@
 - Insert 通过生产同步服务执行，服务端完整复读为 507 项、测试 occurrence 位于位置 506；Move 计划唯一且为 506 → 0，修复后的完整复读确认位于位置 0，批次成功提交；Delete 后完整复读确认所有 506 个 playlistItem ID、视频 ID 和顺序逐项等于操作前基线。
 - 首次预检使用缺少 client secret 的测试配置，令牌刷新在账号身份门槛前失败，没有歌单写请求；随后使用相同 client ID 的完整测试配置通过预检并执行。没有使用真实用户数据库、没有创建／删除歌单、没有订阅或其他账号写入。
 
-结论：现有歌单 item Insert／Move／Remove 的精确目标真实闭环通过，2026-09-18 的 Move 失败已关闭。R001 父项仍保留远端歌单创建／删除的同等级编排和生产开放策略；普通 Release Push 继续关闭。
+结论：现有歌单 item Insert／Move／Remove 的精确目标真实闭环通过，2026-09-18 的 Move 失败已关闭。当时 R001 父项仍保留远端歌单创建／删除的同等级编排和生产开放策略；该代码工作随后在第二十批完成。
 
 ## 第十八批：R001 Move 写后分页修复（2026-09-19）
 

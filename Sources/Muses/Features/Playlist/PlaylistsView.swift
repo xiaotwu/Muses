@@ -14,6 +14,8 @@ struct PlaylistsView: View {
     @State private var showCreateSheet = false
     @State private var showAddChoice = false
     @State private var showImportSheet = false
+    @State private var showCreateYouTubeSheet = false
+    @State private var createYouTubePreview: YouTubePlaylistCreatePreview?
     @State private var addError: String?
     @State private var revisionImport: YouTubeImport?
     @State private var pendingDeletion: PlaylistDeletionTarget?
@@ -266,6 +268,25 @@ struct PlaylistsView: View {
             } onImport: {
                 showAddChoice = false
                 DispatchQueue.main.async { showImportSheet = true }
+            } onCreateYouTube: {
+                showAddChoice = false
+                DispatchQueue.main.async { showCreateYouTubeSheet = true }
+            }
+        }
+        .sheet(isPresented: $showCreateYouTubeSheet) {
+            NewYouTubePlaylistSheet { title, description, privacy in
+                createYouTubePreview = try playlistSync.prepareCreatePlaylist(
+                    title: title, description: description, privacy: privacy)
+                showCreateYouTubeSheet = false
+            }
+        }
+        .sheet(item: $createYouTubePreview) { preview in
+            YouTubePlaylistCreatePreviewSheet(preview: preview) {
+                _ = try await playlistSync.resumeCreatePlaylist(
+                    operationID: preview.id, userConfirmed: true)
+                refresh()
+            } onCancel: {
+                try playlistSync.discardResourceOperation(operationID: preview.id)
             }
         }
         .sheet(isPresented: $showImportSheet) {
@@ -589,6 +610,7 @@ private enum PlaylistDeletionTarget {
 struct PlaylistAddChoiceSheet: View {
     let onNew: () -> Void
     let onImport: () -> Void
+    var onCreateYouTube: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -615,6 +637,16 @@ struct PlaylistAddChoiceSheet: View {
                 systemName: "square.and.arrow.down",
                 action: onImport
             )
+            if let onCreateYouTube {
+                choiceButton(
+                    title: tr("Create on YouTube", "在 YouTube 上创建"),
+                    subtitle: tr(
+                        "Create a new owned playlist after an exact review",
+                        "核对确切信息后创建一个归你所有的新歌单"),
+                    systemName: "play.rectangle.on.rectangle",
+                    action: onCreateYouTube
+                )
+            }
         }
         .padding(20)
         .frame(width: 420)

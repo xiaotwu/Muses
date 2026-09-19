@@ -15,9 +15,9 @@ final class SchemaReopenProbe {
 @Suite("Domain Models")
 struct DomainModelTests {
 
-    @Test("schema generation 2 drops Inbox, Automation, and Focus models")
+    @Test("schema generation 3 keeps retired models out and adds resource journal")
     func schemaDropsRetiredModels() {
-        #expect(MusesSchema.generation == 2)
+        #expect(MusesSchema.generation == 3)
         let names = Set(MusesSchema.models.map { String(describing: $0) })
         #expect(!names.contains("InboxItem"))
         #expect(!names.contains("AutomationRule"))
@@ -25,6 +25,7 @@ struct DomainModelTests {
         #expect(names.contains("Track"))
         #expect(names.contains("Playlist"))
         #expect(names.contains("ListeningEvent"))
+        #expect(names.contains("YouTubePlaylistResourceOperation"))
     }
 
     @Test("generation 2 opens a prior on-disk store after an unused entity is dropped")

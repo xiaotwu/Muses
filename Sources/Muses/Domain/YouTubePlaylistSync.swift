@@ -248,6 +248,88 @@ enum YouTubeSyncBatchState: String, Codable, Sendable {
     case discarded
 }
 
+enum YouTubePlaylistResourceOperationKind: String, Codable, Sendable {
+    case create
+    case delete
+}
+
+enum YouTubePlaylistResourceOperationState: String, Codable, Sendable {
+    case planned
+    case started
+    case remoteObserved
+    case locallyCommitted
+    case needsReview
+    case discarded
+}
+
+/// Durable journal for whole-playlist mutations. Create and delete deliberately
+/// do not share the item-operation journal: a create has no target id until the
+/// server answers, while a delete carries a complete pre-delete snapshot.
+@Model
+final class YouTubePlaylistResourceOperation {
+    @Attribute(.unique) var id: UUID
+    var kindRaw: String
+    var stateRaw: String
+    var importID: UUID?
+    var accountChannelID: String
+    var playlistID: String?
+    var title: String
+    var descriptionText: String?
+    var privacyRaw: String?
+    var expectedRemoteFingerprint: String?
+    var preRemoteSnapshotData: Data?
+    var attempts: Int
+    var lastError: String?
+    var createdAt: Date
+    var startedAt: Date?
+    var remoteObservedAt: Date?
+    var completedAt: Date?
+
+    init(id: UUID = UUID(), kind: YouTubePlaylistResourceOperationKind,
+         importID: UUID? = nil, accountChannelID: String, playlistID: String? = nil,
+         title: String, descriptionText: String? = nil,
+         privacy: YouTubePlaylistPrivacy? = nil,
+         expectedRemoteFingerprint: String? = nil,
+         preRemoteSnapshotData: Data? = nil) {
+        self.id = id
+        self.kindRaw = kind.rawValue
+        self.stateRaw = YouTubePlaylistResourceOperationState.planned.rawValue
+        self.importID = importID
+        self.accountChannelID = accountChannelID
+        self.playlistID = playlistID
+        self.title = title
+        self.descriptionText = descriptionText
+        self.privacyRaw = privacy?.rawValue
+        self.expectedRemoteFingerprint = expectedRemoteFingerprint
+        self.preRemoteSnapshotData = preRemoteSnapshotData
+        self.attempts = 0
+        self.lastError = nil
+        self.createdAt = .init()
+        self.startedAt = nil
+        self.remoteObservedAt = nil
+        self.completedAt = nil
+    }
+
+    var kind: YouTubePlaylistResourceOperationKind {
+        YouTubePlaylistResourceOperationKind(rawValue: kindRaw) ?? .delete
+    }
+
+    var state: YouTubePlaylistResourceOperationState {
+        get { YouTubePlaylistResourceOperationState(rawValue: stateRaw) ?? .needsReview }
+        set { stateRaw = newValue.rawValue }
+    }
+
+    var privacy: YouTubePlaylistPrivacy? {
+        privacyRaw.flatMap(YouTubePlaylistPrivacy.init(rawValue:))
+    }
+
+    func decodePreRemoteSnapshot() throws -> YouTubePlaylistSnapshot? {
+        guard let preRemoteSnapshotData else { return nil }
+        return try JSONDecoder().decode(
+            YouTubePlaylistSnapshot.self, from: preRemoteSnapshotData)
+    }
+}
+
 @Model
 final class YouTubeSyncBatch {
     @Attribute(.unique) var id: UUID

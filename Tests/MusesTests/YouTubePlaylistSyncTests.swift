@@ -897,9 +897,9 @@ struct YouTubePlaylistSyncRecoveryTests {
         #expect(await fixture.server.videoIDs() == ["a", "b"])
     }
 
-    @Test("application rehearsal policy needs both exact environment values")
+    @Test("application policy uses target approval unless rehearsal is fully specified")
     func rehearsalPolicyEnvironment() {
-        #expect(YouTubePushExecutionPolicy.applicationOwned(environment: [:]) == .disabled)
+        #expect(YouTubePushExecutionPolicy.applicationOwned(environment: [:]) == .userApproved)
         #expect(YouTubePushExecutionPolicy.applicationOwned(environment: [
             "MUSES_YOUTUBE_PUSH_REHEARSAL_PLAYLIST_ID": "PL"
         ]) == .disabled)
@@ -907,6 +907,113 @@ struct YouTubePlaylistSyncRecoveryTests {
             "MUSES_YOUTUBE_PUSH_REHEARSAL_PLAYLIST_ID": " PL ",
             "MUSES_YOUTUBE_PUSH_REHEARSAL_ACCOUNT_CHANNEL_ID": " owner "
         ]) == .rehearsal(playlistID: "PL", accountChannelID: "owner"))
+    }
+
+    @Test("ordinary production Push records exact-target approval and still confirms every run")
+    func productionPushRecordsTargetApproval() async throws {
+        let fixture = try await pushFixture()
+        let service = YouTubePlaylistSyncService(
+            modelContainer: fixture.container, account: fixture.account,
+            pushExecutionPolicy: .userApproved)
+        await #expect(throws: YouTubePlaylistSyncError.remoteWriteApprovalRequired) {
+            try await service.resumePush(batchID: fixture.preview.batchID)
+        }
+        try await service.resumePush(
+            batchID: fixture.preview.batchID, userConfirmed: true)
+
+        let context = ModelContext(fixture.container)
+        let imported = try #require(
+            context.fetch(FetchDescriptor<YouTubeImport>()).first)
+        #expect(imported.remoteWriteApprovedAt != nil)
+        #expect(await fixture.server.insertRequestCount() == 1)
+    }
+
+    @Test("failed pre-write validation does not persist production approval")
+    func failedPushDoesNotApproveTarget() async throws {
+        let fixture = try await pushFixture()
+        await fixture.server.appendExternal(videoID: "outside")
+        let service = YouTubePlaylistSyncService(
+            modelContainer: fixture.container, account: fixture.account,
+            pushExecutionPolicy: .userApproved)
+
+        await #expect(throws: YouTubePlaylistSyncError.remoteChangedSincePreview) {
+            try await service.resumePush(
+                batchID: fixture.preview.batchID, userConfirmed: true)
+        }
+        let context = ModelContext(fixture.container)
+        let imported = try #require(
+            context.fetch(FetchDescriptor<YouTubeImport>()).first)
+        #expect(imported.remoteWriteApprovedAt == nil)
+        #expect(await fixture.server.insertRequestCount() == 0)
+    }
+
+    @Test("whole-playlist create and delete use durable read-back journals")
+    func resourceCreateDeleteJournal() async throws {
+        let container = try makeModelContainer(inMemory: true)
+        let server = PlaylistResourceAPIStub()
+        let account = try await resourceAccount(server: server)
+        let service = YouTubePlaylistSyncService(
+            modelContainer: container, account: account,
+            pushExecutionPolicy: .userApproved,
+            pushReadbackRetryDelays: [])
+
+        let create = try service.prepareCreatePlaylist(
+            title: "Disposable", description: "test", privacy: .private)
+        let importID = try await service.resumeCreatePlaylist(
+            operationID: create.id, userConfirmed: true)
+        #expect(await server.createRequestCount() == 1)
+        #expect(await server.playlistIDs() == ["PL-created-1"])
+
+        var context = ModelContext(container)
+        var imported = try #require(try serviceImport(importID, context: context))
+        #expect(imported.playlistId == "PL-created-1")
+        #expect(imported.remoteWriteApprovedAt == nil)
+        var operation = try #require(context.fetch(
+            FetchDescriptor<YouTubePlaylistResourceOperation>())
+            .first { $0.id == create.id })
+        #expect(operation.state == .locallyCommitted)
+        #expect(operation.playlistID == "PL-created-1")
+
+        let deletion = try await service.prepareDeletePlaylist(importID: importID)
+        #expect(deletion.itemCount == 0)
+        try await service.resumeDeletePlaylist(
+            operationID: deletion.id, userConfirmed: true)
+        #expect(await server.deleteRequestCount() == 1)
+        #expect(await server.playlistIDs().isEmpty)
+
+        context = ModelContext(container)
+        imported = try #require(try serviceImport(importID, context: context))
+        #expect(imported.deletedAt != nil)
+        #expect(imported.remoteWriteApprovedAt == nil)
+        operation = try #require(context.fetch(
+            FetchDescriptor<YouTubePlaylistResourceOperation>())
+            .first { $0.id == deletion.id })
+        #expect(operation.state == .locallyCommitted)
+    }
+
+    @Test("ambiguous create is quarantined instead of producing a duplicate")
+    func ambiguousCreateNeedsReview() async throws {
+        let container = try makeModelContainer(inMemory: true)
+        let server = PlaylistResourceAPIStub()
+        await server.setCreateTimeoutAfterCommit()
+        let account = try await resourceAccount(server: server)
+        let service = YouTubePlaylistSyncService(
+            modelContainer: container, account: account,
+            pushExecutionPolicy: .userApproved,
+            pushReadbackRetryDelays: [])
+        let preview = try service.prepareCreatePlaylist(title: "Uncertain")
+
+        await #expect(throws: (any Error).self) {
+            _ = try await service.resumeCreatePlaylist(
+                operationID: preview.id, userConfirmed: true)
+        }
+        await #expect(throws: YouTubePlaylistSyncError.invalidSnapshot(
+            YouTubeDataAPIClient.DataAPIError.timedOut.localizedDescription)) {
+            _ = try await service.resumeCreatePlaylist(
+                operationID: preview.id, userConfirmed: true)
+        }
+        #expect(await server.createRequestCount() == 1)
+        #expect(await server.playlistIDs() == ["PL-created-1"])
     }
 
     @Test("Recently Deleted expires after 30 days without deleting Track rows")
@@ -1080,6 +1187,32 @@ struct YouTubePlaylistSyncRecoveryTests {
         return YouTubePlaylistSyncService(
             modelContainer: container,
             account: YouTubeAccountService(session: session))
+    }
+
+    private func serviceImport(_ id: UUID, context: ModelContext) throws -> YouTubeImport? {
+        let target = id
+        return try context.fetch(FetchDescriptor<YouTubeImport>(
+            predicate: #Predicate { $0.id == target })).first
+    }
+
+    private func resourceAccount(
+        server: PlaylistResourceAPIStub
+    ) async throws -> YouTubeAccountService {
+        let session = GoogleOAuthSession(keychain: InMemoryKeychain())
+        try session.saveConfig(GoogleOAuthConfig(
+            clientID: "client", clientSecret: "secret",
+            redirectURI: "muses:/oauth", scopes: []))
+        try session.storeTokens(OAuthTokenSet(
+            accessToken: "AT", refreshToken: "RT",
+            expiresAt: .now.addingTimeInterval(3_600),
+            scope: GoogleOAuthConfig.manageScope))
+        let account = YouTubeAccountService(session: session, clientFactory: { _ in
+            YouTubeDataAPIClient(
+                accessTokenProvider: { "AT" },
+                http: { request in try await server.respond(to: request) })
+        })
+        await account.refresh()
+        return account
     }
 
     private func pushFixture(existingCount: Int = 1) async throws -> (
@@ -1257,6 +1390,81 @@ private actor PlaylistPageTokenRecorder {
 }
 
 private struct InjectedPushFault: Error {}
+
+private actor PlaylistResourceAPIStub {
+    private var playlists: [YouTubePlaylist] = []
+    private var createRequests = 0
+    private var deleteRequests = 0
+    private var timeoutAfterCreateCommit = false
+
+    func setCreateTimeoutAfterCommit() { timeoutAfterCreateCommit = true }
+    func createRequestCount() -> Int { createRequests }
+    func deleteRequestCount() -> Int { deleteRequests }
+    func playlistIDs() -> [String] { playlists.map(\.id) }
+
+    func respond(to request: URLRequest) throws -> (Data, HTTPURLResponse) {
+        let path = request.url?.path ?? ""
+        let method = request.httpMethod ?? "GET"
+        if path.hasSuffix("/channels") {
+            return response(#"{"items":[{"id":"owner","snippet":{"title":"Owner"}}]}"#)
+        }
+        if path.hasSuffix("/subscriptions") || path.hasSuffix("/videos") {
+            return response(#"{"items":[]}"#)
+        }
+        if path.hasSuffix("/playlistItems") {
+            return response(#"{"items":[]}"#)
+        }
+        guard path.hasSuffix("/playlists") else {
+            return response(#"{"items":[]}"#)
+        }
+        if method == "GET" {
+            let values = playlists.map { playlist in
+                let privacy = playlist.privacy?.rawValue ?? "private"
+                return #"{"id":"\#(playlist.id)","snippet":{"title":"\#(playlist.title)"},"contentDetails":{"itemCount":\#(playlist.itemCount)},"status":{"privacyStatus":"\#(privacy)"}}"#
+            }.joined(separator: ",")
+            return response(#"{"items":[\#(values)]}"#)
+        }
+        if method == "POST" {
+            createRequests += 1
+            let value = try JSONSerialization.jsonObject(with: request.httpBody ?? Data())
+            guard let root = value as? [String: Any],
+                  let snippet = root["snippet"] as? [String: Any],
+                  let title = snippet["title"] as? String else {
+                throw YouTubeDataAPIClient.DataAPIError.parse("invalid playlist body")
+            }
+            let playlist = YouTubePlaylist(
+                id: "PL-created-\(createRequests)", title: title,
+                thumbnailURL: nil, itemCount: 0, privacy: .private)
+            playlists.append(playlist)
+            if timeoutAfterCreateCommit {
+                timeoutAfterCreateCommit = false
+                throw URLError(.timedOut)
+            }
+            return response(
+                #"{"id":"\#(playlist.id)","snippet":{"title":"\#(playlist.title)"},"contentDetails":{"itemCount":0},"status":{"privacyStatus":"private"}}"#,
+                status: 201)
+        }
+        if method == "DELETE" {
+            let id = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "id" })?.value
+            playlists.removeAll { $0.id == id }
+            deleteRequests += 1
+            return (Data(), Self.http(204))
+        }
+        return response("{}")
+    }
+
+    private func response(_ body: String, status: Int = 200)
+        -> (Data, HTTPURLResponse) {
+        (Data(body.utf8), Self.http(status))
+    }
+
+    private static func http(_ status: Int) -> HTTPURLResponse {
+        HTTPURLResponse(url: URL(string: "https://www.googleapis.com")!,
+                        statusCode: status, httpVersion: nil,
+                        headerFields: nil)!
+    }
+}
 
 private actor PushAPIStub {
     struct Row: Sendable, Equatable {

@@ -11,6 +11,7 @@ enum YouTubePlaylistSyncError: LocalizedError, Sendable, Equatable {
     case conflictsRequireResolution(Int)
     case writePermissionRequired
     case remoteWritesDisabled
+    case remoteWriteApprovalRequired
     case rehearsalTargetMismatch
     case explicitConfirmationRequired
     case remoteChangedSincePreview
@@ -39,8 +40,12 @@ enum YouTubePlaylistSyncError: LocalizedError, Sendable, Equatable {
                 "推送前请允许 YouTube 歌单管理权限")
         case .remoteWritesDisabled:
             return tr(
-                "Remote playlist writes are disabled until sandbox rehearsal is approved",
-                "沙盒演练获批前，远端歌单写入保持关闭")
+                "Remote playlist writes are disabled by the current application policy",
+                "当前应用策略已关闭远端歌单写入")
+        case .remoteWriteApprovalRequired:
+            return tr(
+                "Confirm this exact account and playlist before enabling remote writes",
+                "启用远端写入前，请确认这个确切账号与歌单")
         case .rehearsalTargetMismatch:
             return tr(
                 "This playlist is outside the approved rehearsal target",
@@ -75,28 +80,36 @@ enum YouTubePlaylistSyncError: LocalizedError, Sendable, Equatable {
 
 enum YouTubePushExecutionPolicy: Sendable, Equatable {
     case disabled
+    case userApproved
     case rehearsal(playlistID: String, accountChannelID: String)
     case enabledForTesting
 
     static func applicationOwned(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Self {
+        let playlistKey = "MUSES_YOUTUBE_PUSH_REHEARSAL_PLAYLIST_ID"
+        let accountKey = "MUSES_YOUTUBE_PUSH_REHEARSAL_ACCOUNT_CHANNEL_ID"
+        let rehearsalRequested = environment[playlistKey] != nil
+            || environment[accountKey] != nil
         let playlistID = environment["MUSES_YOUTUBE_PUSH_REHEARSAL_PLAYLIST_ID"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let accountChannelID = environment["MUSES_YOUTUBE_PUSH_REHEARSAL_ACCOUNT_CHANNEL_ID"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard let playlistID, !playlistID.isEmpty,
               let accountChannelID, !accountChannelID.isEmpty else {
-            return .disabled
+            return rehearsalRequested ? .disabled : .userApproved
         }
         return .rehearsal(
             playlistID: playlistID, accountChannelID: accountChannelID)
     }
 
-    func allowsRemoteWrites(playlistID: String, accountChannelID: String?) -> Bool {
+    func allowsRemoteWrites(playlistID: String, accountChannelID: String?,
+                            userApproved: Bool = false) -> Bool {
         switch self {
         case .disabled:
             false
+        case .userApproved:
+            userApproved
         case .rehearsal(let approvedPlaylistID, let approvedAccountChannelID):
             playlistID == approvedPlaylistID
                 && accountChannelID == approvedAccountChannelID
@@ -106,8 +119,14 @@ enum YouTubePushExecutionPolicy: Sendable, Equatable {
     }
 
     var requiresExplicitConfirmation: Bool {
-        if case .rehearsal = self { return true }
-        return false
+        self != .enabledForTesting
+    }
+
+    var allowsResourceCreation: Bool {
+        switch self {
+        case .userApproved, .enabledForTesting: true
+        case .disabled, .rehearsal: false
+        }
     }
 }
 
@@ -147,6 +166,24 @@ struct YouTubePushPreview: Sendable, Equatable {
     let remoteRevisionID: UUID
     let operations: [YouTubePushOperation]
     let mergePlan: YouTubePlaylistMergePlan
+}
+
+struct YouTubePlaylistCreatePreview: Sendable, Equatable, Identifiable {
+    let id: UUID
+    let accountChannelID: String
+    let title: String
+    let description: String?
+    let privacy: YouTubePlaylistPrivacy
+}
+
+struct YouTubePlaylistDeletePreview: Sendable, Equatable, Identifiable {
+    let id: UUID
+    let importID: UUID
+    let accountChannelID: String
+    let playlistID: String
+    let playlistTitle: String
+    let itemCount: Int
+    let remoteFingerprint: String
 }
 
 extension YouTubePushPreview: Identifiable {
@@ -427,9 +464,15 @@ final class YouTubePlaylistSyncService {
         guard pushExecutionPolicy != .disabled else {
             throw YouTubePlaylistSyncError.remoteWritesDisabled
         }
+        let alreadyApproved = imported.remoteWriteApprovedAt != nil
+        let mayApproveNow = pushExecutionPolicy == .userApproved && userConfirmed
         guard pushExecutionPolicy.allowsRemoteWrites(
             playlistID: imported.playlistId,
-            accountChannelID: account.activeChannelID) else {
+            accountChannelID: account.activeChannelID,
+            userApproved: alreadyApproved || mayApproveNow) else {
+            if pushExecutionPolicy == .userApproved {
+                throw YouTubePlaylistSyncError.remoteWriteApprovalRequired
+            }
             throw YouTubePlaylistSyncError.rehearsalTargetMismatch
         }
         if pushExecutionPolicy.requiresExplicitConfirmation, !userConfirmed {
@@ -454,6 +497,11 @@ final class YouTubePlaylistSyncService {
             batch.startedAt = .init()
             try context.save()
             try pushFaultInjector?(.afterBatchStarted)
+        }
+
+        if mayApproveNow, imported.remoteWriteApprovedAt == nil {
+            imported.remoteWriteApprovedAt = .init()
+            try context.save()
         }
 
         for operation in operations where operation.state != .locallyCommitted {
@@ -595,6 +643,337 @@ final class YouTubePlaylistSyncService {
         }
         batch.state = .discarded
         batch.completedAt = .init()
+        try context.save()
+    }
+
+    // MARK: - Whole-playlist resource journal
+
+    /// Persists an exact create request without touching YouTube.
+    func prepareCreatePlaylist(
+        title: String,
+        description: String? = nil,
+        privacy: YouTubePlaylistPrivacy = .private
+    ) throws -> YouTubePlaylistCreatePreview {
+        guard let account, account.isConnected,
+              let channelID = account.activeChannelID else {
+            throw YouTubePlaylistSyncError.signInRequired
+        }
+        guard account.canManagePlaylists else {
+            throw YouTubePlaylistSyncError.writePermissionRequired
+        }
+        guard pushExecutionPolicy.allowsResourceCreation else {
+            throw YouTubePlaylistSyncError.remoteWritesDisabled
+        }
+        let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTitle.isEmpty else {
+            throw YouTubePlaylistSyncError.invalidSnapshot("Playlist title is empty")
+        }
+        let normalizedDescription = description?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let operation = YouTubePlaylistResourceOperation(
+            kind: .create, accountChannelID: channelID,
+            title: normalizedTitle,
+            descriptionText: normalizedDescription?.isEmpty == false
+                ? normalizedDescription : nil,
+            privacy: privacy)
+        let context = ModelContext(modelContainer)
+        context.insert(operation)
+        try context.save()
+        return .init(id: operation.id, accountChannelID: channelID,
+                     title: operation.title,
+                     description: operation.descriptionText,
+                     privacy: privacy)
+    }
+
+    /// A create is never replayed after an ambiguous response. Once YouTube has
+    /// returned an id, retries only perform read-back and local commit.
+    @discardableResult
+    func resumeCreatePlaylist(operationID: UUID,
+                              userConfirmed: Bool = false) async throws -> UUID {
+        guard let account, account.isConnected,
+              let channelID = account.activeChannelID,
+              let writer = account.playlistWriter(),
+              let client = account.dataAPIClient() else {
+            throw YouTubePlaylistSyncError.writePermissionRequired
+        }
+        guard pushExecutionPolicy.allowsResourceCreation else {
+            throw YouTubePlaylistSyncError.remoteWritesDisabled
+        }
+        if pushExecutionPolicy.requiresExplicitConfirmation, !userConfirmed {
+            throw YouTubePlaylistSyncError.explicitConfirmationRequired
+        }
+        let context = ModelContext(modelContainer)
+        guard let operation = try fetchResourceOperation(operationID, context: context),
+              operation.kind == .create else {
+            throw YouTubePlaylistSyncError.importNotFound
+        }
+        guard operation.accountChannelID == channelID else {
+            throw YouTubePlaylistSyncError.accountMismatch
+        }
+        if operation.state == .locallyCommitted,
+           let importID = operation.importID { return importID }
+        guard operation.state != .needsReview, operation.state != .discarded else {
+            throw YouTubePlaylistSyncError.invalidSnapshot(
+                operation.lastError ?? "Create operation is no longer executable")
+        }
+
+        if operation.state == .started, operation.playlistID == nil {
+            operation.state = .needsReview
+            operation.lastError = tr(
+                "The create response was interrupted before a playlist ID was recorded. Check YouTube and resolve it manually; Muses will not create a possible duplicate.",
+                "创建响应在记录歌单 ID 前中断。请检查 YouTube 并手动处理；Muses 不会冒险重复创建。")
+            try context.save()
+            throw YouTubePlaylistSyncError.invalidSnapshot(operation.lastError!)
+        }
+
+        if operation.state == .planned {
+            operation.state = .started
+            operation.startedAt = .init()
+            operation.attempts += 1
+            try context.save()
+            do {
+                let remote = try await writer.createPlaylist(
+                    title: operation.title,
+                    description: operation.descriptionText,
+                    privacy: operation.privacy ?? .private)
+                guard !remote.id.isEmpty else {
+                    throw YouTubePlaylistSyncError.invalidSnapshot(
+                        "Create returned no playlist id")
+                }
+                operation.playlistID = remote.id
+                try context.save()
+            } catch {
+                operation.state = .needsReview
+                operation.lastError = error.localizedDescription
+                try? context.save()
+                throw error
+            }
+        }
+
+        let playlistID = try requiredPlaylistID(operation)
+        guard let observed = try await waitForOwnedPlaylist(
+            id: playlistID, shouldExist: true, client: client) else {
+            operation.lastError = tr(
+                "YouTube has not exposed the created playlist in a server read-back yet. Retry to continue verification without creating it again.",
+                "YouTube 尚未在服务端复读中返回新歌单。请重试验证；不会再次创建。")
+            try context.save()
+            throw YouTubePlaylistSyncError.remoteChangedSincePreview
+        }
+        guard observed.title == operation.title else {
+            operation.state = .needsReview
+            operation.lastError = "Created playlist title changed before verification"
+            try context.save()
+            throw YouTubePlaylistSyncError.remoteChangedSincePreview
+        }
+        guard observed.privacy == operation.privacy else {
+            operation.state = .needsReview
+            operation.lastError = "Created playlist privacy changed before verification"
+            try context.save()
+            throw YouTubePlaylistSyncError.remoteChangedSincePreview
+        }
+        operation.state = .remoteObserved
+        operation.remoteObservedAt = .init()
+        operation.lastError = nil
+        try context.save()
+
+        let importID: UUID
+        if let existing = try fetchImport(playlistID: playlistID, context: context) {
+            importID = existing.id
+        } else {
+            let imported = YouTubeImport(
+                playlistId: playlistID,
+                url: "https://music.youtube.com/playlist?list=\(playlistID)",
+                title: observed.title,
+                channel: account.account?.channel?.title ?? channelID,
+                artworkUrl: observed.thumbnailURL,
+                lastSyncedAt: .init(), accountChannelID: channelID)
+            imported.remoteWritable = true
+            context.insert(imported)
+            let empty = YouTubePlaylistSnapshot(
+                playlistID: playlistID, accountChannelID: channelID,
+                title: observed.title, capturedAt: .init(), items: [],
+                pagination: .init(completeness: .complete, pageCount: 1,
+                                  nextPageToken: nil, itemCount: 0))
+            let base = try insertRevision(
+                importID: imported.id, accountChannelID: channelID,
+                kind: .base, snapshot: empty, context: context)
+            let shadow = try insertRevision(
+                importID: imported.id, accountChannelID: channelID,
+                kind: .remoteShadow, snapshot: empty, context: context)
+            imported.baseRevisionID = base.id
+            imported.remoteShadowRevisionID = shadow.id
+            importID = imported.id
+        }
+        operation.importID = importID
+        operation.state = .locallyCommitted
+        operation.completedAt = .init()
+        try context.save()
+        await account.refresh()
+        return importID
+    }
+
+    /// Captures a complete remote snapshot for an irreversible delete preview.
+    func prepareDeletePlaylist(importID: UUID) async throws
+        -> YouTubePlaylistDeletePreview {
+        guard let account, account.isConnected,
+              let channelID = account.activeChannelID,
+              let client = account.dataAPIClient() else {
+            throw YouTubePlaylistSyncError.signInRequired
+        }
+        guard account.canManagePlaylists else {
+            throw YouTubePlaylistSyncError.writePermissionRequired
+        }
+        let context = ModelContext(modelContainer)
+        guard let imported = try fetchImport(importID, context: context) else {
+            throw YouTubePlaylistSyncError.importNotFound
+        }
+        try verifyAccount(imported, account: account)
+        guard account.ownsPlaylist(imported.playlistId) else {
+            throw YouTubePlaylistSyncError.notOwned
+        }
+        guard let owned = try await readOwnedPlaylist(
+            id: imported.playlistId, client: client) else {
+            throw YouTubePlaylistSyncError.notOwned
+        }
+        let remote = try await fetchCompleteRemote(imported: imported, account: account)
+        _ = try insertRevision(
+            importID: importID, accountChannelID: channelID,
+            kind: .beforeDelete, snapshot: remote, pinned: true, context: context)
+        let operation = YouTubePlaylistResourceOperation(
+            kind: .delete, importID: importID, accountChannelID: channelID,
+            playlistID: imported.playlistId, title: owned.title,
+            expectedRemoteFingerprint: remote.fingerprint,
+            preRemoteSnapshotData: try encoder.encode(remote))
+        context.insert(operation)
+        try context.save()
+        return .init(id: operation.id, importID: importID,
+                     accountChannelID: channelID,
+                     playlistID: imported.playlistId,
+                     playlistTitle: owned.title,
+                     itemCount: remote.items.count,
+                     remoteFingerprint: remote.fingerprint)
+    }
+
+    func resumeDeletePlaylist(operationID: UUID,
+                              userConfirmed: Bool = false) async throws {
+        guard let account, account.isConnected,
+              let writer = account.playlistWriter(),
+              let client = account.dataAPIClient() else {
+            throw YouTubePlaylistSyncError.writePermissionRequired
+        }
+        let context = ModelContext(modelContainer)
+        guard let operation = try fetchResourceOperation(operationID, context: context),
+              operation.kind == .delete,
+              let importID = operation.importID,
+              let imported = try fetchImport(importID, context: context) else {
+            throw YouTubePlaylistSyncError.importNotFound
+        }
+        if operation.state == .locallyCommitted { return }
+        guard operation.state != .needsReview, operation.state != .discarded else {
+            throw YouTubePlaylistSyncError.invalidSnapshot(
+                operation.lastError ?? "Delete operation is no longer executable")
+        }
+        try verifyAccount(imported, account: account)
+        let playlistID = try requiredPlaylistID(operation)
+        let mayApproveNow = pushExecutionPolicy == .userApproved && userConfirmed
+        guard pushExecutionPolicy.allowsRemoteWrites(
+            playlistID: playlistID, accountChannelID: account.activeChannelID,
+            userApproved: imported.remoteWriteApprovedAt != nil || mayApproveNow) else {
+            if pushExecutionPolicy == .disabled {
+                throw YouTubePlaylistSyncError.remoteWritesDisabled
+            }
+            if pushExecutionPolicy == .userApproved {
+                throw YouTubePlaylistSyncError.remoteWriteApprovalRequired
+            }
+            throw YouTubePlaylistSyncError.rehearsalTargetMismatch
+        }
+        if pushExecutionPolicy.requiresExplicitConfirmation, !userConfirmed {
+            throw YouTubePlaylistSyncError.explicitConfirmationRequired
+        }
+        guard operation.accountChannelID == account.activeChannelID else {
+            throw YouTubePlaylistSyncError.accountMismatch
+        }
+        if operation.state == .planned {
+            guard let owned = try await readOwnedPlaylist(
+                id: playlistID, client: client), owned.title == operation.title else {
+                operation.state = .needsReview
+                operation.lastError = YouTubePlaylistSyncError
+                    .remoteChangedSincePreview.localizedDescription
+                try context.save()
+                throw YouTubePlaylistSyncError.remoteChangedSincePreview
+            }
+            let current = try await fetchCompleteRemote(imported: imported, account: account)
+            guard current.fingerprint == operation.expectedRemoteFingerprint else {
+                operation.state = .needsReview
+                operation.lastError = YouTubePlaylistSyncError
+                    .remoteChangedSincePreview.localizedDescription
+                try context.save()
+                throw YouTubePlaylistSyncError.remoteChangedSincePreview
+            }
+            operation.state = .started
+            operation.startedAt = .init()
+            operation.attempts += 1
+            try context.save()
+        }
+
+        if mayApproveNow, imported.remoteWriteApprovedAt == nil {
+            imported.remoteWriteApprovedAt = .init()
+            try context.save()
+        }
+
+        if try await readOwnedPlaylist(id: playlistID, client: client) != nil {
+            do {
+                try await writer.deletePlaylist(id: playlistID)
+            } catch YouTubeDataAPIClient.DataAPIError.notFound {
+                // Absence is the desired state; verify it below.
+            } catch {
+                if try await readOwnedPlaylist(id: playlistID, client: client) != nil {
+                    operation.lastError = error.localizedDescription
+                    try? context.save()
+                    throw error
+                }
+            }
+        }
+        guard try await waitForOwnedPlaylist(
+            id: playlistID, shouldExist: false, client: client) == nil else {
+            operation.lastError = tr(
+                "YouTube still returns this playlist after deletion. Retry to verify and finish safely.",
+                "删除后 YouTube 仍返回此歌单。请重试验证并安全完成。")
+            try context.save()
+            throw YouTubePlaylistSyncError.remoteChangedSincePreview
+        }
+        operation.state = .remoteObserved
+        operation.remoteObservedAt = .init()
+        imported.deletedAt = .init()
+        imported.remoteWritable = false
+        imported.remoteWriteApprovedAt = nil
+        operation.state = .locallyCommitted
+        operation.completedAt = .init()
+        operation.lastError = nil
+        try context.save()
+        await account.refresh()
+    }
+
+    func revokeRemoteWriteApproval(importID: UUID) throws {
+        let context = ModelContext(modelContainer)
+        guard let imported = try fetchImport(importID, context: context) else {
+            throw YouTubePlaylistSyncError.importNotFound
+        }
+        imported.remoteWriteApprovedAt = nil
+        try context.save()
+    }
+
+    func discardResourceOperation(operationID: UUID) throws {
+        let context = ModelContext(modelContainer)
+        guard let operation = try fetchResourceOperation(operationID, context: context) else {
+            return
+        }
+        guard operation.state == .planned else {
+            throw YouTubePlaylistSyncError.invalidSnapshot(
+                "A started resource operation cannot be discarded")
+        }
+        operation.state = .discarded
+        operation.completedAt = .init()
         try context.save()
     }
 
@@ -1594,6 +1973,54 @@ final class YouTubePlaylistSyncService {
         let target = id
         let descriptor = FetchDescriptor<YouTubeImport>(predicate: #Predicate { $0.id == target })
         return try context.fetch(descriptor).first
+    }
+
+    private func fetchImport(playlistID: String,
+                             context: ModelContext) throws -> YouTubeImport? {
+        let target = playlistID
+        let descriptor = FetchDescriptor<YouTubeImport>(
+            predicate: #Predicate { $0.playlistId == target })
+        return try context.fetch(descriptor).first
+    }
+
+    private func fetchResourceOperation(
+        _ id: UUID, context: ModelContext
+    ) throws -> YouTubePlaylistResourceOperation? {
+        let target = id
+        let descriptor = FetchDescriptor<YouTubePlaylistResourceOperation>(
+            predicate: #Predicate { $0.id == target })
+        return try context.fetch(descriptor).first
+    }
+
+    private func requiredPlaylistID(
+        _ operation: YouTubePlaylistResourceOperation
+    ) throws -> String {
+        guard let playlistID = operation.playlistID, !playlistID.isEmpty else {
+            throw YouTubePlaylistSyncError.invalidSnapshot(
+                "Resource operation has no playlist id")
+        }
+        return playlistID
+    }
+
+    private func readOwnedPlaylist(
+        id: String, client: YouTubeDataAPIClient
+    ) async throws -> YouTubePlaylist? {
+        try await client.myPlaylists().first { $0.id == id }
+    }
+
+    /// Returns the last observation. Bounded delays absorb ordinary YouTube
+    /// read-after-write lag without turning resource mutation into polling.
+    private func waitForOwnedPlaylist(
+        id: String, shouldExist: Bool, client: YouTubeDataAPIClient
+    ) async throws -> YouTubePlaylist? {
+        var observed = try await readOwnedPlaylist(id: id, client: client)
+        if (observed != nil) == shouldExist { return observed }
+        for delay in pushReadbackRetryDelays {
+            try await Task.sleep(for: delay)
+            observed = try await readOwnedPlaylist(id: id, client: client)
+            if (observed != nil) == shouldExist { return observed }
+        }
+        return observed
     }
 
     private func fetchRevision(_ id: UUID,

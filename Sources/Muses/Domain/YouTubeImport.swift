@@ -35,6 +35,9 @@ final class YouTubeImport {
     var deletedAt: Date?
     /// Whether the active owner/API identified this playlist as writable.
     var remoteWritable: Bool?
+    /// Exact-target production approval. This is never inferred from OAuth scope
+    /// or ownership; it is recorded only after an explicit write confirmation.
+    var remoteWriteApprovedAt: Date?
 
     /// Read-only items on the YouTube side (cascade delete: removing the import removes its items).
     @Relationship(deleteRule: .cascade, inverse: \YouTubeImportItem.import_)
@@ -53,6 +56,7 @@ final class YouTubeImport {
         self.remoteShadowRevisionID = nil
         self.deletedAt = nil
         self.remoteWritable = nil
+        self.remoteWriteApprovedAt = nil
         self.items = []
     }
 }
