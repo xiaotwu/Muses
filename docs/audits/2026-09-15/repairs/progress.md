@@ -2,6 +2,14 @@
 
 本文件记录实施进度；原验收报告保留发现当时的事实。未列为完成的工作继续按 repair-tasks.md 执行，不把代码落地等同于跨环境全部验收。
 
+## 第十八批：R001 Move 写后分页修复（2026-09-19）
+
+- 507 项假服务复现证明真实失败来自 continuation 世代错误：Push 写前完整校验留下前 500 项 Remote Partial；Move 506 → 0 后，写后复读从旧 token 续取新末页，拼成跨写入世代的混合 Remote Shadow。
+- `fetchCompleteRemote` 在成功组成完整快照后立即清除 continuation partial，保证任何后续读取从第一页开始。写后最终校验和不确定写入恢复增加 250ms／750ms／2s 的有界完整复读；重试阶段只读，不重新发送写请求。窗口耗尽时错误记录首个结构差异，不记录 OAuth 令牌或原始响应。
+- 新增 507 项 Insert → Move → Remove 回归，在 Move／Remove 写后模拟旧读；另覆盖 Insert 已提交、响应丢失且首次复读仍旧，确认只产生一次 Insert。
+
+验证：同步恢复套件 **22 tests / 1 suite 通过**；完整串行回归 **593 tests / 85 suites 通过**；Release 构建通过，仅保留三条既有警告；`git diff --check` 通过。本批没有远端写入授权，未重试真实 Move；R001 仍需新的单次真实复验。
+
 ## 第十七批：R001 一次性真实写入演练（2026-09-18）
 
 - 用户明确将 Private 歌单 `PLVRppllwHcDw` 指定为可丢弃目标，并授权一次 Insert、Move、Delete 和服务端复读。执行前确认 OAuth 频道 `UCIfafZrJVaMDXLIADDY1CGg`、playlist-management scope、所有权、可写状态及 506 项完整基线；本地操作使用独立 SQLite 一致性副本。

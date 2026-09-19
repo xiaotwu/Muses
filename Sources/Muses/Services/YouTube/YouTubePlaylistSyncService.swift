@@ -164,6 +164,7 @@ final class YouTubePlaylistSyncService {
     private let decoder = JSONDecoder()
     private let pushExecutionPolicy: YouTubePushExecutionPolicy
     private let pushFaultInjector: (@MainActor (YouTubePushFaultPoint) throws -> Void)?
+    private let pushReadbackRetryDelays: [Duration]
     private let log = AppLog.for("YouTubePlaylistSyncService")
 
     private(set) var activeImportID: UUID?
@@ -171,11 +172,15 @@ final class YouTubePlaylistSyncService {
 
     init(modelContainer: ModelContainer, account: YouTubeAccountService,
          pushExecutionPolicy: YouTubePushExecutionPolicy = .disabled,
-         pushFaultInjector: (@MainActor (YouTubePushFaultPoint) throws -> Void)? = nil) {
+         pushFaultInjector: (@MainActor (YouTubePushFaultPoint) throws -> Void)? = nil,
+         pushReadbackRetryDelays: [Duration] = [
+            .milliseconds(250), .milliseconds(750), .seconds(2)
+         ]) {
         self.modelContainer = modelContainer
         self.account = account
         self.pushExecutionPolicy = pushExecutionPolicy
         self.pushFaultInjector = pushFaultInjector
+        self.pushReadbackRetryDelays = pushReadbackRetryDelays
     }
 
     // MARK: - Remote Shadow / Pull
@@ -459,10 +464,8 @@ final class YouTubePlaylistSyncService {
                 }
 
                 if operation.state == .started || operation.state == .failed {
-                    let currentRemote = try await fetchCompleteRemote(
-                        imported: imported, account: account)
-                    switch try reconcile(
-                        operation: operation, currentRemote: currentRemote,
+                    switch try await observeRemoteOperation(
+                        operation, imported: imported, account: account,
                         batch: batch, operations: operations) {
                     case .notObserved:
                         operation.state = .planned
@@ -541,18 +544,8 @@ final class YouTubePlaylistSyncService {
             }
         }
 
-        let rawVerifiedRemote = try await fetchCompleteRemote(
+        let verifiedRemote = try await verifyRemoteAfterPush(
             imported: imported, account: account)
-        let reconciliation = try reconcileRemoteIdentities(
-            importID: imported.id, remote: rawVerifiedRemote)
-        var verifiedRemote = rawVerifiedRemote
-        verifiedRemote.items = reconciliation.remote
-        var verifiedLocal = Self.localSnapshot(imported)
-        verifiedLocal.items = reconciliation.local
-        guard verifiedLocal.isStructurallyEquivalent(to: verifiedRemote) else {
-            throw YouTubePlaylistSyncError.invalidSnapshot(
-                "Verified remote state does not match Local after Push")
-        }
         batch.state = .remoteObserved
         batch.remoteObservedAt = .init()
         try context.save()
@@ -934,7 +927,94 @@ final class YouTubePlaylistSyncService {
             throw YouTubePlaylistSyncError.invalidSnapshot(
                 "Push requires a complete Remote Shadow")
         }
+        // A continuation is valid only for the exact remote generation that
+        // produced its earlier pages. Push validation may leave a completed
+        // partial behind; retaining it across our own write would splice old
+        // leading pages with a new trailing page (for example a 506 -> 0 move).
+        // Once a complete read is assembled there is nothing left to resume.
+        let cleanupContext = ModelContext(modelContainer)
+        try deleteRemotePartials(
+            importID: imported.id,
+            accountChannelID: account.activeChannelID,
+            context: cleanupContext)
+        try cleanupContext.save()
         return snapshot
+    }
+
+    /// YouTube playlist writes can become visible to subsequent list reads a
+    /// little after the write response. Before replaying an uncertain write,
+    /// require a short bounded series of complete reads to agree that it was
+    /// not committed. This is especially important for inserts, which are not
+    /// naturally idempotent.
+    private func observeRemoteOperation(
+        _ operation: YouTubeSyncOperation,
+        imported: YouTubeImport,
+        account: YouTubeAccountService,
+        batch: YouTubeSyncBatch,
+        operations: [YouTubeSyncOperation]
+    ) async throws -> RemoteObservation {
+        var lastObservation: RemoteObservation = .notObserved
+        for attempt in 0...pushReadbackRetryDelays.count {
+            let currentRemote = try await fetchCompleteRemote(
+                imported: imported, account: account)
+            let observation = try reconcile(
+                operation: operation, currentRemote: currentRemote,
+                batch: batch, operations: operations)
+            if case .observed = observation { return observation }
+            lastObservation = observation
+            guard attempt < pushReadbackRetryDelays.count else { break }
+            try await Task.sleep(for: pushReadbackRetryDelays[attempt])
+        }
+        return lastObservation
+    }
+
+    /// A write acknowledgement is not enough to complete a batch. Retry only
+    /// the readback (never the write) while the API may still be returning the
+    /// pre-write ordering, then persist the first useful structural difference
+    /// if the bounded window is exhausted.
+    private func verifyRemoteAfterPush(
+        imported: YouTubeImport,
+        account: YouTubeAccountService
+    ) async throws -> YouTubePlaylistSnapshot {
+        var lastMismatch = "unknown structural difference"
+        for attempt in 0...pushReadbackRetryDelays.count {
+            let rawRemote = try await fetchCompleteRemote(
+                imported: imported, account: account)
+            let reconciliation = try reconcileRemoteIdentities(
+                importID: imported.id, remote: rawRemote)
+            var remote = rawRemote
+            remote.items = reconciliation.remote
+            var local = Self.localSnapshot(imported)
+            local.items = reconciliation.local
+            if local.isStructurallyEquivalent(to: remote) { return remote }
+            lastMismatch = Self.structuralMismatchDescription(
+                local: local, remote: remote)
+            guard attempt < pushReadbackRetryDelays.count else { break }
+            try await Task.sleep(for: pushReadbackRetryDelays[attempt])
+        }
+        throw YouTubePlaylistSyncError.invalidSnapshot(
+            "Verified remote state does not match Local after Push: \(lastMismatch)")
+    }
+
+    static func structuralMismatchDescription(
+        local: YouTubePlaylistSnapshot,
+        remote: YouTubePlaylistSnapshot
+    ) -> String {
+        let lhs = local.normalizedItems.map(\.structuralValue)
+        let rhs = remote.normalizedItems.map(\.structuralValue)
+        guard lhs.count == rhs.count else {
+            return "item count Local=\(lhs.count), Remote=\(rhs.count)"
+        }
+        for index in lhs.indices where lhs[index] != rhs[index] {
+            let localValue = lhs[index]
+            let remoteValue = rhs[index]
+            return "first difference at position \(index): "
+                + "Local(video=\(localValue.videoID), order=\(localValue.order), "
+                + "availability=\(localValue.availability.rawValue)); "
+                + "Remote(video=\(remoteValue.videoID), order=\(remoteValue.order), "
+                + "availability=\(remoteValue.availability.rawValue))"
+        }
+        return "occurrence identity differs"
     }
 
     private func invalidate(_ batch: YouTubeSyncBatch, reason: String,

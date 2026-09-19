@@ -759,6 +759,73 @@ struct YouTubePlaylistSyncRecoveryTests {
         #expect(await fixture.server.videoIDs() == ["a", "b"])
     }
 
+    @Test("stale read after a lost insert response cannot replay the insert")
+    func staleReadAfterLostInsertResponseDoesNotReplay() async throws {
+        let fixture = try await pushFixture()
+        await fixture.server.setNextInsertBehavior(.timeoutAfterCommitWithStaleRead)
+        let service = YouTubePlaylistSyncService(
+            modelContainer: fixture.container, account: fixture.account,
+            pushExecutionPolicy: .enabledForTesting,
+            pushReadbackRetryDelays: [.zero])
+        await #expect(throws: YouTubeDataAPIClient.DataAPIError.self) {
+            try await service.resumePush(batchID: fixture.preview.batchID)
+        }
+
+        try await service.resumePush(batchID: fixture.preview.batchID)
+
+        #expect(await fixture.server.insertRequestCount() == 1)
+        #expect(await fixture.server.videoIDs() == ["a", "b"])
+    }
+
+    @Test("507-item insert, move, and remove wait for fresh complete readbacks")
+    func largeRoundTripWaitsForFreshReadback() async throws {
+        let fixture = try await pushFixture(existingCount: 506)
+        let service = YouTubePlaylistSyncService(
+            modelContainer: fixture.container, account: fixture.account,
+            pushExecutionPolicy: .enabledForTesting,
+            pushReadbackRetryDelays: [.zero])
+        try await service.resumePush(batchID: fixture.preview.batchID)
+        let afterInsert = await fixture.server.videoIDs()
+        #expect(afterInsert.last == "rehearsal")
+
+        try moveLocalVideoToFront(
+            "rehearsal", container: fixture.container)
+        let movePreview = try await service.preparePush(
+            importID: fixture.preview.importID)
+        #expect(movePreview.operations.count == 1)
+        #expect(movePreview.operations.first?.kind == .move)
+        #expect(movePreview.operations.first?.fromPosition == 506)
+        #expect(movePreview.operations.first?.toPosition == 0)
+
+        await fixture.server.setNextMoveStaleReadCount(1)
+        try await service.resumePush(batchID: movePreview.batchID)
+
+        let finalVideos = await fixture.server.videoIDs()
+        let readbackStarts = await fixture.server.readbackStarts()
+        #expect(finalVideos.count == 507)
+        #expect(finalVideos.first == "rehearsal")
+        #expect(Array(readbackStarts.suffix(3)) == [
+            "video-0", "video-0", "rehearsal"
+        ])
+        #expect(await fixture.server.moveRequestCount() == 1)
+        let context = ModelContext(fixture.container)
+        let batch = try #require(context.fetch(FetchDescriptor<YouTubeSyncBatch>())
+            .first { $0.id == movePreview.batchID })
+        #expect(batch.state == .locallyCommitted)
+
+        try removeLocalVideo("rehearsal", container: fixture.container)
+        let removePreview = try await service.preparePush(
+            importID: fixture.preview.importID)
+        #expect(removePreview.operations.count == 1)
+        #expect(removePreview.operations.first?.kind == .remove)
+        await fixture.server.setNextDeleteStaleReadCount(1)
+        try await service.resumePush(batchID: removePreview.batchID)
+
+        let restoredVideos = await fixture.server.videoIDs()
+        #expect(restoredVideos == (0..<506).map { "video-\($0)" })
+        #expect(await fixture.server.deleteRequestCount() == 1)
+    }
+
     @Test("empty insert response is recovered from the complete remote shadow")
     func emptyInsertResponseIsRecovered() async throws {
         let fixture = try await pushFixture()
@@ -1015,7 +1082,7 @@ struct YouTubePlaylistSyncRecoveryTests {
             account: YouTubeAccountService(session: session))
     }
 
-    private func pushFixture() async throws -> (
+    private func pushFixture(existingCount: Int = 1) async throws -> (
         container: ModelContainer,
         account: YouTubeAccountService,
         server: PushAPIStub,
@@ -1026,22 +1093,30 @@ struct YouTubePlaylistSyncRecoveryTests {
         let imported = YouTubeImport(
             playlistId: "PL", url: "https://youtube.com/playlist?list=PL",
             title: "Push", channel: "Owner", accountChannelID: "owner")
-        let existing = YouTubeImportItem(
-            youTubeId: "a", title: "A", artist: "Artist", order: 0,
-            playlistItemID: "pi-a")
+        let rows: [PushAPIStub.Row] = (0..<existingCount).map { index in
+            if existingCount == 1 {
+                return .init(id: "pi-a", videoID: "a")
+            }
+            return .init(id: "pi-\(index)", videoID: "video-\(index)")
+        }
+        let existing = rows.enumerated().map { index, row in
+            YouTubeImportItem(
+                youTubeId: row.videoID, title: row.videoID,
+                artist: "Artist", order: index, playlistItemID: row.id)
+        }
+        let insertedVideoID = existingCount == 1 ? "b" : "rehearsal"
         let inserted = YouTubeImportItem(
-            youTubeId: "b", title: "B", artist: "Artist", order: 1)
-        existing.import_ = imported
+            youTubeId: insertedVideoID, title: insertedVideoID,
+            artist: "Artist", order: existingCount)
+        for item in existing { item.import_ = imported }
         inserted.import_ = imported
-        imported.items = [existing, inserted]
+        imported.items = existing + [inserted]
         context.insert(imported)
-        context.insert(existing)
+        for item in existing { context.insert(item) }
         context.insert(inserted)
         try context.save()
 
-        let server = PushAPIStub(rows: [
-            .init(id: "pi-a", videoID: "a")
-        ])
+        let server = PushAPIStub(rows: rows)
         let session = GoogleOAuthSession(keychain: InMemoryKeychain())
         try session.saveConfig(GoogleOAuthConfig(
             clientID: "client", clientSecret: "secret",
@@ -1060,6 +1135,38 @@ struct YouTubePlaylistSyncRecoveryTests {
             modelContainer: container, account: account)
         let preview = try await planner.preparePush(importID: imported.id)
         return (container, account, server, preview)
+    }
+
+    private func moveLocalVideoToFront(
+        _ videoID: String,
+        container: ModelContainer
+    ) throws {
+        let context = ModelContext(container)
+        let imported = try #require(
+            context.fetch(FetchDescriptor<YouTubeImport>()).first)
+        var items = (imported.items ?? []).sorted { $0.order < $1.order }
+        let source = try #require(items.firstIndex { $0.youTubeId == videoID })
+        let item = items.remove(at: source)
+        items.insert(item, at: 0)
+        for (order, value) in items.enumerated() { value.order = order }
+        imported.items = items
+        try context.save()
+    }
+
+    private func removeLocalVideo(
+        _ videoID: String,
+        container: ModelContainer
+    ) throws {
+        let context = ModelContext(container)
+        let imported = try #require(
+            context.fetch(FetchDescriptor<YouTubeImport>()).first)
+        var items = (imported.items ?? []).sorted { $0.order < $1.order }
+        let source = try #require(items.firstIndex { $0.youTubeId == videoID })
+        let removed = items.remove(at: source)
+        for (order, value) in items.enumerated() { value.order = order }
+        imported.items = items
+        context.delete(removed)
+        try context.save()
     }
 
     private func connectedAccount(
@@ -1160,6 +1267,7 @@ private actor PushAPIStub {
     enum InsertBehavior: Sendable {
         case success
         case timeoutAfterCommit
+        case timeoutAfterCommitWithStaleRead
         case emptyIDAfterCommit
         case rateLimitBeforeCommit
     }
@@ -1167,12 +1275,28 @@ private actor PushAPIStub {
     private var rows: [Row]
     private var nextInsertBehavior: InsertBehavior = .success
     private var insertRequests = 0
+    private var moveRequests = 0
+    private var deleteRequests = 0
     private var generatedIDs = 0
+    private var nextMoveStaleReadCount = 0
+    private var nextDeleteStaleReadCount = 0
+    private var staleRows: [Row]?
+    private var staleCompleteReadsRemaining = 0
+    private var activeReadRows: [Row]?
+    private var completeReadFirstVideoIDs: [String] = []
 
     init(rows: [Row]) { self.rows = rows }
 
     func setNextInsertBehavior(_ behavior: InsertBehavior) {
         nextInsertBehavior = behavior
+    }
+
+    func setNextMoveStaleReadCount(_ count: Int) {
+        nextMoveStaleReadCount = max(0, count)
+    }
+
+    func setNextDeleteStaleReadCount(_ count: Int) {
+        nextDeleteStaleReadCount = max(0, count)
     }
 
     func appendExternal(videoID: String) {
@@ -1181,7 +1305,10 @@ private actor PushAPIStub {
     }
 
     func insertRequestCount() -> Int { insertRequests }
+    func moveRequestCount() -> Int { moveRequests }
+    func deleteRequestCount() -> Int { deleteRequests }
     func videoIDs() -> [String] { rows.map(\.videoID) }
+    func readbackStarts() -> [String] { completeReadFirstVideoIDs }
 
     func respond(to request: URLRequest) throws -> (Data, HTTPURLResponse) {
         let path = request.url?.path ?? ""
@@ -1200,10 +1327,32 @@ private actor PushAPIStub {
         }
 
         if method == "GET" {
-            let values = rows.map { row in
+            let components = URLComponents(
+                url: request.url!, resolvingAgainstBaseURL: false)
+            let pageToken = components?.queryItems?
+                .first(where: { $0.name == "pageToken" })?.value
+            let offset = Int(pageToken ?? "0") ?? 0
+            let readRows: [Row]
+            if offset == 0 {
+                if staleCompleteReadsRemaining > 0, let staleRows {
+                    readRows = staleRows
+                    staleCompleteReadsRemaining -= 1
+                } else {
+                    readRows = rows
+                }
+                activeReadRows = readRows
+                completeReadFirstVideoIDs.append(readRows.first?.videoID ?? "empty")
+            } else {
+                readRows = activeReadRows ?? rows
+            }
+            let end = min(offset + 50, readRows.count)
+            let page = offset < end ? Array(readRows[offset..<end]) : []
+            let values = page.map { row in
                 #"{"id":"\#(row.id)","snippet":{"title":"\#(row.videoID)","channelTitle":"Artist"},"contentDetails":{"videoId":"\#(row.videoID)"}}"#
             }.joined(separator: ",")
-            return response(#"{"items":[\#(values)]}"#)
+            let next = end < readRows.count ? #", "nextPageToken":"\#(end)""# : ""
+            if end >= readRows.count { activeReadRows = nil }
+            return response(#"{"items":[\#(values)]\#(next)}"#)
         }
 
         if method == "POST" {
@@ -1214,23 +1363,58 @@ private actor PushAPIStub {
                 return (Data(), Self.http(429))
             }
             let payload = try Self.insertPayload(from: request)
+            let rowsBeforeWrite = rows
             generatedIDs += 1
             let id = "pi-new-\(generatedIDs)"
             rows.insert(.init(id: id, videoID: payload.videoID),
                         at: min(payload.position, rows.count))
             if behavior == .timeoutAfterCommit { throw URLError(.timedOut) }
+            if behavior == .timeoutAfterCommitWithStaleRead {
+                scheduleStaleRead(of: rowsBeforeWrite, count: 1)
+                throw URLError(.timedOut)
+            }
             if behavior == .emptyIDAfterCommit { return response("{}") }
             return response(#"{"id":"\#(id)"}"#, status: 201)
+        }
+
+        if method == "PUT" {
+            let payload = try Self.movePayload(from: request)
+            guard let source = rows.firstIndex(where: { $0.id == payload.id }) else {
+                return response(#"{"error":{"code":404}}"#, status: 404)
+            }
+            let rowsBeforeWrite = rows
+            let row = rows.remove(at: source)
+            rows.insert(row, at: min(payload.position, rows.count))
+            moveRequests += 1
+            if nextMoveStaleReadCount > 0 {
+                scheduleStaleRead(
+                    of: rowsBeforeWrite, count: nextMoveStaleReadCount)
+                nextMoveStaleReadCount = 0
+            }
+            return response("{}")
         }
 
         if method == "DELETE" {
             let id = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "id" })?.value
+            let rowsBeforeWrite = rows
             rows.removeAll { $0.id == id }
+            deleteRequests += 1
+            if nextDeleteStaleReadCount > 0 {
+                scheduleStaleRead(
+                    of: rowsBeforeWrite, count: nextDeleteStaleReadCount)
+                nextDeleteStaleReadCount = 0
+            }
             return (Data(), Self.http(204))
         }
 
         return response("{}")
+    }
+
+    private func scheduleStaleRead(of values: [Row], count: Int) {
+        staleRows = values
+        staleCompleteReadsRemaining = max(0, count)
+        activeReadRows = nil
     }
 
     private static func insertPayload(from request: URLRequest) throws
@@ -1243,6 +1427,18 @@ private actor PushAPIStub {
             throw YouTubeDataAPIClient.DataAPIError.parse("invalid write body")
         }
         return (videoID, snippet["position"] as? Int ?? Int.max)
+    }
+
+    private static func movePayload(from request: URLRequest) throws
+        -> (id: String, position: Int) {
+        let value = try JSONSerialization.jsonObject(with: request.httpBody ?? Data())
+        guard let root = value as? [String: Any],
+              let id = root["id"] as? String,
+              let snippet = root["snippet"] as? [String: Any],
+              let position = snippet["position"] as? Int else {
+            throw YouTubeDataAPIClient.DataAPIError.parse("invalid move body")
+        }
+        return (id, position)
     }
 
     private func response(_ body: String, status: Int = 200)
