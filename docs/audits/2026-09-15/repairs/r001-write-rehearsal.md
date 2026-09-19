@@ -31,18 +31,28 @@
 - Delete 成功；最终服务端复读确认 506 个 playlistItem ID、视频 ID 和顺序逐项等于操作前基线。
 - 首次账号预检因测试配置缺少 client secret 而在令牌刷新阶段失败，没有发出歌单写请求；随后使用相同 client ID 的完整配置通过账号门槛。没有创建／删除歌单、订阅或修改其他账号资源。
 
-结论：本记录中的现有歌单 item Insert／Move／Remove 真实闭环已通过。随后普通生产策略改为当前频道 + playlist ID 的逐目标批准，每次写入仍显式确认；整歌单创建／删除也已补齐 durable journal、精确预览和服务端复读。两类资源操作尚未进行真实账号验收。
+结论：本记录中的现有歌单 item Insert／Move／Remove 真实闭环已通过。随后普通生产策略改为当前频道 + playlist ID 的逐目标批准，每次写入仍显式确认；整歌单创建／删除也已补齐 durable journal、精确预览和服务端复读。其真实账号闭环见下节。
+
+## 2026-09-19 真实整歌单 Create／Delete 验收
+
+- 授权范围仅包含本次新建的唯一命名 Private 空歌单；既有 `PLVRppllwHcDw` 只作为保护哨兵。执行前记录 owned-playlist ID 集合，失败清理只接受 Create journal 返回且不在原集合中的精确 ID，并再次核对标题和 privacy。
+- 生产资源编排在频道 `UCIfafZrJVaMDXLIADDY1CGg` 创建 `PLMN7OEasWM58`；独立服务端复读确认 ID、频道所有权、标题、Private 和 0 项，Create journal 为 `locallyCommitted`。
+- Delete 预览固定空歌单完整快照并再次核对频道、标题、ID、0 项和指纹；删除后独立服务端复读确认该 ID 不存在，Delete journal 为 `locallyCommitted`，本地导入随后软删除并撤销写入批准。
+- 操作后 owned-playlist ID 集合与操作前相同，`PLVRppllwHcDw` 仍存在。没有修改其他歌单、订阅或账号资源。
+
+结论：R001 所要求的 item 级和整歌单资源级真实写入闭环均通过，父项关闭。
 
 ## 下一步门槛
 
 1. [x] 在假 Data API 中加入 507 项分页形状，复现“最后一项移动到首位后远端已生效、最终结构校验失败”，并输出首个安全结构差异。
 2. [x] 修复 Move 后跨世代 partial 拼接，覆盖响应丢失恢复和服务端短暂旧读；重复 occurrence 与完整分页身份继续由既有专项覆盖。
 3. [x] 在假服务完成 Insert → Move → Remove → 最终精确基线故障注入回归，并证明不确定 Insert 不会重复发送。
-4. [x] 已另行取得新的明确授权并通过真实 Move 及完整恢复复验；没有沿用 2026-09-18 授权。下一步可评估现有 item Push 的受控生产策略；远端创建／删除歌单继续作为独立编排任务。
+4. [x] 已另行取得新的明确授权并通过真实 Move 及完整恢复复验；没有沿用 2026-09-18 授权。
+5. [x] 已以另一轮明确授权完成新 Private 空歌单的 Create／Delete、精确服务端复读和前后资源集合对账。
 
 ## 已实现的保护
 
-- 默认应用策略仍为 `disabled`，即使 OAuth 已授予 manage scope 也不会写入。
+- 普通应用使用逐目标批准；manage scope 和所有权本身不构成批准，首次批准仅绑定当前频道 + playlist ID，且每次写入仍需精确预览和显式确认。
 - 演练模式必须同时提供 `MUSES_YOUTUBE_PUSH_REHEARSAL_PLAYLIST_ID` 和 `MUSES_YOUTUBE_PUSH_REHEARSAL_ACCOUNT_CHANNEL_ID`；缺少任一值即回到全局关闭。
 - 执行前重新校验当前 OAuth 频道、歌单所有权、完整 Remote Shadow、预览后的远端指纹和本地目标序列。
 - Push 预览明确显示歌单标题、歌单 ID、账号频道 ID 和逐项操作；用户勾选“已核对”前按钮不可用。
@@ -77,5 +87,5 @@
 ## 尚未开放
 
 - 普通 Release 不读取演练目标时使用逐目标批准；不存在用户确认记录的歌单仍关闭写入。
-- 远端创建／删除歌单已接入同等级目标校验、显式确认、复读和失败恢复编排，但尚无新的真实资源执行授权。
+- 远端创建／删除歌单已接入同等级目标校验、显式确认、复读和失败恢复编排，并已完成一次新建 Private 空歌单的真实闭环验收。
 - 对现有用户歌单的生产 Push、订阅写入及其他账号互动仍需逐目标、逐操作批准。

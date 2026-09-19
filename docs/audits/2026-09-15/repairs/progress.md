@@ -2,6 +2,17 @@
 
 本文件记录实施进度；原验收报告保留发现当时的事实。未列为完成的工作继续按 repair-tasks.md 执行，不把代码落地等同于跨环境全部验收。
 
+## 第二十一批：R001 真实整歌单 Create／Delete 闭环（2026-09-19）
+
+- 用户明确授权真实整歌单 Create／Delete；执行范围限定为本次新建的唯一命名 Private 空歌单。已有 `PLVRppllwHcDw` 作为保护哨兵，不作为删除目标；异常清理也只接受 Create journal 记录的全新 ID，并要求服务端标题和 privacy 精确匹配。
+- 在 OAuth 频道 `UCIfafZrJVaMDXLIADDY1CGg` 上由生产 `YouTubePlaylistSyncService` 创建歌单 `PLMN7OEasWM58`。创建响应后按精确 ID 独立读取 owned playlists，确认标题、Private、0 项和频道所有权；Create journal 到达 `locallyCommitted` 后才进入删除预览。
+- Delete 预览再次确认频道、ID、标题、0 项和完整空快照指纹；执行后独立读取确认 `PLMN7OEasWM58` 不再存在。操作前后 owned-playlist ID 集合相等，`PLVRppllwHcDw` 仍存在；Delete journal 到达 `locallyCommitted`，本地导入在远端消失后才软删除并清除批准。
+- 新增默认跳过、仅 `MUSES_REAL_RESOURCE_VALIDATION=1` 显式开启的真实验收测试；凭据继续只从构建配置和 Keychain 读取，不写入源码、文档或普通缓存。失败清理不会按标题猜测目标，也不会触碰执行前已有 ID。
+
+验证：真实资源专项 **1 test / 1 suite 通过**；完整串行回归 **598 tests / 86 suites 通过**；Release 构建和 `git diff --check` 通过。
+
+结论：R001 的真实 item Insert／Move／Delete 与真实整歌单 Create／Delete 均已取得生产编排、服务端复读和保守恢复证据，R001 父项关闭。
+
 ## 第二十批：R001 歌单资源编排与普通生产策略（2026-09-19）
 
 - 新增整歌单 Create／Delete 的独立 durable journal。创建先记录频道、标题、说明和 privacy，拿到服务端 playlist ID 后只按该 ID 复读；若响应在记录 ID 前中断，操作进入 `needsReview`，不会按标题盲目重试。删除先保存并固定完整 `beforeDelete` 快照，执行前再次核对频道、所有权、标题、完整结构指纹，删除后有界复读确认资源消失，最后才将本地导入移入 Recently Deleted。
