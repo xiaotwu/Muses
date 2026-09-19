@@ -50,9 +50,9 @@ struct CatalogIdentityReviewView: View {
                     Text(tr("No changes were made. Refresh to try again.", "未做任何修改。请刷新重试。", zhHant: "未做任何修改。請重新整理再試。"))
                 }
             } else if let preview {
-                Text(tr("Tracks: \(preview.rows.count) · Single release candidates: \(candidateCount)",
-                        "\(preview.rows.count) 首曲目 · \(candidateCount) 首有唯一发行候选",
-                        zhHant: "\(preview.rows.count) 首曲目 · \(candidateCount) 首有唯一發行候選"))
+                Text(tr("Tracks: \(preview.rows.count) · New release relationships: \(candidateCount)",
+                        "\(preview.rows.count) 首曲目 · \(candidateCount) 条新发行关系",
+                        zhHant: "\(preview.rows.count) 首曲目 · \(candidateCount) 條新發行關係"))
                     .font(.caption).italic().foregroundStyle(.secondary)
                 if visibleRows.isEmpty {
                     ContentUnavailableView(tr("No tracks to review", "没有可核对的曲目", zhHant: "沒有可核對的曲目"), systemImage: "music.note.list")
@@ -61,8 +61,10 @@ struct CatalogIdentityReviewView: View {
                         DisclosureGroup {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(row.id.uuidString).font(.caption.monospaced()).textSelection(.enabled)
-                                if let current = row.currentReleaseID {
-                                    LabeledContent(tr("Current identity", "现有身份", zhHant: "現有身分"), value: current)
+                                ForEach(row.currentReleaseIDs, id: \.self) { current in
+                                    LabeledContent(
+                                        tr("Current release", "现有发行", zhHant: "現有發行"),
+                                        value: current)
                                 }
                                 if row.evidence.isEmpty {
                                     Text(tr("No direct album membership evidence. Names and upload channels are not used to infer identity.",
@@ -102,7 +104,7 @@ struct CatalogIdentityReviewView: View {
         .confirmationDialog(
             undoRequested
                 ? tr("Roll back the last identity migration?", "回滚上次身份迁移？", zhHant: "回復上次身分移轉？")
-                : tr("Apply release identities (\(candidateCount))?", "应用 \(candidateCount) 个发行身份？", zhHant: "套用 \(candidateCount) 個發行身分？"),
+                : tr("Apply release relationships (\(candidateCount))?", "应用 \(candidateCount) 条发行关系？", zhHant: "套用 \(candidateCount) 條發行關係？"),
             isPresented: $confirmMigration, titleVisibility: .visible
         ) {
             Button(undoRequested ? tr("Roll Back", "回滚", zhHant: "回復") : tr("Apply", "应用", zhHant: "套用")) {
@@ -112,14 +114,14 @@ struct CatalogIdentityReviewView: View {
         } message: {
             Text(undoRequested
                  ? tr("Only identities changed by this migration are restored. Later likes, notes and history are retained. Conflicting identities stop the operation.", "只恢复本次迁移改动的身份，保留之后的收藏、笔记和历史。身份冲突时停止操作。", zhHant: "只復原本次移轉變更的身分，保留之後的喜愛項目、筆記和歷史。身分衝突時停止操作。")
-                 : tr("An independent recovery snapshot is saved first. All unambiguous candidates in this preview are applied, including those hidden by search. Ambiguous entries stay unresolved.", "先保存独立恢复快照，再应用本预览全部无歧义候选，包括搜索隐藏的条目。歧义条目保持未解析。", zhHant: "先儲存獨立復原快照，再套用本預覽全部無歧義候選，包括搜尋隱藏的項目。歧義項目保持未解析。"))
+                 : tr("An independent recovery snapshot is saved first. Every direct source-backed relationship in this preview is applied, including those hidden by search. Unsupported or indirect candidates stay unresolved.", "先保存独立恢复快照，再应用本预览中全部有直接来源证据的关系，包括搜索隐藏的条目。不受支持或间接候选保持未解析。", zhHant: "先儲存獨立復原快照，再套用本預覽中全部有直接來源證據的關係，包括搜尋隱藏的項目。不受支援或間接候選保持未解析。"))
         }
     }
 
     private var migrationControls: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Button(tr("Apply candidates (\(candidateCount))…", "应用 \(candidateCount) 个候选…", zhHant: "套用 \(candidateCount) 個候選…")) {
+                Button(tr("Apply relationships (\(candidateCount))…", "应用 \(candidateCount) 个关系…", zhHant: "套用 \(candidateCount) 個關係…")) {
                     undoRequested = false
                     confirmMigration = true
                 }
@@ -177,7 +179,11 @@ struct CatalogIdentityReviewView: View {
         do {
             let result = try CatalogIdentityPreview.read(from: modelContext.container)
             preview = result
-            candidateCount = result.rows.filter { if case .proposed = $0.resolution { true } else { false } }.count
+            candidateCount = result.rows.reduce(into: 0) { count, row in
+                if case .proposed(let releases) = row.resolution {
+                    count += releases.count
+                }
+            }
             migrationAvailable = (try? CatalogIdentityMigration.storeURL(modelContext.container)) != nil
             if migrationAvailable {
                 do { receipt = try CatalogIdentityMigration.latestReceipt(in: modelContext.container) }
@@ -195,9 +201,9 @@ extension CatalogIdentityPreview.Resolution {
         case .alreadyResolved:
             tr("Existing source identity · retained", "已有来源身份 · 保留", zhHant: "已有來源身分 · 保留")
         case .proposed:
-            tr("One release candidate · not applied", "唯一发行候选 · 未应用", zhHant: "唯一發行候選 · 未套用")
+            tr("Direct release evidence · not applied", "直接发行证据 · 未应用", zhHant: "直接發行證據 · 未套用")
         case .ambiguous:
-            tr("Multiple releases · unresolved", "多个发行候选 · 未解析", zhHant: "多個發行候選 · 未解析")
+            tr("Unsupported relationship · unresolved", "不受支持的关系 · 未解析", zhHant: "不受支援的關係 · 未解析")
         case .unresolved:
             tr("Insufficient source evidence", "来源证据不足", zhHant: "來源證據不足")
         }

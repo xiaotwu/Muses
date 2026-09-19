@@ -24,8 +24,7 @@ final class YouTubeCatalogService {
         let context = ModelContext(modelContainer)
         let tracks = playableTracks(context: context)
 
-        let releaseGroups = Dictionary(grouping: tracks.filter { YouTubeCatalogIdentity.isResolvedRelease($0.releaseCatalogID) },
-                                       by: { $0.releaseCatalogID! })
+        let releaseGroups = releaseMembershipGroups(tracks: tracks, context: context)
         let existingReleases = (try? context.fetch(FetchDescriptor<CatalogRelease>())) ?? []
         let liveReleaseIDs = Set(releaseGroups.keys)
         for release in existingReleases where YouTubeCatalogIdentity.isResolvedRelease(release.stableID) && !liveReleaseIDs.contains(release.stableID) {
@@ -35,13 +34,13 @@ final class YouTubeCatalogService {
         }
         let existingReleaseMap = Dictionary(uniqueKeysWithValues: existingReleases.map { ($0.stableID, $0) })
         for (stableID, members) in releaseGroups {
-            guard let first = members.first else { continue }
+            guard let first = members.first?.track else { continue }
             let releaseTitle = first.albumTitle ?? first.title
             let artistName = first.albumArtist ?? first.artist
-            let artistStableIDs = Set(members.compactMap(\.artistCatalogID).filter { YouTubeCatalogIdentity.isResolvedArtist($0) })
+            let artistStableIDs = Set(members.compactMap(\.track.artistCatalogID).filter { YouTubeCatalogIdentity.isResolvedArtist($0) })
             let artistStableID = artistStableIDs.count == 1 ? artistStableIDs.first : nil
-            let artworkURL = first.artworkUrl ?? members.compactMap(\.artworkUrl).first
-            let year = members.compactMap(\.year).first
+            let artworkURL = first.artworkUrl ?? members.compactMap(\.track.artworkUrl).first
+            let year = members.compactMap(\.track.year).first
             // A partial local collection and its display title do not establish release type.
             let kind: CatalogReleaseKind = .unknown
 
@@ -144,27 +143,25 @@ final class YouTubeCatalogService {
         var context = ModelContext(modelContainer)
         var tracks = playableTracks(context: context)
         var releaseRows = (try? context.fetch(FetchDescriptor<CatalogRelease>())) ?? []
-        if releaseRows.isEmpty && tracks.contains(where: { YouTubeCatalogIdentity.isResolvedRelease($0.releaseCatalogID) }) {
+        var grouped = releaseMembershipGroups(tracks: tracks, context: context)
+        if releaseRows.isEmpty && !grouped.isEmpty {
             rebuildFromTrackMetadata()
             context = ModelContext(modelContainer)
             tracks = playableTracks(context: context)
             releaseRows = (try? context.fetch(FetchDescriptor<CatalogRelease>())) ?? []
+            grouped = releaseMembershipGroups(tracks: tracks, context: context)
         }
-        let grouped = Dictionary(grouping: tracks.compactMap { track -> Track? in
-            guard YouTubeCatalogIdentity.isResolvedRelease(track.releaseCatalogID) else { return nil }
-            return track
-        }, by: { $0.releaseCatalogID! })
 
         return releaseRows.filter { YouTubeCatalogIdentity.isResolvedRelease($0.stableID) }.compactMap { row in
             let members = grouped[row.stableID] ?? []
             guard !members.isEmpty else { return nil }
             let ordered = members.sorted { lhs, rhs in
-                let left = lhs.releaseOrder ?? .max
-                let right = rhs.releaseOrder ?? .max
+                let left = lhs.order ?? .max
+                let right = rhs.order ?? .max
                 if left != right { return left < right }
-                let title = lhs.title.localizedStandardCompare(rhs.title)
+                let title = lhs.track.title.localizedStandardCompare(rhs.track.title)
                 if title != .orderedSame { return title == .orderedAscending }
-                return lhs.id.uuidString < rhs.id.uuidString
+                return lhs.track.id.uuidString < rhs.track.id.uuidString
             }
             return CatalogReleaseProjection(
                 stableID: row.stableID,
@@ -176,7 +173,7 @@ final class YouTubeCatalogService {
                 kind: row.kind,
                 cacheState: .resolve(refreshedAt: row.refreshedAt,
                                      unavailable: row.unavailable, now: now),
-                tracks: ordered.map(TrackSnapshot.init(from:))
+                tracks: ordered.map { TrackSnapshot(from: $0.track) }
             )
         }
         .sorted {
@@ -316,10 +313,6 @@ final class YouTubeCatalogService {
         if let existing {
             track = existing
             if saveToLibrary { track.libraryMember = true }
-            if track.releaseCatalogID == nil, let releaseStableID {
-                track.releaseCatalogID = releaseStableID
-                track.releaseOrder = order
-            }
             if track.albumTitle == nil, let albumTitle {
                 track.albumTitle = albumTitle
             }
@@ -354,6 +347,14 @@ final class YouTubeCatalogService {
                     ))
                 }
             }
+        }
+        if let releaseStableID {
+            try CatalogReleaseMembershipStore.upsert(
+                track: track,
+                releaseStableID: releaseStableID,
+                releaseOrder: order,
+                evidenceKind: .catalogBrowse,
+                context: context)
         }
         try context.save()
         revision &+= 1
@@ -395,9 +396,13 @@ final class YouTubeCatalogService {
             let descriptor = FetchDescriptor<Track>(predicate: #Predicate { $0.youTubeId == videoID })
             if let existingTrack = try? context.fetch(descriptor).first {
                 existingTrack.libraryMember = true
-                existingTrack.releaseCatalogID = releaseStableID
-                existingTrack.releaseOrder = index
                 if existingTrack.albumTitle == nil { existingTrack.albumTitle = albumTitle }
+                try CatalogReleaseMembershipStore.upsert(
+                    track: existingTrack,
+                    releaseStableID: releaseStableID,
+                    releaseOrder: index,
+                    evidenceKind: .catalogBrowse,
+                    context: context)
             } else {
                 let track = Track(
                     title: entry.title,
@@ -413,6 +418,12 @@ final class YouTubeCatalogService {
                     artistCatalogID: release.channelID.map { "channel:\($0)" }
                 )
                 context.insert(track)
+                try CatalogReleaseMembershipStore.upsert(
+                    track: track,
+                    releaseStableID: releaseStableID,
+                    releaseOrder: index,
+                    evidenceKind: .catalogBrowse,
+                    context: context)
             }
         }
 
@@ -427,9 +438,53 @@ final class YouTubeCatalogService {
     }
 
     func unresolvedCounts() -> (releases: Int, artists: Int) {
-        let tracks = playableTracks(context: ModelContext(modelContainer))
-        return (tracks.filter { !YouTubeCatalogIdentity.isResolvedRelease($0.releaseCatalogID) }.count,
+        let context = ModelContext(modelContainer)
+        let tracks = playableTracks(context: context)
+        let resolvedTrackIDs = Set(releaseMembershipGroups(
+            tracks: tracks, context: context).values.flatMap { $0.map(\.track.id) })
+        return (tracks.filter { !resolvedTrackIDs.contains($0.id) }.count,
                 tracks.filter { !YouTubeCatalogIdentity.isResolvedArtist($0.artistCatalogID) }.count)
+    }
+
+    private struct ReleaseMember {
+        let track: Track
+        let order: Int?
+    }
+
+    private struct ReleaseTrackKey: Hashable {
+        let releaseID: String
+        let trackID: UUID
+    }
+
+    /// Persisted source edges are authoritative. Legacy single-value fields
+    /// contribute only in-memory compatibility edges and are never written by
+    /// a rebuild.
+    private func releaseMembershipGroups(
+        tracks: [Track], context: ModelContext
+    ) -> [String: [ReleaseMember]] {
+        let byID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
+        let values = (try? CatalogReleaseMembershipStore.values(
+            for: tracks, in: context)) ?? []
+        var members: [ReleaseTrackKey: ReleaseMember] = [:]
+        for value in values {
+            guard YouTubeCatalogIdentity.isResolvedRelease(value.releaseStableID),
+                  let track = byID[value.trackID] else { continue }
+            let key = ReleaseTrackKey(
+                releaseID: value.releaseStableID, trackID: value.trackID)
+            if let existing = members[key] {
+                let oldOrder = existing.order ?? .max
+                let newOrder = value.releaseOrder ?? .max
+                if newOrder < oldOrder {
+                    members[key] = ReleaseMember(
+                        track: track, order: value.releaseOrder)
+                }
+            } else {
+                members[key] = ReleaseMember(
+                    track: track, order: value.releaseOrder)
+            }
+        }
+        return Dictionary(grouping: members) { $0.key.releaseID }
+            .mapValues { $0.map(\.value) }
     }
 }
 

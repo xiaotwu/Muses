@@ -246,6 +246,17 @@ struct YouTubeImportServiceTests {
         #expect(video.releaseOrder == 1)
         #expect(song.mediaKind == .song)
         #expect(video.mediaKind == .musicVideo)
+
+        let memberships = try context.fetch(FetchDescriptor<CatalogTrackReleaseMembership>())
+        #expect(memberships.count == 2)
+        #expect(Set(memberships.map(\.trackID)) == Set([song.id, video.id]))
+        #expect(memberships.allSatisfy {
+            $0.releaseStableID == release.stableID
+                && $0.evidenceKind == .youtubeImportItem
+                && $0.sourceImportID != nil
+                && $0.sourceItemID != nil
+        })
+        #expect(Set(memberships.compactMap(\.releaseOrder)) == [0, 1])
     }
 
     // MARK: - Factory

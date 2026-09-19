@@ -5,9 +5,11 @@ import SwiftData
 ///
 /// Generation 2 removes InboxItem, AutomationRule, and FocusSession.
 /// Generation 3 adds the durable whole-playlist resource journal and exact-
-/// target write approval metadata.
+/// target write approval metadata. Generation 4 adds source-backed Track–
+/// Release membership edges while retaining the legacy single release fields
+/// as read-only compatibility input for existing stores.
 enum MusesSchema {
-    static let generation = 3
+    static let generation = 4
     static let version = Schema.Version(generation, 0, 0)
 
     static let models: [any PersistentModel.Type] = [
@@ -24,6 +26,7 @@ enum MusesSchema {
         TrackBookmark.self,
         CatalogRelease.self,
         CatalogArtist.self,
+        CatalogTrackReleaseMembership.self,
         YouTubePlaylistRevision.self,
         YouTubeSyncOperation.self,
         YouTubeSyncBatch.self,

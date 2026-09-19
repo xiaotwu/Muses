@@ -2,17 +2,26 @@ import Foundation
 import SwiftData
 
 /// Direct persisted membership evidence. Repeated occurrences remain separate.
-struct CatalogIdentityEvidence: Sendable, Equatable {
+struct CatalogIdentityEvidence: Codable, Sendable, Equatable {
     let importID: UUID
     let itemID: UUID
     let releaseID: String
     let order: Int
+
+    func membershipKey(trackID: UUID) -> String {
+        CatalogReleaseMembershipStore.evidenceKey(
+            trackID: trackID,
+            releaseStableID: releaseID,
+            evidenceKind: .youtubeImportItem,
+            sourceImportID: importID,
+            sourceItemID: itemID)
+    }
 }
 
 struct CatalogIdentityPreview: Sendable, Equatable {
     enum Resolution: Sendable, Equatable {
         case alreadyResolved
-        case proposed(String)
+        case proposed([String])
         case ambiguous
         case unresolved
     }
@@ -21,6 +30,8 @@ struct CatalogIdentityPreview: Sendable, Equatable {
         let id: UUID
         let title: String
         let currentReleaseID: String?
+        let currentReleaseIDs: [String]
+        let membershipEvidenceKeys: [String]
         let evidence: [CatalogIdentityEvidence]
         let resolution: Resolution
     }
@@ -34,6 +45,9 @@ struct CatalogIdentityPreview: Sendable, Equatable {
         context.autosaveEnabled = false
         let tracks = try context.fetch(FetchDescriptor<Track>())
         let items = try context.fetch(FetchDescriptor<YouTubeImportItem>())
+        let membershipValues = try CatalogReleaseMembershipStore.values(
+            for: tracks, in: context)
+        let membershipsByTrack = Dictionary(grouping: membershipValues, by: \.trackID)
         var evidenceByTrack: [UUID: [CatalogIdentityEvidence]] = [:]
         for item in items {
             guard let track = item.track,
@@ -53,19 +67,27 @@ struct CatalogIdentityPreview: Sendable, Equatable {
                 if $0.order != $1.order { return $0.order < $1.order }
                 return $0.itemID.uuidString < $1.itemID.uuidString
             }
-            let candidates = Set(evidence.map(\.releaseID))
+            let currentValues = membershipsByTrack[track.id] ?? []
+            let currentIDs = Set(currentValues.map(\.releaseStableID))
+            let persistedEvidenceKeys = Set(currentValues
+                .filter { !$0.isLegacyCompatibility }
+                .map(\.evidenceKey))
+            let missingEvidence = evidence.filter {
+                !persistedEvidenceKeys.contains($0.membershipKey(trackID: track.id))
+            }
+            let missing = Set(missingEvidence.map(\.releaseID)).sorted()
             let resolution: Resolution
-            if YouTubeCatalogIdentity.isResolvedRelease(track.releaseCatalogID) {
+            if !missing.isEmpty {
+                resolution = .proposed(missing)
+            } else if !currentIDs.isEmpty {
                 resolution = .alreadyResolved
-            } else if candidates.count > 1 {
-                resolution = .ambiguous
-            } else if let candidate = candidates.first {
-                resolution = .proposed(candidate)
             } else {
                 resolution = .unresolved
             }
             return Row(id: track.id, title: track.title,
                        currentReleaseID: track.releaseCatalogID,
+                       currentReleaseIDs: currentIDs.sorted(),
+                       membershipEvidenceKeys: persistedEvidenceKeys.sorted(),
                        evidence: evidence, resolution: resolution)
         }
         return Self(rows: rows)

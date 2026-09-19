@@ -134,8 +134,6 @@ final class YouTubeImportService {
             ctx.insert(item)
 
             let track = track(for: entry, artist: artist, durationMs: durationMs, context: ctx)
-            applyReleaseIdentityIfAvailable(track: track, playlistID: playlistId,
-                                            order: index, title: title, artist: channel)
             item.track = track
             items.append(item)
         }
@@ -156,7 +154,7 @@ final class YouTubeImportService {
             }
         }
 
-        attachCatalogMetadata(for: imp, context: ctx)
+        try attachCatalogMetadata(for: imp, context: ctx)
 
         // 10. Save.
         try ctx.save()
@@ -410,7 +408,7 @@ final class YouTubeImportService {
         }
     }
 
-    private func attachCatalogMetadata(for imp: YouTubeImport, context ctx: ModelContext) {
+    private func attachCatalogMetadata(for imp: YouTubeImport, context ctx: ModelContext) throws {
         let tracks = (imp.items ?? []).compactMap(\.track)
         guard !tracks.isEmpty else { return }
         let albumTitle = imp.title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -438,23 +436,17 @@ final class YouTubeImportService {
 
         for (index, item) in (imp.items ?? []).sorted(by: { $0.order < $1.order }).enumerated() {
             guard let track = item.track else { continue }
-            track.releaseCatalogID = stableID
-            track.releaseOrder = item.order
+            try CatalogReleaseMembershipStore.upsert(
+                track: track,
+                releaseStableID: stableID,
+                releaseOrder: item.order < 0 ? index : item.order,
+                evidenceKind: .youtubeImportItem,
+                sourceImportID: imp.id,
+                sourceItemID: item.id,
+                context: ctx)
             if track.albumTitle == nil || track.albumTitle?.isEmpty == true { track.albumTitle = albumTitle }
             if track.albumArtist == nil || track.albumArtist?.isEmpty == true { track.albumArtist = channel }
-            if item.order < 0 { track.releaseOrder = index }
         }
-    }
-
-    private func applyReleaseIdentityIfAvailable(track: Track, playlistID: String,
-                                                 order: Int, title: String, artist: String) {
-        guard YouTubePlaylistID.isMusicAlbum(playlistID),
-              let stableID = YouTubeCatalogIdentity.release(
-                browseID: nil, playlistID: playlistID) else { return }
-        track.releaseCatalogID = stableID
-        track.releaseOrder = order
-        if track.albumTitle == nil || track.albumTitle?.isEmpty == true { track.albumTitle = title }
-        if track.albumArtist == nil || track.albumArtist?.isEmpty == true { track.albumArtist = artist }
     }
 
     private func updateCatalogIdentity(track: Track, entry: YTDlpBridge.YTDlpPlaylistEntry) {

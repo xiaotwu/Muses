@@ -250,6 +250,54 @@ struct YouTubeCatalogTests {
         #expect(tracks.first?.artistCatalogID == "channel:UC_dua")
     }
 
+    @Test("one Track UUID can belong to multiple source-backed releases")
+    func oneTrackBelongsToMultipleReleases() throws {
+        let container = try makeModelContainer(inMemory: true)
+        let service = YouTubeCatalogService(modelContainer: container)
+        let entry = YTDlpBridge.YTDlpPlaylistEntry(
+            id: "sharedSong1", title: "Shared Song", uploader: "Artist",
+            duration: 180, channelID: "UC_artist")
+
+        try service.importOnlineAlbum(
+            release: OnlineReleaseItem(
+                playlistID: "OLAK5uy_first", title: "Same Title",
+                kind: .album, channelID: "UC_artist"),
+            tracks: [entry], artistName: "Artist")
+        let firstTrack = try #require(
+            ModelContext(container).fetch(FetchDescriptor<Track>()).first)
+
+        try service.importOnlineAlbum(
+            release: OnlineReleaseItem(
+                playlistID: "OLAK5uy_second", title: "Same Title",
+                kind: .album, channelID: "UC_artist"),
+            tracks: [entry], artistName: "Artist")
+
+        let verify = ModelContext(container)
+        let tracks = try verify.fetch(FetchDescriptor<Track>())
+        #expect(tracks.count == 1)
+        #expect(tracks.first?.id == firstTrack.id)
+        #expect(tracks.first?.releaseCatalogID == "playlist:OLAK5uy_first")
+
+        let memberships = try verify.fetch(
+            FetchDescriptor<CatalogTrackReleaseMembership>())
+        #expect(memberships.count == 2)
+        #expect(Set(memberships.map(\.releaseStableID)) == [
+            "playlist:OLAK5uy_first", "playlist:OLAK5uy_second"
+        ])
+        #expect(memberships.allSatisfy {
+            $0.trackID == firstTrack.id && $0.evidenceKind == .catalogBrowse
+        })
+
+        let releases = service.releases()
+        #expect(releases.count == 2)
+        #expect(Set(releases.map(\.stableID)) == [
+            "playlist:OLAK5uy_first", "playlist:OLAK5uy_second"
+        ])
+        #expect(releases.allSatisfy {
+            $0.title == "Same Title" && $0.tracks.map(\.id) == [firstTrack.id]
+        })
+    }
+
     @Test("missing catalog identities stay unresolved without name-based grouping")
     func autoCatalogFromTracksAndPlaylists() throws {
         let container = try makeModelContainer(inMemory: true)

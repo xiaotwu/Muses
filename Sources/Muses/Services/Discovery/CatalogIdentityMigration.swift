@@ -19,10 +19,19 @@ enum CatalogMigrationError: LocalizedError {
 
 struct CatalogMigrationReceipt: Codable, Equatable {
     enum State: String, Codable { case prepared, applied, rollingBack, rolledBack }
+    struct Membership: Codable, Equatable {
+        let evidenceKey: String
+        let releaseID: String
+        let order: Int?
+        let evidenceKind: CatalogReleaseEvidenceKind
+        let sourceImportID: UUID?
+        let sourceItemID: UUID?
+    }
     struct Change: Codable, Equatable {
         let trackID: UUID
         let before: String?
         let after: String
+        let memberships: [Membership]?
     }
     let version: Int
     let createdAt: Date
@@ -53,7 +62,8 @@ enum CatalogIdentityMigration {
             let file = child.appending(path: "identity-migration.json")
             guard FileManager.default.fileExists(atPath: file.path) else { continue }
             let receipt = try JSONDecoder().decode(CatalogMigrationReceipt.self, from: Data(contentsOf: file))
-            guard receipt.version == 1, receipt.store.standardizedFileURL == store else { continue }
+            guard [1, 2].contains(receipt.version),
+                  receipt.store.standardizedFileURL == store else { continue }
             guard receipt.fileURL.standardizedFileURL == file.standardizedFileURL else { throw CatalogMigrationError.auditFailed }
             receipts.append(receipt)
         }
@@ -65,8 +75,30 @@ enum CatalogIdentityMigration {
         let store = try storeURL(container)
         guard try CatalogIdentityPreview.read(from: container) == preview else { throw CatalogMigrationError.stalePreview }
         let changes = preview.rows.compactMap { row -> CatalogMigrationReceipt.Change? in
-            guard case .proposed(let identity) = row.resolution else { return nil }
-            return .init(trackID: row.id, before: row.currentReleaseID, after: identity)
+            guard case .proposed(let identities) = row.resolution,
+                  let first = identities.first else { return nil }
+            let target = Set(identities)
+            let existingKeys = Set(row.membershipEvidenceKeys)
+            let memberships = row.evidence.filter {
+                target.contains($0.releaseID)
+                    && !existingKeys.contains($0.membershipKey(trackID: row.id))
+            }.map {
+                CatalogMigrationReceipt.Membership(
+                    evidenceKey: $0.membershipKey(trackID: row.id),
+                    releaseID: $0.releaseID,
+                    order: $0.order,
+                    evidenceKind: .youtubeImportItem,
+                    sourceImportID: $0.importID,
+                    sourceItemID: $0.itemID)
+            }
+            guard !memberships.isEmpty else { return nil }
+            let primary = YouTubeCatalogIdentity.isResolvedRelease(
+                row.currentReleaseID) ? row.currentReleaseID! : first
+            return .init(
+                trackID: row.id,
+                before: row.currentReleaseID,
+                after: primary,
+                memberships: memberships)
         }
         guard !changes.isEmpty else { throw CatalogMigrationError.noCandidates }
         if let previous = try latestReceipt(in: container), [.prepared, .rollingBack].contains(previous.state) {
@@ -76,7 +108,7 @@ enum CatalogIdentityMigration {
         let audit = try CatalogMigrationAudit.read(snapshot)
         guard try CatalogMigrationAudit.read(store) == audit,
               try CatalogIdentityPreview.read(from: container) == preview else { throw CatalogMigrationError.stalePreview }
-        var receipt = CatalogMigrationReceipt(version: 1, createdAt: Date(), store: store,
+        var receipt = CatalogMigrationReceipt(version: 2, createdAt: Date(), store: store,
                                               snapshot: snapshot, changes: changes, audit: audit, state: .prepared)
         try persist(receipt)
         do {
@@ -101,12 +133,20 @@ enum CatalogIdentityMigration {
                          afterSave: (() throws -> Void)? = nil) throws -> CatalogMigrationReceipt {
         let store = try storeURL(container)
         guard receipt.store.standardizedFileURL == store,
-              receipt.version == 1, receipt.state != .rolledBack,
+              [1, 2].contains(receipt.version), receipt.state != .rolledBack,
               try latestReceipt(in: container) == receipt,
               try CatalogMigrationAudit.read(receipt.snapshot) == receipt.audit else { throw CatalogMigrationError.conflict }
         let preview = try CatalogIdentityPreview.read(from: container)
         // A prepared receipt can survive a crash before commit. Never replay a write on launch.
         if [.prepared, .rollingBack].contains(receipt.state) && matches(receipt.changes, undo: true, preview: preview) {
+            var result = receipt
+            result.state = .rolledBack
+            try persist(result)
+            return result
+        }
+        if [.prepared, .rollingBack].contains(receipt.state),
+           isPartiallyRolledBack(receipt.changes, preview: preview) {
+            try write(receipt.changes, undo: true, in: container)
             var result = receipt
             result.state = .rolledBack
             try persist(result)
@@ -148,7 +188,33 @@ enum CatalogIdentityMigration {
         let rows = Dictionary(uniqueKeysWithValues: preview.rows.map { ($0.id, $0) })
         return changes.allSatisfy { change in
             guard let row = rows[change.trackID] else { return false }
-            return row.currentReleaseID == (undo ? change.before : change.after)
+            guard row.currentReleaseID == (undo ? change.before : change.after) else {
+                return false
+            }
+            let changedKeys = Set((change.memberships ?? []).map(\.evidenceKey))
+            guard !changedKeys.isEmpty else { return true }
+            let currentKeys = Set(row.membershipEvidenceKeys)
+            return undo
+                ? changedKeys.isDisjoint(with: currentKeys)
+                : changedKeys.isSubset(of: currentKeys)
+        }
+    }
+
+    /// Version 2 writes the compatibility primary and relationship rows in one
+    /// save. This also recognizes a conservatively simulated/crash-recovered
+    /// state where the primary was restored but the exact inserted edges are
+    /// still present, so an explicit rollback can finish deleting only them.
+    private static func isPartiallyRolledBack(
+        _ changes: [CatalogMigrationReceipt.Change],
+        preview: CatalogIdentityPreview
+    ) -> Bool {
+        let rows = Dictionary(uniqueKeysWithValues: preview.rows.map { ($0.id, $0) })
+        return changes.allSatisfy { change in
+            guard let row = rows[change.trackID],
+                  row.currentReleaseID == change.before else { return false }
+            let changedKeys = Set((change.memberships ?? []).map(\.evidenceKey))
+            return !changedKeys.isEmpty
+                && changedKeys.isSubset(of: Set(row.membershipEvidenceKeys))
         }
     }
 
@@ -167,12 +233,62 @@ enum CatalogIdentityMigration {
         context.autosaveEnabled = false
         let tracks = try context.fetch(FetchDescriptor<Track>())
         let byID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
+        let existingMemberships = try context.fetch(
+            FetchDescriptor<CatalogTrackReleaseMembership>())
+        let membershipsByKey = Dictionary(uniqueKeysWithValues:
+            existingMemberships.map { ($0.evidenceKey, $0) })
         for change in changes {
-            guard let track = byID[change.trackID], track.releaseCatalogID == (undo ? change.after : change.before) else {
+            guard let track = byID[change.trackID] else {
                 throw CatalogMigrationError.conflict
             }
+            let expectedPrimary = undo ? change.after : change.before
+            let alreadyRestoredPrimary = undo
+                && !(change.memberships ?? []).isEmpty
+                && track.releaseCatalogID == change.before
+            guard track.releaseCatalogID == expectedPrimary || alreadyRestoredPrimary else {
+                throw CatalogMigrationError.conflict
+            }
+            for membership in change.memberships ?? [] {
+                if undo {
+                    guard let row = membershipsByKey[membership.evidenceKey],
+                          row.trackID == change.trackID,
+                          row.releaseStableID == membership.releaseID,
+                          row.releaseOrder == membership.order,
+                          row.evidenceKind == membership.evidenceKind,
+                          row.sourceImportID == membership.sourceImportID,
+                          row.sourceItemID == membership.sourceItemID else {
+                        throw CatalogMigrationError.conflict
+                    }
+                } else if membershipsByKey[membership.evidenceKey] != nil {
+                    throw CatalogMigrationError.conflict
+                }
+            }
         }
-        for change in changes { byID[change.trackID]?.releaseCatalogID = undo ? change.before : change.after }
+        for change in changes {
+            guard let track = byID[change.trackID] else {
+                throw CatalogMigrationError.conflict
+            }
+            if undo {
+                for membership in change.memberships ?? [] {
+                    guard let row = membershipsByKey[membership.evidenceKey] else {
+                        throw CatalogMigrationError.conflict
+                    }
+                    context.delete(row)
+                }
+            } else {
+                for membership in change.memberships ?? [] {
+                    context.insert(CatalogTrackReleaseMembership(
+                        evidenceKey: membership.evidenceKey,
+                        trackID: change.trackID,
+                        releaseStableID: membership.releaseID,
+                        releaseOrder: membership.order,
+                        evidenceKind: membership.evidenceKind,
+                        sourceImportID: membership.sourceImportID,
+                        sourceItemID: membership.sourceItemID))
+                }
+            }
+            track.releaseCatalogID = undo ? change.before : change.after
+        }
         do { try context.save() }
         catch { context.rollback(); throw error }
     }
@@ -181,14 +297,16 @@ enum CatalogIdentityMigration {
                                audit: CatalogMigrationAudit, store: URL, container: ModelContainer) throws {
         guard try CatalogMigrationAudit.read(store) == audit else { throw CatalogMigrationError.auditFailed }
         let after = try CatalogIdentityPreview.read(from: container)
-        let byID = Dictionary(uniqueKeysWithValues: changes.map { ($0.trackID, $0) })
         guard after.rows.count == preview.rows.count else { throw CatalogMigrationError.auditFailed }
         for (before, current) in zip(preview.rows, after.rows) {
-            let expected: String?
-            if let change = byID[before.id] { expected = undo ? change.before : change.after }
-            else { expected = before.currentReleaseID }
             guard current.id == before.id, current.title == before.title, current.evidence == before.evidence,
-                  current.currentReleaseID == expected else { throw CatalogMigrationError.auditFailed }
+                  (changes.contains { $0.trackID == before.id }
+                    || current.currentReleaseID == before.currentReleaseID) else {
+                throw CatalogMigrationError.auditFailed
+            }
+        }
+        guard matches(changes, undo: undo, preview: after) else {
+            throw CatalogMigrationError.auditFailed
         }
     }
 }

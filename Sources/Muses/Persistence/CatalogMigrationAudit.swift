@@ -40,7 +40,8 @@ struct CatalogMigrationAudit: Codable, Equatable {
         try rows("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Z%' ORDER BY name") { names.append($0[0]) }
         let internalTables: Set<String> = ["Z_METADATA", "Z_PRIMARYKEY", "Z_MODELCACHE"]
         var result: [String: Table] = [:]
-        for name in names where !internalTables.contains(name) {
+        for name in names where !internalTables.contains(name)
+            && name != "ZCATALOGTRACKRELEASEMEMBERSHIP" {
             var columns: [String] = []
             try rows("PRAGMA table_info(\(identifier(name)))") { columns.append($0[1]) }
             let included = columns.filter { !(name == "ZTRACK" && ["ZRELEASECATALOGID", "Z_OPT"].contains($0)) }

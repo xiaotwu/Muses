@@ -28,7 +28,7 @@ struct CatalogIdentityPreviewTests {
         let repeated = try CatalogIdentityPreview.read(from: container)
         #expect(preview == repeated)
         let row = try #require(preview.rows.first { $0.id == track.id })
-        #expect(row.resolution == .proposed("playlist:OLAK5uy_album"))
+        #expect(row.resolution == .proposed(["playlist:OLAK5uy_album"]))
         #expect(row.evidence.map(\.order) == [0, 3])
         #expect(Set(row.evidence.map(\.itemID)).count == 2)
         #expect(preview.rows.first { $0.id == duplicate.id }?.resolution == .unresolved)
@@ -41,7 +41,7 @@ struct CatalogIdentityPreviewTests {
         #expect(try verify.fetchCount(FetchDescriptor<CatalogRelease>()) == 0)
     }
 
-    @Test("Multiple releases stay ambiguous and established identities are never replaced")
+    @Test("Multiple direct releases are preserved and established primary identity is never replaced")
     func ambiguousEvidence() throws {
         let container = try makeModelContainer(inMemory: true)
         let context = ModelContext(container)
@@ -57,12 +57,51 @@ struct CatalogIdentityPreviewTests {
         }
         try context.save()
         let preview = try CatalogIdentityPreview.read(from: container)
-        #expect(preview.rows.first?.resolution == .ambiguous)
+        #expect(preview.rows.first?.resolution == .proposed([
+            "playlist:OLAK5uy_one", "playlist:OLAK5uy_two"
+        ]))
         #expect(preview.rows.first?.evidence.count == 2)
         track.releaseCatalogID = "browse:existing"
         try context.save()
-        #expect(try CatalogIdentityPreview.read(from: container).rows.first?.resolution == .alreadyResolved)
+        #expect(try CatalogIdentityPreview.read(from: container).rows.first?.resolution == .proposed([
+            "playlist:OLAK5uy_one", "playlist:OLAK5uy_two"
+        ]))
         #expect(try ModelContext(container).fetch(FetchDescriptor<Track>()).first?.releaseCatalogID == "browse:existing")
+    }
+
+    @Test("Legacy primary identity does not masquerade as a persisted source relationship")
+    func legacyPrimaryStillNeedsSourceRelationship() throws {
+        let container = try makeModelContainer(inMemory: true)
+        let context = ModelContext(container)
+        let releaseID = "playlist:OLAK5uy_album"
+        let track = Track(
+            title: "Song", artist: "Artist", youTubeId: "abcdefghijk",
+            releaseCatalogID: releaseID)
+        let owner = YouTubeImport(
+            playlistId: "OLAK5uy_album",
+            url: "https://music.youtube.com/playlist?list=OLAK5uy_album",
+            title: "Album", channel: "Artist")
+        let item = YouTubeImportItem(
+            youTubeId: track.youTubeId, title: track.title, artist: track.artist)
+        context.insert(track)
+        context.insert(owner)
+        item.track = track
+        item.import_ = owner
+        context.insert(item)
+        try context.save()
+
+        let before = try CatalogIdentityPreview.read(from: container)
+        #expect(before.rows.first?.currentReleaseIDs == [releaseID])
+        #expect(before.rows.first?.membershipEvidenceKeys.isEmpty == true)
+        #expect(before.rows.first?.resolution == .proposed([releaseID]))
+
+        try CatalogReleaseMembershipStore.upsert(
+            track: track, releaseStableID: releaseID, releaseOrder: 0,
+            evidenceKind: .youtubeImportItem,
+            sourceImportID: owner.id, sourceItemID: item.id, context: context)
+        try context.save()
+        #expect(try CatalogIdentityPreview.read(from: container).rows.first?.resolution
+            == .alreadyResolved)
     }
 
     @Test("Malformed and mismatched video relationships cannot supply evidence")
