@@ -11,7 +11,7 @@
 
 ### 尚需实现
 
-- [ ] **R001 — 账号写入闭环**：真实 OAuth 已确认指定歌单 `PLVRppllwHcDw` 的账号所有权。2026-09-18 经用户明确将该 Private 歌单指定为可丢弃目标后，完成一次真实 item 演练：Insert 成功并复读为第 507 项；Move 在服务端生效，但生产同步服务的写后结构一致性校验失败；恢复 Delete 成功，最终服务端 506 个 playlistItem ID、视频 ID 和顺序逐项等于写入前基线。2026-09-19 已离线定位为 Push 写前 continuation partial 被错误复用于写后分页，导致旧前 500 项与新末页拼接；现已在每次完整 Push 读取后清除 partial，并为短暂旧读增加只重试读、不重放写的有界校验。507 项 Insert → Move → Remove、丢失 Insert 响应和旧读回归通过。仍需新的单次授权完成真实 Move 复验；创建／删除歌单编排和生产策略仍待完成。
+- [ ] **R001 — 账号写入闭环**：真实 OAuth 已确认指定歌单 `PLVRppllwHcDw` 的账号所有权。2026-09-18 首次演练暴露 Push 写前 continuation partial 被错误复用于写后分页；2026-09-19 修复并通过 507 项离线故障注入后，获得新的明确授权完成真实复验：Insert 服务端复读位于位置 506，Move 复读位于位置 0，Delete 后 506 个 playlistItem ID、视频 ID 和顺序逐项等于写入前基线。精确目标门控、现有 item Insert／Move／Remove、完整复读、短暂旧读和不确定 Insert 防重复已取得真实或自动化证据。父项仍未完成远端创建／删除歌单的同等级编排及普通生产策略，默认 Release Push 保持关闭。
 - [ ] **R002 — 完整目录身份关联**：权威来源补全、多发行持久关联及全量真实资料库回归仍未完成。现有预览、快照、显式应用和回滚只覆盖直接证据支持的限定路径。
 - [ ] **R009／R016 — 完整结构化目录与 Home**：代码实现已补齐六类顶层搜索筛选、类型化 parser、详情／关联规范化缓存、匿名 `FEmusic_home`、scope/mode 代际保护、区段 continuation 失败重试、稳定艺人身份和来源文案。Computer Use 实机已确认 Home 可运行、默认显示 `Anonymous YouTube Music discovery (Public discovery)`，并可见 Podcasts／Throwbacks／Low key vibes 等结构化区段及导入歌单入口；这只关闭了匿名 Home 首屏可见性子项。仍需真实 Release 网络形状、地区／语言、榜单、完整 renderer／详情、真实账号 helper、订阅上传流及实机辅助功能验收；不得以 yt-dlp 搜索或名称匹配冒充这些来源。详见 [R009／R016 续修记录](repairs/r009-r016-closeout.md)。
 - [ ] **R014 — 播客闭环**：合法 `video:` 播客单集已进入统一 PlaybackService／队列解析路径；节目与单集身份、关注、分页、逐集续播、已听状态、倍速、前后跳转、按发布时间播放未听单集及不可用状态仍未完成。指定歌单只能验收通用 YouTube 歌单增删，不能证明播客关注／单集状态闭环。**Smart Shuffle 首批已经实现并完成限定验收，不再列为“未实现”。**
@@ -44,7 +44,7 @@
 - [x] 用分页假服务复现 506 → 507 项后将末项移动到首位；确认旧 Remote Partial 在写后被续用，形成写前前 500 项与写后末页的混合快照。
 - [x] 完整 Push 读取完成后立即删除 continuation partial；写后结构不一致和不确定写入恢复使用 250ms／750ms／2s 有界完整复读，只重试 GET，不重放已确认的写请求。最终失败会记录首个位置、视频 ID、order 和 availability 差异，不包含令牌或原始账号响应。
 - [x] 新增 507 项 Insert → Move → Remove 完整回归，在 Move／Remove 写后注入旧读；另以 Insert 已提交但响应丢失且首次复读仍旧的场景验证防重复。同步恢复套件 22 项通过；完整串行回归 593 项／85 套件通过；Release 构建通过。
-- [ ] 本批没有新的远端写入授权，因此未重试真实 Move。普通 Release Push 继续关闭；真实复验必须另行获得一次性授权。
+- [x] 随后获得仅限当前下一步和同一可丢弃歌单的新授权；真实 Insert → Move → Delete 全部由修复后的生产同步服务完成并逐步复读，最终精确恢复 506 项基线。普通 Release Push 继续关闭。
 
 ### 已实现，但尚未达到完整验收门槛
 

@@ -2,6 +2,15 @@
 
 本文件记录实施进度；原验收报告保留发现当时的事实。未列为完成的工作继续按 repair-tasks.md 执行，不把代码落地等同于跨环境全部验收。
 
+## 第十九批：R001 修复后真实复验（2026-09-19）
+
+- 用户重新明确授权当前下一步的全部必要操作；执行范围收窄为同一可丢弃 Private 歌单 `PLVRppllwHcDw` 的一次 Insert、Move、Delete、安全读重试和服务端复读，不扩展到其他歌单、订阅或账号资源。
+- 执行前重新确认 OAuth 频道 `UCIfafZrJVaMDXLIADDY1CGg`、playlist-management scope、所有权、506 项完整基线及测试视频缺席；本地状态仅写入独立 SQLite 一致性副本。
+- Insert 通过生产同步服务执行，服务端完整复读为 507 项、测试 occurrence 位于位置 506；Move 计划唯一且为 506 → 0，修复后的完整复读确认位于位置 0，批次成功提交；Delete 后完整复读确认所有 506 个 playlistItem ID、视频 ID 和顺序逐项等于操作前基线。
+- 首次预检使用缺少 client secret 的测试配置，令牌刷新在账号身份门槛前失败，没有歌单写请求；随后使用相同 client ID 的完整测试配置通过预检并执行。没有使用真实用户数据库、没有创建／删除歌单、没有订阅或其他账号写入。
+
+结论：现有歌单 item Insert／Move／Remove 的精确目标真实闭环通过，2026-09-18 的 Move 失败已关闭。R001 父项仍保留远端歌单创建／删除的同等级编排和生产开放策略；普通 Release Push 继续关闭。
+
 ## 第十八批：R001 Move 写后分页修复（2026-09-19）
 
 - 507 项假服务复现证明真实失败来自 continuation 世代错误：Push 写前完整校验留下前 500 项 Remote Partial；Move 506 → 0 后，写后复读从旧 token 续取新末页，拼成跨写入世代的混合 Remote Shadow。
