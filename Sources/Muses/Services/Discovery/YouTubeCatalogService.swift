@@ -8,14 +8,17 @@ import SwiftData
 @MainActor
 final class YouTubeCatalogService {
     private let modelContainer: ModelContainer
-    private let bridge: (any YTDlpBridgeProtocol)?
+    private let structuredCatalog: any MusicCatalogProviding
     private(set) var revision = 0
     private var discographyCache: [String: (value: ArtistOnlineDiscography, date: Date)] = [:]
     private var albumTracksCache: [String: (value: [YTDlpBridge.YTDlpPlaylistEntry], date: Date)] = [:]
 
-    init(modelContainer: ModelContainer, bridge: (any YTDlpBridgeProtocol)? = nil) {
+    init(
+        modelContainer: ModelContainer,
+        structuredCatalog: any MusicCatalogProviding = LocaleScopedMusicCatalogProvider()
+    ) {
         self.modelContainer = modelContainer
-        self.bridge = bridge
+        self.structuredCatalog = structuredCatalog
     }
 
     /// Rebuild cache rows for all playable tracks from the library and playlists.
@@ -243,27 +246,34 @@ final class YouTubeCatalogService {
 
     // MARK: - Online Discovery
     
-    /// Search results only belong to an artist when their channel identity matches.
+    /// Reads the artist's stable browse/channel page. Display-name search and
+    /// yt-dlp results never establish discography membership.
     func fetchArtistOnlineDiscography(artist: CatalogArtistProjection, forceRefresh: Bool = false) async throws -> ArtistOnlineDiscography {
         if !forceRefresh, let cached = discographyCache[artist.stableID], Date().timeIntervalSince(cached.date) < 900 {
             return cached.value
         }
-        guard let bridge else { throw CatalogOnlineError.unavailable }
         let rawID = artist.stableID.split(separator: ":", maxSplits: 1).last.map(String.init) ?? ""
         guard rawID.hasPrefix("UC"), YouTubeCatalogIdentity.isResolvedArtist(artist.stableID) else {
             throw CatalogOnlineError.unresolvedArtist
         }
-        let query = "\(artist.name) official audio"
-        if forceRefresh { bridge.invalidateSearch(query: query, limit: 24) }
-        let results = try await bridge.searchYouTube(query: query, limit: 24, timeout: 30)
-        try Task.checkCancellation()
-        let tracks = results.filter { $0.resourceKind == .video && $0.channelID == rawID }
-        // Do not turn title-matched videos or third-party playlists into official albums.
-        let releases = results.filter {
-            $0.resourceKind == .playlist && $0.channelID == rawID && YouTubePlaylistID.isMusicAlbum($0.id)
-        }.map {
-            OnlineReleaseItem(playlistID: $0.id, title: $0.title, artworkURL: nil,
-                              year: $0.releaseYear, kind: .album, channelID: rawID)
+        if forceRefresh { await structuredCatalog.reset() }
+        let items = try await completeBrowse("browse:\(rawID)")
+        var seenTracks = Set<String>()
+        let tracks = items.compactMap { item -> YTDlpBridge.YTDlpPlaylistEntry? in
+            guard [.song, .video].contains(item.kind),
+                  seenTracks.insert(item.id).inserted else { return nil }
+            return catalogEntry(item, fallbackArtist: artist.name,
+                                channelID: rawID)
+        }
+        var seenReleases = Set<String>()
+        let releases = items.compactMap { item -> OnlineReleaseItem? in
+            guard item.kind == .album,
+                  YouTubeCatalogIdentity.isResolvedRelease(item.id),
+                  seenReleases.insert(item.id).inserted else { return nil }
+            return OnlineReleaseItem(
+                stableID: item.id, title: item.title,
+                artworkURL: item.artwork?.absoluteString,
+                kind: .album, channelID: rawID)
         }
         let result = ArtistOnlineDiscography(artistName: artist.name, channelID: rawID,
                                              topTracks: tracks, albums: releases, singlesAndEPs: [])
@@ -276,18 +286,58 @@ final class YouTubeCatalogService {
         if !forceRefresh, let cached = albumTracksCache[release.stableID], Date().timeIntervalSince(cached.date) < 900 {
             return cached.value
         }
-        guard let bridge else { throw CatalogOnlineError.unavailable }
-        guard YouTubeCatalogIdentity.isResolvedRelease(release.stableID),
-              let url = YouTubeCatalogLink.releaseURL(stableID: release.stableID) else {
+        guard YouTubeCatalogIdentity.isResolvedRelease(release.stableID) else {
             throw CatalogOnlineError.unresolvedRelease
         }
-        let entries = try await bridge.fetchPlaylist(url: url.absoluteString, timeout: 40)
-        try Task.checkCancellation()
+        if forceRefresh { await structuredCatalog.reset() }
+        let entries = try await completeBrowse(release.stableID)
+            .compactMap {
+                catalogEntry(
+                    $0, fallbackArtist: release.artistName,
+                    channelID: release.artistStableID?.split(
+                        separator: ":", maxSplits: 1).last.map(String.init))
+            }
         var seen = Set<String>()
-        let tracks = entries.filter { $0.resourceKind == .video && seen.insert($0.id).inserted }
+        let tracks = entries.filter { seen.insert($0.id).inserted }
         if albumTracksCache.count >= 100 { albumTracksCache.removeAll() }
         albumTracksCache[release.stableID] = (tracks, Date())
         return tracks
+    }
+
+    private func completeBrowse(_ id: String) async throws
+        -> [MusicCatalogItem] {
+        var page = try await structuredCatalog.browse(id)
+        var result = page.items + page.relatedItems
+        var pageCount = 1
+        while let cursor = page.next, pageCount < 20, result.count < 5_000 {
+            try Task.checkCancellation()
+            page = try await structuredCatalog.next(cursor)
+            result += page.items
+            result += page.relatedItems
+            pageCount += 1
+        }
+        guard page.next == nil else { throw CatalogOnlineError.incomplete }
+        return result
+    }
+
+    private func catalogEntry(
+        _ item: MusicCatalogItem,
+        fallbackArtist: String,
+        channelID: String?
+    ) -> YTDlpBridge.YTDlpPlaylistEntry? {
+        guard [.song, .video].contains(item.kind),
+              item.id.hasPrefix("video:") else { return nil }
+        let videoID = String(item.id.dropFirst("video:".count))
+        guard videoID.count == 11, MusicCatalogParser.validID(videoID) else {
+            return nil
+        }
+        let artist = item.artists.map(\.title).joined(separator: ", ")
+        return .init(
+            id: videoID, title: item.title,
+            uploader: artist.isEmpty ? fallbackArtist : artist,
+            channelID: channelID,
+            track: item.kind == .song ? item.title : nil,
+            album: item.releases.first?.title)
     }
 
     /// Imports an online discovery track into the local library, attaching release and artist catalog IDs.
@@ -489,12 +539,13 @@ final class YouTubeCatalogService {
 }
 
 enum CatalogOnlineError: LocalizedError {
-    case unavailable, unresolvedArtist, unresolvedRelease
+    case unavailable, unresolvedArtist, unresolvedRelease, incomplete
     var errorDescription: String? {
         switch self {
         case .unavailable: return tr("Online catalog is unavailable. Try again later.", "在线目录暂不可用，请稍后重试。", zhHant: "線上目錄暫不可用，請稍後重試。")
         case .unresolvedArtist: return tr("A verified YouTube channel is required to load this artist’s catalog.", "需要已验证的 YouTube 频道才能加载此艺人的目录。", zhHant: "需要已驗證的 YouTube 頻道才能載入此藝人的目錄。")
         case .unresolvedRelease: return tr("This release has no verified YouTube album identity.", "此发行尚无已验证的 YouTube 专辑身份。", zhHant: "此發行尚無已驗證的 YouTube 專輯身分。")
+        case .incomplete: return tr("The complete catalog could not be verified. Try again.", "无法确认完整目录，请重试。", zhHant: "無法確認完整目錄，請再試一次。")
         }
     }
 }

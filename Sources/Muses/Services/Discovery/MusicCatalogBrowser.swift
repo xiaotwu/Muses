@@ -14,6 +14,7 @@ final class MusicCatalogBrowser {
     private(set) var isStale = false
     private(set) var fetchedAt: Date?
     private(set) var region = "US"
+    private(set) var language = "en"
     private(set) var nextCursor: MusicCatalogCursor?
     private var detailHistory: [MusicCatalogItem?] = [nil]
     private var historyIndex = 0
@@ -25,7 +26,9 @@ final class MusicCatalogBrowser {
     private var retryingMore = false
     private let provider: any MusicCatalogProviding
 
-    init(provider: any MusicCatalogProviding = CachedMusicCatalogProvider()) { self.provider = provider }
+    init(provider: any MusicCatalogProviding = LocaleScopedMusicCatalogProvider()) {
+        self.provider = provider
+    }
 
     func search(_ value: String, kind: MusicCatalogKind? = nil) {
         query = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -93,6 +96,7 @@ final class MusicCatalogBrowser {
                 self.failed = page.refreshFailed
                 self.fetchedAt = page.fetchedAt
                 self.region = page.region
+                self.language = page.language
                 self.loading = false
                 self.retryingMore = false
             } catch {

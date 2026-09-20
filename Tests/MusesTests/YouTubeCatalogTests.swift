@@ -196,28 +196,66 @@ struct YouTubeCatalogTests {
         #expect(service.artist(byName: "dua lipa")?.stableID == "channel:UC_dua")
     }
 
-    @Test("online catalog rejects namesakes and non-album resources and supports refresh")
+    @Test("online catalog follows stable browse identity and supports refresh")
     func onlineDiscographyFetching() async throws {
-        let bridge = MockCatalogBridge()
-        bridge.searchResults = [
-            .init(id: "abcdefghijk", title: "Song", channelID: "UC_dua"),
-            .init(id: "zyxwvutsrqp", title: "Same artist name", channelID: "UC_other"),
-            .init(id: "OLAK5uy_album", title: "Album", channelID: "UC_dua"),
-            .init(id: "PL_user_playlist", title: "Album", channelID: "UC_dua")
-        ]
-        let service = YouTubeCatalogService(modelContainer: try makeModelContainer(inMemory: true), bridge: bridge)
+        let catalog = MockStructuredCatalogProvider(items: [
+            .init(id: "video:abcdefghijk", kind: .song, title: "Song", subtitle: "Dua Lipa",
+                  artwork: nil,
+                  artists: [.init(id: "browse:UC_dua", title: "Dua Lipa", kind: .artist)],
+                  releases: [.init(id: "browse:MPRE_album", title: "Album", kind: .album)],
+                  channels: []),
+            .init(id: "browse:MPRE_album", kind: .album, title: "Album", subtitle: "Dua Lipa",
+                  artwork: nil,
+                  artists: [.init(id: "browse:UC_dua", title: "Dua Lipa", kind: .artist)],
+                  releases: [], channels: []),
+            .init(id: "playlist:PL_user_playlist", kind: .playlist, title: "Album", subtitle: "Dua Lipa",
+                  artwork: nil, artists: [], releases: [], channels: [])
+        ])
+        let service = YouTubeCatalogService(
+            modelContainer: try makeModelContainer(inMemory: true),
+            structuredCatalog: catalog)
         let artist = CatalogArtistProjection(stableID: "channel:UC_dua", name: "Dua Lipa",
             artworkURL: nil, biography: nil, cacheState: .fresh, releases: [], tracks: [])
         let disco = try await service.fetchArtistOnlineDiscography(artist: artist)
         #expect(disco.topTracks.map(\.id) == ["abcdefghijk"])
-        #expect(disco.albums.map(\.playlistID) == ["OLAK5uy_album"])
+        #expect(disco.albums.map(\.stableID) == ["browse:MPRE_album"])
         #expect(disco.singlesAndEPs.isEmpty)
         #expect(try await service.fetchArtistOnlineDiscography(artist: artist) == disco)
-        #expect(bridge.searchCallCount == 1)
-        bridge.searchResults = []
+        var browseCallCount = await catalog.browseCallCount
+        #expect(browseCallCount == 1)
+        await catalog.replaceItems([])
         #expect(try await service.fetchArtistOnlineDiscography(artist: artist, forceRefresh: true).isEmpty)
-        #expect(bridge.searchCallCount == 2)
-        #expect(bridge.invalidationCount == 1)
+        browseCallCount = await catalog.browseCallCount
+        let resetCount = await catalog.resetCount
+        #expect(browseCallCount == 2)
+        #expect(resetCount == 1)
+    }
+
+    @Test("online release tracks come from the stable release browse page")
+    func onlineReleaseTracksUseBrowseIdentity() async throws {
+        let catalog = MockStructuredCatalogProvider(items: [
+            .init(id: "video:abcdefghijk", kind: .song, title: "Song", subtitle: "Dua Lipa",
+                  artwork: nil,
+                  artists: [.init(id: "browse:UC_dua", title: "Dua Lipa", kind: .artist)],
+                  releases: [.init(id: "browse:MPRE_album", title: "Album", kind: .album)],
+                  channels: [])
+        ])
+        let service = YouTubeCatalogService(
+            modelContainer: try makeModelContainer(inMemory: true),
+            structuredCatalog: catalog)
+        let release = CatalogReleaseProjection(
+            stableID: "browse:MPRE_album", title: "Album",
+            artistName: "Dua Lipa", artistStableID: "channel:UC_dua",
+            artworkURL: nil, year: nil, kind: .album,
+            cacheState: .fresh, tracks: [])
+
+        let tracks = try await service.fetchAlbumOnlineTracks(release: release)
+
+        #expect(tracks.map(\.id) == ["abcdefghijk"])
+        #expect(tracks.first?.uploader == "Dua Lipa")
+        #expect(tracks.first?.album == "Album")
+        let lastBrowseID = await catalog.lastBrowseID
+        #expect(lastBrowseID == "browse:MPRE_album")
     }
 
     @Test("importing online track and album attaches release and artist catalog IDs")
@@ -422,28 +460,40 @@ struct YouTubeCatalogTests {
     }
 }
 
-@MainActor
-private final class MockCatalogBridge: YTDlpBridgeProtocol {
-    var entries: [YTDlpBridge.YTDlpPlaylistEntry] = []
-    var fetchCallCount = 0
-    var searchResults: [YTDlpBridge.YTDlpPlaylistEntry] = []
-    var searchCallCount = 0
-    var invalidationCount = 0
-    func invalidateSearch(query: String, limit: Int) { invalidationCount += 1 }
+private actor MockStructuredCatalogProvider: MusicCatalogProviding {
+    private var items: [MusicCatalogItem]
+    private(set) var browseCallCount = 0
+    private(set) var resetCount = 0
+    private(set) var lastBrowseID: String?
 
-    func resolveStreamURL(videoId: String, quality: String, timeout: TimeInterval) async throws -> URL {
-        URL(string: "https://example.com/audio")!
+    init(items: [MusicCatalogItem]) {
+        self.items = items
     }
 
-    func fetchPlaylist(url: String, timeout: TimeInterval) async throws -> [YTDlpBridge.YTDlpPlaylistEntry] {
-        fetchCallCount += 1
-        return entries
+    func replaceItems(_ items: [MusicCatalogItem]) {
+        self.items = items
     }
 
-    func searchYouTube(query: String, limit: Int, timeout: TimeInterval) async throws -> [YTDlpBridge.YTDlpPlaylistEntry] {
-        searchCallCount += 1
-        return searchResults
+    func search(_ query: String, kind: MusicCatalogKind?) async throws -> MusicCatalogPage {
+        page()
     }
 
-    func version() async -> String? { "mock" }
+    func browse(_ id: String) async throws -> MusicCatalogPage {
+        browseCallCount += 1
+        lastBrowseID = id
+        return page()
+    }
+
+    func next(_ cursor: MusicCatalogCursor) async throws -> MusicCatalogPage {
+        page()
+    }
+
+    func reset() async {
+        resetCount += 1
+    }
+
+    private func page() -> MusicCatalogPage {
+        MusicCatalogPage(items: items, filters: [], next: nil,
+                         fetchedAt: Date(), region: "US", language: "en")
+    }
 }

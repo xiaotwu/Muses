@@ -8,12 +8,15 @@ actor PublicMusicCatalogProvider: MusicCatalogProviding {
     private static let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
     private let transport: Transport
     private let region: String
+    private let language: String
     private var generation = UUID()
     private var version: String?
     private var filters: [String: [MusicCatalogFilter]] = [:]
 
-    init(region: String = "US", transport: Transport? = nil) {
-        self.region = region
+    init(region: String = "US", language: String = "en",
+         transport: Transport? = nil) {
+        self.region = Self.normalizedRegion(region)
+        self.language = Self.normalizedLanguage(language)
         if let transport { self.transport = transport }
         else {
             let configuration = URLSessionConfiguration.ephemeral
@@ -81,7 +84,9 @@ actor PublicMusicCatalogProvider: MusicCatalogProviding {
     }
 
     func next(_ cursor: MusicCatalogCursor) async throws -> MusicCatalogPage {
-        guard cursor.session == generation, ["search", "browse"].contains(cursor.endpoint) else {
+        guard cursor.session == generation,
+              cursor.region == region, cursor.language == language,
+              ["search", "browse"].contains(cursor.endpoint) else {
             throw MusicCatalogError.expiredCursor
         }
         return try await request(cursor.endpoint, body: ["continuation": cursor.token], expected: cursor.session)
@@ -97,13 +102,15 @@ actor PublicMusicCatalogProvider: MusicCatalogProviding {
         request.setValue(Self.origin, forHTTPHeaderField: "Origin")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var payload: [String: Any] = body
-        payload["context"] = ["client": ["clientName": "WEB_REMIX", "clientVersion": clientVersion, "hl": "en", "gl": region]]
+        payload["context"] = ["client": ["clientName": "WEB_REMIX", "clientVersion": clientVersion, "hl": language, "gl": region]]
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
         let data = try await transport(request)
         try Task.checkCancellation()
         guard expected == generation else { throw MusicCatalogError.expiredCursor }
         guard data.count <= 8 * 1_024 * 1_024 else { throw MusicCatalogError.responseTooLarge }
-        return try MusicCatalogParser.page(data, session: expected, endpoint: endpoint, region: region)
+        return try MusicCatalogParser.page(
+            data, session: expected, endpoint: endpoint,
+            region: region, language: language)
     }
 
     private func bootstrap(expected: UUID) async throws -> String {
@@ -123,5 +130,25 @@ actor PublicMusicCatalogProvider: MusicCatalogProviding {
         let value = String(html[range])
         version = value
         return value
+    }
+
+    private nonisolated static func normalizedRegion(_ value: String) -> String {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+        guard normalized.count == 2,
+              normalized.utf8.allSatisfy({ (65...90).contains($0) }) else {
+            return "US"
+        }
+        return normalized
+    }
+
+    private nonisolated static func normalizedLanguage(_ value: String) -> String {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "_", with: "-")
+        guard !normalized.isEmpty, normalized.count <= 35,
+              normalized.utf8.allSatisfy({
+                  (65...90).contains($0) || (97...122).contains($0) || $0 == 45
+              }) else { return "en" }
+        return normalized
     }
 }

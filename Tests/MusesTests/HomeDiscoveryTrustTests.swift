@@ -57,10 +57,14 @@ struct HomeDiscoveryTrustTests {
         #expect(cachedWeb != nil)
         #expect(cache.isFresh(cachedBaseline!, layer: .baseline, now: now))
         #expect(!cache.isFresh(cachedWeb!, layer: .web, now: now))
-        #expect(cache.directoryURL(for: account.scope, layer: .baseline).path
-            .hasSuffix("account-UC_account/baseline-official-v3"))
-        #expect(cache.directoryURL(for: account.scope, layer: .web).path
-            .hasSuffix("account-UC_account/web"))
+        #expect(cache.directoryURL(
+            for: account.scope, layer: .baseline,
+            language: account.language, region: account.region).path
+            .hasSuffix("account-UC_account/en-us/baseline-official-v3"))
+        #expect(cache.directoryURL(
+            for: account.scope, layer: .web,
+            language: account.language, region: account.region).path
+            .hasSuffix("account-UC_account/en-us/web"))
     }
 
     @Test("legacy combined JSON is invalidated without touching partition directories")

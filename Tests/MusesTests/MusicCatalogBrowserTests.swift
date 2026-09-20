@@ -17,6 +17,40 @@ private actor CatalogBrowserFixture: MusicCatalogProviding {
     func reset() {}
 }
 
+private final class CatalogLocaleBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: LocaleScopedMusicCatalogProvider.Scope
+    init(_ value: LocaleScopedMusicCatalogProvider.Scope) { self.value = value }
+    func get() -> LocaleScopedMusicCatalogProvider.Scope { lock.withLock { value } }
+    func set(_ value: LocaleScopedMusicCatalogProvider.Scope) {
+        lock.withLock { self.value = value }
+    }
+}
+
+private actor LocaleCatalogFixture: MusicCatalogProviding {
+    let scope: LocaleScopedMusicCatalogProvider.Scope
+    let session = UUID()
+    init(scope: LocaleScopedMusicCatalogProvider.Scope) { self.scope = scope }
+    func search(_ query: String, kind: MusicCatalogKind?) async throws
+        -> MusicCatalogPage { page(query) }
+    func browse(_ id: String) async throws -> MusicCatalogPage { page(id) }
+    func next(_ cursor: MusicCatalogCursor) async throws -> MusicCatalogPage {
+        guard cursor.session == session else { throw MusicCatalogError.expiredCursor }
+        return page("next")
+    }
+    func reset() {}
+    private func page(_ title: String) -> MusicCatalogPage {
+        .init(
+            items: [.init(id: "video:abcdefghijk", kind: .song,
+                          title: title, subtitle: "", artwork: nil,
+                          artists: [], releases: [], channels: [])],
+            filters: [],
+            next: .init(session: session, endpoint: "search", token: "token",
+                        region: scope.region, language: scope.language),
+            fetchedAt: Date(), region: scope.region, language: scope.language)
+    }
+}
+
 @Suite("Structured catalog browser state") @MainActor
 struct MusicCatalogBrowserTests {
     private func settle(_ browser: MusicCatalogBrowser) async {
@@ -86,5 +120,27 @@ struct MusicCatalogBrowserTests {
     @Test func podcastEpisodeUsesUnifiedYouTubePlaybackPath() {
         let item = MusicCatalogItem(id: "video:abcdefghijk", kind: .episode, title: "Episode", subtitle: "", artwork: nil, artists: [], releases: [], channels: [])
         #expect(item.playableEntry?.id == "abcdefghijk")
+    }
+
+    @Test("app-language changes rotate provider scope and invalidate cursors")
+    func localeChangesInvalidateCursor() async throws {
+        let initial = LocaleScopedMusicCatalogProvider.Scope(
+            region: "US", language: "en")
+        let box = CatalogLocaleBox(initial)
+        let provider = LocaleScopedMusicCatalogProvider(
+            scopeProvider: { box.get() },
+            factory: { LocaleCatalogFixture(scope: $0) })
+        let english = try await provider.search("English", kind: nil)
+        let oldCursor = try #require(english.next)
+        #expect(english.language == "en")
+
+        box.set(.init(region: "TW", language: "zh-Hant"))
+        await #expect(throws: MusicCatalogError.self) {
+            try await provider.next(oldCursor)
+        }
+        let traditional = try await provider.search("繁體", kind: nil)
+        #expect(traditional.region == "TW")
+        #expect(traditional.language == "zh-Hant")
+        #expect(traditional.next?.language == "zh-Hant")
     }
 }

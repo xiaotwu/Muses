@@ -4,7 +4,10 @@ import Foundation
 enum MusicCatalogParser {
     typealias Object = [String: Any]
 
-    static func page(_ data: Data, session: UUID, endpoint: String, region: String) throws -> MusicCatalogPage {
+    static func page(
+        _ data: Data, session: UUID, endpoint: String,
+        region: String, language: String = "en"
+    ) throws -> MusicCatalogPage {
         guard let root = try JSONSerialization.jsonObject(with: data) as? Object,
               root["error"] == nil else { throw MusicCatalogError.invalidResponse }
         var rows: [MusicCatalogItem] = []
@@ -78,7 +81,7 @@ enum MusicCatalogParser {
                let endpoint = chip["navigationEndpoint"] as? Object,
                let search = endpoint["searchEndpoint"] as? Object,
                let params = search["params"] as? String,
-               let kind = filterKind(text(chip["text"])) {
+               let kind = filterKind(text(chip["text"]), language: language) {
                 filters.append(.init(kind: kind, params: params))
                 return
             }
@@ -115,8 +118,12 @@ enum MusicCatalogParser {
         var seenRelated = Set<String>()
         related = related.filter { seenRelated.insert($0.id).inserted }
         return .init(items: rows, filters: filters,
-                     next: continuation.map { .init(session: session, endpoint: endpoint, token: $0) },
-                     fetchedAt: Date(), region: region, relatedItems: related)
+                     next: continuation.map {
+                        .init(session: session, endpoint: endpoint, token: $0,
+                              region: region, language: language)
+                     },
+                     fetchedAt: Date(), region: region,
+                     language: language, relatedItems: related)
     }
 
     private static func item(_ row: Object) -> MusicCatalogItem? {
@@ -193,18 +200,32 @@ enum MusicCatalogParser {
         return object["simpleText"] as? String ?? (object["runs"] as? [Object] ?? []).compactMap { $0["text"] as? String }.joined()
     }
 
-    // The public session pins hl=en. Only source-provided chip params are sent;
-    // no fabricated filter tokens and no inferred row types from labels.
-    private static func filterKind(_ value: String) -> MusicCatalogKind? {
+    // Only source-provided chip params are sent; no fabricated filter tokens.
+    // Labels are accepted only for the explicitly requested source language.
+    private static func filterKind(
+        _ value: String, language: String
+    ) -> MusicCatalogKind? {
+        if language.lowercased().hasPrefix("zh") {
+            switch value {
+            case "歌曲": return .song
+            case "视频", "影片": return .video
+            case "专辑", "專輯": return .album
+            case "艺人", "藝人", "演出者": return .artist
+            case "社区播放列表", "社群播放清單", "播放列表", "播放清單": return .playlist
+            case "播客", "Podcast", "Podcasts": return .podcast
+            case "单集", "單集", "剧集", "集數": return .episode
+            default: return nil
+            }
+        }
         switch value {
-        case "Songs": .song
-        case "Videos": .video
-        case "Albums": .album
-        case "Artists": .artist
-        case "Community playlists", "Playlists": .playlist
-        case "Podcasts": .podcast
-        case "Episodes": .episode
-        default: nil
+        case "Songs": return .song
+        case "Videos": return .video
+        case "Albums": return .album
+        case "Artists": return .artist
+        case "Community playlists", "Playlists": return .playlist
+        case "Podcasts": return .podcast
+        case "Episodes": return .episode
+        default: return nil
         }
     }
 }

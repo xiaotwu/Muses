@@ -25,6 +25,8 @@ final class HomeFeedCache {
         let mode: HomeRecommendationMode
         let scope: HomeFeedScope
         let layer: Layer
+        let language: String
+        let region: String
     }
 
     private let directory: URL
@@ -66,7 +68,7 @@ final class HomeFeedCache {
              mode: HomeRecommendationMode = .muses,
              now: Date = .init()) -> SWRCache<HomeSnapshot>.Cached? {
         guard layer != .web || input.scope != .guest,
-              let cached = cache(for: input.scope, layer: layer, mode: mode).get(Self.key(for: input, mode: mode)),
+              let cached = cache(for: input, layer: layer, mode: mode).get(Self.key(for: input, mode: mode)),
               cached.value.belongs(to: input.scope),
               snapshot(cached.value, isValidFor: layer) else { return nil }
         if layer == .web,
@@ -92,7 +94,7 @@ final class HomeFeedCache {
         guard snapshot.belongs(to: input.scope),
               self.snapshot(snapshot, isValidFor: layer),
               layer != .web || input.scope != .guest else { return false }
-        cache(for: input.scope, layer: layer, mode: mode).set(
+        cache(for: input, layer: layer, mode: mode).set(
             Self.key(for: input, mode: mode), value: snapshot, fetchedAt: snapshot.fetchedAt)
         return true
     }
@@ -108,30 +110,68 @@ final class HomeFeedCache {
         }
         for cache in targets.values { cache.clearAll() }
 
-        // A requested partition may not have been opened in memory yet.
+        // A privacy deletion must also remove dormant locale partitions that
+        // were not opened during this process. Only the exact mode/scope/layer
+        // subtree is touched.
         if let scope, let layer, let mode {
-            cache(for: scope, layer: layer, mode: mode).clearAll()
+            let scopeDirectory = directory
+                .appendingPathComponent(mode.cacheNamespace, isDirectory: true)
+                .appendingPathComponent(scope.cacheNamespace, isDirectory: true)
+            // Remove the pre-locale layout for this exact layer as well. It is
+            // never readable by the new cache, but privacy deletion must not
+            // strand normalized snapshots from the previous layout.
+            try? FileManager.default.removeItem(
+                at: scopeDirectory.appendingPathComponent(
+                    layer.directoryName, isDirectory: true))
+            let locales = (try? FileManager.default.contentsOfDirectory(
+                at: scopeDirectory, includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles])) ?? []
+            for locale in locales {
+                let values = try? locale.resourceValues(forKeys: [.isDirectoryKey])
+                guard values?.isDirectory == true else { continue }
+                try? FileManager.default.removeItem(
+                    at: locale.appendingPathComponent(
+                        layer.directoryName, isDirectory: true))
+            }
         }
     }
 
     func directoryURL(for scope: HomeFeedScope,
                       layer: Layer,
-                      mode: HomeRecommendationMode = .muses) -> URL {
+                      mode: HomeRecommendationMode = .muses,
+                      language: String = L10n.languageCode,
+                      region: String = Locale.current.region?.identifier ?? "US") -> URL {
         directory
             .appendingPathComponent(mode.cacheNamespace, isDirectory: true)
             .appendingPathComponent(scope.cacheNamespace, isDirectory: true)
+            .appendingPathComponent(localeNamespace(
+                language: language, region: region), isDirectory: true)
             .appendingPathComponent(layer.directoryName, isDirectory: true)
     }
 
-    private func cache(for scope: HomeFeedScope,
+    private func cache(for input: HomeDiscoveryInput,
                        layer: Layer,
                        mode: HomeRecommendationMode) -> SWRCache<HomeSnapshot> {
-        let partition = Partition(mode: mode, scope: scope, layer: layer)
+        let partition = Partition(
+            mode: mode, scope: input.scope, layer: layer,
+            language: input.language, region: input.region)
         if let cache = caches[partition] { return cache }
         let cache = SWRCache<HomeSnapshot>(
-            directory: directoryURL(for: scope, layer: layer, mode: mode))
+            directory: directoryURL(
+                for: input.scope, layer: layer, mode: mode,
+                language: input.language, region: input.region))
         caches[partition] = cache
         return cache
+    }
+
+    private func localeNamespace(language: String, region: String) -> String {
+        func safe(_ value: String) -> String {
+            String(value.lowercased().map { character in
+                character.isLetter || character.isNumber || character == "-"
+                    ? character : "_"
+            }.prefix(40))
+        }
+        return safe(language) + "-" + safe(region)
     }
 
     private func snapshot(_ snapshot: HomeSnapshot, isValidFor layer: Layer) -> Bool {

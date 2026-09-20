@@ -2,19 +2,37 @@ import Foundation
 
 @MainActor
 final class AnonymousInnertubeHomeProvider: HomeDiscoveryProvider {
-    private let client: any InnertubeServing
+    typealias ClientFactory = @MainActor @Sendable (
+        _ language: String, _ region: String
+    ) -> any InnertubeServing
+    private var client: any InnertubeServing
+    private let clientFactory: ClientFactory?
+    private var clientLocale: String?
     private var continuation: String?
     private var shelfContinuations: [String: String] = [:]
     private var continuationScope: HomeFeedScope?
+    private var continuationLocale: String?
     private var continuationGeneration = UUID()
 
     init(client: any InnertubeServing) {
         self.client = client
+        self.clientFactory = nil
+    }
+
+    init(clientFactory: @escaping ClientFactory) {
+        self.clientFactory = clientFactory
+        self.client = clientFactory("en", "US")
     }
 
     func fetch(for input: HomeDiscoveryInput) async -> HomeFetchResult {
+        let locale = input.language + "|" + input.region
+        if let clientFactory, clientLocale != locale {
+            client = clientFactory(input.language, input.region)
+            clientLocale = locale
+        }
         continuationGeneration = UUID()
         continuationScope = input.scope
+        continuationLocale = locale
         continuation = nil
         shelfContinuations.removeAll(keepingCapacity: false)
         do {
@@ -49,11 +67,15 @@ final class AnonymousInnertubeHomeProvider: HomeDiscoveryProvider {
     }
 
     func more(page: Int, input: HomeDiscoveryInput) async -> [HomeSection] {
-        guard continuationScope == input.scope, let token = continuation else { return [] }
+        guard continuationScope == input.scope,
+              continuationLocale == input.language + "|" + input.region,
+              let token = continuation else { return [] }
         let expected = continuationGeneration
         do {
             let result = try await client.home(continuation: token)
-            guard expected == continuationGeneration, continuationScope == input.scope else { return [] }
+            guard expected == continuationGeneration,
+                  continuationScope == input.scope,
+                  continuationLocale == input.language + "|" + input.region else { return [] }
             continuation = result.continuation
             PerfTrace.event("home.innertube.continuation")
             return result.sections
@@ -67,11 +89,15 @@ final class AnonymousInnertubeHomeProvider: HomeDiscoveryProvider {
     }
 
     func more(sectionID: String, input: HomeDiscoveryInput) async -> [DiscoveryItem] {
-        guard continuationScope == input.scope, let token = shelfContinuations[sectionID] else { return [] }
+        guard continuationScope == input.scope,
+              continuationLocale == input.language + "|" + input.region,
+              let token = shelfContinuations[sectionID] else { return [] }
         let expected = continuationGeneration
         do {
             let page = try await client.home(continuation: token)
-            guard expected == continuationGeneration, continuationScope == input.scope else { return [] }
+            guard expected == continuationGeneration,
+                  continuationScope == input.scope,
+                  continuationLocale == input.language + "|" + input.region else { return [] }
             // A shelf continuation is scoped to one renderer. Never append a
             // different shelf's response merely because the server returned a
             // valid page with a changed shape.

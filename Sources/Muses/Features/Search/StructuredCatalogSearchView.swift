@@ -64,7 +64,7 @@ struct StructuredCatalogSearchView: View {
             }
             if let fetched = browser.fetchedAt {
                 HStack(spacing: 5) {
-                    Text("YouTube Music · \(browser.region)")
+                    Text("YouTube Music · \(browser.language) · \(browser.region)")
                     Text(fetched, style: .date)
                     Text(fetched, style: .time)
                 }.font(.caption).foregroundStyle(.secondary)

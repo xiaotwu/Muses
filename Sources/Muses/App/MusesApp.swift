@@ -96,7 +96,7 @@ struct MusesApp: App {
         self.libraryService = library
         let ytdlpBridge = YTDlpBridge()
         self.ytDlpBridge = ytdlpBridge
-        let catalogService = YouTubeCatalogService(modelContainer: container, bridge: ytdlpBridge)
+        let catalogService = YouTubeCatalogService(modelContainer: container)
         self.youTubeCatalogService = catalogService
         Task { @MainActor in
             catalogService.rebuildFromTrackMetadata()
@@ -193,7 +193,10 @@ struct MusesApp: App {
         }
         let localHome = MusesHomeProvider(library: library)
         let anonymousInnertube = AnonymousInnertubeHomeProvider(
-            client: InnertubeClient())
+            clientFactory: { language, region in
+                InnertubeClient(configuration: .current(
+                    language: language, region: region))
+            })
         let youtubeMusicHome = YouTubeMusicHomeProvider(
             anonymous: anonymousInnertube,
             authenticated: webHome.isBuildEnabled ? webHome : nil)

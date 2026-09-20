@@ -10,11 +10,18 @@ struct InnertubeClientConfiguration: Sendable {
     let maximumResponseBytes: Int
 
     static var current: InnertubeClientConfiguration {
+        current(language: L10n.languageCode,
+                region: Locale.current.region?.identifier ?? "US")
+    }
+
+    static func current(
+        language: String, region: String
+    ) -> InnertubeClientConfiguration {
         InnertubeClientConfiguration(
             clientName: "WEB_REMIX",
             clientVersion: nil,
-            language: Locale.current.language.languageCode?.identifier ?? "en",
-            region: Locale.current.region?.identifier ?? "US",
+            language: language,
+            region: region.uppercased(),
             userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                 + "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
             requestTimeout: 12,

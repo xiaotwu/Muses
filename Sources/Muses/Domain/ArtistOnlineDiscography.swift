@@ -2,8 +2,8 @@ import Foundation
 
 /// A release item discovered online from YouTube Music / YouTube Channel.
 struct OnlineReleaseItem: Identifiable, Sendable, Equatable {
-    var id: String { playlistID }
-    let playlistID: String
+    var id: String { stableID }
+    let stableID: String
     let title: String
     let artworkURL: String?
     let year: Int?
@@ -18,7 +18,7 @@ struct OnlineReleaseItem: Identifiable, Sendable, Equatable {
         kind: CatalogReleaseKind = .album,
         channelID: String? = nil
     ) {
-        self.playlistID = playlistID
+        self.stableID = "playlist:\(playlistID)"
         self.title = title
         self.artworkURL = artworkURL
         self.year = year
@@ -26,8 +26,20 @@ struct OnlineReleaseItem: Identifiable, Sendable, Equatable {
         self.channelID = channelID
     }
 
-    var stableID: String {
-        "playlist:\(playlistID)"
+    init(
+        stableID: String,
+        title: String,
+        artworkURL: String? = nil,
+        year: Int? = nil,
+        kind: CatalogReleaseKind = .album,
+        channelID: String? = nil
+    ) {
+        self.stableID = stableID
+        self.title = title
+        self.artworkURL = artworkURL
+        self.year = year
+        self.kind = kind
+        self.channelID = channelID
     }
 }
 

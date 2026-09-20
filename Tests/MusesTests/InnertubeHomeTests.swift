@@ -82,6 +82,61 @@ struct InnertubeHomeTests {
             .contains("/youtube-music-v1/guest/"))
     }
 
+    @Test("Home cache and continuation identity include language and region")
+    @MainActor
+    func cacheLocaleIsolation() {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muses-home-locale-\(UUID().uuidString)",
+                                    isDirectory: true)
+        let cache = HomeFeedCache(directory: root)
+        let english = HomeDiscoveryInput(
+            topArtistNames: [], recentlyPlayedArtistNames: [],
+            likedArtistNames: [], timeBand: .morning, hour: 9,
+            scope: .guest, language: "en", region: "US")
+        let traditional = HomeDiscoveryInput(
+            topArtistNames: [], recentlyPlayedArtistNames: [],
+            likedArtistNames: [], timeBand: .morning, hour: 9,
+            scope: .guest, language: "zh-Hant", region: "TW")
+        let now = Date()
+        let snapshot = HomeSnapshot(
+            scope: .guest,
+            sections: [HomeSection(
+                id: "source", title: "Source", kind: .youTubeCarousel,
+                items: [], source: .publicDiscovery)],
+            fetchedAt: now, expiresAt: now.addingTimeInterval(600))
+
+        #expect(cache.set(snapshot, for: english, layer: .baseline,
+                          mode: .youtubeMusic))
+        #expect(cache.get(for: english, layer: .baseline,
+                          mode: .youtubeMusic) != nil)
+        #expect(cache.get(for: traditional, layer: .baseline,
+                          mode: .youtubeMusic) == nil)
+        #expect(cache.directoryURL(
+            for: .guest, layer: .baseline, mode: .youtubeMusic,
+            language: "en", region: "US").path
+            != cache.directoryURL(
+                for: .guest, layer: .baseline, mode: .youtubeMusic,
+                language: "zh-Hant", region: "TW").path)
+
+        #expect(cache.set(snapshot, for: traditional, layer: .baseline,
+                          mode: .youtubeMusic))
+        let legacyLayer = root
+            .appendingPathComponent(
+                "youtube-music-v1/guest/\(HomeFeedCache.Layer.baseline.directoryName)",
+                                    isDirectory: true)
+        try? FileManager.default.createDirectory(
+            at: legacyLayer, withIntermediateDirectories: true)
+        let legacyFile = legacyLayer.appendingPathComponent("legacy.json")
+        try? Data("legacy".utf8).write(to: legacyFile)
+        cache.invalidate(scope: .guest, layer: .baseline,
+                         mode: .youtubeMusic)
+        #expect(cache.get(for: english, layer: .baseline,
+                          mode: .youtubeMusic) == nil)
+        #expect(cache.get(for: traditional, layer: .baseline,
+                          mode: .youtubeMusic) == nil)
+        #expect(!FileManager.default.fileExists(atPath: legacyFile.path))
+    }
+
     @Test("local ranking is deterministic and contains only supplied tracks")
     func localRankingIsDeterministic() {
         let now = Date(timeIntervalSince1970: 2_000_000_000)
@@ -119,6 +174,36 @@ struct InnertubeHomeTests {
         let artistSections = sections.filter { $0.id.hasPrefix("muses:artist:") }
         #expect(artistSections.count == 1)
         #expect(artistSections.first?.items.count == 1)
+    }
+
+    @Test("Real anonymous Home locale and shelf continuation matrix",
+          .enabled(if: ProcessInfo.processInfo.environment[
+            "MUSES_TEST_PUBLIC_CATALOG"] == "1"))
+    @MainActor
+    func liveAnonymousHomeMatrix() async throws {
+        for (language, region) in [("en", "US"), ("zh-Hant", "TW")] {
+            let provider = AnonymousInnertubeHomeProvider { language, region in
+                InnertubeClient(configuration: .current(
+                    language: language, region: region))
+            }
+            let input = HomeDiscoveryInput(
+                topArtistNames: [], recentlyPlayedArtistNames: [],
+                likedArtistNames: [], timeBand: .morning, hour: 9,
+                scope: .guest, language: language, region: region)
+            let result = await provider.fetch(for: input)
+            let sections = result.baselineSnapshot.sections
+            #expect(result.failures.isEmpty)
+            #expect(!sections.isEmpty)
+            #expect(sections.allSatisfy { $0.source == .publicDiscovery })
+
+            if let section = sections.first(where: {
+                provider.hasContinuation(for: $0.id)
+            }) {
+                let more = await provider.more(
+                    sectionID: section.id, input: input)
+                #expect(!more.isEmpty)
+            }
+        }
     }
 
     private func fixture(_ name: String) throws -> Data {

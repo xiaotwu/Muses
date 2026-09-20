@@ -51,6 +51,10 @@ struct HomeDiscoveryInput: Sendable, Equatable {
     /// Cache and refresh ownership. This is never optional: a signed-out load
     /// cannot accidentally reuse another account's saved Home response.
     let scope: HomeFeedScope
+    /// Source locale is part of cache and continuation identity. UI language
+    /// changes must not reuse a previous language's normalized feed.
+    let language: String
+    let region: String
 
     init(topArtistNames: [String],
          recentlyPlayedArtistNames: [String],
@@ -58,7 +62,9 @@ struct HomeDiscoveryInput: Sendable, Equatable {
          timeBand: ListeningContext.TimeBand,
          hour: Int,
          seedVideoIds: [String] = [],
-         scope: HomeFeedScope) {
+         scope: HomeFeedScope,
+         language: String = L10n.languageCode,
+         region: String = Locale.current.region?.identifier ?? "US") {
         self.topArtistNames = topArtistNames
         self.recentlyPlayedArtistNames = recentlyPlayedArtistNames
         self.likedArtistNames = likedArtistNames
@@ -66,6 +72,8 @@ struct HomeDiscoveryInput: Sendable, Equatable {
         self.hour = hour
         self.seedVideoIds = seedVideoIds
         self.scope = scope
+        self.language = language
+        self.region = region.uppercased()
     }
 
     static func == (lhs: HomeDiscoveryInput, rhs: HomeDiscoveryInput) -> Bool {
@@ -76,6 +84,8 @@ struct HomeDiscoveryInput: Sendable, Equatable {
             && lhs.hour == rhs.hour
             && lhs.seedVideoIds == rhs.seedVideoIds
             && lhs.scope == rhs.scope
+            && lhs.language == rhs.language
+            && lhs.region == rhs.region
     }
 
 }

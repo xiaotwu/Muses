@@ -105,6 +105,53 @@ struct PublicMusicCatalogTests {
         await #expect(throws: MusicCatalogError.self) { try await provider.next(cursor) }
     }
 
+    @Test("locale is explicit in requests, pages, cache scope, and cursors")
+    func localeScope() async throws {
+        let response = try JSONSerialization.data(withJSONObject: [
+            "contents": ["sectionListRenderer": ["contents": [
+                ["chipCloudRenderer": ["chips": [
+                    ["chipCloudChipRenderer": [
+                        "text": ["runs": [["text": "專輯"]]],
+                        "navigationEndpoint": ["searchEndpoint": [
+                            "params": "source-filter"
+                        ]]
+                    ]]
+                ]]],
+                ["musicShelfRenderer": [
+                    "contents": [row()],
+                    "continuations": [["nextContinuationData": [
+                        "continuation": "opaque-test-token"
+                    ]]]
+                ]]
+            ]]]
+        ])
+        let provider = PublicMusicCatalogProvider(
+            region: "gb", language: "zh_Hant") { request in
+                if request.httpMethod != "POST" {
+                    return Data(#"{"INNERTUBE_CLIENT_VERSION":"1.20260915.14.00"}"#.utf8)
+                }
+                let body = try #require(request.httpBody)
+                let object = try #require(
+                    JSONSerialization.jsonObject(with: body) as? [String: Any])
+                let context = try #require(object["context"] as? [String: Any])
+                let client = try #require(context["client"] as? [String: Any])
+                #expect(client["hl"] as? String == "zh-Hant")
+                #expect(client["gl"] as? String == "GB")
+                return response
+            }
+        let page = try await provider.search("歌手", kind: nil)
+        #expect(page.region == "GB" && page.language == "zh-Hant")
+        #expect(page.filters.map(\.kind) == [.album])
+        let cursor = try #require(page.next)
+        #expect(cursor.region == "GB" && cursor.language == "zh-Hant")
+        let wrongLocale = MusicCatalogCursor(
+            session: cursor.session, endpoint: cursor.endpoint,
+            token: cursor.token, region: "US", language: "en")
+        await #expect(throws: MusicCatalogError.self) {
+            try await provider.next(wrongLocale)
+        }
+    }
+
     @Test func cancellationDoesNotPublish() async throws {
         let response = try data([row()])
         let provider = PublicMusicCatalogProvider { request in
@@ -144,5 +191,52 @@ struct PublicMusicCatalogTests {
         let episodes = try await provider.browse(show.id)
         #expect(!episodes.items.isEmpty)
         #expect(episodes.items.allSatisfy { $0.kind == .episode })
+    }
+
+    @Test("Real six-category, detail, region, and language matrix",
+          .enabled(if: ProcessInfo.processInfo.environment[
+            "MUSES_TEST_PUBLIC_CATALOG"] == "1"))
+    func liveCatalogMatrix() async throws {
+        let provider = PublicMusicCatalogProvider(region: "US", language: "en")
+        var pages: [MusicCatalogKind: MusicCatalogPage] = [:]
+        for kind in [MusicCatalogKind.song, .video, .album, .artist, .playlist] {
+            let page = try await provider.search("Bruno Mars", kind: kind)
+            #expect(!page.items.isEmpty)
+            #expect(page.items.allSatisfy { $0.kind == kind })
+            #expect(page.region == "US" && page.language == "en")
+            pages[kind] = page
+        }
+        for kind in [MusicCatalogKind.album, .artist, .playlist] {
+            let item = try #require(pages[kind]?.items.first)
+            let detail = try await provider.browse(item.id)
+            #expect(!(detail.items + detail.relatedItems).isEmpty)
+            #expect(detail.region == "US" && detail.language == "en")
+        }
+
+        let podcastPage = try await provider.search("NPR", kind: .podcast)
+        let podcast = try #require(podcastPage.items.first)
+        #expect(podcast.kind == .podcast)
+        let podcastDetail = try await provider.browse(podcast.id)
+        #expect(!podcastDetail.items.isEmpty)
+        #expect(podcastDetail.items.allSatisfy { $0.kind == .episode })
+
+        let charts = try await provider.browse("browse:FEmusic_charts")
+        #expect(!(charts.items + charts.relatedItems).isEmpty)
+        #expect(charts.region == "US" && charts.language == "en")
+
+        let localized = PublicMusicCatalogProvider(
+            region: "TW", language: "zh-Hant")
+        let overview = try await localized.search("周杰倫", kind: nil)
+        #expect(overview.region == "TW" && overview.language == "zh-Hant")
+        #expect(overview.filters.contains { $0.kind == .album })
+        let albums = try await localized.search("周杰倫", kind: .album)
+        #expect(!albums.items.isEmpty)
+        #expect(albums.items.allSatisfy { $0.kind == .album })
+        #expect(albums.region == "TW" && albums.language == "zh-Hant")
+        let localizedCharts = try await localized.browse(
+            "browse:FEmusic_charts")
+        #expect(!(localizedCharts.items + localizedCharts.relatedItems).isEmpty)
+        #expect(localizedCharts.region == "TW"
+                && localizedCharts.language == "zh-Hant")
     }
 }

@@ -1291,7 +1291,8 @@ struct CatalogArtistDetailView: View {
     private func onlineReleaseCard(_ release: OnlineReleaseItem) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             ArtworkView(
-                source: ArtworkSource.resolve(remoteURL: release.artworkURL, youTubeId: release.playlistID),
+                source: ArtworkSource.resolve(
+                    remoteURL: release.artworkURL, youTubeId: nil),
                 cornerRadius: 10,
                 glyphSize: 32,
                 targetSize: 140,

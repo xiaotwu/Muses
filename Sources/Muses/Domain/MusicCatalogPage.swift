@@ -38,6 +38,8 @@ struct MusicCatalogCursor: Sendable {
     let session: UUID
     let endpoint: String
     let token: String
+    var region: String = "US"
+    var language: String = "en"
 }
 
 struct MusicCatalogFilter: Sendable {
@@ -51,6 +53,7 @@ struct MusicCatalogPage: Sendable {
     let next: MusicCatalogCursor?
     let fetchedAt: Date
     let region: String
+    var language: String = "en"
     var relatedItems: [MusicCatalogItem] = []
     var isStale = false
     var refreshFailed = false

@@ -10,18 +10,33 @@ actor CachedMusicCatalogProvider: MusicCatalogProviding {
         let relatedItems: [MusicCatalogItem]?
         let fetchedAt: Date
         let region: String
+        let language: String
     }
     private let upstream: any MusicCatalogProviding
     private let directory: URL
     private let region: String
+    private let language: String
+    private let staleLifetime: TimeInterval
+    private let now: @Sendable () -> Date
     private var generation = UUID()
 
-    init(upstream: any MusicCatalogProviding = PublicMusicCatalogProvider(),
+    init(upstream: (any MusicCatalogProviding)? = nil,
          directory: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appending(path: "Muses/public-catalog/v1"), region: String = "US") {
-        self.upstream = upstream
+            .appending(path: "Muses/public-catalog/v2"),
+         region: String = "US", language: String = "en",
+         staleLifetime: TimeInterval = 7 * 24 * 60 * 60,
+         now: @escaping @Sendable () -> Date = Date.init) {
+        let normalizedRegion = Self.normalizedRegion(region)
+        let normalizedLanguage = Self.normalizedLanguage(language)
+        self.upstream = upstream ?? PublicMusicCatalogProvider(
+            region: normalizedRegion, language: normalizedLanguage)
+        self.region = normalizedRegion
+        self.language = normalizedLanguage
         self.directory = directory
-        self.region = region
+            .appending(path: Self.partitionComponent(normalizedLanguage))
+            .appending(path: Self.partitionComponent(normalizedRegion))
+        self.staleLifetime = staleLifetime
+        self.now = now
     }
 
     func reset() async {
@@ -76,7 +91,7 @@ actor CachedMusicCatalogProvider: MusicCatalogProviding {
     }
 
     private func url(_ key: String) -> URL {
-        let digest = SHA256.hash(data: Data((region + "|" + key).utf8))
+        let digest = SHA256.hash(data: Data(key.utf8))
         return directory.appending(path: digest.map { String(format: "%02x", $0) }.joined() + ".json")
     }
 
@@ -86,16 +101,31 @@ actor CachedMusicCatalogProvider: MusicCatalogProviding {
               size <= 2 * 1_024 * 1_024,
               let data = try? Data(contentsOf: file),
               let record = try? JSONDecoder().decode(Record.self, from: data),
-              record.version == 1, record.region == region,
-              record.items.count <= 500, (record.relatedItems?.count ?? 0) <= 500 else { return nil }
+              record.version == 2, record.region == region,
+              record.language == language,
+              record.items.count <= 500, (record.relatedItems?.count ?? 0) <= 500 else {
+            return nil
+        }
+        let age = now().timeIntervalSince(record.fetchedAt)
+        guard age >= 0, age <= staleLifetime else {
+            try? FileManager.default.removeItem(at: file)
+            return nil
+        }
         return .init(items: record.items, filters: [], next: nil,
                      fetchedAt: record.fetchedAt, region: record.region,
+                     language: record.language,
                      relatedItems: record.relatedItems ?? [], isStale: true, refreshFailed: true)
     }
 
     private func save(_ page: MusicCatalogPage, key: String) {
-        guard !page.isStale, page.region == region, page.items.count <= 500, page.relatedItems.count <= 500,
-              let data = try? JSONEncoder().encode(Record(version: 1, items: page.items, relatedItems: page.relatedItems, fetchedAt: page.fetchedAt, region: region)),
+        guard !page.isStale, page.region == region,
+              page.language == language,
+              page.items.count <= 500, page.relatedItems.count <= 500,
+              let data = try? JSONEncoder().encode(Record(
+                version: 2, items: page.items,
+                relatedItems: page.relatedItems,
+                fetchedAt: page.fetchedAt, region: region,
+                language: language)),
               data.count <= 2 * 1_024 * 1_024 else { return }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -111,5 +141,25 @@ actor CachedMusicCatalogProvider: MusicCatalogProviding {
         } catch {
             // Cache failure never turns a successful network response into an error.
         }
+    }
+
+    private nonisolated static func partitionComponent(_ value: String) -> String {
+        let allowed = value.lowercased().unicodeScalars.filter {
+            CharacterSet.alphanumerics.contains($0) || $0 == "-"
+        }
+        let result = String(String.UnicodeScalarView(allowed))
+        return result.isEmpty ? "unknown" : String(result.prefix(40))
+    }
+
+    private nonisolated static func normalizedRegion(_ value: String) -> String {
+        let result = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+        return result.count == 2 ? result : "US"
+    }
+
+    private nonisolated static func normalizedLanguage(_ value: String) -> String {
+        let result = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "_", with: "-")
+        return result.isEmpty ? "en" : result
     }
 }
