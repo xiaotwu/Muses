@@ -16,8 +16,7 @@ import Foundation
 @MainActor
 final class YTDlpSearchCache {
     static let `default` = YTDlpSearchCache(
-        directory: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
-            .first!.appendingPathComponent("Muses/ytdlp-search", isDirectory: true)
+        directory: MusesDataPaths.caches.appendingPathComponent("ytdlp-search", isDirectory: true)
     )
 
     private let backing: SWRCache<[YTDlpBridge.YTDlpPlaylistEntry]>

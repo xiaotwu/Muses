@@ -20,7 +20,12 @@ protocol PlayerEngine: AnyObject {
     func toggle()
     func seek(to time: Double)
     func setVolume(_ v: Float)
+    func setPlaybackRate(_ rate: Float)
     func setEQ(_ bands: [EQBand])
     func installSpectrumTap(_ handler: @escaping (SpectrumFrame) -> Void)
     func removeSpectrumTap()
+}
+
+extension PlayerEngine {
+    func setPlaybackRate(_ rate: Float) {}
 }

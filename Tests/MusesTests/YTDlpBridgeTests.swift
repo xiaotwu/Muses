@@ -57,6 +57,38 @@ struct YTDlpBridgeTests {
         #expect(entries[1].duration == nil)
     }
 
+    @Test("Shorts page selects the requested range and validates source URLs")
+    func shortsPageUsesVerifiedSource() async throws {
+        let bin = try makeFakeBinary(script: """
+            #!/bin/sh
+            case " $* " in
+              *" --playlist-start 21 --playlist-end 40 "*) ;;
+              *) exit 3 ;;
+            esac
+            echo '{"id":"FVkp6tc2rNY","title":"Short","url":"https://www.youtube.com/shorts/FVkp6tc2rNY"}'
+            """)
+        let bridge = YTDlpBridge(binaryPath: bin)
+        let entries = try await bridge.fetchShortsPage(
+            channelID: "UC_x5XG1OV2P6uZZ5FSM9Ttw", offset: 20, count: 20)
+        #expect(entries.map(\.id) == ["FVkp6tc2rNY"])
+    }
+
+    @Test("Ordinary uploads and mismatched Shorts identities fail closed")
+    func shortsRejectUnverifiedEntries() throws {
+        let upload = """
+            {"id":"FVkp6tc2rNY","title":"Upload","url":"https://www.youtube.com/watch?v=FVkp6tc2rNY"}
+            """
+        let mismatch = """
+            {"id":"FVkp6tc2rNY","title":"Short","webpage_url":"https://www.youtube.com/shorts/AAAAAAAAAAA"}
+            """
+        #expect(throws: YTDlpBridge.YTDlpError.self) {
+            try YTDlpBridge.parseShortsPage(upload)
+        }
+        #expect(throws: YTDlpBridge.YTDlpError.self) {
+            try YTDlpBridge.parseShortsPage(mismatch)
+        }
+    }
+
     // MARK: - exitCode
 
     @Test("Non-zero exit throws exitCode")

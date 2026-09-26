@@ -17,8 +17,7 @@ enum LyricsDocumentIdentity {
 actor LyricsDocumentCache {
     private let directory: URL
 
-    init(directory: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        .appending(path: "Muses/lyrics/v2")) {
+    init(directory: URL = MusesDataPaths.caches.appending(path: "lyrics/v2")) {
         self.directory = directory
     }
 

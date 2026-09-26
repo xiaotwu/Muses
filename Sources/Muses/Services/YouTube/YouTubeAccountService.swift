@@ -48,6 +48,7 @@ final class YouTubeAccountService {
     private(set) var playlistsState: LoadState<[YouTubePlaylist]> = .idle
     private(set) var subscriptionsState: LoadState<[YouTubeSubscription]> = .idle
     private(set) var likedVideosState: LoadState<[YouTubeVideo]> = .idle
+    @ObservationIgnored private var refreshGeneration: UInt64 = 0
 
     init(session: GoogleOAuthSession = GoogleOAuthSession(keychain: KeychainStore()),
          clientFactory: @escaping @Sendable (GoogleOAuthSession) -> YouTubeDataAPIClient = { session in
@@ -108,9 +109,11 @@ final class YouTubeAccountService {
     }
 
     func clearConfig() {
+        refreshGeneration &+= 1
         session.clearConfig()
         session.disconnect()
         isConnected = false
+        isConnecting = false
         connectionState = .signedOut
         account = nil
     }
@@ -146,8 +149,8 @@ final class YouTubeAccountService {
         }
     }
 
-    /// Incremental authorization: existing read access stays usable when the
-    /// user cancels or declines the additional playlist-management scope.
+    /// Native OAuth requests the complete desired scope set on each consent.
+    /// Existing tokens stay usable when the user cancels the new request.
     func requestPlaylistManagementAccess() async {
         guard session.loadConfig() != nil else {
             lastError = OAuthError.notConfigured.errorDescription
@@ -160,11 +163,12 @@ final class YouTubeAccountService {
         isConnecting = true
         defer { isConnecting = false }
         do {
+            let previousTokens = session.loadTokens()
             try await session.connect(
-                requestedScopes: [GoogleOAuthConfig.manageScope],
-                includeGrantedScopes: true)
+                requestedScopes: scopesForAuthorization(adding: GoogleOAuthConfig.manageScope))
             isConnected = session.isConnected
             guard canManagePlaylists else {
+                if let previousTokens { try session.storeTokens(previousTokens) }
                 lastError = tr(
                     "YouTube playlist management permission was not granted",
                     "未授予 YouTube 歌单管理权限")
@@ -182,10 +186,23 @@ final class YouTubeAccountService {
         }
     }
 
+    func scopesForAuthorization(adding scope: String) -> [String] {
+        var scopes = [GoogleOAuthConfig.readOnlyScope]
+        let supported = Set([GoogleOAuthConfig.readOnlyScope,
+                             GoogleOAuthConfig.manageScope])
+        for existing in grantedScopes where supported.contains(existing) && !scopes.contains(existing) {
+            scopes.append(existing)
+        }
+        if !scopes.contains(scope) { scopes.append(scope) }
+        return scopes
+    }
+
     /// Disconnect: clears tokens and the snapshot, keeping the OAuth client configuration.
     func disconnect() {
+        refreshGeneration &+= 1
         session.disconnect()
         isConnected = false
+        isConnecting = false
         connectionState = .signedOut
         clearAccountSnapshot()
         lastError = nil
@@ -202,14 +219,29 @@ final class YouTubeAccountService {
             }
             return
         }
+        refreshGeneration &+= 1
+        let generation = refreshGeneration
         isConnecting = true
-        defer { isConnecting = false }
+        defer {
+            if refreshGeneration == generation { isConnecting = false }
+        }
         let client = clientFactory(session)
 
         let previousChannel = channelState.value ?? account?.channel
         let previousPlaylists = playlistsState.value ?? account?.playlists
         let previousSubscriptions = subscriptionsState.value ?? account?.subscriptions
         let previousLiked = likedVideosState.value ?? account?.likedVideos
+        let priorChannelState = channelState
+        let priorPlaylistsState = playlistsState
+        let priorSubscriptionsState = subscriptionsState
+        let priorLikedVideosState = likedVideosState
+        func restoreCancelledRefresh() {
+            guard refreshGeneration == generation else { return }
+            channelState = priorChannelState
+            playlistsState = priorPlaylistsState
+            subscriptionsState = priorSubscriptionsState
+            likedVideosState = priorLikedVideosState
+        }
         channelState = .loading(previous: previousChannel)
         playlistsState = .loading(previous: previousPlaylists)
         subscriptionsState = .loading(previous: previousSubscriptions)
@@ -239,41 +271,77 @@ final class YouTubeAccountService {
 
         do {
             channel = try await client.channel()
+            guard refreshGeneration == generation, !Task.isCancelled else {
+                restoreCancelledRefresh()
+                return
+            }
             channelState = channel.map(LoadState.content) ?? .empty
             anySuccess = true
         } catch {
+            if refreshGeneration != generation || Task.isCancelled || error is CancellationError {
+                restoreCancelledRefresh()
+                return
+            }
             handle(error)
             channelState = .failure(message: error.localizedDescription,
                                     staleValue: previousChannel)
         }
         do {
             playlists = try await client.myPlaylists()
+            guard refreshGeneration == generation, !Task.isCancelled else {
+                restoreCancelledRefresh()
+                return
+            }
             playlistsState = playlists.isEmpty ? .empty : .content(playlists)
             anySuccess = true
         } catch {
+            if refreshGeneration != generation || Task.isCancelled || error is CancellationError {
+                restoreCancelledRefresh()
+                return
+            }
             handle(error)
             playlistsState = .failure(message: error.localizedDescription,
                                       staleValue: previousPlaylists)
         }
         do {
             subs = try await client.subscriptions()
+            guard refreshGeneration == generation, !Task.isCancelled else {
+                restoreCancelledRefresh()
+                return
+            }
             subscriptionsState = subs.isEmpty ? .empty : .content(subs)
             anySuccess = true
         } catch {
+            if refreshGeneration != generation || Task.isCancelled || error is CancellationError {
+                restoreCancelledRefresh()
+                return
+            }
             handle(error)
             subscriptionsState = .failure(message: error.localizedDescription,
                                           staleValue: previousSubscriptions)
         }
         do {
             liked = try await client.likedVideos()
+            guard refreshGeneration == generation, !Task.isCancelled else {
+                restoreCancelledRefresh()
+                return
+            }
             likedVideosState = liked.isEmpty ? .empty : .content(liked)
             anySuccess = true
         } catch {
+            if refreshGeneration != generation || Task.isCancelled || error is CancellationError {
+                restoreCancelledRefresh()
+                return
+            }
             handle(error)
             likedVideosState = .failure(message: error.localizedDescription,
                                         staleValue: previousLiked)
         }
 
+        if refreshGeneration != generation || Task.isCancelled {
+            restoreCancelledRefresh()
+            return
+        }
         if unauthorized {
             session.disconnect()
             isConnected = false
@@ -312,13 +380,37 @@ final class YouTubeAccountService {
     /// failed request cannot create a local phantom subscription.
     func subscribe(channelID: String) async throws {
         guard isConnected, canManagePlaylists else { throw YouTubeAccountWriteError.manageScopeRequired }
-        _ = try await clientFactory(session).subscribe(channelId: channelID)
+        guard channelID.hasPrefix("UC"), channelID.count == 24,
+              MusicCatalogParser.validID(channelID),
+              let ownerID = activeChannelID else { throw YouTubeAccountWriteError.invalidTarget }
+        let client = clientFactory(session)
+        let before = try await client.subscriptions()
+        guard activeChannelID == ownerID else { throw YouTubeAccountWriteError.accountChanged }
+        if before.contains(where: { $0.channelId == channelID }) { return }
+        _ = try await client.subscribe(channelId: channelID)
+        guard activeChannelID == ownerID else { throw YouTubeAccountWriteError.accountChanged }
+        let after = try await client.subscriptions()
+        guard after.contains(where: { $0.channelId == channelID }) else {
+            throw YouTubeAccountWriteError.readbackUnconfirmed
+        }
         await refresh()
     }
 
     func unsubscribe(subscriptionID: String) async throws {
         guard isConnected, canManagePlaylists else { throw YouTubeAccountWriteError.manageScopeRequired }
-        try await clientFactory(session).unsubscribe(subscriptionId: subscriptionID)
+        guard let ownerID = activeChannelID else { throw YouTubeAccountWriteError.invalidTarget }
+        let client = clientFactory(session)
+        let before = try await client.subscriptions()
+        guard activeChannelID == ownerID else { throw YouTubeAccountWriteError.accountChanged }
+        guard before.contains(where: { $0.id == subscriptionID }) else {
+            throw YouTubeAccountWriteError.invalidTarget
+        }
+        try await client.unsubscribe(subscriptionId: subscriptionID)
+        guard activeChannelID == ownerID else { throw YouTubeAccountWriteError.accountChanged }
+        let after = try await client.subscriptions()
+        guard !after.contains(where: { $0.id == subscriptionID }) else {
+            throw YouTubeAccountWriteError.readbackUnconfirmed
+        }
         await refresh()
     }
 
@@ -327,14 +419,32 @@ final class YouTubeAccountService {
         return clientFactory(session)
     }
 
+
 }
 
 enum YouTubeAccountWriteError: LocalizedError, Equatable, Sendable {
     case manageScopeRequired
+    case invalidTarget
+    case accountChanged
+    case readbackUnconfirmed
 
     var errorDescription: String? {
-        tr("Reconnect YouTube with account-management permission to change subscriptions.",
-           "请使用账号管理权限重新连接 YouTube，才能修改订阅。",
-           zhHant: "請使用帳號管理權限重新連接 YouTube，才能修改訂閱。")
+        switch self {
+        case .manageScopeRequired:
+            tr("Reconnect YouTube with account-management permission to change subscriptions.",
+               "请使用账号管理权限重新连接 YouTube，才能修改订阅。",
+               zhHant: "請使用帳號管理權限重新連接 YouTube，才能修改訂閱。")
+        case .invalidTarget:
+            tr("The subscription target is no longer available. Refresh and try again.",
+               "订阅目标已不可用，请刷新后重试。", zhHant: "訂閱目標已無法使用，請重新整理後再試。")
+        case .accountChanged:
+            tr("The connected YouTube account changed. Review the target again.",
+               "连接的 YouTube 账号已变更，请重新确认目标。",
+               zhHant: "連接的 YouTube 帳號已變更，請重新確認目標。")
+        case .readbackUnconfirmed:
+            tr("YouTube did not confirm the change. Refresh before trying again.",
+               "YouTube 尚未确认更改，请先刷新再决定是否重试。",
+               zhHant: "YouTube 尚未確認變更，請先重新整理再決定是否重試。")
+        }
     }
 }

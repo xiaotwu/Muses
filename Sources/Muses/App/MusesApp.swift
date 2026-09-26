@@ -39,6 +39,7 @@ struct MusesApp: App {
     let youTubeAccountService: YouTubeAccountService
     let youTubePlaylistSyncService: YouTubePlaylistSyncService
     let youTubeCatalogService: YouTubeCatalogService
+    let podcastLibraryService: PodcastLibraryService
     // Native desktop integration: global hotkeys / menu bar tray / desktop lyrics / mini player.
     let globalHotkeyService: GlobalHotkeyService
     let trayController: TrayController
@@ -48,6 +49,11 @@ struct MusesApp: App {
 
     init() {
         MusesSingleInstance.yieldIfOtherInstanceRunning()
+        // Move rebuildable caches into the app-owned home directory before any
+        // service constructs its default cache URL. A failure starts with fresh
+        // caches; the old directory remains available for manual recovery.
+        do { try MusesDataPaths.prepareCacheDirectory() }
+        catch { AppLog.for("MusesDataPaths").error("Cache relocation failed: \(error.localizedDescription)") }
         _ = L10n.traditionalStrings
         // Music windows are not document-tabbed; this also removes Show Tab Bar /
         // Show All Tabs from View (no CommandGroupPlacement exists for those items).
@@ -110,6 +116,13 @@ struct MusesApp: App {
             queue: queue,
             library: library
         )
+        self.podcastLibraryService = PodcastLibraryService(
+            modelContainer: container, eventBus: playbackService.eventBus)
+        playbackService.podcastResumeProvider = { [weak podcastLibraryService] videoID in
+            guard let episode = podcastLibraryService?.episode(videoID: videoID),
+                  !episode.completed else { return nil }
+            return episode.lastPositionMs
+        }
         let activeEQ = UserDefaults.standard.string(forKey: PrefKey.eqActivePresetId) ?? "Flat"
         let recommendationCatalog = PublicMusicCatalogProvider()
         playbackService.recommendationProvider = { videoID in
@@ -153,7 +166,11 @@ struct MusesApp: App {
         self.sessionService = SessionService(modelContainer: container,
                                              eventBus: playbackService.eventBus,
                                              playback: playbackService,
-                                             queue: queue)
+                                             queue: queue,
+                                             podcastCheckpoint: { [weak podcastLibraryService] track, position, duration in
+            podcastLibraryService?.checkpoint(track: track, positionMs: position,
+                                               durationSeconds: duration)
+        })
         // Audio output devices: Core Audio enumeration/switching (best-effort), with a 2s poll detecting default-device changes.
         let audioDevices = AudioDeviceService(eventBus: playbackService.eventBus,
             onUnexpectedDisconnect: { [weak playbackService] in playbackService?.pause() })
@@ -396,6 +413,7 @@ struct MusesApp: App {
                     .environment(youTubeAccountService)
                     .environment(youTubePlaylistSyncService)
                     .environment(youTubeCatalogService)
+                    .environment(podcastLibraryService)
                     .environment(\.libraryStoreFallback, usedInMemoryFallback)
                     .modelContainer(modelContainer)
                     .background(MiniPlayerOpener())
@@ -442,6 +460,7 @@ struct MusesApp: App {
                     .environment(youTubeAccountService)
                     .environment(youTubePlaylistSyncService)
                     .environment(youTubeCatalogService)
+                    .environment(podcastLibraryService)
                     .modelContainer(modelContainer)
             }
         }

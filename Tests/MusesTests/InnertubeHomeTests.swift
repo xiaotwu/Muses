@@ -19,6 +19,19 @@ struct InnertubeHomeTests {
         #expect(page.continuation == nil)
     }
 
+    @Test("two-row playlist artwork keeps trusted images and safe missing fallbacks")
+    func twoRowArtwork() throws {
+        let page = try InnertubeHomeParser().parse(fixture("two-row-artwork"))
+        let cards = page.sections.flatMap(\.items).compactMap { item -> YouTubeDiscoveryCard? in
+            guard case .youTube(let card) = item else { return nil }
+            return card
+        }
+        #expect(cards.count == 3)
+        #expect(cards[0].thumbnailURL == "https://yt3.googleusercontent.com/cover=w544-h544")
+        #expect(cards[1].thumbnailURL == nil)
+        #expect(cards[2].thumbnailURL == nil)
+    }
+
     @Test("unknown-only response fails closed")
     func unknownOnlyFailsClosed() throws {
         #expect(throws: InnertubeError.shapeChanged) {
@@ -181,7 +194,7 @@ struct InnertubeHomeTests {
             "MUSES_TEST_PUBLIC_CATALOG"] == "1"))
     @MainActor
     func liveAnonymousHomeMatrix() async throws {
-        for (language, region) in [("en", "US"), ("zh-Hant", "TW")] {
+        for (language, region) in [("en", "US"), ("zh-Hans", "US"), ("zh-Hant", "TW")] {
             let provider = AnonymousInnertubeHomeProvider { language, region in
                 InnertubeClient(configuration: .current(
                     language: language, region: region))
@@ -192,9 +205,16 @@ struct InnertubeHomeTests {
                 scope: .guest, language: language, region: region)
             let result = await provider.fetch(for: input)
             let sections = result.baselineSnapshot.sections
-            #expect(result.failures.isEmpty)
-            #expect(!sections.isEmpty)
+            #expect(result.failures.isEmpty, "Home locale: \(language)/\(region)")
+            #expect(!sections.isEmpty, "Home locale: \(language)/\(region)")
             #expect(sections.allSatisfy { $0.source == .publicDiscovery })
+            let playlistCards = sections.flatMap(\.items).compactMap { item -> YouTubeDiscoveryCard? in
+                guard case .youTube(let card) = item,
+                      card.browseEndpoint?.identifier.hasPrefix("VL") == true else { return nil }
+                return card
+            }
+            #expect(!playlistCards.isEmpty)
+            #expect(playlistCards.contains { $0.thumbnailURL != nil })
 
             if let section = sections.first(where: {
                 provider.hasContinuation(for: $0.id)
@@ -204,6 +224,27 @@ struct InnertubeHomeTests {
                 #expect(!more.isEmpty)
             }
         }
+    }
+
+    @Test("Real anonymous Home global continuation when supplied by service",
+          .enabled(if: ProcessInfo.processInfo.environment[
+            "MUSES_TEST_GLOBAL_HOME_CONTINUATION"] == "1"))
+    func liveGlobalHomeContinuation() async throws {
+        var continuedPage: InnertubeHomePage?
+        for (language, region) in [
+            ("en", "US"), ("en", "GB"), ("ja", "JP"),
+            ("ko", "KR"), ("zh-Hant", "TW")
+        ] {
+            let client = InnertubeClient(configuration: .current(
+                language: language, region: region))
+            let first = try await client.home(continuation: nil)
+            if let token = first.continuation {
+                continuedPage = try await client.home(continuation: token)
+                break
+            }
+        }
+        let page = try #require(continuedPage)
+        #expect(!page.sections.isEmpty)
     }
 
     private func fixture(_ name: String) throws -> Data {

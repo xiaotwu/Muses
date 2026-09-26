@@ -17,8 +17,7 @@ final class StreamURLCache {
         persistencePath: StreamURLCache.defaultPersistenceURL)
 
     private static var defaultPersistenceURL: URL? {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        return home.appendingPathComponent("Library/Caches/Muses/stream-urls.json")
+        MusesDataPaths.caches.appendingPathComponent("stream-urls.json")
     }
 
     private struct Entry: Codable {

@@ -1,4 +1,10 @@
 {
+  "YouTube Music 当前离线。": "YouTube Music 目前離線。",
+  "YouTube Music 响应超时。": "YouTube Music 回應逾時。",
+  "YouTube Music 暂时限制了请求。": "YouTube Music 暫時限制了請求。",
+  "YouTube Music 响应超过安全上限。": "YouTube Music 回應超過安全上限。",
+  "YouTube Music 已更改首页响应结构。": "YouTube Music 已變更首頁回應結構。",
+  "YouTube Music 推荐暂时不可用。": "YouTube Music 推薦暫時無法使用。",
   "15 分钟": "15 分鐘",
   "30 分钟": "30 分鐘",
   "45 分钟": "45 分鐘",
@@ -141,6 +147,7 @@
   "公共首页暂不可用。": "公共首頁暫不可用。",
   "关于": "關於",
   "关于 Muses": "關於 Muses",
+  "关于与更新": "關於與更新",
   "关于与帮助": "關於與輔助說明",
   "关闭": "關閉",
   "关闭并清除临时会话": "關閉並清除臨時會話",

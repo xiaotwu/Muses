@@ -3,29 +3,34 @@ import SwiftUI
 
 struct SearchWindowConfigurator: NSViewRepresentable {
     let colorScheme: ColorScheme
+    let title: String
 
     func makeNSView(context: Context) -> SearchWindowConfigurationView {
-        SearchWindowConfigurationView()
+        let view = SearchWindowConfigurationView()
+        view.localizedTitle = title
+        return view
     }
 
     func updateNSView(_ nsView: SearchWindowConfigurationView, context: Context) {
+        nsView.localizedTitle = title
         guard let window = nsView.window else { return }
-        SearchWindowConfigurationView.configure(window, colorScheme: colorScheme)
+        SearchWindowConfigurationView.configure(window, colorScheme: colorScheme, title: title)
     }
 }
 
 final class SearchWindowConfigurationView: NSView {
+    var localizedTitle = tr("Search Muses", "搜索 Muses")
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard let window else { return }
-        Self.configure(window, colorScheme: effectiveColorScheme)
+        Self.configure(window, colorScheme: effectiveColorScheme, title: localizedTitle)
     }
 
     @MainActor
-    static func configure(_ window: NSWindow, colorScheme: ColorScheme) {
+    static func configure(_ window: NSWindow, colorScheme: ColorScheme, title: String) {
         window.identifier = NSUserInterfaceItemIdentifier("Muses.search-window")
         window.setFrameAutosaveName("MusesSearchWindow")
-        window.title = tr("Search Muses", "搜索 Muses")
+        window.title = title
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none

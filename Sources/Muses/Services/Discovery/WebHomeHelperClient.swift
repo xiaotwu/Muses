@@ -21,7 +21,9 @@ enum WebHomeHelperClientError: Error, Equatable {
         case .helperCrashed, .helperBusy: .helperCrashed
         case .responseTooLarge: .responseTooLarge
         case .protocolMismatch: .protocolMismatch
-        case .missingHelper, .invalidHelper, .malformedResponse: .malformedResponse
+        case .missingHelper: .helperUnavailable
+        case .invalidHelper: .helperUntrusted
+        case .malformedResponse: .malformedResponse
         }
     }
 }

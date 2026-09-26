@@ -15,6 +15,7 @@ final class SessionService {
     private let playback: PlaybackService
     private let queue: QueueService
     private let enabledProvider: () -> Bool
+    private let podcastCheckpoint: ((TrackSnapshot, Double, Double) -> Void)?
     private var subscription: UUID?
     private var checkpointTimer: Task<Void, Never>?
     /// System observer tokens live in a dedicated `@unchecked Sendable` box: SessionService is a `@MainActor`
@@ -32,6 +33,7 @@ final class SessionService {
     /// `enabledProvider` reads `UserDefaults` live in production; tests inject a fixed value for isolation.
     init(modelContainer: ModelContainer, eventBus: PlaybackEventBus,
          playback: PlaybackService, queue: QueueService,
+         podcastCheckpoint: ((TrackSnapshot, Double, Double) -> Void)? = nil,
          enabledProvider: @escaping () -> Bool = {
         UserDefaults.standard.bool(forKey: PrefKey.ffSessions)
     }) {
@@ -40,6 +42,7 @@ final class SessionService {
         self.playback = playback
         self.queue = queue
         self.enabledProvider = enabledProvider
+        self.podcastCheckpoint = podcastCheckpoint
         subscribe()
         startCheckpointTimer()
         installSystemObservers()
@@ -138,6 +141,9 @@ final class SessionService {
         guard posMs.isFinite, posMs >= 0,
               let trackId = trackID ?? playback.transportState.track?.id else { return }
         queue.checkpointPosition(currentTrackId: trackId, lastPositionMs: posMs)
+        if let track = playback.transportState.track, track.id == trackId {
+            podcastCheckpoint?(track, posMs, playback.transportState.duration)
+        }
         guard isEnabled, let sid = activeSessionId else { return }
         let ctx = ModelContext(modelContainer)
         guard let row = (try? ctx.fetch(FetchDescriptor<ListeningSession>()))?

@@ -40,6 +40,41 @@ struct NowPlayingManagerTests {
         _ = manager   // keep alive
     }
 
+    @Test("native media card yields to the YouTube video session and returns afterward")
+    func videoSessionOwnsSystemMediaCard() async throws {
+        let playback = PlaybackService(youtubeEngine: RecordingEngine(), queue: QueueService())
+        var published: [[String: Any]] = []
+        let manager = NowPlayingManager(playback, bindsRemoteCommands: false,
+            artworkLoader: { _ in nil }, publishInfo: { published.append($0) })
+        let track = TrackSnapshot(id: UUID(), title: "Video track", artist: "Channel",
+            albumTitle: nil, durationSeconds: 60, youTubeId: "abcdefghijk",
+            artworkUrl: nil, sampleRate: nil, bitDepth: nil, codec: nil, isLossless: false)
+        playback.playTrack(track, context: [track], from: .songs)
+
+        let deadline = ContinuousClock.now + .seconds(2)
+        while published.last?[MPMediaItemPropertyTitle] as? String != track.title,
+              ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(published.last?[MPMediaItemPropertyTitle] as? String == track.title)
+
+        let session = playback.beginVideoSession(videoId: track.youTubeId)
+        let videoDeadline = ContinuousClock.now + .seconds(2)
+        while published.last?.isEmpty != true, ContinuousClock.now < videoDeadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(published.last?.isEmpty == true)
+
+        playback.finishVideoSession(session, resume: false)
+        let restoreDeadline = ContinuousClock.now + .seconds(2)
+        while published.last?[MPMediaItemPropertyTitle] as? String != track.title,
+              ContinuousClock.now < restoreDeadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(published.last?[MPMediaItemPropertyTitle] as? String == track.title)
+        withExtendedLifetime(manager) {}
+    }
+
     @Test("manager init does not crash without track")
     func initNoTrack() async throws {
         let engine = RecordingEngine()

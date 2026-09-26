@@ -31,7 +31,6 @@ struct UpdatesSettingsView: View {
                     Label(tr("Check for Updates Now", "立即检查更新"),
                           systemImage: "arrow.triangle.2.circlepath")
                 }
-                .labelStyle(ActionIconLabelStyle())
                 .help(tr("Check for Updates Now", "立即检查更新"))
                 .musesAction()
                 .tint(BrandColors.accent)
@@ -70,7 +69,6 @@ struct UpdatesSettingsView: View {
             } label: {
                 Label(tr("Download Update", "下载更新"), systemImage: "arrow.down.circle")
             }
-            .labelStyle(ActionIconLabelStyle())
             .help(tr("Download Update", "下载更新"))
             .musesAction(prominent: true)
             .tint(BrandColors.accent)

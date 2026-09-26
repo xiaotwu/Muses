@@ -3,8 +3,7 @@ import Foundation
 /// On-disk yt-dlp media, keyed by video id + quality.
 enum MediaFileCache {
     static var directory: URL {
-        let dir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Caches/Muses/streams", isDirectory: true)
+        let dir = MusesDataPaths.caches.appendingPathComponent("streams", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }

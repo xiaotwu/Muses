@@ -7,7 +7,7 @@ final class WaveformCache: @unchecked Sendable {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
     static let `default` = WaveformCache(directory:
-        URL.homeDirectory.appending(path: "Library/Caches/Muses/waveforms"))
+        MusesDataPaths.caches.appending(path: "waveforms"))
 
     func path(forTrackId id: UUID) -> URL { directory.appending(path: "\(id.uuidString).wave") }
 

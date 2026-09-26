@@ -36,6 +36,18 @@ struct WebHomePayloadParserTests {
         #expect(grid.items.first?.playEndpoint == nil)
     }
 
+    @Test("two-row artwork stays within whitelisted roots and hosts")
+    func twoRowArtwork() throws {
+        let items = try parser.parse(fixture("two-row-artwork")).flatMap(\.items)
+        #expect(items.count == 3)
+        #expect(items[0].artworkURLs == [
+            "https://yt3.googleusercontent.com/cover=w226-h226",
+            "https://yt3.googleusercontent.com/cover=w544-h544"
+        ])
+        #expect(items[1].artworkURLs.isEmpty)
+        #expect(items[2].artworkURLs.isEmpty)
+    }
+
     @Test("section identity is endpoint based and independent of display title")
     func stableSectionIdentity() throws {
         let original = try fixture("supported-home")

@@ -592,6 +592,14 @@ final class WebHomeSessionController: HomeDiscoveryProvider {
             tr("The Web Home helper timed out.", "Web Home Helper 已超时。")
         case .helperCrashed:
             tr("The Web Home helper stopped unexpectedly.", "Web Home Helper 意外停止。")
+        case .helperUnavailable:
+            tr("The Web Home helper is missing or cannot be executed. Reinstall this app build.",
+               "Web Home Helper 缺失或无法执行，请重新安装此应用构建。",
+               zhHant: "Web Home Helper 遺失或無法執行，請重新安裝此應用程式版本。")
+        case .helperUntrusted:
+            tr("The Web Home helper failed signature verification. Reinstall a trusted app build.",
+               "Web Home Helper 签名验证失败，请重新安装可信的应用构建。",
+               zhHant: "Web Home Helper 簽章驗證失敗，請重新安裝可信的應用程式版本。")
         case .protocolMismatch:
             tr("The app and Web Home helper versions do not match.", "App 与 Web Home Helper 版本不匹配。")
         case .responseTooLarge:

@@ -18,8 +18,18 @@ protocol KeychainStoring: Sendable {
 struct KeychainStore: KeychainStoring {
     let service: String
 
-    init(service: String = "muses.youtube.oauth") {
-        self.service = service
+    init(service: String? = nil) {
+        self.service = service ?? Self.defaultService(bundleID: Bundle.main.bundleIdentifier)
+    }
+
+    static func defaultService(bundleID: String?) -> String {
+        // A filesystem sandbox does not isolate legacy Keychain service queries.
+        // Disposable UI builds must never read or delete production credentials.
+        if let bundleID, bundleID == "com.muses.validation"
+            || bundleID.hasPrefix("com.muses.acceptance.") {
+            return "\(bundleID).youtube.oauth"
+        }
+        return "muses.youtube.oauth"
     }
 
     func data(for account: String) -> Data? {

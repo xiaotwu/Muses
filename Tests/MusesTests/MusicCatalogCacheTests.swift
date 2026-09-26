@@ -12,7 +12,12 @@ private actor CachedCatalogFixture: MusicCatalogProviding {
         if failing { throw MusicCatalogError.unavailable }
         return .init(items: [.init(id: "video:abcdefghijk", kind: .song, title: "Source title", subtitle: "", artwork: nil, artists: [], releases: [], channels: [])], filters: [.init(kind: .song, params: "secret-filter")], next: .init(session: UUID(), endpoint: "search", token: "secret-cursor"), fetchedAt: Date(timeIntervalSince1970: 1_700_000_000), region: "US")
     }
-    func browse(_ id: String) async throws -> MusicCatalogPage { try await search(id, kind: nil) }
+    func browse(_ id: String) async throws -> MusicCatalogPage {
+        var page = try await search(id, kind: nil)
+        page.metadata = .init(title: "Album", subtitle: "2016", artists: [
+            .init(id: "browse:UCartist", title: "Artist", kind: .artist)])
+        return page
+    }
     func next(_ cursor: MusicCatalogCursor) async throws -> MusicCatalogPage { throw MusicCatalogError.unavailable }
 }
 
@@ -20,6 +25,27 @@ private let catalogFixtureDate = Date(timeIntervalSince1970: 1_700_000_000)
 
 @Suite("Anonymous catalog display cache")
 struct MusicCatalogCacheTests {
+    @Test func albumMetadataCacheAndOlderRecordCompatibility() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let upstream = CachedCatalogFixture()
+        let provider = CachedMusicCatalogProvider(upstream: upstream, directory: directory,
+            now: { catalogFixtureDate.addingTimeInterval(60) })
+        let fresh = try await provider.browse("browse:MPREalbum")
+        await upstream.fail()
+        let saved = try await provider.browse("browse:MPREalbum")
+        #expect(saved.metadata == fresh.metadata)
+        #expect(saved.isStale)
+        let file = try #require(FileManager.default.contentsOfDirectory(
+            at: directory.appending(path: "en/us"), includingPropertiesForKeys: nil).first)
+        var old = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        old.removeValue(forKey: "metadata")
+        try JSONSerialization.data(withJSONObject: old).write(to: file)
+        let legacy = try await provider.browse("browse:MPREalbum")
+        #expect(legacy.metadata == nil)
+        #expect(legacy.items == fresh.items)
+    }
+
     @Test func staleRecoveryHasNoCredentialsOrCursorAndRetainsDate() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

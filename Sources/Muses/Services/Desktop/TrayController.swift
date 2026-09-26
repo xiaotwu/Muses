@@ -216,9 +216,9 @@ enum TrayIcon {
     static let settingsImage = templateImage(pointSize: 24)
 
     static func loadLogo() -> NSImage? {
-        let url = Bundle.main.url(forResource: "logo", withExtension: "png")
-            ?? Bundle.module.url(forResource: "logo", withExtension: "png")
-            ?? Bundle.module.url(forResource: "logo", withExtension: "png", subdirectory: "Resources")
+        let url = Bundle.main.url(forResource: "icon", withExtension: "png")
+            ?? Bundle.module.url(forResource: "icon", withExtension: "png")
+            ?? Bundle.module.url(forResource: "icon", withExtension: "png", subdirectory: "Resources")
         return url.flatMap { NSImage(contentsOf: $0) }
     }
 

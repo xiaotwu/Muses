@@ -70,7 +70,7 @@ struct GlobalSearchView: View {
             windowHeader
             VStack(alignment: .leading, spacing: 0) {
                 searchChrome
-                if let error = search.youtubeError ?? (search.wasCancelled ? tr("Search cancelled", "搜索已取消", zhHant: "搜尋已取消") : nil) {
+                if search.musicCatalog.detail == nil, let error = search.additionalResultsStatus {
                     HStack {
                         Text(error).font(.callout)
                         Spacer()
@@ -112,10 +112,11 @@ struct GlobalSearchView: View {
             minWidth: SearchWindowPolicy.minimumWidth,
             minHeight: SearchWindowPolicy.minimumHeight
         )
-        .musesGlass(in: shape, role: .floatingPanel)
+        // Reading content uses the native adaptive background; glass belongs to controls.
+        .background(.background, in: shape)
         .clipShape(shape)
         .overlay(shape.stroke(BrandColors.textPrimary.opacity(0.14), lineWidth: 1))
-        .background(SearchWindowConfigurator(colorScheme: colorScheme).frame(width: 0, height: 0))
+        .background(SearchWindowConfigurator(colorScheme: colorScheme, title: tr("Search Muses", "搜索 Muses")).frame(width: 0, height: 0))
         .ignoresSafeArea(edges: .top)
         .onExitCommand(perform: handleEscape)
         .onDisappear { if search.isSearchingYouTube { search.cancelSearch() } }
@@ -377,17 +378,7 @@ struct GlobalSearchView: View {
                     }
                 }
             }
-        } else if search.isSearchingYouTube {
-            SearchStatusView(
-                systemName: "magnifyingglass",
-                title: tr("Searching YouTube…", "正在搜索 YouTube…", zhHant: "正在搜尋 YouTube…"),
-                showsProgress: true
-            )
-        } else if search.wasCancelled {
-            SearchStatusView(systemName: "stop.circle", title: tr("Search cancelled", "搜索已取消", zhHant: "搜尋已取消"))
-        } else if search.youtubeError != nil {
-            SearchStatusView(systemName: "exclamationmark.magnifyingglass", title: tr("Search unavailable", "搜索暂不可用", zhHant: "搜尋暫不可用"))
-        } else {
+        } else if search.showsLibraryEmptyState {
             SearchStatusView(
                 systemName: "magnifyingglass",
                 title: tr("No results for “\(trimmedQuery)”", "没有“\(trimmedQuery)”的结果", zhHant: "沒有“\(trimmedQuery)”的結果"),

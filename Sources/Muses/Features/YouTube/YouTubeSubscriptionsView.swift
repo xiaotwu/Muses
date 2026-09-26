@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Read-only account browsing reuses the app-lifetime OAuth service. Each channel
-/// has a bounded, cancellable page load; switching accounts clears its content.
+/// Account browsing and confirmed subscription changes reuse the app-lifetime
+/// OAuth service. Switching accounts clears the selected channel content.
 struct YouTubeSubscriptionsView: View {
     @Environment(YouTubeAccountService.self) private var account
     @Binding var selectedChannelID: String?
@@ -9,11 +9,17 @@ struct YouTubeSubscriptionsView: View {
         (account.subscriptionsState.value ?? []).first { $0.channelId == selectedChannelID }
     }
     @State private var refreshID = UUID()
+    @State private var channelInput = ""
+    @State private var pendingChannel: YouTubeChannel?
+    @State private var pendingAccountID: String?
+    @State private var showingSubscribe = false
+    @State private var resolvingChannel = false
+    @State private var subscriptionError: String?
 
     var body: some View {
         Group {
             if let selected, account.isConnected {
-                YouTubeChannelUploadsView(channel: selected)
+                YouTubeChannelContentView(channel: selected)
                     .id(selected.channelId)
             } else {
                 ScrollView {
@@ -37,6 +43,23 @@ struct YouTubeSubscriptionsView: View {
                                 }
                             }.frame(maxWidth: .infinity)
                         } else {
+                            HStack {
+                                TextField(tr("YouTube channel URL or ID", "YouTube 频道链接或 ID", zhHant: "YouTube 頻道連結或 ID"),
+                                          text: $channelInput)
+                                    .textFieldStyle(.roundedBorder)
+                                    .accessibilityLabel(tr("YouTube channel URL or ID", "YouTube 频道链接或 ID", zhHant: "YouTube 頻道連結或 ID"))
+                                Button(tr("Find Channel", "查找频道", zhHant: "尋找頻道")) {
+                                    Task { await resolveChannel() }
+                                }
+                                .disabled(channelInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolvingChannel)
+                            }
+                            if resolvingChannel { ProgressView() }
+                            if let subscriptionError { MetadataProjectionErrorBanner(message: subscriptionError) }
+                            if !account.canManagePlaylists {
+                                Button(tr("Allow Subscription Changes…", "允许修改订阅…", zhHant: "允許修改訂閱…")) {
+                                    Task { await account.requestPlaylistManagementAccess() }
+                                }
+                            }
                             if account.subscriptionsState.isLoading { ProgressView() }
                             if let message = account.subscriptionsState.errorMessage {
                                 MetadataProjectionErrorBanner(message: message)
@@ -67,6 +90,86 @@ struct YouTubeSubscriptionsView: View {
         }
         .onChange(of: account.activeChannelID) { _, _ in selectedChannelID = nil }
         .onChange(of: account.isConnected) { _, connected in if !connected { selectedChannelID = nil } }
+        .confirmationDialog(
+            tr("Subscribe to \(pendingChannel?.title ?? "") (\(pendingChannel?.id ?? "")) using \(account.account?.channel?.title ?? "YouTube")?",
+               "使用 \(account.account?.channel?.title ?? "YouTube") 账号订阅 \(pendingChannel?.title ?? "")（\(pendingChannel?.id ?? "")）？",
+               zhHant: "使用 \(account.account?.channel?.title ?? "YouTube") 帳號訂閱 \(pendingChannel?.title ?? "")（\(pendingChannel?.id ?? "")）？"),
+            isPresented: $showingSubscribe
+        ) {
+            Button(tr("Subscribe", "订阅", zhHant: "訂閱")) {
+                guard let channel = pendingChannel, let ownerID = pendingAccountID else { return }
+                pendingChannel = nil
+                pendingAccountID = nil
+                Task {
+                    do {
+                        guard account.activeChannelID == ownerID else {
+                            throw YouTubeAccountWriteError.accountChanged
+                        }
+                        try await account.subscribe(channelID: channel.id)
+                        subscriptionError = nil
+                        channelInput = ""
+                    } catch { subscriptionError = error.localizedDescription }
+                }
+            }
+        }
+    }
+
+    private func resolveChannel() async {
+        guard let client = account.dataAPIClient(), let ownerID = account.activeChannelID else { return }
+        let input = channelInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let id: String
+        if input.hasPrefix("UC"), input.count == 24 { id = input }
+        else if let url = URL(string: input), let target = YouTubeShareTarget(url: url),
+                target.kind == .channel { id = target.id }
+        else {
+            subscriptionError = tr("Enter a stable /channel/ URL or channel ID.",
+                                   "请输入稳定的 /channel/ 链接或频道 ID。",
+                                   zhHant: "請輸入穩定的 /channel/ 連結或頻道 ID。")
+            return
+        }
+        resolvingChannel = true
+        subscriptionError = nil
+        defer { resolvingChannel = false }
+        do {
+            guard let channel = try await client.channel(id: id),
+                  account.activeChannelID == ownerID else {
+                throw YouTubeAccountWriteError.invalidTarget
+            }
+            if (account.subscriptionsState.value ?? []).contains(where: { $0.channelId == id }) {
+                subscriptionError = tr("Already subscribed to this channel.",
+                                       "已订阅此频道。", zhHant: "已訂閱此頻道。")
+            } else {
+                pendingAccountID = ownerID
+                pendingChannel = channel
+                showingSubscribe = true
+            }
+        } catch { subscriptionError = error.localizedDescription }
+    }
+}
+
+private struct YouTubeChannelContentView: View {
+    let channel: YouTubeSubscription
+    @State private var tab: ChannelTab = .uploads
+
+    private enum ChannelTab: String, CaseIterable {
+        case uploads, shorts
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker(tr("Channel content", "频道内容", zhHant: "頻道內容"), selection: $tab) {
+                Text(tr("Uploads", "上传内容", zhHant: "上傳內容")).tag(ChannelTab.uploads)
+                Text("Shorts").tag(ChannelTab.shorts)
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 260)
+            .padding(.top, 12)
+            if tab == .uploads {
+                YouTubeChannelUploadsView(channel: channel)
+            } else {
+                YouTubeChannelShortsView(channel: channel)
+            }
+        }
     }
 }
 
@@ -83,6 +186,7 @@ private struct YouTubeChannelUploadsView: View {
     @State private var playRequest: YTDlpBridge.YTDlpPlaylistEntry?
     @State private var playbackError: String?
     @State private var accountActionError: String?
+    @State private var showingUnsubscribe = false
 
     var body: some View {
         ScrollView {
@@ -92,19 +196,14 @@ private struct YouTubeChannelUploadsView: View {
                     Spacer()
                     if !channel.id.isEmpty {
                         Button(tr("Unsubscribe", "取消订阅")) {
-                            Task {
-                                do {
-                                    try await account.unsubscribe(subscriptionID: channel.id)
-                                } catch {
-                                    accountActionError = error.localizedDescription
-                                }
-                            }
+                            showingUnsubscribe = true
                         }
                         .buttonStyle(.bordered)
                         .help(tr("Unsubscribe from this channel", "取消订阅此频道"))
                     }
                     if let target = YouTubeShareTarget(kind: .channel, id: channel.channelId) {
                         YouTubeShareMenu(target: target)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                     ChromeIconButton(systemName: "arrow.clockwise", help: tr("Refresh", "刷新"), accessibility: tr("Refresh", "刷新")) {
                         appendPage = false
@@ -137,6 +236,25 @@ private struct YouTubeChannelUploadsView: View {
             }.padding(28).padding(.bottom, 100)
         }
         .task(id: refreshID) { await load() }
+        .confirmationDialog(
+            tr("Unsubscribe from \(channel.title) (\(channel.channelId)) using \(account.account?.channel?.title ?? "YouTube")?",
+               "使用 \(account.account?.channel?.title ?? "YouTube") 账号取消订阅 \(channel.title)（\(channel.channelId)）？",
+               zhHant: "使用 \(account.account?.channel?.title ?? "YouTube") 帳號取消訂閱 \(channel.title)（\(channel.channelId)）？"),
+            isPresented: $showingUnsubscribe
+        ) {
+            Button(tr("Unsubscribe", "取消订阅"), role: .destructive) {
+                let ownerID = account.activeChannelID
+                Task {
+                    do {
+                        guard ownerID == account.activeChannelID else {
+                            throw YouTubeAccountWriteError.accountChanged
+                        }
+                        try await account.unsubscribe(subscriptionID: channel.id)
+                        accountActionError = nil
+                    } catch { accountActionError = error.localizedDescription }
+                }
+            }
+        }
         .task(id: playRequest?.id) {
             guard let entry = playRequest else { return }
             let identity = account.activeChannelID

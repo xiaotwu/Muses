@@ -10,7 +10,7 @@ final class ArtworkCache: Sendable {
     }
 
     static let `default`: ArtworkCache = {
-        let base = URL.homeDirectory.appending(path: "Library/Caches/Muses/artwork")
+        let base = MusesDataPaths.caches.appending(path: "artwork")
         return ArtworkCache(directory: base)
     }()
 

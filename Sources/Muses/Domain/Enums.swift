@@ -5,6 +5,7 @@ import Foundation
 enum TrackMediaKind: String, Codable, Sendable, CaseIterable {
     case song
     case musicVideo
+    case podcastEpisode
 }
 
 enum AudioQuality: String, Codable, Sendable {
@@ -25,7 +26,7 @@ enum RepeatMode: String, Codable, Sendable {
 }
 
 enum QueueSource: String, Codable, Sendable {
-    case album, playlist, `import`, search, songs, artist, recently
+    case album, playlist, `import`, search, songs, artist, recently, podcast
 }
 
 /// State label for queue history entries (Advanced Queue).

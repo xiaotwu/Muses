@@ -4,6 +4,28 @@ import Testing
 
 @Suite("Public structured music catalog")
 struct PublicMusicCatalogTests {
+    @Test func albumHeaderPreservesCreditProvenance() throws {
+        func credit(_ id: String, type: String = "MUSIC_PAGE_TYPE_ARTIST") -> [String: Any] {
+            ["text": "Same name", "navigationEndpoint": ["browseEndpoint": [
+                "browseId": id, "browseEndpointContextSupportedConfigs": [
+                    "browseEndpointContextMusicConfig": ["pageType": type]]]]]
+        }
+        let header: [String: Any] = ["musicResponsiveHeaderRenderer": [
+            "title": ["simpleText": "Album"], "subtitle": ["simpleText": "Album · 2016"],
+            "straplineTextOne": ["runs": [credit("UCone"), credit("UCtwo"), credit("UCone"),
+                                              credit("UCchannel", type: "UNKNOWN")]]]]
+        let payload = try data([header, row()])
+        let page = try MusicCatalogParser.page(payload, session: UUID(), endpoint: "browse", region: "US")
+        #expect(page.metadata?.title == "Album")
+        #expect(page.metadata?.artists.map(\.id) == ["browse:UCone", "browse:UCtwo"])
+        #expect(page.items.first?.artists.isEmpty == true)
+        #expect(page.items.first?.playableEntry?.uploader == nil)
+        let search = try MusicCatalogParser.page(payload, session: UUID(), endpoint: "search", region: "US")
+        #expect(search.metadata == nil)
+        let related = try data([["musicCarouselShelfRenderer": ["contents": [header]]], row()])
+        #expect(try MusicCatalogParser.page(related, session: UUID(), endpoint: "browse", region: "US").metadata == nil)
+    }
+
     @Test func podcastRowsUseExplicitWatchType() throws {
         let endpoint: [String: Any] = ["watchEndpoint": ["videoId": "abcdefghijk", "watchEndpointMusicSupportedConfigs": ["watchEndpointMusicConfig": ["musicVideoType": "MUSIC_VIDEO_TYPE_PODCAST_EPISODE"]]]]
         let episode: [String: Any] = ["musicMultiRowListItemRenderer": ["title": ["runs": [["text": "Episode"]]], "onTap": endpoint,
@@ -201,7 +223,7 @@ struct PublicMusicCatalogTests {
         var pages: [MusicCatalogKind: MusicCatalogPage] = [:]
         for kind in [MusicCatalogKind.song, .video, .album, .artist, .playlist] {
             let page = try await provider.search("Bruno Mars", kind: kind)
-            #expect(!page.items.isEmpty)
+            #expect(!page.items.isEmpty, "Live category: \(kind.rawValue)")
             #expect(page.items.allSatisfy { $0.kind == kind })
             #expect(page.region == "US" && page.language == "en")
             pages[kind] = page

@@ -213,7 +213,8 @@ struct InnertubeHomeParser: Sendable {
     }
 
     private func artworkURLs(in renderer: [String: Any]) -> [String] {
-        guard let thumbnail = renderer["thumbnail"] else { return [] }
+        // Two-row cards use thumbnailRenderer; responsive rows use thumbnail.
+        guard let thumbnail = renderer["thumbnail"] ?? renderer["thumbnailRenderer"] else { return [] }
         var values: [[String: Any]] = []
         collectThumbnails(thumbnail, depth: 0, output: &values)
         var seen = Set<String>()

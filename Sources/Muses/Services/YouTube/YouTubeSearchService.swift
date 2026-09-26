@@ -45,7 +45,8 @@ final class YouTubeSearchService {
 
     /// Persists playable identity without adding discovery or queue items to Songs.
     func resolveTrack(entry: YTDlpBridge.YTDlpPlaylistEntry,
-                      saveToLibrary: Bool = false) async throws -> TrackSnapshot {
+                      saveToLibrary: Bool = false,
+                      mediaKindOverride: TrackMediaKind? = nil) async throws -> TrackSnapshot {
         guard entry.resourceKind == .video else { throw YouTubeImportError.invalidURL }
         let ctx = ModelContext(modelContainer)
         let videoId = entry.id
@@ -56,6 +57,7 @@ final class YouTubeSearchService {
         if let existing = existing.first {
             track = existing
             if saveToLibrary { track.libraryMember = true }
+            if let mediaKindOverride { track.mediaKind = mediaKindOverride }
         } else {
             let durationMs = Int((entry.duration ?? 0) * 1000)
             let artist = entry.uploader ?? "Unknown"
@@ -67,7 +69,7 @@ final class YouTubeSearchService {
                 durationMs: durationMs,
                 youTubeId: entry.id,
                 artworkUrl: YouTubeThumbnail.urlString(videoId: entry.id),
-                mediaKind: entry.inferredMediaKind,
+                mediaKind: mediaKindOverride ?? entry.inferredMediaKind,
                 artistCatalogID: artistStableID,
                 isInLibrary: saveToLibrary
             )

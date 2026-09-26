@@ -140,6 +140,20 @@ struct YouTubeDataAPIClient {
         return ch
     }
 
+    /// Resolve a user supplied stable channel ID before presenting a write.
+    func channel(id: String) async throws -> YouTubeChannel? {
+        guard id.hasPrefix("UC"), id.count == 24,
+              MusicCatalogParser.validID(id) else {
+            throw DataAPIError.parse("invalid channel id")
+        }
+        var url = URLComponents(string: "\(Self.base)/channels")!
+        url.queryItems = [.init(name: "part", value: "snippet"),
+                          .init(name: "id", value: id)]
+        let response = try JSONDecoder().decode(
+            ChannelListResponse.self, from: await get(url.url!.absoluteString))
+        return response.items.first(where: { $0.id == id })
+    }
+
     /// Resolve uploads using the channel's stable identity, never its display name.
     func uploadsPlaylist(channelID: String) async throws -> String? {
         struct Response: Decodable {
@@ -313,6 +327,117 @@ struct YouTubeDataAPIClient {
                                items: { $0.items })
     }
 
+    /// Read-only public thread page. The caller owns the volatile page token;
+    /// comment text and tokens are never placed in a durable catalog cache.
+    func commentThreads(videoID: String, pageToken: String? = nil) async throws
+        -> YouTubeCommentPage {
+        guard videoID.count == 11, MusicCatalogParser.validID(videoID) else {
+            throw DataAPIError.parse("invalid video id")
+        }
+        var url = URLComponents(string: "\(Self.base)/commentThreads")!
+        url.queryItems = [
+            .init(name: "part", value: "snippet"),
+            .init(name: "videoId", value: videoID),
+            .init(name: "textFormat", value: "plainText"),
+            .init(name: "maxResults", value: "100")
+        ]
+        if let pageToken, !pageToken.isEmpty {
+            url.queryItems?.append(.init(name: "pageToken", value: pageToken))
+        }
+        let data = try await get(url.url!.absoluteString)
+        return try JSONDecoder().decode(YouTubeCommentPage.self, from: data)
+    }
+
+    /// A thread can omit replies, so this separate endpoint is required for a
+    /// complete reply list. Pagination remains explicit and cancellable.
+    func commentReplies(parentID: String, pageToken: String? = nil) async throws
+        -> YouTubeCommentReplyPage {
+        guard !parentID.isEmpty, parentID.count <= 512 else {
+            throw DataAPIError.parse("invalid parent comment id")
+        }
+        var url = URLComponents(string: "\(Self.base)/comments")!
+        url.queryItems = [
+            .init(name: "part", value: "snippet"),
+            .init(name: "parentId", value: parentID),
+            .init(name: "textFormat", value: "plainText"),
+            .init(name: "maxResults", value: "100")
+        ]
+        if let pageToken, !pageToken.isEmpty {
+            url.queryItems?.append(.init(name: "pageToken", value: pageToken))
+        }
+        let data = try await get(url.url!.absoluteString)
+        return try JSONDecoder().decode(YouTubeCommentReplyPage.self, from: data)
+    }
+
+    /// Source-backed podcast metadata. Missing IDs or fields remain unknown;
+    /// absence from a response is not proof of deletion or privacy state.
+    func videoMetadata(ids: [String]) async throws -> [YouTubeVideoMetadata] {
+        let ids = Array(Set(ids)).sorted()
+        guard !ids.isEmpty, ids.count <= 50,
+              ids.allSatisfy({ $0.count == 11 && MusicCatalogParser.validID($0) }) else {
+            throw DataAPIError.parse("invalid video id batch")
+        }
+        var url = URLComponents(string: "\(Self.base)/videos")!
+        url.queryItems = [
+            .init(name: "part", value: "snippet,contentDetails,status"),
+            .init(name: "id", value: ids.joined(separator: ",")),
+            .init(name: "maxResults", value: "50")
+        ]
+        let data = try await get(url.url!.absoluteString)
+        let response = try JSONDecoder().decode(YouTubeVideoMetadataResponse.self, from: data)
+        return response.items.compactMap { item in
+            guard ids.contains(item.id) else { return nil }
+            return YouTubeVideoMetadata(
+                videoID: item.id,
+                channelID: item.snippet?.channelId,
+                publishedAt: item.snippet?.publishedAt.flatMap(Self.parseYouTubeDate),
+                durationMs: item.contentDetails?.duration.flatMap(Self.parseISODuration),
+                availability: Self.metadataAvailability(item.status))
+        }
+    }
+
+    private static func parseYouTubeDate(_ value: String) -> Date? {
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = parser.date(from: value) { return date }
+        parser.formatOptions = [.withInternetDateTime]
+        return parser.date(from: value)
+    }
+
+    private static func metadataAvailability(
+        _ status: YouTubeVideoMetadataResponse.Status?
+    ) -> TrackAvailability? {
+        guard let status else { return nil }
+        if status.privacyStatus == "private"
+            || ["rejected", "deleted", "failed"].contains(status.uploadStatus ?? "") {
+            return .unavailable
+        }
+        if status.uploadStatus == "processed"
+            && (status.privacyStatus == nil
+                || status.privacyStatus == "public"
+                || status.privacyStatus == "unlisted") {
+            return .available
+        }
+        return nil
+    }
+
+    private static func parseISODuration(_ value: String) -> Int? {
+        let pattern = #"^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)) else {
+            return nil
+        }
+        func part(_ index: Int) -> Double {
+            guard let range = Range(match.range(at: index), in: value) else { return 0 }
+            return Double(value[range]) ?? 0
+        }
+        let milliseconds = (part(1) * 86_400 + part(2) * 3_600
+            + part(3) * 60 + part(4)) * 1_000
+        guard milliseconds.isFinite, milliseconds > 0,
+              milliseconds < Double(Int.max) else { return nil }
+        return Int(milliseconds)
+    }
+
     // MARK: - Helpers
 
     private func get(_ urlString: String) async throws -> Data {
@@ -431,6 +556,96 @@ protocol PageTokened {
 }
 
 // MARK: - Value types (Sendable)
+
+struct YouTubeVideoMetadata: Equatable, Sendable {
+    let videoID: String
+    let channelID: String?
+    let publishedAt: Date?
+    let durationMs: Int?
+    let availability: TrackAvailability?
+}
+
+private struct YouTubeVideoMetadataResponse: Decodable {
+    let items: [Item]
+    struct Item: Decodable {
+        let id: String
+        let snippet: Snippet?
+        let contentDetails: ContentDetails?
+        let status: Status?
+    }
+    struct Snippet: Decodable {
+        let publishedAt: String?
+        let channelId: String?
+    }
+    struct ContentDetails: Decodable { let duration: String? }
+    struct Status: Decodable {
+        let uploadStatus: String?
+        let privacyStatus: String?
+    }
+}
+
+struct YouTubeComment: Decodable, Sendable, Equatable, Identifiable {
+    let id: String
+    let author: String
+    let authorChannelID: String?
+    let videoID: String?
+    let parentID: String?
+    let text: String
+    let publishedAt: Date?
+
+    enum CodingKeys: String, CodingKey { case id, snippet }
+    struct Snippet: Decodable {
+        let authorDisplayName: String
+        let authorChannelId: ChannelIdentity?
+        let videoId: String?
+        let parentId: String?
+        let textDisplay: String
+        let publishedAt: String?
+    }
+    struct ChannelIdentity: Decodable { let value: String }
+
+    init(from decoder: Decoder) throws {
+        let source = try decoder.container(keyedBy: CodingKeys.self)
+        id = try source.decode(String.self, forKey: .id)
+        let snippet = try source.decode(Snippet.self, forKey: .snippet)
+        author = snippet.authorDisplayName
+        authorChannelID = snippet.authorChannelId?.value
+        videoID = snippet.videoId
+        parentID = snippet.parentId
+        text = snippet.textDisplay
+        publishedAt = snippet.publishedAt.flatMap { ISO8601DateFormatter().date(from: $0) }
+    }
+}
+
+struct YouTubeCommentThread: Decodable, Sendable, Equatable, Identifiable {
+    let id: String
+    let topLevelComment: YouTubeComment
+    let totalReplyCount: Int
+
+    enum CodingKeys: String, CodingKey { case id, snippet }
+    struct Snippet: Decodable {
+        let topLevelComment: YouTubeComment
+        let totalReplyCount: Int
+    }
+
+    init(from decoder: Decoder) throws {
+        let source = try decoder.container(keyedBy: CodingKeys.self)
+        id = try source.decode(String.self, forKey: .id)
+        let snippet = try source.decode(Snippet.self, forKey: .snippet)
+        topLevelComment = snippet.topLevelComment
+        totalReplyCount = snippet.totalReplyCount
+    }
+}
+
+struct YouTubeCommentPage: Decodable, Sendable, Equatable {
+    let items: [YouTubeCommentThread]
+    let nextPageToken: String?
+}
+
+struct YouTubeCommentReplyPage: Decodable, Sendable, Equatable {
+    let items: [YouTubeComment]
+    let nextPageToken: String?
+}
 
 struct YouTubeChannel: Codable, Sendable, Equatable {
     let id: String

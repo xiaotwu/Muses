@@ -51,6 +51,13 @@ struct TrackSnapshot: Identifiable, Equatable, Sendable, Codable {
     let lyrics: String?
     let lyricsOffsetMs: Int?
     let replayGain: Double?
+    /// Optional raw value keeps queue snapshots written before podcast support
+    /// decodable. Missing legacy values remain ordinary songs.
+    let mediaKindRaw: String?
+
+    var mediaKind: TrackMediaKind {
+        mediaKindRaw.flatMap(TrackMediaKind.init(rawValue:)) ?? .song
+    }
 
     init(from track: Track) {
         self.id = track.id; self.title = track.title; self.artist = track.artist
@@ -65,6 +72,7 @@ struct TrackSnapshot: Identifiable, Equatable, Sendable, Codable {
         self.lyrics = track.lyrics
         self.lyricsOffsetMs = track.lyricsOffsetMs
         self.replayGain = track.replayGain
+        self.mediaKindRaw = track.mediaKind.rawValue
     }
 
     init(id: UUID, title: String, artist: String, albumTitle: String?,
@@ -72,7 +80,8 @@ struct TrackSnapshot: Identifiable, Equatable, Sendable, Codable {
          artworkUrl: String?,
          sampleRate: Int?, bitDepth: Int?, codec: String?, isLossless: Bool,
          liked: Bool = false, lyrics: String? = nil, replayGain: Double? = nil,
-         bitRate: Int? = nil, channels: Int? = nil, lyricsOffsetMs: Int? = nil) {
+         bitRate: Int? = nil, channels: Int? = nil, lyricsOffsetMs: Int? = nil,
+         mediaKind: TrackMediaKind = .song) {
         self.id = id; self.title = title; self.artist = artist
         self.albumTitle = albumTitle; self.durationSeconds = durationSeconds
         self.youTubeId = youTubeId
@@ -84,6 +93,7 @@ struct TrackSnapshot: Identifiable, Equatable, Sendable, Codable {
         self.lyrics = lyrics
         self.lyricsOffsetMs = lyricsOffsetMs
         self.replayGain = replayGain
+        self.mediaKindRaw = mediaKind.rawValue
     }
 
     /// Sibling queue for a YouTube result set. The playing snapshot keeps its library id;
@@ -91,7 +101,8 @@ struct TrackSnapshot: Identifiable, Equatable, Sendable, Codable {
     static func playbackContext(
         playing: TrackSnapshot,
         youTubeEntries: [YTDlpBridge.YTDlpPlaylistEntry],
-        selectedIndex: Int? = nil
+        selectedIndex: Int? = nil,
+        mediaKind: TrackMediaKind = .song
     ) -> [TrackSnapshot] {
         guard !youTubeEntries.isEmpty else { return [playing] }
         let entries = youTubeEntries.filter { $0.resourceKind == .video }
@@ -107,7 +118,8 @@ struct TrackSnapshot: Identifiable, Equatable, Sendable, Codable {
                 durationSeconds: entry.duration ?? 0,
                 youTubeId: entry.id,
                 artworkUrl: YouTubeThumbnail.urlString(videoId: entry.id),
-                sampleRate: nil, bitDepth: nil, codec: nil, isLossless: false
+                sampleRate: nil, bitDepth: nil, codec: nil, isLossless: false,
+                mediaKind: mediaKind
             )
         }
         if mapped.contains(where: { $0.youTubeId == playing.youTubeId }) {

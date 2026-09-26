@@ -1,0 +1,30 @@
+{
+  "musicCarouselShelfRenderer": {
+    "title": {"runs": [{"text": "Playlist artwork"}]},
+    "contents": [
+      {"musicTwoRowItemRenderer": {
+        "title": {"runs": [{"text": "Valid artwork"}]},
+        "navigationEndpoint": {"browseEndpoint": {"browseId": "VLplaylist_one"}},
+        "thumbnailRenderer": {"musicThumbnailRenderer": {"thumbnail": {"thumbnails": [
+          {"url": "https://yt3.googleusercontent.com/cover=w226-h226", "width": 226, "height": 226},
+          {"url": "https://yt3.googleusercontent.com/cover=w544-h544", "width": 544, "height": 544},
+          {"url": "http://yt3.googleusercontent.com/insecure"},
+          {"url": "https://yt3.googleusercontent.com.evil.example/cover"}
+        ]}}}
+      }},
+      {"musicTwoRowItemRenderer": {
+        "title": {"runs": [{"text": "No artwork"}]},
+        "navigationEndpoint": {"browseEndpoint": {"browseId": "VLplaylist_two"}}
+      }},
+      {"musicTwoRowItemRenderer": {
+        "title": {"runs": [{"text": "Untrusted artwork"}]},
+        "navigationEndpoint": {"browseEndpoint": {"browseId": "VLplaylist_three"}},
+        "thumbnailRenderer": {"musicThumbnailRenderer": {"thumbnail": {"thumbnails": [
+          {"url": "https://evil.example/cover"},
+          {"url": "file:///tmp/cover.png"}
+        ]}}},
+        "unrecognizedRenderer": {"thumbnails": [{"url": "https://yt3.googleusercontent.com/not-artwork"}]}
+      }}
+    ]
+  }
+}

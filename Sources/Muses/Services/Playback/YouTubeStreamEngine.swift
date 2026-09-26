@@ -41,6 +41,7 @@ final class YouTubeStreamEngine: PlayerEngine {
     private let playerB = AVAudioPlayerNode()
     private let preMixer = AVAudioMixerNode()
     private let eq = AVAudioUnitEQ(numberOfBands: 32)
+    private let timePitch = AVAudioUnitTimePitch()
     private var spectrumTap = SpectrumTap()
 
     /// The currently playing node. Initially playerA.
@@ -49,6 +50,7 @@ final class YouTubeStreamEngine: PlayerEngine {
     private var inactivePlayer: AVAudioPlayerNode { activePlayer === playerA ? playerB : playerA }
 
     private var requestedEQ: [EQBand] = []
+    private var requestedPlaybackRate: Float = 1
     private var requestedSpectrum: ((SpectrumFrame) -> Void)?
     private var currentFile: AVAudioFile? { didSet { updateAudioProcessingAvailability() } }
     private var currentTrack: TrackSnapshot?
@@ -126,11 +128,13 @@ final class YouTubeStreamEngine: PlayerEngine {
         engine.attach(playerB)
         engine.attach(preMixer)
         engine.attach(eq)
+        engine.attach(timePitch)
         // Two players → preMixer (multi-input bus) → EQ → main mixer
         engine.connect(playerA, to: preMixer, format: nil)
         engine.connect(playerB, to: preMixer, format: nil)
         engine.connect(preMixer, to: eq, format: nil)
-        engine.connect(eq, to: engine.mainMixerNode, format: nil)
+        engine.connect(eq, to: timePitch, format: nil)
+        engine.connect(timePitch, to: engine.mainMixerNode, format: nil)
     }
 
     // MARK: - Runtime IO-cycle gating
@@ -320,7 +324,7 @@ final class YouTubeStreamEngine: PlayerEngine {
     func play() {
         playbackRequested = true
         if useAVPlayerFallback || isStreamingMode {
-            avPlayer?.play()
+            avPlayer?.playImmediately(atRate: requestedPlaybackRate)
             state.isPlaying = true
             return
         }
@@ -374,6 +378,14 @@ final class YouTubeStreamEngine: PlayerEngine {
         activePlayer.volume = clamped
         // Sync the idle node to avoid a volume jump during hand-off
         inactivePlayer.volume = clamped
+    }
+
+    func setPlaybackRate(_ rate: Float) {
+        guard rate.isFinite, (0.5...2).contains(rate) else { return }
+        requestedPlaybackRate = rate
+        timePitch.rate = rate
+        avPlayer?.defaultRate = rate
+        if avPlayer?.rate != 0 { avPlayer?.rate = rate }
     }
 
     func setEQ(_ bands: [EQBand]) {
@@ -486,7 +498,7 @@ final class YouTubeStreamEngine: PlayerEngine {
                 return
             }
             if playbackRequested {
-                avPlayer?.play()
+                avPlayer?.playImmediately(atRate: requestedPlaybackRate)
                 if !next.isPlaying, ioCycleReady, hasAudioOutput { next.play() }
             } else {
                 avPlayer?.pause()
@@ -693,6 +705,7 @@ final class YouTubeStreamEngine: PlayerEngine {
         if let sourceDuration { state.duration = sourceDuration }
         let item = AVPlayerItem(url: url)
         avPlayer = AVPlayer(playerItem: item)
+        avPlayer?.defaultRate = requestedPlaybackRate
         avPlayer?.volume = currentTargetVolume()
 
         let interval = CMTime(seconds: 0.25, preferredTimescale: 600)

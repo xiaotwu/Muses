@@ -19,9 +19,25 @@ enum MusicCatalogParser {
         var filters: [MusicCatalogFilter] = []
         var continuation: String?
         var recognized = false
+        var metadata: MusicCatalogMetadata?
         func visit(_ value: Any) {
             if let list = value as? [Any] { list.forEach(visit); return }
             guard let object = value as? Object else { return }
+            if endpoint == "browse", !inRelatedSection, metadata == nil,
+               let header = object["musicResponsiveHeaderRenderer"] as? Object {
+                let runs = (header["straplineTextOne"] as? Object)?["runs"] as? [Object] ?? []
+                var seen = Set<String>()
+                let artists: [MusicCatalogLink] = runs.compactMap { run in
+                    guard let navigation = run["navigationEndpoint"] as? Object,
+                          let identity = identity(navigation), identity.1 == .artist,
+                          let title = run["text"] as? String, !title.isEmpty,
+                          seen.insert(identity.0).inserted else { return nil }
+                    return .init(id: identity.0, title: title, kind: .artist)
+                }
+                metadata = .init(title: text(header["title"]), subtitle: text(header["subtitle"]), artists: artists)
+                recognized = true
+                return
+            }
             if let episode = object["musicMultiRowListItemRenderer"] as? Object,
                let title = episode["title"] as? Object,
                let endpoint = episode["onTap"] as? Object {
@@ -123,7 +139,7 @@ enum MusicCatalogParser {
                               region: region, language: language)
                      },
                      fetchedAt: Date(), region: region,
-                     language: language, relatedItems: related)
+                     language: language, relatedItems: related, metadata: metadata)
     }
 
     private static func item(_ row: Object) -> MusicCatalogItem? {

@@ -8,8 +8,9 @@ import Network
 /// Application-owned Google Desktop OAuth configuration.
 ///
 /// Production builds inject the client identifier into Info.plist. Local
-/// developer runs may use environment variables. Installed-app client secrets
-/// are not secrets and are optional; end users never edit this configuration.
+/// developer runs may use environment variables. Google can require the
+/// Desktop client's matching client_secret during token exchange; installed
+/// apps cannot keep this field confidential. End users never edit it.
 struct GoogleOAuthConfig: Codable, Sendable, Equatable {
     let clientID: String
     let clientSecret: String
@@ -222,8 +223,7 @@ final class GoogleOAuthSession {
     }
 
     /// Starts the authorization-code + PKCE flow and stores tokens on success. Throws on cancel or failure.
-    func connect(requestedScopes: [String]? = nil,
-                 includeGrantedScopes: Bool = true) async throws {
+    func connect(requestedScopes: [String]? = nil) async throws {
         guard let config = loadConfig() else { throw OAuthError.notConfigured }
         let verifier = Self.generateCodeVerifier()
         let challenge = Self.codeChallenge(for: verifier)
@@ -252,8 +252,6 @@ final class GoogleOAuthSession {
             .init(name: "code_challenge_method", value: "S256"),
             .init(name: "state", value: state),
             .init(name: "access_type", value: "offline"),
-            .init(name: "include_granted_scopes",
-                  value: includeGrantedScopes ? "true" : "false"),
             .init(name: "prompt", value: "consent")
         ]
         guard let authURL = components.url else { throw OAuthError.authFailed("Failed to build the authorization URL") }

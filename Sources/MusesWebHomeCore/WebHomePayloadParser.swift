@@ -257,7 +257,9 @@ struct WebHomePayloadParser: Sendable {
     }
 
     private func artworkURLs(in renderer: [String: Any]) -> [String] {
-        guard let thumbnail = renderer["thumbnail"] as? [String: Any] else { return [] }
+        // Accept only the two known artwork roots, never arbitrary card fields.
+        guard let thumbnail = (renderer["thumbnail"] ?? renderer["thumbnailRenderer"])
+            as? [String: Any] else { return [] }
         var candidates: [[String: Any]] = []
         collectThumbnailArrays(thumbnail, depth: 0, output: &candidates)
         var seen = Set<String>()

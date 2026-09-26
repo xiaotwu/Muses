@@ -50,8 +50,7 @@ final class HomeFeedCache {
     }
 
     private static var defaultDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Caches/Muses/home-feed")
+        MusesDataPaths.caches.appendingPathComponent("home-feed")
     }
 
     /// The key is built from stable input fields (only timeBand precision, never the hour) so jitter cannot invalidate it frequently.

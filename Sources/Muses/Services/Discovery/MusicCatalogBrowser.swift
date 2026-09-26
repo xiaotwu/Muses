@@ -7,6 +7,7 @@ import Observation
 final class MusicCatalogBrowser {
     private(set) var items: [MusicCatalogItem] = []
     private(set) var relatedItems: [MusicCatalogItem] = []
+    private(set) var metadata: MusicCatalogMetadata?
     private(set) var kind: MusicCatalogKind?
     private(set) var detail: MusicCatalogItem?
     private(set) var loading = false
@@ -49,6 +50,21 @@ final class MusicCatalogBrowser {
         start(extending: false)
     }
 
+    /// Opens a saved catalog identity without fabricating a search query.
+    func browse(_ item: MusicCatalogItem) {
+        guard item.id.hasPrefix("browse:") else { return }
+        query = ""
+        kind = nil
+        detail = item
+        detailHistory = [item]
+        historyIndex = 0
+        start(extending: false)
+    }
+
+    /// Retains the visible page while revalidating it. A failed refresh stays
+    /// explicitly stale and can be retried without losing the collection.
+    func refresh() { start(extending: false, preserving: true) }
+
     func back() {
         guard canGoBack else { return }
         historyIndex -= 1; detail = detailHistory[historyIndex]; start(extending: false)
@@ -58,21 +74,25 @@ final class MusicCatalogBrowser {
         historyIndex += 1; detail = detailHistory[historyIndex]; start(extending: false)
     }
     func more() { guard nextCursor != nil, !loading else { return }; start(extending: true) }
-    func retry() { start(extending: retryingMore) }
+    func retry() { start(extending: retryingMore, preserving: !retryingMore && !items.isEmpty) }
     func cancel() { task?.cancel(); task = nil; requestID = UUID(); loading = false }
 
     func clear() {
         cancel()
         detailHistory = [nil]; historyIndex = 0
         items = []; relatedItems = []; nextCursor = nil; detail = nil; kind = nil
+        metadata = nil
         fetchedAt = nil; query = ""; failed = false; isStale = false
     }
 
-    private func start(extending: Bool) {
+    private func start(extending: Bool, preserving: Bool = false) {
         cancel()
-        if !extending { items = []; relatedItems = []; nextCursor = nil; fetchedAt = nil; isStale = false }
+        if !extending && !preserving {
+            items = []; relatedItems = []; metadata = nil; nextCursor = nil
+            fetchedAt = nil; isStale = false
+        }
         failed = false
-        guard !query.isEmpty else { return }
+        guard !query.isEmpty || detail != nil else { return }
         retryingMore = extending
         loading = true
         let expected = requestID
@@ -85,13 +105,17 @@ final class MusicCatalogBrowser {
                 else if let destination { page = try await provider.browse(destination.id) }
                 else { page = try await provider.search(query, kind: category) }
                 guard let self, !Task.isCancelled, self.requestID == expected else { return }
-                if extending && destination == nil {
+                if preserving {
+                    self.items = page.items
+                    self.relatedItems = page.relatedItems
+                } else if extending && destination == nil {
                     var seen = Set(self.items.map(\.id))
                     self.items += page.items.filter { seen.insert($0.id).inserted }
                 } else { self.items += page.items }
                 var seenRelated = Set(self.relatedItems.map(\.id))
                 self.relatedItems += page.relatedItems.filter { seenRelated.insert($0.id).inserted }
                 self.nextCursor = page.next
+                if !extending { self.metadata = page.metadata }
                 self.isStale = page.isStale
                 self.failed = page.refreshFailed
                 self.fetchedAt = page.fetchedAt
@@ -103,6 +127,7 @@ final class MusicCatalogBrowser {
                 guard let self, !Task.isCancelled, self.requestID == expected else { return }
                 self.loading = false
                 self.failed = true
+                if preserving && !self.items.isEmpty { self.isStale = true }
             }
         }
     }

@@ -9,6 +9,55 @@ struct GlobalSearchStateTests {
         LibraryService(modelContainer: try makeModelContainer(inMemory: true))
     }
 
+    @Test("Online scopes delegate empty and failure states to their own sources")
+    func sourceScopedEmptyStates() async throws {
+        let service = GlobalSearchService(library: try library(), debounceMs: 60_000)
+        for scope in [GlobalSearchScope.all, .youtube] {
+            service.scope = scope
+            #expect(!service.showsLibraryEmptyState)
+            await service.performSearch(query: "missing")
+            #expect(service.youtubeError != nil)
+            #expect(service.additionalResultsStatus != nil)
+            #expect(!service.showsLibraryEmptyState)
+            service.cancelSearch()
+            #expect(!service.showsLibraryEmptyState)
+        }
+        service.scope = .library
+        await service.performSearch(query: "missing")
+        #expect(service.showsLibraryEmptyState)
+        #expect(service.additionalResultsStatus == nil)
+        service.reset()
+    }
+
+    @Test("Supplemental retry preserves successful and stale structured results")
+    func retryPreservesCatalog() async throws {
+        for stale in [false, true] {
+            let browser = MusicCatalogBrowser(provider: SearchStatusCatalogFixture(stale: stale))
+            var attempts = 0
+            let service = GlobalSearchService(library: try library(), debounceMs: 60_000,
+                                              musicCatalog: browser, remoteSearch: { _, _ in
+                attempts += 1
+                if attempts == 1 { throw MusicCatalogError.unavailable }
+                return []
+            })
+            service.query = "song"
+            await service.performSearch(query: "song")
+            browser.search("song")
+            for _ in 0..<500 where browser.loading { await Task.yield() }
+            #expect(browser.items.count == 1)
+            #expect(browser.isStale == stale)
+            #expect(!service.showsLibraryEmptyState)
+            service.retrySearch()
+            #expect(browser.items.count == 1)
+            for _ in 0..<500 where attempts < 2 { await Task.yield() }
+            #expect(attempts == 2)
+            #expect(service.youtubeError == nil)
+            #expect(browser.items.count == 1)
+            #expect(browser.isStale == stale)
+            service.reset()
+        }
+    }
+
     @Test("Changing query immediately removes stale selectable results")
     func queryClearsResults() async throws {
         let service = GlobalSearchService(library: try library(), debounceMs: 60_000,
@@ -86,4 +135,18 @@ struct GlobalSearchStateTests {
         #expect(service.youtubeError == nil)
         #expect(!service.wasCancelled)
     }
+}
+
+private actor SearchStatusCatalogFixture: MusicCatalogProviding {
+    let stale: Bool
+    init(stale: Bool) { self.stale = stale }
+    func search(_ query: String, kind: MusicCatalogKind?) async throws -> MusicCatalogPage {
+        .init(items: [.init(id: "video:abcdefghijk", kind: .song, title: "Song", subtitle: "",
+                           artwork: nil, artists: [], releases: [], channels: [])],
+              filters: [], next: nil, fetchedAt: Date(), region: "US",
+              isStale: stale, refreshFailed: stale)
+    }
+    func browse(_ id: String) async throws -> MusicCatalogPage { try await search(id, kind: nil) }
+    func next(_ cursor: MusicCatalogCursor) async throws -> MusicCatalogPage { throw MusicCatalogError.unavailable }
+    func reset() {}
 }

@@ -47,6 +47,12 @@ struct MusicCatalogFilter: Sendable {
     let params: String
 }
 
+struct MusicCatalogMetadata: Equatable, Sendable, Codable {
+    let title: String
+    let subtitle: String
+    let artists: [MusicCatalogLink]
+}
+
 struct MusicCatalogPage: Sendable {
     let items: [MusicCatalogItem]
     let filters: [MusicCatalogFilter]
@@ -55,6 +61,7 @@ struct MusicCatalogPage: Sendable {
     let region: String
     var language: String = "en"
     var relatedItems: [MusicCatalogItem] = []
+    var metadata: MusicCatalogMetadata? = nil
     var isStale = false
     var refreshFailed = false
     let source = URL(string: "https://music.youtube.com")!

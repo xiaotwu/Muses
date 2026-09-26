@@ -132,11 +132,13 @@ struct YouTubeVideoOverlay: View {
     @Binding var isPresented: Bool
     @Environment(PlaybackService.self) private var playback
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @AppStorage(PrefKey.resumeAfterVideo) private var resumePref = true
     @State private var videoSession: VideoPlaybackSession?
     @State private var escapeMonitor: Any?
     @State private var closeHovered = false
     @State private var chaptersPresented = false
+    @State private var commentsPresented = false
     @State private var closeKeyboardRevealed = false
     @FocusState private var closeFocused: Bool
 
@@ -170,7 +172,8 @@ struct YouTubeVideoOverlay: View {
                 }
                 .frame(width: size.width, height: size.height)
                 .overlay(alignment: .top) {
-                    let revealed = closeHovered || closeKeyboardRevealed || closeFocused || chaptersPresented || NSWorkspace.shared.isVoiceOverEnabled
+                    let revealed = closeHovered || closeKeyboardRevealed || closeFocused
+                        || chaptersPresented || commentsPresented || NSWorkspace.shared.isVoiceOverEnabled
                     ZStack {
                         VideoCloseHoverRegion(isHovered: $closeHovered)
                         ChromeIconButton(
@@ -214,10 +217,37 @@ struct YouTubeVideoOverlay: View {
                                 chaptersPresented = false
                             }
                         }
+                        ChromeIconButton(
+                            systemName: "text.bubble",
+                            help: tr("Comments", "评论", zhHant: "留言"),
+                            accessibility: tr("Comments", "评论", zhHant: "留言"),
+                            action: { commentsPresented = true }
+                        )
+                        .offset(x: 96)
+                        .opacity(revealed ? 1 : 0)
+                        .allowsHitTesting(revealed)
                     }
-                    .frame(width: 160, height: 56)
+                    .frame(width: 256, height: 56)
                     .contentShape(Rectangle())
                     .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: revealed)
+                }
+                if commentsPresented {
+                    Color.black.opacity(0.45)
+                        .ignoresSafeArea()
+                        .onTapGesture { commentsPresented = false }
+                    YouTubeCommentsView(videoID: videoId) {
+                        commentsPresented = false
+                    }
+                    .frame(width: min(520, max(0, geometry.size.width - 48)),
+                           height: min(640, max(0, geometry.size.height - 48)))
+                    .background {
+                        RoundedRectangle(cornerRadius: 20)
+                            .fill(reduceTransparency ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor))
+                                                     : AnyShapeStyle(.regularMaterial))
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                    .shadow(color: .black.opacity(0.35), radius: 28, y: 16)
+                    .accessibilityAddTraits(.isModal)
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
@@ -241,6 +271,13 @@ struct YouTubeVideoOverlay: View {
                 if chaptersPresented {
                     if event.keyCode == 53 {
                         chaptersPresented = false
+                        return nil
+                    }
+                    return event
+                }
+                if commentsPresented {
+                    if event.keyCode == 53 {
+                        commentsPresented = false
                         return nil
                     }
                     return event

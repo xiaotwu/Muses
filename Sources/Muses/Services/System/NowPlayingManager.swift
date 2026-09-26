@@ -16,6 +16,8 @@ final class NowPlayingManager {
     /// commands are simply not bound (never fabricated).
     private let library: LibraryService?
     private let queue: QueueService?
+    private let bindsRemoteCommands: Bool
+    private var rateCommandEnabled = false
     private var updateTask: Task<Void, Never>?
     private let publishInfo: ([String: Any]) -> Void
     private(set) var observationLifecycleStartCount = 0
@@ -35,13 +37,14 @@ final class NowPlayingManager {
          artworkLoader: @escaping (URL) async -> NSImage? = { await ImageLoader.shared.load($0).value },
          publishInfo: @escaping ([String: Any]) -> Void = {
              let center = MPNowPlayingInfoCenter.default()
-             center.nowPlayingInfo = $0
+             center.nowPlayingInfo = $0.isEmpty ? nil : $0
              center.playbackState = $0.isEmpty ? .stopped
-                 : (($0[MPNowPlayingInfoPropertyPlaybackRate] as? Double) == 1 ? .playing : .paused)
+                 : (($0[MPNowPlayingInfoPropertyPlaybackRate] as? Double ?? 0) > 0 ? .playing : .paused)
          }) {
         self.playback = playback
         self.library = library
         self.queue = queue
+        self.bindsRemoteCommands = bindsRemoteCommands
         self.artworkLoader = artworkLoader
         self.publishInfo = publishInfo
         if bindsRemoteCommands {
@@ -77,8 +80,22 @@ final class NowPlayingManager {
     // MARK: - nowPlayingInfo
 
     private func updateInfo() {
+        // The YouTube iframe supplies its own system media session. Publishing
+        // the same video here would create a second Control Center card.
+        if playback.videoSession != nil {
+            publishInfo([:])
+            return
+        }
         var info: [String: Any] = [:]
         let state = playback.transportState
+        if bindsRemoteCommands {
+            let isPodcast = state.track?.mediaKind == .podcastEpisode
+                && playback.videoSession == nil
+            if rateCommandEnabled != isPodcast {
+                MPRemoteCommandCenter.shared().changePlaybackRateCommand.isEnabled = isPodcast
+                rateCommandEnabled = isPodcast
+            }
+        }
         updateArtwork(for: state.track)
 
         if let track = state.track {
@@ -90,7 +107,8 @@ final class NowPlayingManager {
             }
             info[MPMediaItemPropertyPlaybackDuration] = state.duration
             info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = state.position
-            info[MPNowPlayingInfoPropertyPlaybackRate] = state.isPlaying ? 1.0 : 0.0
+            info[MPNowPlayingInfoPropertyPlaybackRate] = state.isPlaying
+                ? Double(track.mediaKind == .podcastEpisode ? playback.podcastPlaybackRate : 1) : 0.0
         }
 
         publishInfo(info)
@@ -149,6 +167,15 @@ final class NowPlayingManager {
 
     private func bindCommands() {
         let center = MPRemoteCommandCenter.shared()
+        center.changePlaybackRateCommand.supportedPlaybackRates = [0.75, 1, 1.25, 1.5, 2]
+        center.changePlaybackRateCommand.isEnabled = false
+        center.changePlaybackRateCommand.addTarget { [weak self] event in
+            guard let event = event as? MPChangePlaybackRateCommandEvent else {
+                return .commandFailed
+            }
+            Task { @MainActor in self?.playback.setPodcastPlaybackRate(event.playbackRate) }
+            return .success
+        }
 
         center.playCommand.addTarget { [weak self] _ in
             Task { @MainActor in self?.handleRemotePlay() }

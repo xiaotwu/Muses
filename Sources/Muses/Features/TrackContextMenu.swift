@@ -64,6 +64,7 @@ struct TrackContextMenu: ViewModifier {
 /// handing the snapshot to the existing services.
 private struct YouTubeEntryContextMenu: ViewModifier {
     let entry: YTDlpBridge.YTDlpPlaylistEntry
+    let mediaKind: TrackMediaKind
     let onPlay: () -> Void
     @State private var saveFailed = false
 
@@ -83,7 +84,9 @@ private struct YouTubeEntryContextMenu: ViewModifier {
             }
             Button(tr("Save to Library", "保存到资料库", zhHant: "儲存至資料庫"), systemImage: "plus") {
                 Task {
-                    do { _ = try await search.importAsTrack(entry: entry) }
+                    do { _ = try await search.resolveTrack(entry: entry,
+                                                          saveToLibrary: true,
+                                                          mediaKindOverride: mediaKind) }
                     catch { saveFailed = true }
                 }
             }
@@ -120,7 +123,8 @@ private struct YouTubeEntryContextMenu: ViewModifier {
 
     private func resolve(_ action: @escaping @MainActor (TrackSnapshot) -> Void) {
         Task { @MainActor in
-            guard let snapshot = try? await search.resolveTrack(entry: entry) else { return }
+            guard let snapshot = try? await search.resolveTrack(
+                entry: entry, mediaKindOverride: mediaKind) else { return }
             action(snapshot)
         }
     }
@@ -279,9 +283,10 @@ extension View {
     /// result while preserving the surface's existing collection-aware play action.
     func youTubeEntryContextMenu(
         entry: YTDlpBridge.YTDlpPlaylistEntry,
+        mediaKind: TrackMediaKind = .song,
         onPlay: @escaping () -> Void
     ) -> some View {
-        modifier(YouTubeEntryContextMenu(entry: entry, onPlay: onPlay))
+        modifier(YouTubeEntryContextMenu(entry: entry, mediaKind: mediaKind, onPlay: onPlay))
     }
 
     @ViewBuilder

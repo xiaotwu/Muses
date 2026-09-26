@@ -320,6 +320,10 @@ struct NowPlayingView: View {
             seekRow
                 .padding(.top, 13)
 
+            if playback.state.track?.mediaKind == .podcastEpisode {
+                podcastControls.padding(.top, 8)
+            }
+
             transportRow
                 .padding(.top, 6)
 
@@ -521,6 +525,39 @@ struct NowPlayingView: View {
             }
         }
         .frame(height: 40)
+    }
+
+    private var podcastControls: some View {
+        HStack(spacing: 18) {
+            Button {
+                playback.skipPodcast(by: -15)
+            } label: {
+                Image(systemName: "gobackward.15")
+            }
+            .help(tr("Back 15 seconds", "后退 15 秒", zhHant: "倒退 15 秒"))
+            .accessibilityLabel(tr("Back 15 seconds", "后退 15 秒", zhHant: "倒退 15 秒"))
+            Menu {
+                ForEach([0.75, 1, 1.25, 1.5, 2], id: \.self) { rate in
+                    Button(String(format: "%g×", rate)) {
+                        playback.setPodcastPlaybackRate(Float(rate))
+                    }
+                }
+            } label: {
+                Text(String(format: "%g×", playback.podcastPlaybackRate))
+                    .monospacedDigit()
+            }
+            .help(tr("Playback Speed", "播放速度", zhHant: "播放速度"))
+            .accessibilityLabel(tr("Playback Speed", "播放速度", zhHant: "播放速度"))
+            Button {
+                playback.skipPodcast(by: 15)
+            } label: {
+                Image(systemName: "goforward.15")
+            }
+            .help(tr("Forward 15 seconds", "前进 15 秒", zhHant: "前進 15 秒"))
+            .accessibilityLabel(tr("Forward 15 seconds", "前进 15 秒", zhHant: "前進 15 秒"))
+        }
+        .buttonStyle(.borderless)
+        .frame(maxWidth: .infinity)
     }
 
     private func transportButton(

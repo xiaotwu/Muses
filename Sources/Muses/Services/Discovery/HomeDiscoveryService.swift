@@ -324,8 +324,9 @@ final class HomeDiscoveryService {
                 }
             let previous = Dictionary(
                 uniqueKeysWithValues: previousBaselineSections.map { ($0.id, $0) })
+            let baselineFailure = result.failures.first { $0.layer == .baseline }
             var firstBaselineFailure: String?
-            let mergedBaseline = result.baselineSnapshot.sections.map { section -> HomeSection in
+            var mergedBaseline = result.baselineSnapshot.sections.map { section -> HomeSection in
                 guard case .failed(let message) = section.status else { return section }
                 firstBaselineFailure = firstBaselineFailure ?? message
                 if let cached = previous[section.id], !cached.items.isEmpty {
@@ -341,6 +342,21 @@ final class HomeDiscoveryService {
                                        staleReason: message ?? cached.staleReason)
                 }
                 return section
+            }
+
+            // An anonymous request can fail before any shelves are available.
+            // Preserve only this scope/mode/locale's cache; an empty successful
+            // response must still replace old data rather than masquerade as stale.
+            if mergedBaseline.isEmpty, let baselineFailure {
+                let reason = baselineFailure.message ?? baselineFailure.code.rawValue
+                mergedBaseline = previousBaselineSections.filter { !$0.items.isEmpty }
+                    .map { $0.presentedFromCache(staleReason: reason) }
+                if mergedBaseline.isEmpty {
+                    mergedBaseline = [HomeSection(
+                        id: "home:baseline-failure", title: "YouTube Music",
+                        kind: .youTubeCarousel, items: [],
+                        status: .failed(reason), source: .publicDiscovery)]
+                }
             }
 
             if result.cacheDirectives.storeBaseline {
@@ -374,7 +390,6 @@ final class HomeDiscoveryService {
             }
 
             self.sections = self.compose(web: webSections, baseline: mergedBaseline)
-            let baselineFailure = result.failures.first { $0.layer == .baseline }
             self.lastRefreshError = baselineFailure?.message
                 ?? firstBaselineFailure
                 ?? webFailure?.message

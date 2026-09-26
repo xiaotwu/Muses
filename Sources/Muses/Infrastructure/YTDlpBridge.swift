@@ -362,6 +362,51 @@ final class YTDlpBridge {
         return entries
     }
 
+    /// Reads a channel's actual Shorts tab. The URL on every entry is checked so
+    /// extractor fallback to ordinary uploads cannot silently relabel videos.
+    func fetchShortsPage(channelID: String, offset: Int, count: Int = 20,
+                         timeout: TimeInterval = 45) async throws -> [YTDlpPlaylistEntry] {
+        guard channelID.count == 24, channelID.hasPrefix("UC"),
+              channelID.utf8.allSatisfy({ (65...90).contains($0) || (97...122).contains($0)
+                  || (48...57).contains($0) || $0 == 45 || $0 == 95 }),
+              offset >= 0, offset < 500, (1...50).contains(count) else {
+            throw YTDlpError.parseFailed("Invalid Shorts page request")
+        }
+        let bin = try await resolveBinary()
+        let args = cookieArgs() + ["--flat-playlist", "--playlist-start", String(offset + 1),
+                                   "--playlist-end", String(min(offset + count, 500)), "--dump-json",
+                                   "https://www.youtube.com/channel/\(channelID)/shorts"]
+        let (stdout, _) = try await runInternal(executablePath: bin, args: args, timeout: timeout)
+        return try Self.parseShortsPage(stdout)
+    }
+
+    static func parseShortsPage(_ stdout: String) throws -> [YTDlpPlaylistEntry] {
+        struct SourceEntry: Decodable {
+            let id: String
+            let url: String?
+            let webpageURL: String?
+            enum CodingKeys: String, CodingKey {
+                case id, url
+                case webpageURL = "webpage_url"
+            }
+        }
+        let decoder = JSONDecoder()
+        var entries: [YTDlpPlaylistEntry] = []
+        for (index, line) in stdout.split(separator: "\n", omittingEmptySubsequences: true).enumerated() {
+            guard let data = String(line).data(using: .utf8),
+                  let source = try? decoder.decode(SourceEntry.self, from: data),
+                  let entry = try? decoder.decode(YTDlpPlaylistEntry.self, from: data),
+                  entry.resourceKind == .video,
+                  let url = URL(string: source.webpageURL ?? source.url ?? ""),
+                  url.scheme == "https", url.host == "www.youtube.com",
+                  url.path == "/shorts/\(source.id)" else {
+                throw YTDlpError.parseFailed("Line \(index) is not a verified Short")
+            }
+            entries.append(entry)
+        }
+        return entries
+    }
+
     /// Extracts publisher chapter markers without downloading media or writing metadata files.
     func fetchChapters(videoId: String, timeout: TimeInterval = 30) async throws -> [YouTubeChapter] {
         guard YTDlpPlaylistEntry(id: videoId, title: "").resourceKind == .video else {
@@ -489,6 +534,11 @@ final class YTDlpBridge {
                              args: [String],
                              timeout: TimeInterval) async throws
         -> (stdout: String, stderr: String) {
+        // Isolate yt-dlp's implicit user config and disk cache for acceptance
+        // bundles. Explicit cookie consent remains governed by cookieArgs().
+        let args = MusesDataPaths.isAcceptance
+            ? ["--ignore-config", "--cache-dir", MusesDataPaths.caches.appending(path: "yt-dlp").path] + args
+            : args
         do {
             return try await runner.run(
                 executablePath: executablePath, args: args, timeout: timeout)

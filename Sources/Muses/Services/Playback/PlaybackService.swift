@@ -28,11 +28,13 @@ final class PlaybackService {
     /// Owned by PlaybackService as a singleton; external subscribers register via `eventBus.subscribe`.
     let eventBus = PlaybackEventBus()
     private(set) var volume: Float
+    private(set) var podcastPlaybackRate: Float = 1
     private var lastAudibleVolume: Float
     private let volumeDefaults: UserDefaults
     private var completionObserver: Task<Void, Never>?
     private var recommendationTask: Task<Void, Never>?
     var recommendationProvider: (@Sendable (String) async throws -> [MusicCatalogItem])?
+    var podcastResumeProvider: ((String) -> Double?)?
     private var lastCompletedTrackId: UUID?
     /// Canonical user intent. Engine state can temporarily be false while an
     /// asynchronous load is buffering, so it cannot by itself decide whether a
@@ -117,7 +119,9 @@ final class PlaybackService {
         }
 
         // Try the gapless hand-off
-        if !queue.smartShuffle.enabled && engine.playPrepared() {
+        if !queue.smartShuffle.enabled,
+           queue.peekNext()?.track.mediaKind != .podcastEpisode,
+           engine.playPrepared() {
             // Gapless success: advance the queue to the new current track and fire the same start events as load().
             _ = queue.next()
             lastCompletedTrackId = nil
@@ -151,6 +155,7 @@ final class PlaybackService {
     private func prepareNext() {
         guard !queue.smartShuffle.enabled else { return }
         guard let nextItem = queue.peekNext(),
+              nextItem.track.mediaKind != .podcastEpisode,
               let currentTrackId = state.track?.id else { return }
         let seq = loadSeq
         let engineId = ObjectIdentifier(engine)
@@ -169,7 +174,8 @@ final class PlaybackService {
         scheduleLoad(track)
     }
 
-    func playTrack(_ track: TrackSnapshot, context: [TrackSnapshot], from: QueueSource) {
+    func playTrack(_ track: TrackSnapshot, context: [TrackSnapshot], from: QueueSource,
+                   resumeAtMs: Double? = nil) {
         retireVideoSession()
         // Direct selection: if a track is playing, record its displacement first (the user switched away from it).
         postDisplacementForCurrent()
@@ -178,7 +184,7 @@ final class PlaybackService {
         // lifecycle instead of being reported as a resume of the old one.
         startedTrackId = nil
         queue.play(track, context: context, from: from)
-        scheduleLoad(track)
+        scheduleLoad(track, resumeMs: resumeAtMs)
     }
 
     func toggle() {
@@ -366,6 +372,22 @@ final class PlaybackService {
             eventBus.post(.trackSeeked(trackId: track.id, toMs: time * 1000.0))
         }
     }
+    func skipPodcast(by seconds: Double) {
+        guard transportState.track?.mediaKind == .podcastEpisode,
+              seconds.isFinite else { return }
+        let duration = transportState.duration
+        let position = transportState.position + seconds
+        seek(to: duration.isFinite && duration > 0
+             ? max(0, min(duration, position)) : max(0, position))
+    }
+
+    func setPodcastPlaybackRate(_ rate: Float) {
+        guard videoSession == nil,
+              transportState.track?.mediaKind == .podcastEpisode,
+              [0.75, 1, 1.25, 1.5, 2].contains(rate) else { return }
+        podcastPlaybackRate = rate
+        engine.setPlaybackRate(rate)
+    }
     func setVolume(_ v: Float) {
         guard v.isFinite else { return }
         videoSession?.setVolume(v)
@@ -475,7 +497,9 @@ final class PlaybackService {
         loadSeq &+= 1
         let seq = loadSeq
         completionEligibleIdentity = nil
-        Task { await load(track, seq: seq, resumeMs: resumeMs) }
+        let position = resumeMs ?? (track.mediaKind == .podcastEpisode
+            ? podcastResumeProvider?(track.youTubeId) : nil)
+        Task { await load(track, seq: seq, resumeMs: position) }
     }
 
     private func load(_ track: TrackSnapshot, seq: UInt64,
@@ -498,6 +522,8 @@ final class PlaybackService {
             try await engine.load(track)
             guard loadRequestIsCurrent(seq: seq, trackId: track.id),
                   !Task.isCancelled else { return }
+            engine.setPlaybackRate(track.mediaKind == .podcastEpisode
+                ? podcastPlaybackRate : 1)
             registerLoadedPlayback(track, engine: engine, seq: seq)
             applyPlaybackIntent(to: engine)
             guard loadRequestIsCurrent(seq: seq, trackId: track.id),

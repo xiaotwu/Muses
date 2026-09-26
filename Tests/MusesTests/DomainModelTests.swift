@@ -15,9 +15,9 @@ final class SchemaReopenProbe {
 @Suite("Domain Models")
 struct DomainModelTests {
 
-    @Test("schema generation 4 keeps retired models out and adds catalog relationships")
+    @Test("schema generation 6 keeps retired models out and records podcast membership")
     func schemaDropsRetiredModels() {
-        #expect(MusesSchema.generation == 4)
+        #expect(MusesSchema.generation == 6)
         let names = Set(MusesSchema.models.map { String(describing: $0) })
         #expect(!names.contains("InboxItem"))
         #expect(!names.contains("AutomationRule"))
@@ -27,6 +27,9 @@ struct DomainModelTests {
         #expect(names.contains("ListeningEvent"))
         #expect(names.contains("YouTubePlaylistResourceOperation"))
         #expect(names.contains("CatalogTrackReleaseMembership"))
+        #expect(names.contains("PodcastShow"))
+        #expect(names.contains("PodcastEpisodeState"))
+        #expect(names.contains("PodcastEpisodeMembership"))
     }
 
     @Test("generation 2 opens a prior on-disk store after an unused entity is dropped")
@@ -54,6 +57,7 @@ struct DomainModelTests {
         #expect(!result.usedInMemoryFallback)
         let tracks = try ModelContext(result.container).fetch(FetchDescriptor<Track>())
         #expect(tracks.contains(where: { $0.youTubeId == "kept-id" }))
+        #expect(try ModelContext(result.container).fetch(FetchDescriptor<PodcastShow>()).isEmpty)
     }
 
 

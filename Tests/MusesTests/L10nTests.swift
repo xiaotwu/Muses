@@ -6,6 +6,15 @@ import AppKit
 /// i18n infrastructure + theme foundation tests.
 @Suite("L10n + Theme")
 struct L10nThemeTests {
+    @Test("Anonymous Home failure reasons have Traditional Chinese translations")
+    func anonymousHomeFailureTranslations() {
+        for source in ["YouTube Music 当前离线。", "YouTube Music 响应超时。",
+                       "YouTube Music 暂时限制了请求。", "YouTube Music 响应超过安全上限。",
+                       "YouTube Music 已更改首页响应结构。", "YouTube Music 推荐暂时不可用。"] {
+            #expect(L10n.traditionalStrings[source] != nil)
+            #expect(L10n.traditionalStrings[source] != source)
+        }
+    }
 
     @Test("tr() returns correct text based on system language")
     func trReturnsCorrectLanguage() {
@@ -30,6 +39,7 @@ struct L10nThemeTests {
         #expect(L10n.traditionalStrings["设置"] == "設定")
         #expect(L10n.traditionalStrings["通用"] == "一般")
         #expect(L10n.traditionalStrings["首页"] == "首頁")
+        #expect(L10n.traditionalStrings["关于与更新"] == "關於與更新")
         #expect(L10n.traditionalStrings.count > 600)
         #expect(AppLanguage.allCases.contains(.zhHant))
     }

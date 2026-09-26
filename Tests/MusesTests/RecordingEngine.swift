@@ -13,6 +13,7 @@ final class RecordingEngine: PlayerEngine {
     var seekCallCount = 0
     var lastSeekTime: Double?
     var volumeSet: Float?
+    var playbackRates: [Float] = []
     var eqBands: [EQBand]?
     var spectrumTapInstalled = false
     var onCompletion: (@MainActor () -> Void)?
@@ -47,6 +48,7 @@ final class RecordingEngine: PlayerEngine {
     func toggle() { toggleCallCount += 1; state.isPlaying.toggle() }
     func seek(to time: Double) { seekCallCount += 1; lastSeekTime = time; state.position = time }
     func setVolume(_ value: Float) { volumeSet = value }
+    func setPlaybackRate(_ rate: Float) { playbackRates.append(rate) }
     func setEQ(_ bands: [EQBand]) { eqBands = bands }
     func installSpectrumTap(_ handler: @escaping (SpectrumFrame) -> Void) {
         spectrumTapInstalled = true

@@ -8,6 +8,7 @@ actor CachedMusicCatalogProvider: MusicCatalogProviding {
         let version: Int
         let items: [MusicCatalogItem]
         let relatedItems: [MusicCatalogItem]?
+        let metadata: MusicCatalogMetadata?
         let fetchedAt: Date
         let region: String
         let language: String
@@ -21,8 +22,7 @@ actor CachedMusicCatalogProvider: MusicCatalogProviding {
     private var generation = UUID()
 
     init(upstream: (any MusicCatalogProviding)? = nil,
-         directory: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appending(path: "Muses/public-catalog/v2"),
+         directory: URL = MusesDataPaths.caches.appending(path: "public-catalog/v2"),
          region: String = "US", language: String = "en",
          staleLifetime: TimeInterval = 7 * 24 * 60 * 60,
          now: @escaping @Sendable () -> Date = Date.init) {
@@ -114,7 +114,8 @@ actor CachedMusicCatalogProvider: MusicCatalogProviding {
         return .init(items: record.items, filters: [], next: nil,
                      fetchedAt: record.fetchedAt, region: record.region,
                      language: record.language,
-                     relatedItems: record.relatedItems ?? [], isStale: true, refreshFailed: true)
+                     relatedItems: record.relatedItems ?? [], metadata: record.metadata,
+                     isStale: true, refreshFailed: true)
     }
 
     private func save(_ page: MusicCatalogPage, key: String) {
@@ -124,6 +125,7 @@ actor CachedMusicCatalogProvider: MusicCatalogProviding {
               let data = try? JSONEncoder().encode(Record(
                 version: 2, items: page.items,
                 relatedItems: page.relatedItems,
+                metadata: page.metadata,
                 fetchedAt: page.fetchedAt, region: region,
                 language: language)),
               data.count <= 2 * 1_024 * 1_024 else { return }

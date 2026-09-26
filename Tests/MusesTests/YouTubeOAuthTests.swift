@@ -8,6 +8,12 @@ private actor RequestRecorder {
     func append(_ request: URLRequest) { values.append(request) }
 }
 
+private actor AccountRefreshGate {
+    private var cancelSubscriptions = false
+    func enableCancellation() { cancelSubscriptions = true }
+    func shouldCancelSubscriptions() -> Bool { cancelSubscriptions }
+}
+
 /// YouTube OAuth + Keychain + Data API + personalized-signal merged unit tests.
 ///
 /// All pure logic / injectable stubs; the real Keychain, ASWebAuthenticationSession, and network are never touched.
@@ -132,8 +138,8 @@ struct YouTubeOAuthTests {
         #expect(session.isConnected == true)
     }
 
-    @Test("OAuth defaults to read-only and incremental upgrade requests granted scopes")
-    func leastPrivilegeAndIncrementalUpgrade() async throws {
+    @Test("Desktop OAuth requests complete explicit scope set without incremental authorization")
+    func leastPrivilegeAndExplicitUpgrade() async throws {
         #expect(GoogleOAuthConfig.defaultScopes == [GoogleOAuthConfig.readOnlyScope])
         let keychain = InMemoryKeychain()
         let presenter = StubPresenter()
@@ -152,17 +158,19 @@ struct YouTubeOAuthTests {
             scope: GoogleOAuthConfig.readOnlyScope))
 
         try await session.connect(
-            requestedScopes: [GoogleOAuthConfig.manageScope],
-            includeGrantedScopes: true)
+            requestedScopes: [GoogleOAuthConfig.readOnlyScope, GoogleOAuthConfig.manageScope])
 
         let items = URLComponents(
             url: try #require(presenter.lastAuthURL),
             resolvingAgainstBaseURL: false)?.queryItems ?? []
         #expect(items.first(where: { $0.name == "scope" })?.value
-                == GoogleOAuthConfig.manageScope)
-        #expect(items.first(where: { $0.name == "include_granted_scopes" })?.value
-                == "true")
+                == [GoogleOAuthConfig.readOnlyScope, GoogleOAuthConfig.manageScope].joined(separator: " "))
+        #expect(items.first(where: { $0.name == "include_granted_scopes" }) == nil)
         #expect(session.loadTokens()?.refreshToken == "RT")
+
+        let account = YouTubeAccountService(session: session)
+        #expect(account.scopesForAuthorization(adding: GoogleOAuthConfig.manageScope)
+                == [GoogleOAuthConfig.readOnlyScope, GoogleOAuthConfig.manageScope])
     }
 
     @Test("readonly capability cannot create a writer; granted manage scope can")
@@ -411,6 +419,46 @@ struct YouTubeOAuthTests {
     }
 
     // MARK: - AccountService.refresh() partial failures
+
+    @Test("AccountService: cancelled refresh restores the previous account view")
+    func cancelledAccountRefreshKeepsPreviousContent() async throws {
+        let keychain = InMemoryKeychain()
+        let session = GoogleOAuthSession(keychain: keychain, presenter: StubPresenter(), tokenExchange: stubExchange)
+        try session.saveConfig(GoogleOAuthConfig(
+            clientID: "cid", clientSecret: "csec", redirectURI: "muses:/oauth", scopes: []))
+        try session.storeTokens(OAuthTokenSet(
+            accessToken: "AT", refreshToken: "RT",
+            expiresAt: Date().addingTimeInterval(3600),
+            scope: GoogleOAuthConfig.readOnlyScope))
+        let gate = AccountRefreshGate()
+        let account = YouTubeAccountService(session: session, clientFactory: { _ in
+            YouTubeDataAPIClient(accessTokenProvider: { "AT" }, http: { request in
+                let path = request.url?.path ?? ""
+                if path.contains("/channels") {
+                    return (Data(#"{"items":[{"id":"UC1","snippet":{"title":"Me"}}]}"#.utf8), Self.http200())
+                }
+                if path.contains("/subscriptions"), await gate.shouldCancelSubscriptions() {
+                    throw CancellationError()
+                }
+                if path.contains("/subscriptions") {
+                    return (Data(#"{"items":[{"snippet":{"title":"Saved channel","resourceId":{"channelId":"UC2"}}}]}"#.utf8), Self.http200())
+                }
+                return (Data(#"{"items":[]}"#.utf8), Self.http200())
+            })
+        })
+
+        await account.refresh()
+        #expect(account.account?.subscriptions.first?.title == "Saved channel")
+        await gate.enableCancellation()
+        await account.refresh()
+
+        #expect(account.isConnected)
+        #expect(account.account?.subscriptions.first?.title == "Saved channel")
+        #expect(account.subscriptionsState.errorMessage == nil)
+        #expect(account.likedVideosState.errorMessage == nil)
+        #expect(!account.subscriptionsState.isLoading)
+        #expect(!account.likedVideosState.isLoading)
+    }
 
     @Test("AccountService: refresh tolerates a partial endpoint failure")
     func accountRefreshTolerance() async throws {

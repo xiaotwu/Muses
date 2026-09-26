@@ -3,7 +3,7 @@ import SwiftData
 import os
 
 func musesDefaultStoreURL() -> URL {
-    URL.homeDirectory.appending(path: "Library/Application Support/Muses/muses-youtube-native.sqlite")
+    MusesDataPaths.applicationSupport.appending(path: "muses-youtube-native.sqlite")
 }
 
 func makeModelContainer(inMemory: Bool = false, storeURL: URL? = nil) throws -> ModelContainer {
@@ -12,12 +12,28 @@ func makeModelContainer(inMemory: Bool = false, storeURL: URL? = nil) throws -> 
         configuration = ModelConfiguration(isStoredInMemoryOnly: true)
     } else {
         let url = storeURL ?? musesDefaultStoreURL()
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if storeURL == nil {
+            try MusesDataPaths.prepareDataDirectory()
+            let legacy = MusesDataPaths.legacyApplicationSupport
+                .appending(path: "muses-youtube-native.sqlite")
+            try relocateLegacyStoreIfNeeded(from: legacy, to: url)
+        } else {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        }
         _ = try StoreUpgradeSnapshot.prepareIfNeeded(at: url)
         configuration = ModelConfiguration(url: url)
     }
     return try ModelContainer(for: MusesSchema.current, configurations: configuration)
+}
+
+/// A consistent SQLite backup activates the new path only after quick_check.
+/// The legacy store stays intact until a separate cold-restart cleanup gate.
+func relocateLegacyStoreIfNeeded(from source: URL, to destination: URL) throws {
+    let fm = FileManager.default
+    guard !fm.fileExists(atPath: destination.path),
+          fm.fileExists(atPath: source.path) else { return }
+    try StoreUpgradeSnapshot.restore(snapshot: source, to: destination)
 }
 
 func makeCurrentModelContainer(inMemory: Bool = false,
@@ -41,7 +57,7 @@ struct MusesStoreLoadResult {
 /// The production entry point opens only the validated YouTube-native store.
 @MainActor
 func makeYouTubeNativeModelContainerWithFallback(
-    storeURL: URL = musesDefaultStoreURL()
+    storeURL: URL? = nil
 ) -> MusesStoreLoadResult {
     makeModelContainerWithFallback(storeURL: storeURL)
 }
@@ -50,7 +66,7 @@ func makeModelContainerWithFallback(storeURL: URL? = nil) -> MusesStoreLoadResul
     let destination = storeURL ?? musesDefaultStoreURL()
     do {
         return MusesStoreLoadResult(
-            container: try makeModelContainer(storeURL: destination),
+            container: try makeModelContainer(storeURL: storeURL),
             usedInMemoryFallback: false)
     } catch {
         let log = AppLog.for("MusesModelContainer")

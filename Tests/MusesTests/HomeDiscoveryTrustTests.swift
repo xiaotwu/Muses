@@ -5,6 +5,68 @@ import Testing
 @Suite("Home discovery trust and cache scope")
 @MainActor
 struct HomeDiscoveryTrustTests {
+    @Test("failed anonymous cold refresh preserves expired disk snapshot and recovers")
+    func anonymousFailurePreservesSnapshot() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "muses-home-offline-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let provider = EmptyFailureHomeProvider()
+        let cache = HomeFeedCache(directory: root)
+        let library = LibraryService(modelContainer: try makeModelContainer(inMemory: true))
+        let service = HomeDiscoveryService(
+            provider: provider, cache: cache, library: library,
+            enabledProvider: { true }, modeProvider: { .youtubeMusic })
+        let section = HomeSection(
+            id: "saved-public", title: "Saved", kind: .youTubeCarousel,
+            items: [.youTube(YouTubeDiscoveryCard(
+                id: "video:known_video", title: "Known video",
+                browseEndpoint: nil,
+                playEndpoint: HomeCardEndpoint(kind: .video, identifier: "known_video"),
+                availability: .available))],
+            source: .publicDiscovery)
+        let old = Date().addingTimeInterval(-7200)
+        #expect(cache.set(HomeSnapshot(
+            scope: .guest, sections: [section], fetchedAt: old,
+            expiresAt: old.addingTimeInterval(900)),
+            for: service.buildInput(), layer: .baseline, mode: .youtubeMusic))
+        // A new cache instance proves disk restoration, not an in-memory hit.
+        let reopened = HomeDiscoveryService(
+            provider: provider, cache: HomeFeedCache(directory: root), library: library,
+            enabledProvider: { true }, modeProvider: { .youtubeMusic })
+        reopened.load()
+        for _ in 0..<50 where reopened.isRefreshing {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(reopened.sections.first?.id == "saved-public")
+        #expect(reopened.sections.first?.source == .cached)
+        #expect(reopened.isShowingStale)
+        #expect(reopened.lastRefreshError == "Offline")
+        #expect(reopened.lastUpdatedAt == old)
+        provider.failed = false
+        reopened.reload()
+        for _ in 0..<50 where reopened.isRefreshing {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(reopened.sections.isEmpty) // A genuine empty success replaces stale data.
+        #expect(!reopened.isShowingStale)
+        #expect(reopened.lastRefreshError == nil)
+    }
+
+    @Test("cold anonymous failure without a cache exposes a retryable failed section")
+    func anonymousColdFailureIsVisible() async throws {
+        let service = HomeDiscoveryService(
+            provider: EmptyFailureHomeProvider(), cache: temporaryCache(),
+            library: LibraryService(modelContainer: try makeModelContainer(inMemory: true)),
+            enabledProvider: { true }, modeProvider: { .youtubeMusic })
+        service.load()
+        for _ in 0..<50 where service.isRefreshing {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(service.sections.first?.status == .failed("Offline"))
+        #expect(!service.isShowingStale)
+        #expect(service.lastRefreshError == "Offline")
+    }
+
     @Test("guest and account Home caches are physically isolated")
     func feedCacheDoesNotCrossAccountBoundary() {
         let cache = HomeFeedCache(directory: FileManager.default.temporaryDirectory
@@ -372,6 +434,17 @@ struct HomeDiscoveryTrustTests {
         HomeFeedCache(directory: FileManager.default.temporaryDirectory
             .appendingPathComponent("muses-home-service-\(UUID().uuidString)", isDirectory: true))
     }
+}
+
+@MainActor
+private final class EmptyFailureHomeProvider: HomeDiscoveryProvider {
+    var failed = true
+    func fetch(for input: HomeDiscoveryInput) async -> HomeFetchResult {
+        .baseline(scope: input.scope, sections: [], failures: failed
+                  ? [HomeFetchFailure(layer: .baseline, code: .offline, message: "Offline")]
+                  : [])
+    }
+    func more(page: Int, input: HomeDiscoveryInput) async -> [HomeSection] { [] }
 }
 
 @MainActor

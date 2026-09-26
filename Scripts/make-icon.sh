@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build AppIcon.icns from the complete original logo artwork.
+# Build AppIcon.icns from the canonical app artwork.
 #
 # 产物:Sources/Muses/Resources/AppIcon.icns(由 Info.plist CFBundleIconFile=AppIcon 引用)。
 # 幂等:若 .icns 存在且新于源 png 则跳过。
@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-SOURCE="assets/logo.png"
+SOURCE="assets/icon.png"
 ICONSET="build/AppIcon.iconset"
 DEST="Sources/Muses/Resources/AppIcon.icns"
 

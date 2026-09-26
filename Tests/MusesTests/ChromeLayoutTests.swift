@@ -637,6 +637,13 @@ struct ChromeLayoutTests {
         #expect(!album.contains(".musesGlass("))
     }
 
+    @Test("search reading surface does not wrap the whole window in glass")
+    func searchReadingSurfaceAvoidsFullWindowGlass() throws {
+        let source = try readSource("Sources/Muses/Features/Search/GlobalSearchView.swift")
+        #expect(!source.contains(".musesGlass(in: shape, role: .floatingPanel)"))
+        #expect(source.contains(".background(.background, in: shape)"))
+    }
+
     @Test("idle player bar preserves transport layout with a template mark")
     func idlePlayerBarSourceContract() throws {
         let source = try readSource("Sources/Muses/Features/PlayerBar.swift")
@@ -873,7 +880,8 @@ struct ChromeLayoutTests {
     @Test("media cache keys include quality")
     func mediaCacheQualityKey() {
         let dir = MediaFileCache.directory
-        #expect(dir.path.contains("Muses/streams"))
+        #expect(dir.path.contains("/.muses/"))
+        #expect(dir.lastPathComponent == "streams")
         let a = MediaFileCache.file(videoId: "abc", quality: "bestaudio", ext: "m4a")
         let b = MediaFileCache.file(videoId: "abc", quality: "128k", ext: "m4a")
         #expect(a.lastPathComponent.contains("bestaudio"))

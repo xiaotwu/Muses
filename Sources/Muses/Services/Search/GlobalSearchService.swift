@@ -16,7 +16,7 @@ enum GlobalSearchScope: String, CaseIterable, Identifiable, Sendable {
 @Observable
 @MainActor
 final class GlobalSearchService {
-    let musicCatalog = MusicCatalogBrowser()
+    let musicCatalog: MusicCatalogBrowser
 
     var query: String = "" { didSet { if oldValue != query { scheduleSearch() } } }
     var scope: GlobalSearchScope = .all {
@@ -55,7 +55,9 @@ final class GlobalSearchService {
          youTubeSearch: YouTubeSearchService? = nil,
          notes: NotesService? = nil,
          debounceMs: UInt64 = 250,
+         musicCatalog: MusicCatalogBrowser = MusicCatalogBrowser(),
          remoteSearch: (@MainActor (String, Int) async throws -> [YTDlpBridge.YTDlpPlaylistEntry])? = nil) {
+        self.musicCatalog = musicCatalog
         self.library = library
         self.catalog = catalog
         self.youTubeSearch = youTubeSearch
@@ -78,6 +80,21 @@ final class GlobalSearchService {
             || !youtubeResults.isEmpty
     }
 
+    /// The structured catalog owns its own loading, empty and failure states.
+    /// An empty supplemental result set must never declare the whole page empty.
+    var showsLibraryEmptyState: Bool { scope == .library && !hasResults }
+
+    var additionalResultsStatus: String? {
+        guard scope.searchesYouTube else { return nil }
+        if wasCancelled {
+            return tr("Search cancelled", "搜索已取消", zhHant: "搜尋已取消")
+        }
+        guard youtubeError != nil else { return nil }
+        return tr("Additional YouTube results are unavailable. Please retry.",
+                  "YouTube 补充结果暂不可用，请重试。",
+                  zhHant: "YouTube 補充結果暫不可用，請重試。")
+    }
+
     func reset() {
         musicCatalog.clear()
         searchTask?.cancel()
@@ -97,7 +114,17 @@ final class GlobalSearchService {
     }
 
     func retrySearch() {
-        if retryingMore { loadMore() } else { scheduleSearch() }
+        if retryingMore { loadMore(); return }
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        // Retrying the supplemental source must not clear a successful catalog.
+        // Cancellation affects both sources, so explicitly restart the catalog then.
+        if wasCancelled && scope.searchesYouTube { musicCatalog.search(text) }
+        searchTask?.cancel()
+        searchTask = Task { [weak self] in
+            guard !Task.isCancelled else { return }
+            await self?.performSearch(query: text)
+        }
     }
 
     /// yt-dlp exposes a ranked prefix rather than a continuation token. Extend

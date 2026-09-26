@@ -65,6 +65,35 @@ struct StoreUpgradeSnapshotTests {
         }
     }
 
+    @Test("Home-directory relocation preserves WAL truth and never overwrites the new store")
+    func homeDirectoryRelocation() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appending(path: "legacy.sqlite")
+        let destination = directory.appending(path: "new.sqlite")
+        var writer: OpaquePointer?
+        #expect(sqlite3_open(source.path, &writer) == SQLITE_OK)
+        defer { sqlite3_close(writer) }
+        #expect(sqlite3_exec(writer,
+            "PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE ZTRACK (ZID TEXT); INSERT INTO ZTRACK VALUES ('saved-id');",
+            nil, nil, nil) == SQLITE_OK)
+        try relocateLegacyStoreIfNeeded(from: source, to: destination)
+        #expect(FileManager.default.fileExists(atPath: source.path))
+        #expect(FileManager.default.fileExists(atPath: destination.path))
+        #expect(sqlite3_exec(writer, "INSERT INTO ZTRACK VALUES ('later-id');", nil, nil, nil) == SQLITE_OK)
+        try relocateLegacyStoreIfNeeded(from: source, to: destination)
+        let reader = try StoreUpgradeSnapshot.openForReading(destination)
+        defer { sqlite3_close(reader) }
+        var statement: OpaquePointer?
+        #expect(sqlite3_prepare_v2(reader, "SELECT ZID FROM ZTRACK ORDER BY ZID", -1,
+                                   &statement, nil) == SQLITE_OK)
+        defer { sqlite3_finalize(statement) }
+        #expect(sqlite3_step(statement) == SQLITE_ROW)
+        #expect(String(cString: sqlite3_column_text(statement, 0)) == "saved-id")
+        #expect(sqlite3_step(statement) == SQLITE_DONE)
+    }
+
     @Test("Isolated pre-upgrade store opens without changing membership or row counts",
           .enabled(if: ProcessInfo.processInfo.environment["MUSES_UPGRADE_TEST_COPY"] != nil))
     @MainActor func isolatedUpgrade() throws {

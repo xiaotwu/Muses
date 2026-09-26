@@ -29,7 +29,7 @@ Web Session Home ("个性化首页") is a durable product boundary, not a task a
 - Off by default; enabling requires an explicit dedicated consent with the detected Safari/Chrome/Firefox source pinned at confirmation time.
 - All web fetching happens in a separate one-shot `MusesWebHomeHelper` executable at a fixed bundle path, reached over versioned stdin/stdout IPC with signature verification, strict size limits, and timeouts/cancellation.
 - Browser cookies live only in a permission-restricted temporary jar (0700/0600) deleted when the helper exits. SAPISIDHASH is generated in memory per request. Continuation tokens live only in volatile memory.
-- Cookie, auth-hash, raw payloads, and continuation tokens are never logged, persisted to SwiftData, or written to ordinary caches. Web snapshots live in the partitioned `~/Library/Caches/Muses/home-feed/<scope>/web-v1` cache and are normalized, whitelisted-parsed values only.
+- Cookie, auth-hash, raw payloads, and continuation tokens are never logged, persisted to SwiftData, or written to ordinary caches. Web snapshots live in the partitioned `~/.muses/cache/home-feed/<scope>/web-v1` cache and are normalized, whitelisted-parsed values only.
 - The Web layer is read-only display data: it never participates in playback authority, Push, playlist writes, or user-data truth. Web channel identity must exactly match the connected OAuth channel (fail closed otherwise).
 - Preferred failure states degrade to baseline/public Home with an explicit recovery banner; never silently broaden capability.
 - Do not host playback in WKWebView and do not copy cookie/credential material into the app process beyond the in-memory jar handle lifecycle described above.
@@ -59,7 +59,7 @@ The approved visual reconstruction contract is encoded in the source and its gua
 
 - `PlaybackService` is the UI- and system-facing playback facade. Views, commands, and system integrations must not manipulate engines independently.
 - Primary engine: `YouTubeStreamEngine` (yt-dlp → stream URL → `AVPlayer` immediate start, then cached file / `AVAudioEngine` when the download finishes).
-- Persist downloaded media under `~/Library/Caches/Muses/streams` keyed by `videoId` + quality. Changing quality in Settings re-downloads the current track.
+- Persist downloaded media under `~/.muses/cache/streams` keyed by `videoId` + quality. Changing quality in Settings re-downloads the current track.
 - Official YouTube IFrame is **not** the playback engine. Do not host a WKWebView as the sound source.
 - Now Playing cover mode shows artwork (square). Vinyl mode shows circular artwork. Do not leave an empty 16:9 video slot.
 - Preserve collection-context playback: playing from a playlist, search result set, recent list, or YouTube import must retain meaningful previous/next context.
@@ -68,6 +68,8 @@ The approved visual reconstruction contract is encoded in the source and its gua
 - `track.youTubeId == nil` is not a playable library item in production.
 
 ### Data and Concurrency
+
+- App-managed library and cache files live under `~/.muses/data` and `~/.muses/cache`; isolated acceptance bundles use `~/.muses/acceptance/<bundle-id>/data|cache`. Keep OAuth tokens in Keychain and native preferences in UserDefaults. Preserve existing user truth while relocating legacy app-managed files.
 
 - Keep SwiftData model objects on their intended actor/context boundaries. Do not pass them into detached tasks or other real-time work.
 - Preserve immutable `Sendable` value boundaries such as `TrackSnapshot` for playback, queueing, and detached computation.

@@ -8,7 +8,7 @@
 #   (C) 以上都缺                   → 跳过公证(exit 0),不阻塞 dev/CI
 #
 # 用法:
-#   MUSES_VERSION=0.4.0 MUSES_NOTARY_PROFILE=muses ./Scripts/notarize.sh
+#   MUSES_VERSION=0.5.0 MUSES_NOTARY_PROFILE=muses ./Scripts/notarize.sh
 #
 # 产物:
 #   build/Muses.app          公证 + staple 后的 .app(staple 改变了文件,需重新 zip)
@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-VER="${MUSES_VERSION:-0.4.0}"
+VER="${MUSES_VERSION:-0.5.1}"
 APP="build/Muses.app"
 ZIP="build/Muses-${VER}.zip"
 
@@ -40,6 +40,10 @@ if [[ -n "${MUSES_NOTARY_PROFILE:-}" ]]; then
 elif [[ -n "${MUSES_APPLE_ID:-}" && -n "${MUSES_TEAM_ID:-}" && -n "${MUSES_APP_PASSWORD:-}" ]]; then
   SUBMIT_ARGS+=(--apple-id "$MUSES_APPLE_ID" --team-id "$MUSES_TEAM_ID" --password "$MUSES_APP_PASSWORD")
 else
+  if [[ "${MUSES_NOTARIZATION_REQUIRED:-NO}" == "YES" ]]; then
+    echo "✗ 发布要求公证，但未配置 notarytool 凭据" >&2
+    exit 1
+  fi
   echo "═══════════════════════════════════════════════════════"
   echo " ℹ 跳过公证:未配置 Apple 凭据"
   echo "   正式发布请设置以下之一:"
@@ -68,9 +72,9 @@ SUBMIT_OUT="$(xcrun notarytool submit "$ZIP" "${SUBMIT_ARGS[@]}" --wait 2>&1)" |
 echo "$SUBMIT_OUT"
 
 # 状态校验(成功才继续)
-STATUS_LINE="$(echo "$SUBMIT_OUT" | grep -iE 'status:|Acceptable|Invalid|Rejected' | tail -1 || true)"
-if echo "$STATUS_LINE" | grep -qiE 'Invalid|Rejected'; then
-  echo "✗ 公证被拒绝:$STATUS_LINE" >&2
+STATUS_LINE="$(echo "$SUBMIT_OUT" | grep -iE 'status:' | tail -1 || true)"
+if ! echo "$STATUS_LINE" | grep -qiE 'Accepted'; then
+  echo "✗ 公证未获 Accepted 状态:$STATUS_LINE" >&2
   exit 1
 fi
 

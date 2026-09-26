@@ -157,6 +157,7 @@ struct SidebarView: View {
             navRow("person.2", SidebarSection.artists.title, .artists)
             navRow("heart.fill", SidebarSection.liked.title, .liked)
             navRow("play.rectangle.fill", SidebarSection.musicVideos.title, .musicVideos)
+            navRow("mic.fill", SidebarSection.podcasts.title, .podcasts)
             navRow("person.crop.rectangle.stack", SidebarSection.subscriptions.title, .subscriptions)
             navRow("clock.arrow.circlepath", SidebarSection.history.title, .history)
 
@@ -218,6 +219,7 @@ struct SidebarView: View {
             collapsedNavRow("person.2", SidebarSection.artists.title, .artists)
             collapsedNavRow("heart.fill", SidebarSection.liked.title, .liked)
             collapsedNavRow("play.rectangle.fill", SidebarSection.musicVideos.title, .musicVideos)
+            collapsedNavRow("mic.fill", SidebarSection.podcasts.title, .podcasts)
             collapsedNavRow("person.crop.rectangle.stack", SidebarSection.subscriptions.title, .subscriptions)
             collapsedNavRow("clock.arrow.circlepath", SidebarSection.history.title, .history)
             collapsedNavRow("music.note.list", SidebarSection.playlists.title, .playlists) {

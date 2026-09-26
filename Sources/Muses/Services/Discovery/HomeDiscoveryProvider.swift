@@ -103,6 +103,8 @@ enum HomeFetchFailureCode: String, Codable, Sendable, Equatable {
     case offline
     case timedOut
     case helperCrashed
+    case helperUnavailable
+    case helperUntrusted
     case protocolMismatch
     case responseTooLarge
     case malformedResponse

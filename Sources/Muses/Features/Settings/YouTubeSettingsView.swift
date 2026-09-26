@@ -248,6 +248,7 @@ struct YouTubeSettingsView: View {
             .padding(.vertical, 4)
 
             primaryAction
+                .fixedSize(horizontal: true, vertical: false)
                 .padding(.top, 4)
 
             VStack(alignment: .leading, spacing: 10) {
@@ -277,7 +278,13 @@ struct YouTubeSettingsView: View {
                 Image(systemName: "arrow.up.right")
                     .font(.caption.weight(.semibold))
             }
+            .foregroundStyle(BrandColors.textPrimary)
+            .padding(.horizontal, 12)
+            .frame(height: 36)
+            .background(BrandColors.surface, in: Capsule())
+            .overlay(Capsule().strokeBorder(BrandColors.hairline, lineWidth: 1))
         }
+        .buttonStyle(.plain)
         .help(tr("Open on YouTube", "在 YouTube 打开", zhHant: "在 YouTube 開啟"))
     }
 
@@ -300,7 +307,6 @@ struct YouTubeSettingsView: View {
                       ? tr("Sign In Again", "重新登录", zhHant: "重新登入")
                       : tr("Connect YouTube", "连接 YouTube", zhHant: "連接 YouTube"),
                       systemImage: "safari")
-                    .frame(maxWidth: .infinity)
             }
             .musesAction(prominent: true)
             .tint(BrandColors.accent)
@@ -311,7 +317,6 @@ struct YouTubeSettingsView: View {
             } label: {
                 Label(tr("Turn On Personalized Home", "开启个性化首页"),
                       systemImage: "person.crop.circle.badge.checkmark")
-                    .frame(maxWidth: .infinity)
             }
             .musesAction(prominent: true)
             .tint(BrandColors.accent)
@@ -321,7 +326,6 @@ struct YouTubeSettingsView: View {
                 checkSession()
             } label: {
                 Label(tr("Check Session", "检查会话"), systemImage: "checkmark.shield")
-                    .frame(maxWidth: .infinity)
             }
             .musesAction(prominent: true)
             .tint(BrandColors.accent)
@@ -564,6 +568,10 @@ struct YouTubeSettingsView: View {
             tr("Timed out", "检查超时", zhHant: "檢查逾時")
         case .helperCrashed:
             tr("Helper stopped", "Helper 已停止", zhHant: "Helper 已停止")
+        case .helperUnavailable:
+            tr("Helper missing or not executable", "Helper 缺失或无法执行", zhHant: "Helper 遺失或無法執行")
+        case .helperUntrusted:
+            tr("Helper signature verification failed", "Helper 签名验证失败", zhHant: "Helper 簽章驗證失敗")
         case .protocolMismatch:
             tr("Helper version mismatch", "Helper 版本不匹配", zhHant: "Helper 版本不相符")
         case .responseTooLarge:

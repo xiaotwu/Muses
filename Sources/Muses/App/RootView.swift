@@ -505,6 +505,8 @@ struct RootView: View {
                 SongsListView(filter: .liked)
             case .musicVideos:
                 SongsListView(filter: .musicVideos)
+            case .podcasts:
+                FollowedPodcastsView()
             case .subscriptions:
                 YouTubeSubscriptionsView(selectedChannelID: $selectedChannelID)
             case .playlists:
@@ -691,7 +693,7 @@ private struct CoverSlotBinder: View {
 
 enum SidebarSection: String, Hashable, CaseIterable {
     case search, home, new
-    case artists, albums, songs, liked, musicVideos, subscriptions  // Unified library destinations
+    case artists, albums, songs, liked, musicVideos, podcasts, subscriptions  // Unified library destinations
     case playlists
     case settings
     case history  // Phase 17: Smart Listening History
@@ -706,6 +708,7 @@ enum SidebarSection: String, Hashable, CaseIterable {
         case .songs: return tr("Songs", "歌曲")
         case .liked: return tr("Favorites", "收藏")
         case .musicVideos: return tr("Music Videos", "音乐视频")
+        case .podcasts: return tr("Followed Podcasts", "已关注的播客", zhHant: "已追蹤的 Podcast")
         case .subscriptions: return tr("Subscriptions", "订阅")
         case .playlists: return tr("Playlists", "歌单")
         case .history: return tr("History", "历史记录")

@@ -9,10 +9,10 @@
 #
 # 参数/环境:
 #   --identity <id>   签名身份(默认 $MUSES_SIGN_IDENTITY 或 "-" = ad-hoc)
-#   MUSES_VERSION     覆盖 CFBundleShortVersionString(默认 0.5.0)
-#   MUSES_BUILD       覆盖 CFBundleVersion(默认 1)
+#   MUSES_VERSION     覆盖 CFBundleShortVersionString(默认 0.5.1)
+#   MUSES_BUILD       覆盖 CFBundleVersion(默认 20260925)
 #   MUSES_GOOGLE_OAUTH_CLIENT_ID       Muses 项目持有的 Desktop OAuth client ID
-#   MUSES_GOOGLE_OAUTH_CLIENT_SECRET   可选；installed-app client 通常留空
+#   MUSES_GOOGLE_OAUTH_CLIENT_SECRET   Matching Desktop OAuth field when required by the issuer
 #   MUSES_GOOGLE_OAUTH_REDIRECT_URI    可选；默认 http://127.0.0.1:0/（Desktop loopback 随机端口）
 #   MUSES_WEB_HOME_ENABLED             构建级 kill switch(默认 YES)
 #
@@ -42,8 +42,8 @@ if [[ "$APP" != *.app || "$APP" == ".app" ]]; then
     exit 1
 fi
 
-VERSION="${MUSES_VERSION:-0.5.0}"
-BUILD="${MUSES_BUILD:-1}"
+VERSION="${MUSES_VERSION:-0.5.1}"
+BUILD="${MUSES_BUILD:-20260925}"
 
 CONTENTS="$APP/Contents"
 
@@ -70,7 +70,7 @@ chmod 700 "$CONTENTS/Helpers/MusesWebHomeHelper"
 # 4) 拷贝资源 + Info.plist。
 echo "[3/5] 拷贝 Resources / Info.plist"
 RES_DIR="Sources/Muses/Resources"
-for f in yt-dlp yt-dlp-LICENSE AppIcon.icns logo.png MonteCarlo.ttf; do
+for f in yt-dlp yt-dlp-LICENSE AppIcon.icns icon.png MonteCarlo.ttf; do
     [[ -f "$RES_DIR/$f" ]] && cp "$RES_DIR/$f" "$CONTENTS/Resources/"
 done
 cp "$RES_DIR/Info.plist" "$CONTENTS/Info.plist"
@@ -83,6 +83,15 @@ if [[ ! -d "$RESOURCE_BUNDLE" ]]; then
 fi
 /usr/bin/ditto "$RESOURCE_BUNDLE" "$CONTENTS/Resources/Muses_Muses.bundle"
 
+# Shipping bundles contain only app resources. Catch accidental fixture and
+# acceptance-data copies before signing makes the bundle immutable.
+if find "$CONTENTS" \( -iname '*fixture*' -o -iname '*acceptance*' -o -iname '*testdata*' \
+    -o -iname '*.sqlite' -o -iname '*.sqlite-shm' -o -iname '*.sqlite-wal' \
+    -o -iname '*.db' -o -iname '*.log' -o -iname '*.xcresult' \) -print -quit | grep -q .; then
+    echo "Release bundle contains test or user data" >&2
+    exit 1
+fi
+
 # 5) 注入版本号。
 echo "[4/5] 注入版本 $VERSION ($BUILD)"
 PLIST="/usr/libexec/PlistBuddy"
@@ -93,18 +102,34 @@ PLIST="/usr/libexec/PlistBuddy"
 "$PLIST" -c "Set :MusesGoogleOAuthRedirectURI ${MUSES_GOOGLE_OAUTH_REDIRECT_URI:-http://127.0.0.1:0/}" "$CONTENTS/Info.plist"
 "$PLIST" -c "Set :MusesWebHomeEnabled ${MUSES_WEB_HOME_ENABLED:-YES}" "$CONTENTS/Info.plist"
 
-# 6) 签名(entitlements 用源文件;--deep 覆盖 yt-dlp)。
+# 6) Sign every nested executable before signing the app.
 echo "[5/5] codesign (--deep --options runtime)"
 ENTITLEMENTS="$RES_DIR/Muses.entitlements"
-# yt-dlp 是第三方二进制,先单独 ad-hoc 签名避免 --deep 失败。
-if [[ -f "$CONTENTS/Resources/yt-dlp" ]] && ! codesign --verify "$CONTENTS/Resources/yt-dlp" 2>/dev/null; then
-    codesign --force --sign - "$CONTENTS/Resources/yt-dlp" 2>/dev/null || true
+YTDLP_ENTITLEMENTS="$RES_DIR/YTDLP.entitlements"
+TIMESTAMP_ARGS=()
+if [[ "$IDENTITY" != "-" ]]; then
+    TIMESTAMP_ARGS+=(--timestamp)
 fi
+# SwiftPM also copies yt-dlp into Bundle.module resources. Apple notarization
+# checks both copies independently, including Developer ID, timestamp, and runtime.
+for YTDLP_BINARY in \
+    "$CONTENTS/Resources/yt-dlp" \
+    "$CONTENTS/Resources/Muses_Muses.bundle/Contents/Resources/Resources/yt-dlp"; do
+    if [[ ! -f "$YTDLP_BINARY" ]]; then
+        echo "Missing bundled yt-dlp: $YTDLP_BINARY" >&2
+        exit 1
+    fi
+    # The standalone yt-dlp is a PyInstaller one-file executable. Its Python
+    # library is unpacked at launch and needs this runtime exception.
+    codesign --force --options runtime "${TIMESTAMP_ARGS[@]}" \
+        --entitlements "$YTDLP_ENTITLEMENTS" \
+        --sign "$IDENTITY" "$YTDLP_BINARY"
+done
 # Helper 必须先用与主 app 相同的身份签名；主进程会在每次启动前校验固定路径、
 # 严格签名和 TeamIdentifier，绝不从 PATH 加载同名程序。
-codesign --force --options runtime \
+codesign --force --options runtime "${TIMESTAMP_ARGS[@]}" \
     --sign "$IDENTITY" "$CONTENTS/Helpers/MusesWebHomeHelper"
-codesign --deep --force --options runtime \
+codesign --deep --force --options runtime "${TIMESTAMP_ARGS[@]}" \
     --entitlements "$ENTITLEMENTS" \
     --sign "$IDENTITY" "$APP"
 
@@ -112,6 +137,12 @@ codesign --deep --force --options runtime \
 codesign --verify --deep --strict "$APP" && echo "      ✓ codesign 验证通过"
 codesign --verify --strict "$CONTENTS/Helpers/MusesWebHomeHelper" \
     && echo "      ✓ Web Home helper 签名验证通过"
+for YTDLP_BINARY in \
+    "$CONTENTS/Resources/yt-dlp" \
+    "$CONTENTS/Resources/Muses_Muses.bundle/Contents/Resources/Resources/yt-dlp"; do
+    "$YTDLP_BINARY" --version >/dev/null
+done
+echo "      ✓ 两份 yt-dlp 在 hardened runtime 下启动通过"
 if [[ "$IDENTITY" != "-" ]]; then
     codesign -dvvv "$APP" 2>&1 | grep -E "Authority|TeamIdentifier" || true
 fi

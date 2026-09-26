@@ -19,7 +19,8 @@ BUILD_DIR := build
 
 # 默认 ad-hoc;正式发布用 `make release MUSES_SIGN_IDENTITY="Developer ID Application: ..."`
 MUSES_SIGN_IDENTITY ?= -
-MUSES_VERSION ?= 0.5.0
+MUSES_VERSION ?= 0.5.1
+MUSES_BUILD ?= 20260925
 
 .PHONY: all test build app release icon dmg ytdlp clean
 
@@ -32,7 +33,7 @@ build:
 	swift build
 
 app: $(SCRIPTS)/build-app.sh
-	./$(SCRIPTS)/build-app.sh --identity "$(MUSES_SIGN_IDENTITY)"
+	MUSES_VERSION="$(MUSES_VERSION)" MUSES_BUILD="$(MUSES_BUILD)" ./$(SCRIPTS)/build-app.sh --identity "$(MUSES_SIGN_IDENTITY)"
 
 # 端到端发布:build-app → sign-update(打 zip)→ notarize → make-dmg
 # zip 上传到 GitHub Release 后,UpdateService 自动发现新版本(releases/latest)。
@@ -42,8 +43,9 @@ app: $(SCRIPTS)/build-app.sh
 #   MUSES_VERSION=0.5.0
 release: app
 	MUSES_VERSION="$(MUSES_VERSION)" ./$(SCRIPTS)/sign-update.sh
-	MUSES_VERSION="$(MUSES_VERSION)" ./$(SCRIPTS)/notarize.sh
-	MUSES_VERSION="$(MUSES_VERSION)" ./$(SCRIPTS)/make-dmg.sh
+	MUSES_VERSION="$(MUSES_VERSION)" MUSES_NOTARIZATION_REQUIRED=YES ./$(SCRIPTS)/notarize.sh
+	MUSES_VERSION="$(MUSES_VERSION)" MUSES_SIGN_IDENTITY="$(MUSES_SIGN_IDENTITY)" ./$(SCRIPTS)/make-dmg.sh
+	MUSES_VERSION="$(MUSES_VERSION)" ./$(SCRIPTS)/notarize-dmg.sh
 
 icon: $(SCRIPTS)/make-icon.sh
 	./$(SCRIPTS)/make-icon.sh

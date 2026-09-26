@@ -6,6 +6,23 @@ import MusesWebHomeProtocol
 
 @Suite("Web Home helper IPC")
 struct WebHomeHelperClientTests {
+    @Test func launchFailuresRemainDistinctFromInvalidResponses() {
+        #expect(WebHomeHelperClientError.missingHelper.failureCode == .helperUnavailable)
+        #expect(WebHomeHelperClientError.invalidHelper.failureCode == .helperUntrusted)
+        #expect(WebHomeHelperClientError.malformedResponse.failureCode == .malformedResponse)
+    }
+
+    @Test func missingExecutableFailsBeforeSignatureValidation() async throws {
+        let missing = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let client = WebHomeHelperClient(helperURL: missing, signatureValidator: { _ in
+            Issue.record("A missing helper must not reach signature validation")
+            return false
+        })
+        await expectError(.missingHelper) {
+            try await client.execute(request())
+        }
+    }
+
     @Test("successful helper response round-trips over stdin/stdout")
     func success() async throws {
         let response = WebHomeResponse(

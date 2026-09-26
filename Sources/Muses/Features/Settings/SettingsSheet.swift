@@ -32,7 +32,7 @@ enum SettingsCategory: String, Hashable, CaseIterable, Identifiable {
         case .lyrics:       return tr("Lyrics & Intelligence", "歌词与智能")
         case .desktop:      return tr("Desktop", "桌面")
         case .updates:      return tr("Updates", "更新")
-        case .about:        return tr("About & Updates", "关于与更新")
+        case .about:        return tr("About & Updates", "关于与更新", zhHant: "關於與更新")
         }
     }
 
@@ -144,7 +144,7 @@ struct SettingsContentStyle: FormStyle {
     }
 }
 
-/// About settings page: logo + version + GitHub link + compliance notice.
+/// About settings page: brand, short introduction, version, and project link.
 /// Update checking lives in the dedicated Updates pane.
 struct AboutSettingsView: View {
     private var appVersion: String {
@@ -168,15 +168,21 @@ struct AboutSettingsView: View {
                 Spacer()
             }
 
+            Text(tr("A thoughtful place for your music. Explore collections, follow shows, and stay with the moment through artwork, lyrics, and a queue that travels with you.",
+                    "一个自在聆听音乐的地方。探索收藏、关注节目，以封面、歌词和随行播放队列沉浸其中。",
+                    zhHant: "一個自在聆聽音樂的地方。探索收藏、關注節目，以封面、歌詞和隨行播放佇列沉浸其中。"))
+                .foregroundStyle(BrandColors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             Button {
                 if let url = URL(string: "https://github.com/xiaotwu/Muses") {
                     NSWorkspace.shared.open(url)
                 }
             } label: {
-                Label(tr("GitHub Project", "GitHub 项目"), systemImage: "link")
+                Label(tr("Project website", "项目网站", zhHant: "專案網站"), systemImage: "link")
             }
-            .labelStyle(ActionIconLabelStyle())
-            .help(tr("GitHub Project", "GitHub 项目"))
+            .musesAction()
+            .help(tr("Project website", "项目网站", zhHant: "專案網站"))
 
         } header: { Text(tr("About", "关于")).font(.headline.weight(.semibold)) }
     }

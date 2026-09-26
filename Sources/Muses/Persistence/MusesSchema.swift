@@ -7,9 +7,12 @@ import SwiftData
 /// Generation 3 adds the durable whole-playlist resource journal and exact-
 /// target write approval metadata. Generation 4 adds source-backed Track–
 /// Release membership edges while retaining the legacy single release fields
-/// as read-only compatibility input for existing stores.
+/// as read-only compatibility input for existing stores. Generation 5 adds
+/// local podcast follows and per-episode progress without a second player.
+/// Generation 6 records source-backed show/episode membership separately from
+/// the shared video progress row.
 enum MusesSchema {
-    static let generation = 4
+    static let generation = 6
     static let version = Schema.Version(generation, 0, 0)
 
     static let models: [any PersistentModel.Type] = [
@@ -31,6 +34,9 @@ enum MusesSchema {
         YouTubeSyncOperation.self,
         YouTubeSyncBatch.self,
         YouTubePlaylistResourceOperation.self,
+        PodcastShow.self,
+        PodcastEpisodeState.self,
+        PodcastEpisodeMembership.self,
     ]
 
     static var current: Schema { Schema(models, version: version) }

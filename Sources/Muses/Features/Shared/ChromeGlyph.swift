@@ -52,7 +52,7 @@ enum AppTopTab: String, Hashable, CaseIterable {
 extension SidebarSection {
     var isLibrary: Bool {
         switch self {
-        case .songs, .playlists, .history, .albums, .artists, .liked, .musicVideos, .subscriptions:
+        case .songs, .playlists, .history, .albums, .artists, .liked, .musicVideos, .podcasts, .subscriptions:
             return true
         default:
             return false

@@ -332,7 +332,8 @@ final class QueueService {
     }
 
     var needsRecommendation: Bool {
-        smartShuffle.enabled && repeatMode != .one && smartShuffle.pending == nil
+        current()?.track.mediaKind != .podcastEpisode
+            && smartShuffle.enabled && repeatMode != .one && smartShuffle.pending == nil
             && insertedCurrent == nil && smartShuffle.collectionPlayed >= 2
     }
 
@@ -355,19 +356,22 @@ final class QueueService {
     }
 
     private var recommendationIsDue: Bool {
-        smartShuffle.enabled && repeatMode != .one && smartShuffle.collectionPlayed >= 3
+        current()?.track.mediaKind != .podcastEpisode
+            && smartShuffle.enabled && repeatMode != .one && smartShuffle.collectionPlayed >= 3
             && current()?.recommendationSourceVideoID == nil
     }
 
     private var recommendationWillBeDue: Bool {
         let countCurrent = insertedCurrent == nil && current().map { !smartShuffle.countedOccurrences.contains($0.id) } == true
-        return smartShuffle.enabled && repeatMode != .one
+        return current()?.track.mediaKind != .podcastEpisode
+            && smartShuffle.enabled && repeatMode != .one
             && smartShuffle.collectionPlayed + (countCurrent ? 1 : 0) >= 3
             && current()?.recommendationSourceVideoID == nil
     }
 
     private func recordSmartShufflePlayback(_ state: QueueHistoryState) {
-        guard smartShuffle.enabled, repeatMode != .one, let current = current() else { return }
+        guard smartShuffle.enabled, repeatMode != .one, let current = current(),
+              current.track.mediaKind != .podcastEpisode else { return }
         smartShuffle.playedVideoIDs.insert(current.track.youTubeId)
         if insertedCurrent == nil, state == .played,
            smartShuffle.countedOccurrences.insert(current.id).inserted {

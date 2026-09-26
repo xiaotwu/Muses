@@ -4,12 +4,23 @@ import Testing
 
 private actor CatalogBrowserFixture: MusicCatalogProviding {
     var failNext = true
+    var failBrowseAfterFirst = false
+    var browseCount = 0
+    init(failBrowseAfterFirst: Bool = false) {
+        self.failBrowseAfterFirst = failBrowseAfterFirst
+    }
     let session = UUID()
     func page(_ ids: [String], next: Bool) -> MusicCatalogPage {
         .init(items: ids.map { .init(id: $0, kind: .song, title: $0, subtitle: "", artwork: nil, artists: [], releases: [], channels: []) }, filters: [], next: next ? .init(session: session, endpoint: "search", token: "fixture") : nil, fetchedAt: Date(), region: "US")
     }
     func search(_ query: String, kind: MusicCatalogKind?) async throws -> MusicCatalogPage { page([query], next: true) }
-    func browse(_ id: String) async throws -> MusicCatalogPage { page([id, id], next: true) }
+    func browse(_ id: String) async throws -> MusicCatalogPage {
+        browseCount += 1
+        if failBrowseAfterFirst && browseCount > 1 { throw MusicCatalogError.unavailable }
+        var result = page([id, id], next: true)
+        result.metadata = .init(title: id, subtitle: "Album", artists: [])
+        return result
+    }
     func next(_ cursor: MusicCatalogCursor) async throws -> MusicCatalogPage {
         if failNext { failNext = false; throw MusicCatalogError.unavailable }
         return page(["first", "second"], next: false)
@@ -53,6 +64,38 @@ private actor LocaleCatalogFixture: MusicCatalogProviding {
 
 @Suite("Structured catalog browser state") @MainActor
 struct MusicCatalogBrowserTests {
+    @Test func savedBrowseOpensWithoutSearchAndRetainsRowsOnFailedRefresh() async {
+        let browser = MusicCatalogBrowser(provider: CatalogBrowserFixture(failBrowseAfterFirst: true))
+        let show = MusicCatalogItem(id: "browse:MPSPshow", kind: .podcast,
+            title: "Show", subtitle: "", artwork: nil, artists: [], releases: [], channels: [])
+        browser.browse(show)
+        await settle(browser)
+        #expect(browser.detail?.id == show.id)
+        #expect(browser.items.count == 2)
+        browser.refresh()
+        await settle(browser)
+        #expect(browser.items.count == 2)
+        #expect(browser.failed)
+        #expect(browser.isStale)
+    }
+    @Test func detailMetadataSurvivesPaginationButNotNavigation() async {
+        let browser = MusicCatalogBrowser(provider: CatalogBrowserFixture())
+        browser.search("first")
+        await settle(browser)
+        browser.open(.init(id: "browse:album", kind: .album, title: "Album", subtitle: "", artwork: nil, artists: [], releases: [], channels: []))
+        await settle(browser)
+        #expect(browser.metadata?.title == "browse:album")
+        browser.more()
+        await settle(browser)
+        browser.retry()
+        await settle(browser)
+        #expect(browser.metadata?.title == "browse:album")
+        browser.back()
+        #expect(browser.metadata == nil)
+        await settle(browser)
+        #expect(browser.metadata == nil)
+    }
+
     private func settle(_ browser: MusicCatalogBrowser) async {
         for _ in 0..<500 where browser.loading { await Task.yield() }
     }

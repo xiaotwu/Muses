@@ -12,9 +12,9 @@ Muses is a personal, local-first application. This page documents exactly what l
 | Data | Location |
 | --- | --- |
 | OAuth tokens (read-only YouTube account) | macOS Keychain |
-| Library: tracks, playlists, likes, pins, history, notes | Local SwiftData store |
-| Downloaded media streams | `~/Library/Caches/Muses/streams` |
-| Home feed snapshots (separate Muses and YouTube Music partitions) | `~/Library/Caches/Muses/home-feed/` |
+| Library: tracks, playlists, likes, pins, history, notes | `~/.muses/data` |
+| Downloaded media streams | `~/.muses/cache/streams` |
+| Home feed snapshots (separate Muses and YouTube Music partitions) | `~/.muses/cache/home-feed/` |
 | Session/configuration | `UserDefaults` on this Mac |
 
 ## Home and recommendations
