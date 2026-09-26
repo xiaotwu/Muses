@@ -90,6 +90,88 @@ struct YouTubeStreamEngineTests {
         #expect(engine.state.buffering == false)
     }
 
+    @Test("a forbidden full media request recovers through bounded ranges")
+    func forbiddenFullRequestUsesRanges() async throws {
+        let wav = try makeWAVFile(seconds: 2)
+        let bytes = try Data(contentsOf: wav)
+        let videoId = "range-\(UUID().uuidString)"
+        let quality = UserDefaults.standard.string(forKey: PrefKey.ytAudioQuality) ?? "bestaudio"
+        defer {
+            MediaFileCache.remove(videoId: videoId, quality: quality)
+            RangeMediaStub.reset()
+        }
+        RangeMediaStub().respond(forHostEndingWith: "range.invalid") { request in
+            guard let range = request.value(forHTTPHeaderField: "Range") else {
+                return StubResponse(statusCode: 403, body: Data())
+            }
+            guard range == "bytes=0-1048575" else {
+                return StubResponse(statusCode: 416, body: Data())
+            }
+            return StubResponse(statusCode: 206, body: bytes,
+                                headers: ["Content-Range": "bytes 0-\(bytes.count - 1)/\(bytes.count)"])
+        }
+        let bridge = MockYTDlpBridge()
+        bridge.streamURL = URL(string: "https://range.invalid/audio.wav")!
+        let session = URLSession(configuration: RangeMediaStub.makeConfig())
+        let engine = YouTubeStreamEngine(
+            bridge: bridge, cache: StreamURLCache(defaultTTL: 3600), session: session)
+        let track = TrackSnapshot(
+            id: UUID(), title: "Ranged", artist: "a", albumTitle: nil,
+            durationSeconds: 2, youTubeId: videoId,
+            artworkUrl: nil, sampleRate: 44_100, bitDepth: 16,
+            codec: "wav", isLossless: false)
+
+        try await engine.load(track)
+        engine.play()
+        await engine.awaitHybridWorkForTests()
+        #expect(engine.state.error == nil)
+        #expect(!engine.isInFallbackMode)
+        #expect(!engine._isStreamingMode)
+        #expect(engine.state.duration > 0)
+        #expect(try Data(contentsOf: MediaFileCache.file(videoId: videoId, quality: quality, ext: "wav")) == bytes)
+    }
+
+    @Test("a stale media URL is renewed before the decoded handoff")
+    func staleMediaURLIsRenewed() async throws {
+        let wav = try makeWAVFile(seconds: 2)
+        let bytes = try Data(contentsOf: wav)
+        let videoId = "renew-\(UUID().uuidString)"
+        let quality = UserDefaults.standard.string(forKey: PrefKey.ytAudioQuality) ?? "bestaudio"
+        defer {
+            MediaFileCache.remove(videoId: videoId, quality: quality)
+            RangeMediaStub.reset()
+        }
+        RangeMediaStub().respond(forHostEndingWith: "range.invalid") { request in
+            guard request.url?.lastPathComponent == "fresh.wav",
+                  request.value(forHTTPHeaderField: "Range") == "bytes=0-1048575" else {
+                return StubResponse(statusCode: 403, body: Data())
+            }
+            return StubResponse(statusCode: 206, body: bytes,
+                                headers: ["Content-Range": "bytes 0-\(bytes.count - 1)/\(bytes.count)"])
+        }
+        let bridge = MockYTDlpBridge()
+        bridge.streamURLSequence = [
+            URL(string: "https://range.invalid/stale.wav")!,
+            URL(string: "https://range.invalid/fresh.wav")!
+        ]
+        let engine = YouTubeStreamEngine(
+            bridge: bridge, cache: StreamURLCache(defaultTTL: 3600),
+            session: URLSession(configuration: RangeMediaStub.makeConfig()))
+        let track = TrackSnapshot(
+            id: UUID(), title: "Renewed", artist: "a", albumTitle: nil,
+            durationSeconds: 2, youTubeId: videoId,
+            artworkUrl: nil, sampleRate: 44_100, bitDepth: 16,
+            codec: "wav", isLossless: false)
+
+        try await engine.load(track)
+        engine.play()
+        await engine.awaitHybridWorkForTests()
+        #expect(bridge.callCount == 2)
+        #expect(engine.state.error == nil)
+        #expect(!engine.isInFallbackMode)
+        #expect(try Data(contentsOf: MediaFileCache.file(videoId: videoId, quality: quality, ext: "wav")) == bytes)
+    }
+
     // MARK: - 5. Two-node switching: load swaps activePlayer
 
     @Test("activePlayer initialized and state correct after load")
@@ -167,7 +249,12 @@ struct YouTubeStreamEngineTests {
         let activeBefore = engine._activeIsPlayerA
 
         await engine.prepare(snapB)
-        let ok = engine.playPrepared()
+        let stale = engine.playPrepared(expectedTrackID: UUID())
+        #expect(!stale)
+        #expect(engine.state.track?.id == snapA.id)
+        #expect(engine._isPrefetched)
+
+        let ok = engine.playPrepared(expectedTrackID: snapB.id)
         #expect(ok)
 
         // state switched to Track B
@@ -182,7 +269,7 @@ struct YouTubeStreamEngineTests {
         #expect(!engine._isPrefetched)
 
         // Without a preload, playPrepared returns false
-        let ok2 = engine.playPrepared()
+        let ok2 = engine.playPrepared(expectedTrackID: snapB.id)
         #expect(!ok2)
     }
 
@@ -329,11 +416,22 @@ struct YouTubeStreamEngineTests {
     }
 }
 
+private final class RangeMediaStub: StubURLProtocolBase, @unchecked Sendable {
+    nonisolated(unsafe) private static var storedRules: [StubRule] = []
+    private static let storedLock = NSLock()
+    override class var rules: [StubRule] {
+        get { storedRules }
+        set { storedRules = newValue }
+    }
+    override class var lock: NSLock { storedLock }
+}
+
 // MARK: - Mock YTDlpBridge
 
 @MainActor
 final class MockYTDlpBridge: YTDlpBridgeProtocol {
     var streamURL: URL?
+    var streamURLSequence: [URL] = []
     var streamURLsByVideoId: [String: URL] = [:]
     var resolveDelaysByVideoId: [String: UInt64] = [:]
     var requestedVideoIds: [String] = []
@@ -349,6 +447,9 @@ final class MockYTDlpBridge: YTDlpBridgeProtocol {
             try? await Task.sleep(nanoseconds: delay)
         }
         if shouldFail { throw YTDlpBridge.YTDlpError.notFound }
+        if !streamURLSequence.isEmpty {
+            return streamURLSequence[min(callCount - 1, streamURLSequence.count - 1)]
+        }
         return streamURLsByVideoId[videoId] ?? streamURL!
     }
     func fetchPlaylist(url: String, timeout: TimeInterval) async throws -> [YTDlpBridge.YTDlpPlaylistEntry] { [] }

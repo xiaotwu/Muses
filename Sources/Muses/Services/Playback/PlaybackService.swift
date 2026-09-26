@@ -120,8 +120,9 @@ final class PlaybackService {
 
         // Try the gapless hand-off
         if !queue.smartShuffle.enabled,
-           queue.peekNext()?.track.mediaKind != .podcastEpisode,
-           engine.playPrepared() {
+           let next = queue.peekNext(),
+           next.track.mediaKind != .podcastEpisode,
+           engine.playPrepared(expectedTrackID: next.track.id) {
             // Gapless success: advance the queue to the new current track and fire the same start events as load().
             _ = queue.next()
             lastCompletedTrackId = nil

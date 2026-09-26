@@ -12,9 +12,9 @@ protocol PlayerEngine: AnyObject {
     func prepare(_ track: TrackSnapshot) async
     /// Plays the preloaded track: schedules onto the inactive node, starts playback,
     /// swaps the nodes, and updates state. Returns true on a successful switch,
-    /// false when there is no preloaded track.
+    /// false when there is no preloaded track matching the queue's next item.
     @discardableResult
-    func playPrepared() -> Bool
+    func playPrepared(expectedTrackID: UUID) -> Bool
     func play()
     func pause()
     func toggle()

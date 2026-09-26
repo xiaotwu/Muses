@@ -295,7 +295,7 @@ private final class StubPlayerEngine17: PlayerEngine {
     }
     func prepare(_ track: TrackSnapshot) async {}
     @discardableResult
-    func playPrepared() -> Bool { false }
+    func playPrepared(expectedTrackID: UUID) -> Bool { false }
     func play() { state.isPlaying = true }
     func pause() { state.isPlaying = false }
     func toggle() { state.isPlaying.toggle() }

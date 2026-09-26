@@ -16,7 +16,7 @@ Muses brings your music collections into a focused Mac app. Explore playlists, a
 - Pick up podcasts where you left off, adjust speed, and skip back or forward.
 - Watch a video when you want to, and read its comments in a floating panel.
 
-Muses is available for macOS 14 or later. See the [installation guide](docs/installation.md) and [first-release notes](docs/release-notes-0.5.1.md).
+Muses is available for macOS 14 or later. See the [installation guide](docs/installation.md) and [latest release notes](docs/release-notes-0.5.2.md).
 
 For contributors, see [development](docs/development.md). For data and account details, see [privacy](docs/privacy.md).
 

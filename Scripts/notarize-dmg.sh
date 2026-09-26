@@ -3,7 +3,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-DMG="build/Muses-${MUSES_VERSION:-0.5.1}.dmg"
+DMG="build/Muses-${MUSES_VERSION:-0.5.2}.dmg"
 if [[ ! -f "$DMG" ]]; then
     echo "Missing signed DMG: $DMG" >&2
     exit 1

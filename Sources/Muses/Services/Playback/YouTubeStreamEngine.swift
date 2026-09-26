@@ -190,8 +190,10 @@ final class YouTubeStreamEngine: PlayerEngine {
     /// Gapless hand-off to the track prefetched by `prepare()`: schedules + plays on the idle node and swaps. Returns true.
     /// Returns false with no prefetch or an unfinished one; PlaybackService then falls back to `load()`.
     @discardableResult
-    func playPrepared() -> Bool {
-        guard let file = prefetchedFile, let track = prefetchedTrack else { return false }
+    func playPrepared(expectedTrackID: UUID) -> Bool {
+        guard let file = prefetchedFile,
+              let track = prefetchedTrack,
+              track.id == expectedTrackID else { return false }
         tearDownAVPlayer()
         cancelStreamingSwap()
         isStreamingMode = false
@@ -293,13 +295,12 @@ final class YouTubeStreamEngine: PlayerEngine {
         state.quality = AudioQualityInfo(
             sampleRate: 0, bitDepth: 0, codec: "native", isLossless: false)
 
-        let tempURL = cacheFileURL(videoId: videoId, from: resolvedURL)
         let downloadTaskRef = Task { @MainActor [weak self] in
             guard let self else { return }
-            let ok = await self.downloadTo(url: resolvedURL, tempURL: tempURL)
+            let tempURL = await self.downloadWithRefresh(videoId: videoId, initialURL: resolvedURL)
             guard !Task.isCancelled,
                   self.loadIsCurrent(generation: generation, trackId: track.id) else { return }
-            if ok {
+            if let tempURL {
                 self.beginStreamingSwap(to: tempURL, track: track,
                                         loadGeneration: generation)
             } else {
@@ -366,6 +367,7 @@ final class YouTubeStreamEngine: PlayerEngine {
             if state.isPlaying && ioCycleReady && hasAudioOutput { activePlayer.play() }
             state.position = time
             segmentStartSec = time
+            if state.isPlaying { startPosTimer() }
         }
     }
 
@@ -465,7 +467,8 @@ final class YouTubeStreamEngine: PlayerEngine {
                                       loadGeneration: UInt64) async {
         guard loadIsCurrent(generation: loadGeneration, trackId: track.id) else { return }
         let sr = file.processingFormat.sampleRate
-        let posSec = avPlayer?.currentTime().seconds ?? 0
+        let rawPosition = avPlayer?.currentTime().seconds ?? 0
+        let posSec = rawPosition.isFinite ? max(0, rawPosition) : 0
         let startFrame = max(0, AVAudioFramePosition(posSec * sr))
         let totalFrames = file.length
         let remaining = totalFrames - startFrame
@@ -677,9 +680,8 @@ final class YouTubeStreamEngine: PlayerEngine {
             let resolvedURL = try await resolveStreamURL(for: videoId)
             guard !Task.isCancelled,
                   prefetchIsCurrent(generation: generation, trackId: track.id) else { return }
-            let tempURL = cacheFileURL(videoId: videoId, from: resolvedURL)
-            let ok = await downloadTo(url: resolvedURL, tempURL: tempURL)
-            guard ok,
+            let tempURL = await downloadWithRefresh(videoId: videoId, initialURL: resolvedURL)
+            guard let tempURL,
                   !Task.isCancelled,
                   prefetchIsCurrent(generation: generation, trackId: track.id) else { return }
             if let file = try? AVAudioFile(forReading: tempURL),
@@ -764,7 +766,17 @@ final class YouTubeStreamEngine: PlayerEngine {
                 try FileManager.default.copyItem(at: url, to: tempURL)
                 return true
             }
+            if url.host?.hasSuffix(".googlevideo.com") == true {
+                return try await downloadInRanges(from: url, to: tempURL)
+            }
             let (tmp, resp) = try await session.download(from: url)
+            if let http = resp as? HTTPURLResponse,
+               http.statusCode == 403 {
+                // Some direct media endpoints reject an unbounded request but
+                // serve bounded byte ranges. AVPlayer cannot use that URL
+                // directly, so assemble the file before the decoded handoff.
+                return try await downloadInRanges(from: url, to: tempURL)
+            }
             if let http = resp as? HTTPURLResponse,
                !(200..<300).contains(http.statusCode) {
                 throw PlayerError.networkError("Non-2xx response")
@@ -778,6 +790,65 @@ final class YouTubeStreamEngine: PlayerEngine {
             log.error("Download failed: \(error.localizedDescription)")
             return false
         }
+    }
+
+    private func downloadWithRefresh(videoId: String, initialURL: URL) async -> URL? {
+        let firstDestination = cacheFileURL(videoId: videoId, from: initialURL)
+        if await downloadTo(url: initialURL, tempURL: firstDestination) {
+            return firstDestination
+        }
+        guard !Task.isCancelled else { return nil }
+        cache.invalidate(videoId: videoId, quality: currentQuality())
+        guard let renewedURL = try? await resolveStreamURL(for: videoId),
+              !Task.isCancelled else { return nil }
+        let renewedDestination = cacheFileURL(videoId: videoId, from: renewedURL)
+        return await downloadTo(url: renewedURL, tempURL: renewedDestination)
+            ? renewedDestination : nil
+    }
+
+    private func downloadInRanges(from url: URL, to destination: URL) async throws -> Bool {
+        let chunkSize = 1_048_576
+        let maximumFileSize = 512 * 1_048_576
+        let staging = destination.deletingLastPathComponent()
+            .appendingPathComponent(".\(UUID().uuidString).partial")
+        guard FileManager.default.createFile(atPath: staging.path, contents: nil) else {
+            throw PlayerError.networkError("Unable to create media staging file")
+        }
+        defer { try? FileManager.default.removeItem(at: staging) }
+        let handle = try FileHandle(forWritingTo: staging)
+        defer { try? handle.close() }
+
+        var offset = 0
+        var totalSize: Int?
+        repeat {
+            try Task.checkCancellation()
+            let end = offset + chunkSize - 1
+            var request = URLRequest(url: url)
+            request.setValue("bytes=\(offset)-\(end)", forHTTPHeaderField: "Range")
+            let (bytes, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  http.statusCode == 206,
+                  let range = http.value(forHTTPHeaderField: "Content-Range"),
+                  range.hasPrefix("bytes \(offset)-"),
+                  let separator = range.lastIndex(of: "/"),
+                  let size = Int(range[range.index(after: separator)...]),
+                  size > 0, size <= maximumFileSize,
+                  totalSize == nil || totalSize == size,
+                  bytes.count == min(chunkSize, size - offset) else {
+                throw PlayerError.networkError("Invalid media range response")
+            }
+            totalSize = size
+            try handle.write(contentsOf: bytes)
+            offset += bytes.count
+        } while offset < (totalSize ?? 0)
+
+        try handle.close()
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.removeItem(at: destination)
+        }
+        try FileManager.default.moveItem(at: staging, to: destination)
+        log.info("Recovered direct media download with bounded ranges")
+        return true
     }
 
     // MARK: - Temp files / URL resolution

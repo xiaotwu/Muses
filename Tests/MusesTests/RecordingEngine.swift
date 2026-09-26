@@ -20,6 +20,7 @@ final class RecordingEngine: PlayerEngine {
     var prepareCallCount = 0
     var lastPreparedTrack: TrackSnapshot?
     var playPreparedCallCount = 0
+    var lastPreparedExpectedTrackID: UUID?
     var playPreparedReturnValue = false
     private var spectrumHandler: ((SpectrumFrame) -> Void)?
 
@@ -38,9 +39,10 @@ final class RecordingEngine: PlayerEngine {
     }
 
     @discardableResult
-    func playPrepared() -> Bool {
+    func playPrepared(expectedTrackID: UUID) -> Bool {
         playPreparedCallCount += 1
-        return playPreparedReturnValue
+        lastPreparedExpectedTrackID = expectedTrackID
+        return playPreparedReturnValue && lastPreparedTrack?.id == expectedTrackID
     }
 
     func play() { playCallCount += 1; state.isPlaying = true }
