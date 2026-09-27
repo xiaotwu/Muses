@@ -19,5 +19,6 @@
 .doc-content code{font: .88em/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:#ffffff16;border:1px solid #ffffff12;border-radius:5px;padding:.12em .32em;color:#f0f0f2}
 .doc-content pre{overflow-x:auto;background:#1d1f23;border:1px solid var(--line);border-radius:13px;padding:18px 20px;margin:22px 0 26px;line-height:1.5}.doc-content pre code{display:block;background:none;border:0;padding:0;font-size:13px;white-space:pre;color:#e2e3e7}
 .doc-content table{display:block;width:max-content;max-width:100%;overflow-x:auto;border-collapse:collapse;margin:24px 0 30px;font-size:15px;line-height:1.5}.doc-content th,.doc-content td{border-bottom:1px solid var(--line);padding:12px 18px 12px 0;text-align:left;vertical-align:top}.doc-content th{color:var(--ink);font-weight:650}.doc-content hr{border:0;border-top:1px solid var(--line);margin:40px 0}.doc-content img{height:auto;border-radius:12px}
+.doc-content td code{white-space:nowrap}
 .doc-content input[type=checkbox]{accent-color:#f1f1f2}.page-doc .site-foot{width:min(1200px,calc(100% - 48px))}
 @media(max-width:720px){.doc-shell{width:min(100% - 32px,820px);padding:46px 0 68px}.doc-content{font-size:16px}.doc-content h2{font-size:27px;margin-top:40px}.page-doc .site-foot{width:min(100% - 32px,1200px)}}
