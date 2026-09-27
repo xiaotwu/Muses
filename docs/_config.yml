@@ -1,4 +1,5 @@
 theme: jekyll-theme-cayman
 title: Muses
 description: A native Mac home for YouTube music, playlists, podcasts, lyrics, and contextual playback.
-show_downloads: true
+baseurl: /Muses
+show_downloads: false
