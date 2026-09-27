@@ -59,6 +59,45 @@ struct PlaylistServiceTests {
         #expect(items2.count == 1, "Deduplication: duplicate track should not be added")
     }
 
+    @Test("open playlist membership refreshes after add and remove")
+    func membershipChangesNotifyAndRefetch() throws {
+        let container = try makeContainer()
+        let service = PlaylistService(modelContainer: container)
+        let track = makeTrack(in: container, title: "First")
+        let secondTrack = makeTrack(in: container, title: "Second")
+        let thirdTrack = makeTrack(in: container, title: "Third")
+        let playlist = service.create(name: "Visible playlist")
+        nonisolated(unsafe) var notifications = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: .musesPlaylistsChanged, object: nil, queue: .main
+        ) { _ in
+            notifications += 1
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        #expect(service.fetchItems(in: playlist.id).isEmpty)
+        service.addTrack(playlist, track: track)
+        let item = try #require(service.fetchItems(in: playlist.id).first)
+        #expect(item.track?.id == track.id)
+        #expect(notifications == 1)
+
+        service.addTrack(playlist, track: secondTrack)
+        service.addTrack(playlist, track: thirdTrack)
+        #expect(service.fetchItems(in: playlist.id).map(\.track?.title) == ["First", "Second", "Third"])
+        #expect(notifications == 3)
+
+        let secondItem = try #require(service.fetchItems(in: playlist.id).first { $0.track?.id == secondTrack.id })
+        service.removeItem(id: secondItem.id)
+        let remaining = service.fetchItems(in: playlist.id)
+        #expect(remaining.map(\.track?.title) == ["First", "Third"])
+        #expect(remaining.map(\.order) == [0, 1])
+        #expect(notifications == 4)
+
+        service.removeItem(id: item.id)
+        #expect(service.fetchItems(in: playlist.id).map(\.track?.title) == ["Third"])
+        #expect(notifications == 5)
+    }
+
     @Test("moveItem reorders items")
     func moveItemReorders() throws {
         let container = try makeContainer()

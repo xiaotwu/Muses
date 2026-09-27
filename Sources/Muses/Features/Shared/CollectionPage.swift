@@ -344,10 +344,10 @@ private struct CollectionTrackTable: View {
             ) { row in
                 CollectionTrackTitleCell(
                     row: row,
-                    liked: likedIDs.contains(row.id),
+                    liked: likedIDs.contains(row.snapshot.id),
                     isPlaying: matchesCurrent(row),
                     onPlay: { onPlay(row) },
-                    onToggleLike: { library.toggleLike(id: row.id) },
+                    onToggleLike: { library.toggleLike(id: row.snapshot.id) },
                     onRemove: onRemove.map { handler in { handler(row) } }
                 )
             }
@@ -465,7 +465,7 @@ private struct CollectionTrackTable: View {
                     .forEach(onRemove)
             } label: {
                 Label(
-                    tr("Remove (selectedIDs.count) songs", "移除 (selectedIDs.count) 首歌曲"),
+                    tr("Remove \(selectedIDs.count) songs", "移除 \(selectedIDs.count) 首歌曲"),
                     systemImage: "minus.circle"
                 )
             }
@@ -478,10 +478,10 @@ private struct CollectionTrackTable: View {
                 playlists: playlists,
                 onPlay: { onPlay(row) },
                 onRemoveFromContainer: onRemove.map { handler in { handler(row) } },
-                onEditTrack: { editingTrack = library.track(by: row.id) },
-                onTrackNotes: { notesTrack = library.track(by: row.id) },
+                onEditTrack: { editingTrack = library.track(by: row.snapshot.id) },
+                onTrackNotes: { notesTrack = library.track(by: row.snapshot.id) },
                 onCreatePlaylist: {
-                    pendingNewPlaylistTrackID = row.id
+                    pendingNewPlaylistTrackID = row.snapshot.id
                     showCreatePlaylist = true
                 }
             )
@@ -496,12 +496,12 @@ private struct CollectionTrackTable: View {
     }
 
     private func refreshLikedIDs() {
-        likedIDs = library.likedIDs(for: rows.map(\.id))
+        likedIDs = library.likedIDs(for: rows.map(\.snapshot.id))
     }
 
     private func matchesCurrent(_ row: CollectionTrackRow) -> Bool {
         guard let currentTrack else { return false }
-        return currentTrack.id == row.id
+        return currentTrack.id == row.snapshot.id
             || (!currentTrack.youTubeId.isEmpty
                 && currentTrack.youTubeId == row.snapshot.youTubeId)
     }
@@ -589,8 +589,8 @@ private struct CollectionTrackTitleCell: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(tr("Remove (row.title)", "移除 (row.title)", zhHant: "移除 \(row.title)"))
-                .accessibilityLabel(tr("Remove (row.title)", "移除 (row.title)", zhHant: "移除 \(row.title)"))
+                .help(tr("Remove \(row.title)", "移除 \(row.title)", zhHant: "移除 \(row.title)"))
+                .accessibilityLabel(tr("Remove \(row.title)", "移除 \(row.title)", zhHant: "移除 \(row.title)"))
             }
         }
         .frame(minHeight: 42)

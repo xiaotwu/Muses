@@ -11,13 +11,6 @@ struct PlaylistDetailView: View {
     @Query(sort: \Playlist.name) private var allPlaylists: [Playlist]
     @State private var rows: [CollectionTrackRow] = []
 
-    private var sortedItems: [PlaylistItem] {
-        (playlist.items ?? []).sorted {
-            if $0.order != $1.order { return $0.order < $1.order }
-            return $0.id.uuidString < $1.id.uuidString
-        }
-    }
-
     private var snapshots: [TrackSnapshot] { rows.map(\.snapshot) }
 
     var body: some View {
@@ -44,12 +37,8 @@ struct PlaylistDetailView: View {
                 playback.playTrack(row.snapshot, context: snapshots, from: .playlist)
             },
             onRemove: { row in
-                guard let item = sortedItems.first(where: {
-                    $0.track?.id == row.id
-                        || ($0.track?.youTubeId != nil
-                            && $0.track?.youTubeId == row.snapshot.youTubeId)
-                }) else { return }
-                playlistService.removeItem(item)
+                guard let itemID = row.collectionItemID else { return }
+                playlistService.removeItem(id: itemID)
             }
         ) {
             HStack(spacing: 8) {
@@ -76,7 +65,7 @@ struct PlaylistDetailView: View {
     }
 
     private func reloadRows() {
-        rows = CollectionTrackRow.playlist(from: sortedItems)
+        rows = CollectionTrackRow.playlist(from: playlistService.fetchItems(in: playlist.id))
     }
 
     private func playAll() {

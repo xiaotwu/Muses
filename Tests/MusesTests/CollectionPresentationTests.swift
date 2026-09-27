@@ -58,6 +58,8 @@ struct CollectionPresentationTests {
 
         #expect(rows.map(\.title) == ["First", "Second"])
         #expect(rows.map(\.canonicalIndex) == [0, 1])
+        #expect(rows.map(\.id) == [item0.id, item1.id])
+        #expect(rows.map(\.snapshot.id) == [first.id, second.id])
     }
 
     @Test("Visual table sorting does not rewrite canonical order")

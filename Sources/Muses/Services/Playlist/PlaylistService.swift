@@ -156,6 +156,19 @@ final class PlaylistService {
         }
     }
 
+    /// Loads current membership from a fresh context so an open detail view
+    /// can observe edits made through another surface.
+    func fetchItems(in playlistID: UUID) -> [PlaylistItem] {
+        let ctx = ModelContext(modelContainer)
+        guard let playlist = try? ctx.fetch(FetchDescriptor<Playlist>(
+            predicate: #Predicate { $0.id == playlistID }
+        )).first else { return [] }
+        return (playlist.items ?? []).sorted {
+            if $0.order != $1.order { return $0.order < $1.order }
+            return $0.id.uuidString < $1.id.uuidString
+        }
+    }
+
     // MARK: - Item management
 
     /// Appends a track to a playlist (order = max + 1).
@@ -186,19 +199,32 @@ final class PlaylistService {
         } else {
             p.items = [item]
         }
-        try? ctx.save()
+        do {
+            try ctx.save()
+            notifyPlaylistsChanged()
+        } catch {
+            log.warning("Failed to add playlist item: \(error.localizedDescription)")
+        }
     }
 
     /// Removes an item from a playlist (deletes it and renumbers the remaining order).
     func removeItem(_ item: PlaylistItem) {
+        removeItem(id: item.id)
+    }
+
+    func removeItem(id itemId: UUID) {
         let ctx = ModelContext(modelContainer)
-        let itemId = item.id
         guard let i = try? ctx.fetch(FetchDescriptor<PlaylistItem>(
             predicate: #Predicate { $0.id == itemId }
         )).first else { return }
         let playlist = i.playlist
         ctx.delete(i)
-        try? ctx.save()
+        do {
+            try ctx.save()
+        } catch {
+            log.warning("Failed to remove playlist item: \(error.localizedDescription)")
+            return
+        }
 
         // Renumber the remaining order
         if let playlist, var items = playlist.items {
@@ -209,6 +235,7 @@ final class PlaylistService {
             playlist.items = items
             try? ctx.save()
         }
+        notifyPlaylistsChanged()
     }
 
     /// Drag reordering: moves the entry at `from` to `to` and renumbers order.

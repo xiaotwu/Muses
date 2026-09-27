@@ -106,9 +106,9 @@ PLIST="/usr/libexec/PlistBuddy"
 echo "[5/5] codesign (--deep --options runtime)"
 ENTITLEMENTS="$RES_DIR/Muses.entitlements"
 YTDLP_ENTITLEMENTS="$RES_DIR/YTDLP.entitlements"
-TIMESTAMP_ARGS=()
+TIMESTAMP_ARGS=(--timestamp=none)
 if [[ "$IDENTITY" != "-" ]]; then
-    TIMESTAMP_ARGS+=(--timestamp)
+    TIMESTAMP_ARGS=(--timestamp)
 fi
 # SwiftPM also copies yt-dlp into Bundle.module resources. Apple notarization
 # checks both copies independently, including Developer ID, timestamp, and runtime.
