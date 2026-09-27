@@ -340,6 +340,58 @@ struct YouTubeStreamEngineTests {
         #expect(!engine._hasActivePlayback)
     }
 
+    @Test("zero volume remains silent across cached, prepared, and streaming handoffs")
+    func zeroVolumeSurvivesBackendChanges() async throws {
+        let wav = try makeWAVFile(seconds: 3)
+        let bridge = MockYTDlpBridge()
+        let videoIDs = (0..<3).map { "mute-\($0)-\(UUID().uuidString)" }
+        let quality = UserDefaults.standard.string(forKey: PrefKey.ytAudioQuality) ?? "bestaudio"
+        defer { videoIDs.forEach { MediaFileCache.remove(videoId: $0, quality: quality) } }
+        let engine = YouTubeStreamEngine(
+            bridge: bridge,
+            cache: StreamURLCache(defaultTTL: 3600),
+            downloadOverride: { _, destination in
+                do {
+                    try FileManager.default.copyItem(at: wav, to: destination)
+                    return true
+                } catch {
+                    return false
+                }
+            }
+        )
+        func track(_ index: Int) -> TrackSnapshot {
+            TrackSnapshot(
+                id: UUID(), title: "Muted \(index)", artist: "a", albumTitle: nil,
+                durationSeconds: 3, youTubeId: videoIDs[index], artworkUrl: nil,
+                sampleRate: 44_100, bitDepth: 16, codec: "wav", isLossless: false)
+        }
+        let first = track(0)
+        let prepared = track(1)
+        let streamed = track(2)
+
+        engine.setVolume(0)
+        bridge.streamURL = wav
+        try await engine.load(first)
+        #expect(engine._backendVolumes.active == 0)
+
+        await engine.prepare(prepared)
+        #expect(engine.playPrepared(expectedTrackID: prepared.id))
+        #expect(engine._backendVolumes.active == 0)
+
+        engine.setVolume(0.7)
+        bridge.streamURL = URL(string: "https://stream.invalid/muted.wav")!
+        try await engine.load(streamed)
+        #expect(abs((engine._backendVolumes.stream ?? 0) - 0.7) < 0.001)
+        engine.setVolume(0)
+        #expect(engine._backendVolumes.stream == 0)
+        await engine.awaitHybridWorkForTests()
+        #expect(!engine._isStreamingMode)
+        #expect(engine._backendVolumes.active == 0)
+
+        engine.setVolume(0.35)
+        #expect(abs(engine._backendVolumes.active - 0.35) < 0.001)
+    }
+
     @Test("a slow stale load cannot overwrite the newer track")
     func staleLoadCannotOverwriteNewerTrack() async throws {
         let wav = try makeWAVFile(seconds: 2)

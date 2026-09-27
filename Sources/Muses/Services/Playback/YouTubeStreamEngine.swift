@@ -85,6 +85,10 @@ final class YouTubeStreamEngine: PlayerEngine {
     /// false while a backend is loading or being swapped. Every backend handoff
     /// must consult this value before it is allowed to emit audio.
     private var playbackRequested = false
+    /// User volume is authoritative across streaming, decoded playback, and
+    /// preloaded hand-offs. Zero is a valid setting, never an uninitialized value.
+    private var desiredVolume: Float = 0.8
+    private var streamingSwapProgress: Float?
 
     private let bridge: any YTDlpBridgeProtocol
     private let cache: StreamURLCache
@@ -111,6 +115,9 @@ final class YouTubeStreamEngine: PlayerEngine {
     /// Regression-test seam for detecting a backend that outlives paused state.
     var _hasActivePlayback: Bool {
         playerA.isPlaying || playerB.isPlaying || (avPlayer?.rate ?? 0) > 0
+    }
+    var _backendVolumes: (active: Float, inactive: Float, stream: Float?) {
+        (activePlayer.volume, inactivePlayer.volume, avPlayer?.volume)
     }
 
     var onCompletion: (@MainActor () -> Void)?
@@ -204,7 +211,7 @@ final class YouTubeStreamEngine: PlayerEngine {
         next.stop()
         next.scheduleFile(file, at: nil) { }
         ensureEngineRunning()
-        next.volume = currentTargetVolume()
+        next.volume = desiredVolume
         if ioCycleReady && hasAudioOutput { next.play() }
         activePlayer.stop()
         activePlayer = next
@@ -372,14 +379,20 @@ final class YouTubeStreamEngine: PlayerEngine {
     }
 
     func setVolume(_ v: Float) {
-        let clamped = max(0, min(1, v))
-        if useAVPlayerFallback || isStreamingMode {
-            avPlayer?.volume = clamped
-            return
+        guard v.isFinite else { return }
+        desiredVolume = max(0, min(1, v))
+        applyDesiredVolume()
+    }
+
+    private func applyDesiredVolume() {
+        activePlayer.volume = desiredVolume
+        if let progress = streamingSwapProgress {
+            inactivePlayer.volume = desiredVolume * progress
+            avPlayer?.volume = desiredVolume * (1 - progress)
+        } else {
+            inactivePlayer.volume = desiredVolume
+            avPlayer?.volume = desiredVolume
         }
-        activePlayer.volume = clamped
-        // Sync the idle node to avoid a volume jump during hand-off
-        inactivePlayer.volume = clamped
     }
 
     func setPlaybackRate(_ rate: Float) {
@@ -487,12 +500,13 @@ final class YouTubeStreamEngine: PlayerEngine {
         next.scheduleSegment(file, startingFrame: startFrame, frameCount: count, at: nil) { }
         ensureEngineRunning()
 
-        let targetVol = currentTargetVolume()
-        next.volume = 0
+        streamingSwapProgress = 0
+        applyDesiredVolume()
         if playbackRequested, ioCycleReady, hasAudioOutput { next.play() }
 
         applyEQ(requestedEQ)
-        // ~200ms fade (10 steps × 20ms): AVPlayer volume →0, AVAudioPlayerNode →target
+        // ~200ms fade: derive every step from the latest user volume so a mute
+        // during hand-off cannot be overwritten by the previous target.
         let steps = 10
         for step in 1...steps {
             if Task.isCancelled
@@ -508,8 +522,8 @@ final class YouTubeStreamEngine: PlayerEngine {
                 next.pause()
             }
             let progress = Float(step) / Float(steps)
-            avPlayer?.volume = targetVol * (1 - progress)
-            next.volume = targetVol * progress
+            streamingSwapProgress = progress
+            applyDesiredVolume()
             try? await Task.sleep(for: .milliseconds(20))
         }
         if Task.isCancelled
@@ -524,6 +538,8 @@ final class YouTubeStreamEngine: PlayerEngine {
         useAVPlayerFallback = false
         activePlayer.stop()
         activePlayer = next
+        streamingSwapProgress = nil
+        applyDesiredVolume()
         currentFile = file
         currentTrack = track
         state.track = track
@@ -544,6 +560,7 @@ final class YouTubeStreamEngine: PlayerEngine {
     private func cancelStreamingSwap() {
         swapTask?.cancel()
         swapTask = nil
+        streamingSwapProgress = nil
     }
 
     private func loadIsCurrent(generation: UInt64, trackId: UUID) -> Bool {
@@ -611,7 +628,7 @@ final class YouTubeStreamEngine: PlayerEngine {
                 state.error = .engineStartFailed
                 return false
             }
-            next.volume = currentTargetVolume()
+            next.volume = desiredVolume
             // On the load() path nothing has played yet; play() is not called here — PlaybackService triggers it.
             activePlayer.stop()
             activePlayer = next
@@ -648,14 +665,6 @@ final class YouTubeStreamEngine: PlayerEngine {
             isLossless: false)
         state.error = nil
         state.buffering = false
-    }
-
-    /// Current target volume (AVPlayer volume when on that path, otherwise the activePlayer volume).
-    private func currentTargetVolume() -> Float {
-        if useAVPlayerFallback || isStreamingMode {
-            return avPlayer?.volume ?? 0.8
-        }
-        return activePlayer.volume == 0 ? 0.8 : activePlayer.volume
     }
 
     // MARK: - Prefetch (background download + decode for the next queued track)
@@ -708,7 +717,7 @@ final class YouTubeStreamEngine: PlayerEngine {
         let item = AVPlayerItem(url: url)
         avPlayer = AVPlayer(playerItem: item)
         avPlayer?.defaultRate = requestedPlaybackRate
-        avPlayer?.volume = currentTargetVolume()
+        applyDesiredVolume()
 
         let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
         timeObserver = avPlayer?.addPeriodicTimeObserver(
