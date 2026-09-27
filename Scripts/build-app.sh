@@ -82,6 +82,13 @@ if [[ ! -d "$RESOURCE_BUNDLE" ]]; then
     exit 1
 fi
 /usr/bin/ditto "$RESOURCE_BUNDLE" "$CONTENTS/Resources/Muses_Muses.bundle"
+# SwiftPM can reuse a resource bundle planned by an earlier test/build before
+# copy-ytdlp.sh downloaded the ignored binary. Keep Bundle.module's copy in sync
+# with the source that this packaging run just fetched.
+BUNDLED_RESOURCES="$CONTENTS/Resources/Muses_Muses.bundle/Contents/Resources/Resources"
+mkdir -p "$BUNDLED_RESOURCES"
+cp "$RES_DIR/yt-dlp" "$BUNDLED_RESOURCES/yt-dlp"
+[[ ! -f "$RES_DIR/yt-dlp-LICENSE" ]] || cp "$RES_DIR/yt-dlp-LICENSE" "$BUNDLED_RESOURCES/yt-dlp-LICENSE"
 
 # Shipping bundles contain only app resources. Catch accidental fixture and
 # acceptance-data copies before signing makes the bundle immutable.
