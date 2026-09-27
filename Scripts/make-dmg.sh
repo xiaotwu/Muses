@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-VER="${MUSES_VERSION:-0.5.2}"
+VER="${MUSES_VERSION:-0.5.3}"
 APP="build/Muses.app"
 STAGING="build/dmg-staging"
 DMG="build/Muses-${VER}.dmg"
