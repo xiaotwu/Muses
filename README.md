@@ -1,23 +1,21 @@
-<p align="center"><img src="assets/icon.png" width="88" alt="Muses"></p>
+<p align="center"><img src="docs/assets/icon.png" width="88" alt="Muses app icon"></p>
 <h1 align="center">Muses</h1>
-<p align="center">A quieter place to listen on your Mac.</p>
-<p align="center"><a href="https://github.com/xiaotwu/Muses/releases/latest">Download Muses</a> · <a href="https://xiaotwu.github.io/Muses/">Website</a> · <a href="docs/installation.md">Installation</a></p>
+<p align="center">A native Mac home for music from YouTube.</p>
+<p align="center"><a href="https://github.com/xiaotwu/Muses/releases/latest">Download</a> · <a href="https://xiaotwu.github.io/Muses/">Explore the interactive tour</a> · <a href="docs/installation.md">Install guide</a></p>
 
-![Muses on macOS](docs/assets/hero-home.jpg)
+[![Muses Home on macOS](docs/assets/tour-home.png)](https://xiaotwu.github.io/Muses/#tour)
 
-Muses brings your music collections into a focused Mac app. Explore playlists, albums, artists, videos, and followed shows. Keep favorites, listening history, and a queue that remembers where you started.
+Muses brings YouTube music, playlists, videos and followed podcasts into a focused macOS app. Browse by artwork, keep favorites and listening history, and play from a queue that remembers the collection you started from.
 
-## Made for listening
+## Listen your way
 
-- Browse an artwork-led Home and discover something new.
-- Move between collections while keeping meaningful Previous, Next, and Up Next behavior.
-- Enjoy cover or vinyl artwork, lyrics, and a spacious Now Playing view.
-- Control playback from the floating player, menu bar, keyboard, or system media controls.
-- Pick up podcasts where you left off, adjust speed, and skip back or forward.
-- Watch a video when you want to, and read its comments in a floating panel.
+- Import YouTube playlists and explore Home, songs, albums, artists, music videos and subscriptions.
+- Keep the current collection, **Up Next**, and history distinct; use repeat, shuffle and Smart Shuffle.
+- Open **Now Playing** for cover or vinyl artwork and available lyrics. Watch the YouTube video on demand.
+- Control playback from the floating player, menu bar, keyboard shortcuts and macOS media controls.
+- Follow podcasts, resume episodes, adjust playback speed and skip back or forward.
+- Choose an optional personalized Home with explicit browser-session consent. Guest discovery works without it.
 
-Muses is available for macOS 14 or later. See the [installation guide](docs/installation.md) and [latest release notes](docs/release-notes-0.5.3.md).
+The [website](https://xiaotwu.github.io/Muses/#tour) includes a keyboard-accessible tour of real app screens. Muses requires **macOS 14 or later**. Download the signed app from the [latest release](https://github.com/xiaotwu/Muses/releases/latest); see [installation](docs/installation.md) for setup.
 
-For contributors, see [development](docs/development.md). For data and account details, see [privacy](docs/privacy.md).
-
-[MIT license](LICENSE).
+For contributors: [development](docs/development.md) · [project guidance](AGENTS.md). For account and data handling: [privacy](docs/privacy.md). [MIT license](LICENSE).

@@ -36,7 +36,7 @@ swift test --filter InnertubeHome # focused parser/request/privacy suite
 swift test --filter WebHome       # focused signed-in helper suite
 make app                         # assemble build/Muses.app
 make app MUSES_SIGN_IDENTITY="Apple Development: you (TEAMID)"
-MUSES_VERSION=0.5.1 make dmg
+make dmg                        # uses the current Makefile version
 ```
 
 Google OAuth configuration is injected at packaging time through build environment variables:
@@ -73,14 +73,15 @@ MUSES_GOOGLE_OAUTH_CLIENT_ID=... MUSES_GOOGLE_OAUTH_CLIENT_SECRET=... \
     make release
 ```
 
-`make release` builds the app, signs both bundled copies of `yt-dlp` and the Web Home helper, notarizes and staples the app, then signs, notarizes, and staples the DMG. The PyInstaller-based `yt-dlp` copies receive a narrow library-validation exception and are launched with `--version` after signing; `codesign --verify` alone cannot detect a failure to load their unpacked Python library. It produces `build/Muses-0.5.1.zip` and `build/Muses-0.5.1.dmg` with the same app version. Run the full tests and review the artifacts before publishing.
+`make release` builds the app, signs both bundled copies of `yt-dlp` and the Web Home helper, notarizes and staples the app, then signs, notarizes, and staples the DMG. The PyInstaller-based `yt-dlp` copies receive a narrow library-validation exception and are launched with `--version` after signing; `codesign --verify` alone cannot detect a failure to load their unpacked Python library. It produces `build/Muses-<version>.zip` and `build/Muses-<version>.dmg` using `MUSES_VERSION` (or the Makefile default). Run the full tests and review the artifacts before publishing.
 
 ### Publish a release
 
 ```bash
-git tag -a v0.5.1 -m "Muses 0.5.1" && git push origin v0.5.1
-gh release create v0.5.1 build/Muses-0.5.1.dmg build/Muses-0.5.1.zip \
-    --title "Muses 0.5.1" --notes-file docs/release-notes-0.5.1.md
+release_version=x.y.z # set to the reviewed package version
+git tag -a "v${release_version}" -m "Muses ${release_version}" && git push origin "v${release_version}"
+gh release create "v${release_version}" "build/Muses-${release_version}.dmg" "build/Muses-${release_version}.zip" \
+    --title "Muses ${release_version}" --notes-file "docs/release-notes-${release_version}.md"
 ```
 
 ### Pre-release checklist
@@ -101,12 +102,15 @@ gh release create v0.5.1 build/Muses-0.5.1.dmg build/Muses-0.5.1.zip \
 ## GitHub Pages
 
 `docs/` doubles as the site source (Jekyll). Set the repository Pages source to *Deploy from branch → `main` → `/docs`* to publish it.
+
+The landing page is `docs/index.html`. Its interactive screen tour uses local screenshots in `docs/assets/` and plain JavaScript. Keep screenshots aligned with the shipped UI; retain keyboard operation and Reduce Motion support when changing the tour. Changes become public only after the Pages source branch is updated.
+
 ## Build and distribution
 
 `make clean` removes the complete SwiftPM build directory and app packaging outputs.
 The GitHub `macOS build` workflow runs serial tests and uploads an ad-hoc signed
 Apple Silicon preview bundle. Publishing a notarized distribution requires a
-Developer ID identity and notary credentials; the public 0.5.1 DMG and ZIP use that release path.
+Developer ID identity and notary credentials; public releases use that release path.
 OAuth configuration is injected only at packaging time and must not be committed.
 
 Settings uses first-level categories with expanded sections. Shared glass actions

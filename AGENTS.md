@@ -4,7 +4,7 @@
 
 This file defines durable product, engineering, UX, design, performance, and verification rules for all work in this repository. It is persistent agent context, not a roadmap or task list.
 
-Muses is a native macOS **YouTube-native music application**. The library is imported YouTube videos and playlists. Playback, queue, artwork-led browsing, a persistent PlayerBar, immersive Now Playing (video + vinyl), and native macOS integration remain the product. It is not a local-file media player and not a demo.
+Muses is a native macOS **YouTube-native music and podcast application**. The library includes imported YouTube videos and playlists, stable YouTube-backed catalog identities, and followed podcast shows. Playback, queue, artwork-led browsing, a persistent PlayerBar, immersive Now Playing (cover + vinyl), on-demand video, and native macOS integration remain the product. It is not a local-file media player or a demo.
 
 As of 2026-08-20 the local-file era is retired: no folder scanning, no file import, no M3U workflow, no local additions to imported YouTube playlists, and no `LocalAudioEngine` in the running app. The approved store cutover decision (D1) chose a one-time logical snapshot/import into a clean versioned store. Build and validate the replacement store at a distinct URL. Do not delete a source store as part of pointer activation; after manifest-complete validation and a successful cold restart without the legacy store, remove the legacy store family and its compatibility pipeline. The user explicitly chose no long-term migration capsule on 2026-08-24.
 
@@ -74,7 +74,7 @@ The approved visual reconstruction contract is encoded in the source and its gua
 - Keep SwiftData model objects on their intended actor/context boundaries. Do not pass them into detached tasks or other real-time work.
 - Preserve immutable `Sendable` value boundaries such as `TrackSnapshot` for playback, queueing, and detached computation.
 - Continue the established fresh-context, UUID re-fetch pattern when mutating persisted objects unless an explicitly scoped architectural change replaces it.
-- Persisted user truth—stable IDs, likes, playlists and item order, YouTube imports, history, queue state, notes/bookmarks, pins, and user metadata—must survive the approved D1 logical cutover.
+- Persisted user truth—stable IDs, likes, playlists and item order, YouTube imports, history, queue state, notes/bookmarks, pins, podcast follows and episode progress, and user metadata—must survive store upgrades.
 - Do not carry retired local rows, `ScanRoot`, scanner/M3U state, or rebuildable catalog caches into the clean store. Preserve the source during cutover validation, then delete the legacy store family and old-schema compatibility code after the approved cleanup gate passes.
 - Releases and artists require stable YouTube Music browse/playlist or YouTube channel IDs; never merge catalog objects by display name alone. Music Videos are a `Track` media kind, not a parallel playable entity.
 - Keep expensive network, metadata, palette, and recommendation work out of SwiftUI `body`.
@@ -90,15 +90,15 @@ The approved visual reconstruction contract is encoded in the source and its gua
 
 ## Product Contracts
 
-Chrome (live Apple Music Web layout; supersedes the old Apple Music draft and Sidra black/white/glow):
-
-- Left nav (live Apple Music Web): liquid-glass rounded pane extending behind the native traffic lights and unified toolbar, no sidebar header logo or wordmark, Search / Home / New (selected item is pink), then Library (Recently, Songs, History) and playlists. Standard window buttons remain AppKit-owned and are never reparented or manually positioned. The native unified toolbar places traffic lights, sidebar toggle, Back and Forward in one row; navigation arrows use real window-local history and disable when unavailable. Inbox is not a chrome destination. Collapse is an 88pt icon rail; navigation content stays below the toolbar while its glass background reaches the window top. A gearshape Settings row at the bottom uses the same icon, font, and selection treatment as other destinations; the collapsed rail retains its icon and label. No top-bar tabs. No Radio.
-- Library pane is always visible unless the user collapsed it.
-- Player is a floating glass capsule overlaid on browsing content (it does not reserve a layout row). Idle: Muses mark + Not Playing. Playing: art + title + times + volume. Transport left; lyrics / queue / volume / expand / YouTube last on the right as chrome glyphs. Hidden under the YouTube video overlay and while Now Playing is open.
-- Queue is an integrated full-height trailing pane, not a detached floating glass drawer. Settings is integrated into the main content pane, retaining the sidebar, PlayerBar and navigation history. Settings categories use meaningful SF Symbols; only About branding uses the Muses logo.
-- Now Playing is a fullscreen overlay. Cover left with title, like, more, artist, album, seek, transport, volume; lyrics right with options. Current lyric uses accent. Chevron back closes it. Opening Now Playing closes the queue panel and hides the dock.
-- Visual language matches Apple Music Web: SF Pro, near-black / near-white neutrals, accent `#FA586A` (calibrate from `music.apple.com`) for card Play, scrubber, selected sidebar row, current track title, and active lyric. Dock play/pause is primary-colored, not pink. No Sidra white glow. YouTube mark keeps its red.
-- Library sidebar and player icons are heavier monochrome SF Symbols (semibold, ≥28pt hit target). The macOS application menu stays text. The menu-bar status item uses a monochrome template variant of the Muses logo; Settings uses a gearshape navigation row; category icons describe their respective functions and share sidebar typography and selection treatment.
+- Use the native unified toolbar for AppKit-owned traffic lights, sidebar toggle, and real window-local Back/Forward history. Search has its own native toolbar history. Cold-restored details seed their parent list; Settings seeds Home. Video close, sheet cancellation, and data rollback are separate actions.
+- The liquid-glass music sidebar extends behind the toolbar; navigation content starts below it. Search / Home / New, library destinations, playlists, and a bottom Settings row remain available. The collapsed sidebar is an 88pt icon rail. No sidebar wordmark, top-bar tabs, Inbox chrome destination, or Radio.
+- Entering Settings replaces the music sidebar with nine first-level categories: General, Playback, Appearance, Account, Lyrics, Diagnostics, Library Review, About, and Help & Privacy. Preferences and explanations are sections in the main pane, with no second category rail or nested settings pages. Preserve the same navigation history and PlayerBar.
+- The PlayerBar is a floating glass capsule over browsing content. Its idle state retains the normal layout and a rounded lyre-mark tile; unavailable transport, lyrics, and video actions are disabled while queue and app volume remain usable. Hide it in Now Playing and the video overlay.
+- Queue is an integrated full-height trailing pane. Keep current collection, Up Next, and history distinct, including repeat, shuffle, Smart Shuffle, reorder, and persistence behavior.
+- Now Playing is a fullscreen overlay with square cover or circular vinyl on the left and optional lyrics on the right. The native toolbar Back action closes it; opening it closes Queue and hides the PlayerBar. Lyric display modes belong to the lyrics options menu. Current timed lyrics use artwork-derived multicolor gradients with a neutral high-contrast fallback; never invent timing or source.
+- Selection and playback accents are adaptive black/white with restrained static halos on active controls. Keep YouTube red and destructive/error colors semantic. Shared action buttons and compact selection controls use native glass and capsule shapes where available, with supported-system and accessibility fallbacks. Group glass within bounded control clusters; artwork, video, and reading regions keep their aspect ratios.
+- Volume and output controls share `PlaybackService` state across surfaces. Output selection is trailing and visually distinct from volume. App volume never writes system volume. Volume scales retain keyboard and accessibility adjustment without an enclosing focus rectangle, and pointer input maps across the entire visible scale.
+- Use heavier monochrome SF Symbols for sidebar and player chrome, with at least 28pt hit targets. The macOS application menu stays text. The menu-bar status item uses a monochrome template lyre; its compact 332pt popover has one native surface without a second framed glass card.
 
 Unless a task explicitly changes them, preserve:
 
@@ -106,9 +106,10 @@ Unless a task explicitly changes them, preserve:
 - Contextual previous/next behavior.
 - Current queue, Up Next, history, repeat, shuffle, reorder, and persistence semantics.
 - Artwork-led discovery, page-specific content patterns, and playlist detail hierarchy. Songs and playlist details use the approved D3 centered card-deck stage + expandable complete sortable table; playlists overview uses square cards; Home and New retain measured editorial hero regions.
-- Songs, playlists, pins, recently played, search, and YouTube-import organization. Inbox tables remain on disk but have no chrome entry.
+- Songs, playlists, pins, recently played, search, YouTube imports, followed podcasts, and subscriptions. Inbox tables remain on disk but have no chrome entry.
 - Likes, pins, metadata, and playback-history preservation.
 - YouTube resynchronization of imported playlists.
+- Podcast episode progress, speed, skip controls, followed-show paging, and stable channel identity. Video comments are read-only; preserve reply paging without comment write or permission expansion. Shorts from subscribed channels retain stable video identity and collection playback context.
 - Keyboard shortcuts, application menus, context menus, sharing.
 - System media controls, notifications policy, and window restoration.
 - Immediate language switching via `tr(_ en: String, _ zhHans: String, ...)`.
@@ -127,14 +128,14 @@ Do not simplify mature queue/history workflows merely to make implementation eas
 
 Muses should remain distinctly macOS-native. Prioritize artwork (and Now Playing video), hierarchy, depth, clarity, responsiveness, desktop information density, and an expressive playback surface.
 
-Chrome layout follows live Apple Music Web: left nav (Search / Home / New + Library), page-specific editorial and table patterns, square shelves, integrated Queue, and a floating capsule player. Visual skin matches `music.apple.com`: pink accent, SF Pro, neutral surfaces, and restrained semantic glass. Native SwiftUI interpretation, not a WebView wrap of music.apple.com or music.youtube.com.
+Chrome layout follows live Apple Music Web: left nav (Search / Home / New + Library), page-specific editorial and table patterns, square shelves, integrated Queue, and a floating capsule player. Visual skin uses SF Pro, neutral surfaces, adaptive monochrome selection/playback accents, and restrained semantic glass. Native SwiftUI interpretation, not a WebView wrap of music.apple.com or music.youtube.com.
 
 Avoid:
 
 - Generic decorative glassmorphism on browsing cards.
 - An enlarged iOS layout.
-- Glow on idle icons, rail cards, or selected top tabs.
-- Sidra white bloom as a stand-in for accent.
+- Glow on idle icons or rail cards; active halos are restrained and static.
+- Pink as a general selection or playback accent.
 
 ### Visual Hierarchy
 
@@ -145,7 +146,7 @@ Avoid:
 - Preserve legibility and functional control contrast over artwork-derived backgrounds in light, dark, and high-contrast appearances.
 - Home includes a measured Apple Music Web editorial hero region, portrait Top Picks, and square shelves. New includes landscape editorial content, compact song matrices, and square shelves. Both pages stay calmer than Now Playing.
 - Songs and playlist details center collection identity/actions above a virtualized, fan-shaped all-track hero deck. The deck has one canonical focus shared by drag, trackpad/wheel, chevrons, keyboard, and a first-to-last scrubber. Only hero-card activation performs the centered ember-burn playback ritual. A dedicated chevron handle or upward swipe replaces the stage with the complete sortable table inside the content pane; sidebar and PlayerBar remain. Songs defaults to title A–Z with no manual order; playlists default to their persisted Playlist Order. Table sorting never rewrites canonical order or playback context.
-- Search is a dedicated destination with a centered field, source scope, categories, and grouped results. Settings is an integrated main-window destination with semantic category icons and accessible native forms.
+- Search opens one auxiliary window with a centered field, source scope, categories, grouped results, and its own toolbar history. Settings is an integrated main-window destination with a replacement category sidebar, semantic icons, accessible native forms, and flat content sections.
 - Icon-first chrome: controls that can be an icon should be an icon, with `.help` and VoiceOver. Track titles, empty states, and settings explanations stay as text.
 - YouTube affordances use `YouTubeMark` (red rounded play rectangle), not a generic SF Symbol stand-in.
 
@@ -162,7 +163,7 @@ When performing explicitly scoped Liquid Glass work:
 - Use custom glass only for meaningful application-specific surfaces.
 - Establish reusable primitives and semantic surface roles instead of scattering blur or material modifiers through individual views.
 - Group related custom glass elements coherently; avoid fragmented floating decoration.
-- Use tint only when it communicates selection, status, playback, or another clear semantic meaning. The accent for those states is Apple Music pink, not primary text and not a white glow.
+- Use tint only when it communicates selection, status, playback, or another clear semantic meaning. Selection and playback use adaptive monochrome accents; semantic YouTube red and destructive/error colors remain distinct.
 - Preserve legibility over artwork and support light, dark, and high-contrast, and Reduce Transparency modes.
 - Maintain appropriate fallback behavior when a supported OS does not provide the desired native API.
 
@@ -235,7 +236,7 @@ Muses contains high-frequency media and visualization state. Treat performance a
 - Artwork loading, decoding, palette extraction, and large images.
 - Large playlist lists and SwiftData refreshes.
 - Queue persistence and rapid playback changes.
-- WKWebView lifetime (one player, never per-row).
+- Video WKWebView lifetime (one on-demand surface, never per-row).
 
 Rules:
 
@@ -251,7 +252,7 @@ Rules:
 Changes touching these areas require narrow scope, explicit reasoning, and proportionate verification:
 
 - `PlaybackService`
-- `YouTubeEmbedEngine` and its WKWebView host
+- `YouTubeVideoStage` and its on-demand WKWebView host
 - `YouTubeStreamEngine` (primary production engine)
 - `QueueService` and queue persistence
 - `NowPlayingManager`
@@ -279,7 +280,7 @@ Do not opportunistically refactor these systems during unrelated visual tasks.
 Match verification to the risk and phase using an appropriate combination of:
 
 - Build checks.
-- Focused unit tests (embed engine uses a fake IFrame client; no live WebView in CI).
+- Focused unit tests with fake playback and HTTP clients; do not require a live WebView in CI.
 - Cross-subsystem integration tests.
 - Runtime playback and interaction inspection.
 - Rendered screenshots at relevant window sizes and appearances.
@@ -295,9 +296,7 @@ The following findings are candidates for separately scoped investigation. They 
 - Possible overlapping observation loops in `NowPlayingManager`.
 - Playback-load cancellation and rapid-selection races.
 - Queue, current-index, history, and completion consistency.
-- YouTube IFrame pausing when the parked player is too small or fully occluded (verify park size empirically).
-- Videos that reject embedding even with cookies.
-- IFrame suggested quality being ignored by YouTube.
+- Videos that reject embedding even with cookies, and video-session handoff to system media controls.
 - Artwork cache propagation, eviction, and asynchronous identity checks.
 - Accessibility labeling and focus behavior.
 - Reduce Transparency and complete Reduce Motion coverage.
@@ -305,23 +304,3 @@ The following findings are candidates for separately scoped investigation. They 
 ## Commit attribution
 
 Never add automated-assistant attribution, co-author trailers, or generator branding to git commits, tags, or PR bodies.
-
-## Approved visual revision — 2026-09-16
-
-The user's current visual decision supersedes the earlier pink-accent/no-glow rules above. Selection and playback accents are adaptive black/white with restrained static halos on active controls; preserve semantic YouTube red and destructive/error colors. Current timed lyrics use artwork-derived multicolor gradients, with neutral high-contrast fallback; never fabricate lyric timing or source. Now Playing closes through the native window toolbar Back control, and its lyric display modes belong to the lyrics options menu. Volume/output controls share PlaybackService state across surfaces; output selection is trailing and visually distinct from volume. Menu-bar popovers use one native surface, without an additional framed glass card.
-
-Settings navigation revision (2026-09-16): entering Settings replaces the music sidebar with the six settings categories and a return-to-music action. Do not add a second category rail inside the content pane. Preserve one NavigationStack across width changes. Volume scales have no surrounding focus rectangle; keep keyboard and accessibility adjustment and map pointer positions across the entire visible scale. App volume changes must never write system volume.
-
-Idle player revision (2026-09-16): preserve the normal PlayerBar layout even without a track, with a rounded tile containing the menu-bar lyre mark instead of artwork. Disable unavailable transport/lyrics/video actions; keep queue and app-volume controls usable. This supersedes the older mark-and-queue-only idle layout.
-
-### 2026-09-16 window navigation decision
-
-The native window toolbar owns page Back and Forward, including Settings category/subpage history. Do not add in-content Back or Music Library return buttons. Search uses its own native toolbar history. Cold-restored details seed their parent list (Settings seeds Home), without restoring the previous full history. Video close, sheet cancellation, and data rollback are separate actions and remain available.
-
-### 2026-09-16 flat Settings revision
-
-Settings now uses only first-level sidebar categories. Expand preferences and explanations in clearly separated content sections; do not restore secondary/tertiary navigation pages. Diagnostics, Library Review, and Help are first-level destinations. Window Back/Forward continues to navigate categories and browsing pages. Use available native Liquid Glass controls, with supported-system and accessibility fallbacks; keep system menu behavior and keyboard semantics.
-
-### 2026-09-16 global glass revision
-
-Shared action buttons and compact selection controls use adaptive native glass and capsule shapes across the app. Group glass only within a bounded cluster of related controls, never around the complete window containing already-glassed panes. Artwork, video and large reading regions keep their content aspect ratios. Settings uses the main sidebar row height and grouping rhythm, with emphasized section headings and secondary explanatory notes. Keep the menu-bar player compact (332-point width).
