@@ -2,6 +2,11 @@ import Foundation
 import CryptoKit
 import MusesWebHomeProtocol
 
+struct WebHomeParsedPage: Sendable {
+    let sections: [WebHomeSection]
+    let globalContinuationToken: String?
+}
+
 struct WebHomePayloadParser: Sendable {
     private static let maximumPayloadBytes = 10 * 1024 * 1024
     private static let supportedContainers: Set<String> = [
@@ -23,6 +28,10 @@ struct WebHomePayloadParser: Sendable {
     ]
 
     func parse(_ data: Data) throws -> [WebHomeSection] {
+        try parsePage(data).sections
+    }
+
+    func parsePage(_ data: Data) throws -> WebHomeParsedPage {
         guard !data.isEmpty, data.count <= Self.maximumPayloadBytes,
               let root = try? JSONSerialization.jsonObject(with: data) else {
             throw WebHomeCoreError.code(.shapeChanged)
@@ -43,7 +52,9 @@ struct WebHomePayloadParser: Sendable {
         var seen = Set<String>()
         let unique = sections.filter { seen.insert($0.id).inserted }
         guard !unique.isEmpty else { throw WebHomeCoreError.code(.shapeChanged) }
-        return unique
+        return WebHomeParsedPage(
+            sections: unique,
+            globalContinuationToken: globalContinuationToken(in: root))
     }
 
     private func visit(
@@ -335,6 +346,44 @@ struct WebHomePayloadParser: Sendable {
                       let command = endpoint["continuationCommand"] as? [String: Any],
                       let token = boundedToken(command["token"]) else { continue }
                 return token
+            }
+        }
+        return nil
+    }
+
+    /// Search only the page-level browse tree. Shelf renderers have their own
+    /// independent token chains and must never be promoted to a Home cursor.
+    private func globalContinuationToken(in value: Any, depth: Int = 0) -> String? {
+        guard depth <= 16 else { return nil }
+        if let dictionary = value as? [String: Any] {
+            if let continuations = dictionary["continuations"] as? [Any] {
+                for entry in continuations {
+                    guard let wrapper = entry as? [String: Any],
+                          let next = wrapper["nextContinuationData"] as? [String: Any],
+                          let token = boundedToken(next["continuation"]) else { continue }
+                    return token
+                }
+            }
+            if let item = dictionary["continuationItemRenderer"] as? [String: Any],
+               let endpoint = item["continuationEndpoint"] as? [String: Any],
+               let command = endpoint["continuationCommand"] as? [String: Any],
+               let token = boundedToken(command["token"]) {
+                return token
+            }
+            for (key, child) in dictionary {
+                if Self.supportedContainers.contains(key) { continue }
+                if key.hasSuffix("Renderer"), !Self.traversalRenderers.contains(key) {
+                    continue
+                }
+                if let token = globalContinuationToken(in: child, depth: depth + 1) {
+                    return token
+                }
+            }
+        } else if let array = value as? [Any] {
+            for child in array {
+                if let token = globalContinuationToken(in: child, depth: depth + 1) {
+                    return token
+                }
             }
         }
         return nil

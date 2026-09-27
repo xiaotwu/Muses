@@ -13,6 +13,21 @@ final class AnonymousInnertubeHomeProvider: HomeDiscoveryProvider {
     private var continuationScope: HomeFeedScope?
     private var continuationLocale: String?
     private var continuationGeneration = UUID()
+    private var attemptedHomeFetchThisSession = false
+
+    var hasGlobalContinuation: Bool { continuation != nil }
+    var needsLiveRefreshForContinuations: Bool {
+        !attemptedHomeFetchThisSession
+    }
+
+    func resetContinuations() {
+        continuationGeneration = UUID()
+        continuation = nil
+        shelfContinuations.removeAll(keepingCapacity: false)
+        continuationScope = nil
+        continuationLocale = nil
+        attemptedHomeFetchThisSession = false
+    }
 
     init(client: any InnertubeServing) {
         self.client = client
@@ -31,12 +46,17 @@ final class AnonymousInnertubeHomeProvider: HomeDiscoveryProvider {
             clientLocale = locale
         }
         continuationGeneration = UUID()
+        let generation = continuationGeneration
+        attemptedHomeFetchThisSession = true
         continuationScope = input.scope
         continuationLocale = locale
         continuation = nil
         shelfContinuations.removeAll(keepingCapacity: false)
         do {
             let page = try await client.home(continuation: nil)
+            guard !Task.isCancelled, generation == continuationGeneration else {
+                return .baseline(scope: input.scope, sections: [])
+            }
             continuation = page.continuation
             shelfContinuations = page.shelfContinuations
             let now = Date()
@@ -53,6 +73,9 @@ final class AnonymousInnertubeHomeProvider: HomeDiscoveryProvider {
                 failures: [],
                 cacheDirectives: HomeCacheDirectives(storeBaseline: true, storeWeb: false))
         } catch {
+            guard generation == continuationGeneration else {
+                return .baseline(scope: input.scope, sections: [])
+            }
             continuation = nil
             shelfContinuations.removeAll(keepingCapacity: false)
             let code = failureCode(error)
@@ -155,6 +178,11 @@ final class YouTubeMusicHomeProvider: HomeDiscoveryProvider {
     }
 
     var hasWebEnhancement: Bool { layered.hasWebEnhancement }
+    var hasGlobalContinuation: Bool { layered.hasGlobalContinuation }
+    var needsLiveRefreshForContinuations: Bool {
+        layered.needsLiveRefreshForContinuations
+    }
+    func resetContinuations() { layered.resetContinuations() }
     func hasContinuation(for sectionID: String) -> Bool {
         layered.hasContinuation(for: sectionID)
     }

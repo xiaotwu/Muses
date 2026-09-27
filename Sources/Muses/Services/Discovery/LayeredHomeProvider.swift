@@ -8,6 +8,17 @@ final class LayeredHomeProvider: HomeDiscoveryProvider {
     private let webEnhancement: HomeDiscoveryProvider?
 
     var hasWebEnhancement: Bool { webEnhancement?.hasWebEnhancement == true }
+    var hasGlobalContinuation: Bool {
+        webEnhancement?.hasGlobalContinuation == true || baseline.hasGlobalContinuation
+    }
+    var needsLiveRefreshForContinuations: Bool {
+        baseline.needsLiveRefreshForContinuations
+            || webEnhancement?.needsLiveRefreshForContinuations == true
+    }
+    func resetContinuations() {
+        baseline.resetContinuations()
+        webEnhancement?.resetContinuations()
+    }
 
     init(baseline: HomeDiscoveryProvider,
          webEnhancement: HomeDiscoveryProvider? = nil) {
@@ -92,7 +103,10 @@ final class LayeredHomeProvider: HomeDiscoveryProvider {
     }
 
     func more(page: Int, input: HomeDiscoveryInput) async -> [HomeSection] {
-        await baseline.more(page: page, input: input)
+        if let webEnhancement, webEnhancement.hasGlobalContinuation {
+            return await webEnhancement.more(page: page, input: input)
+        }
+        return await baseline.more(page: page, input: input)
     }
 
     func hasContinuation(for sectionID: String) -> Bool {

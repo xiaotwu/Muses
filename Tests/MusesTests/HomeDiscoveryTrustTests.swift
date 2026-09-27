@@ -5,6 +5,32 @@ import Testing
 @Suite("Home discovery trust and cache scope")
 @MainActor
 struct HomeDiscoveryTrustTests {
+    @Test("global Home pages append new shelves and deduplicate an existing shelf")
+    func globalContinuationMergesWithoutDuplicates() async throws {
+        let provider = GlobalPageHomeProvider()
+        let service = HomeDiscoveryService(
+            provider: provider, cache: temporaryCache(),
+            library: LibraryService(modelContainer: try makeModelContainer(inMemory: true)),
+            enabledProvider: { true }, modeProvider: { .youtubeMusic })
+        service.load()
+        for _ in 0..<50 where service.isRefreshing {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(service.hasGlobalContinuation)
+
+        service.loadMore()
+        for _ in 0..<50 where service.isLoadingMore {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(service.sections.map(\.id) == ["shelf-a", "shelf-b"])
+        #expect(service.sections[0].items.map(\.homeMediaIdentity)
+                == ["video:one", "video:two"])
+        #expect(service.sections[1].items.map(\.homeMediaIdentity)
+                == ["video:three"])
+        #expect(!service.hasGlobalContinuation)
+    }
+
     @Test("failed anonymous cold refresh preserves expired disk snapshot and recovers")
     func anonymousFailurePreservesSnapshot() async throws {
         let root = FileManager.default.temporaryDirectory
@@ -433,6 +459,34 @@ struct HomeDiscoveryTrustTests {
     private func temporaryCache() -> HomeFeedCache {
         HomeFeedCache(directory: FileManager.default.temporaryDirectory
             .appendingPathComponent("muses-home-service-\(UUID().uuidString)", isDirectory: true))
+    }
+}
+
+@MainActor
+private final class GlobalPageHomeProvider: HomeDiscoveryProvider {
+    private var pageLoaded = false
+    var hasGlobalContinuation: Bool { !pageLoaded }
+
+    func fetch(for input: HomeDiscoveryInput) async -> HomeFetchResult {
+        .baseline(scope: input.scope, sections: [shelf("shelf-a", ["one"])])
+    }
+
+    func more(page: Int, input: HomeDiscoveryInput) async -> [HomeSection] {
+        pageLoaded = true
+        return [shelf("shelf-a", ["one", "two"]),
+                shelf("shelf-b", ["three"])]
+    }
+
+    private func shelf(_ id: String, _ videoIDs: [String]) -> HomeSection {
+        HomeSection(id: id, title: id, kind: .youTubeCarousel,
+                    items: videoIDs.map { videoID in
+                        .youTube(YouTubeDiscoveryCard(
+                            id: "video:\(videoID)", title: videoID,
+                            browseEndpoint: nil,
+                            playEndpoint: HomeCardEndpoint(
+                                kind: .video, identifier: videoID),
+                            availability: .available))
+                    }, source: .publicDiscovery)
     }
 }
 

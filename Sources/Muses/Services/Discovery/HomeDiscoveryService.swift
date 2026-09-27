@@ -30,12 +30,14 @@ final class HomeDiscoveryService {
     private let modeProvider: () -> HomeRecommendationMode
     private let accountChannelIDProvider: () -> String?
     private var refreshTask: Task<Void, Never>?
+    private var moreTask: Task<Void, Never>?
     /// Invalidates every refresh and continuation when Home leaves, changes mode,
     /// or changes account. A scope check alone is insufficient for guest-to-guest
     /// mode changes because both requests can share the same scope.
     private var operationID = UUID()
     private var morePage = 0
     private(set) var isLoadingMore = false
+    private(set) var globalContinuationError: String?
     private(set) var loadingSectionIDs: Set<String> = []
     private(set) var continuationErrors: [String: String] = [:]
 
@@ -108,7 +110,8 @@ final class HomeDiscoveryService {
             let webRequirementSatisfied = !provider.hasWebEnhancement
                 || input.scope == .guest
                 || webIsFresh
-            if baselineIsFresh && webRequirementSatisfied {
+            if baselineIsFresh && webRequirementSatisfied
+                && !provider.needsLiveRefreshForContinuations {
                 PerfTrace.event("home.discovery.fresh")
                 return
             }
@@ -122,31 +125,61 @@ final class HomeDiscoveryService {
     }
 
     func loadMore() {
-        guard isEnabled, !isLoadingMore, !isRefreshing, morePage < 12 else { return }
-        morePage += 1
-        let page = morePage
+        guard isEnabled, provider.hasGlobalContinuation,
+              !isLoadingMore, !isRefreshing, morePage < 12 else { return }
+        let page = morePage + 1
         let input = buildInput()
         let mode = recommendationMode
         let operation = operationID
         isLoadingMore = true
-        Task { [weak self] in
+        globalContinuationError = nil
+        moreTask = Task { [weak self] in
             guard let self else { return }
             let extra = await self.provider.more(page: page, input: input)
             guard !Task.isCancelled,
                   operation == self.operationID,
                   mode == self.recommendationMode,
                   input.scope == self.buildInput().scope else {
-                self.isLoadingMore = false
                 return
             }
-            self.sections.append(contentsOf: extra)
             if extra.isEmpty {
-                self.lastRefreshError = tr("More Home recommendations are temporarily unavailable.",
-                                           "暂时无法加载更多首页推荐。",
-                                           zhHant: "暫時無法載入更多首頁推薦。")
+                self.globalContinuationError = tr(
+                    "More Home recommendations are temporarily unavailable.",
+                    "暂时无法加载更多首页推荐。",
+                    zhHant: "暫時無法載入更多首頁推薦。")
+            } else {
+                for section in extra {
+                    if self.sections.contains(where: { $0.id == section.id }) {
+                        self.appendContinuation(section.items, to: section.id)
+                    } else {
+                        let existing = Set(self.sections.flatMap(\.items)
+                            .compactMap(\.homeMediaIdentity))
+                        let unique = section.items.filter { item in
+                            guard let identity = item.homeMediaIdentity else { return true }
+                            return !existing.contains(identity)
+                        }
+                        guard !unique.isEmpty else { continue }
+                        let appended = self.replacingItems(in: section, with: unique)
+                        if section.source == .signedInWeb,
+                           let baselineIndex = self.sections.firstIndex(where: {
+                               $0.source != .signedInWeb
+                                   && $0.cachedOrigin != .signedInWeb
+                           }) {
+                            self.sections.insert(appended, at: baselineIndex)
+                        } else {
+                            self.sections.append(appended)
+                        }
+                    }
+                }
+                self.morePage = page
             }
             self.isLoadingMore = false
+            self.moreTask = nil
         }
+    }
+
+    var hasGlobalContinuation: Bool {
+        provider.hasGlobalContinuation && morePage < 12
     }
 
     func hasContinuation(for sectionID: String) -> Bool {
@@ -187,9 +220,13 @@ final class HomeDiscoveryService {
     func cancel() {
         operationID = UUID()
         refreshTask?.cancel()
+        moreTask?.cancel()
+        provider.resetContinuations()
         refreshTask = nil
+        moreTask = nil
         isRefreshing = false
         isLoadingMore = false
+        globalContinuationError = nil
         loadingSectionIDs.removeAll(keepingCapacity: false)
         continuationErrors.removeAll(keepingCapacity: false)
     }
@@ -232,7 +269,13 @@ final class HomeDiscoveryService {
     /// to preserve the synchronous cache-hit display contract.
     func reload() {
         guard isEnabled else { return }
+        operationID = UUID()
         refreshTask?.cancel()
+        moreTask?.cancel()
+        moreTask = nil
+        isLoadingMore = false
+        globalContinuationError = nil
+        morePage = 0
         isRefreshing = true
         refreshTask = Task { [weak self] in
             guard let self else { return }

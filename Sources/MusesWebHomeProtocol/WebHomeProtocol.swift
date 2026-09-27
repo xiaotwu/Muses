@@ -1,7 +1,7 @@
 import Foundation
 
 public enum WebHomeProtocolVersion {
-    public static let current = 1
+    public static let current = 2
 }
 
 public enum WebHomeAction: String, Codable, Sendable {
@@ -206,6 +206,8 @@ public struct WebHomeResponse: Codable, Sendable, Equatable {
     public let expiresAt: Date?
     public let capability: WebHomeCapabilityStatus
     public let sections: [WebHomeSection]
+    /// Volatile IPC-only Home page token. Never include this in a saved snapshot.
+    public let globalContinuationToken: String?
     public let error: WebHomeError?
 
     public init(
@@ -217,6 +219,7 @@ public struct WebHomeResponse: Codable, Sendable, Equatable {
         expiresAt: Date? = nil,
         capability: WebHomeCapabilityStatus,
         sections: [WebHomeSection] = [],
+        globalContinuationToken: String? = nil,
         error: WebHomeError? = nil
     ) {
         self.protocolVersion = protocolVersion
@@ -227,6 +230,7 @@ public struct WebHomeResponse: Codable, Sendable, Equatable {
         self.expiresAt = expiresAt
         self.capability = capability
         self.sections = sections
+        self.globalContinuationToken = globalContinuationToken
         self.error = error
     }
 }

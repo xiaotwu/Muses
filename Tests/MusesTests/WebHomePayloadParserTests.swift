@@ -74,6 +74,23 @@ struct WebHomePayloadParserTests {
         #expect(section.continuationToken == "VOLATILE_NEXT_TOKEN")
     }
 
+    @Test("page continuation stays separate from a shelf continuation")
+    func globalContinuationIsPageScoped() throws {
+        let source = String(decoding: try fixture("supported-home"), as: UTF8.self)
+        let page = source.replacingOccurrences(
+            of: "\"sectionListRenderer\": {",
+            with: "\"sectionListRenderer\": {\"continuations\": "
+                + "[{\"nextContinuationData\":{\"continuation\":\"GLOBAL_PAGE\"}}],")
+        let parsed = try parser.parsePage(Data(page.utf8))
+
+        #expect(parsed.globalContinuationToken == "GLOBAL_PAGE")
+        #expect(parsed.sections.contains {
+            $0.continuationToken == "VOLATILE_CAROUSEL_TOKEN"
+        })
+        #expect(try parser.parsePage(fixture("supported-home"))
+            .globalContinuationToken == nil)
+    }
+
     @Test("unknown-only and excessive identity drift fail closed")
     func driftFailsClosed() throws {
         #expect(throws: WebHomeCoreError.code(.shapeChanged)) {

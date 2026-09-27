@@ -69,7 +69,8 @@ struct WebHomeSessionControllerTests {
                     identity: WebHomeEndpoint(kind: .video, identifier: "video-1"),
                     title: "Song",
                     playEndpoint: WebHomeEndpoint(kind: .video, identifier: "video-1"))],
-                continuationToken: "SECRET_CONTINUATION_TOKEN")])
+                continuationToken: "SECRET_CONTINUATION_TOKEN")],
+            globalContinuationToken: "SECRET_GLOBAL_TOKEN")
         let recorder = WebHomeRequestRecorder(response: response)
         let controller = makeController(
             defaults: defaults,
@@ -86,7 +87,75 @@ struct WebHomeSessionControllerTests {
         #expect(snapshot.expiresAt == fetchedAt.addingTimeInterval(15 * 60))
         #expect(snapshot.sections.first?.items.first?.id == "yt:video:video-1")
         #expect(!text.contains("SECRET_CONTINUATION_TOKEN"))
+        #expect(!text.contains("SECRET_GLOBAL_TOKEN"))
         #expect(controller.hasContinuation(for: "quick-picks"))
+        #expect(controller.hasGlobalContinuation)
+    }
+
+    @Test("global Home cursor fetches another page and ends when the service ends it")
+    func globalContinuationUsesRealTokenChain() async throws {
+        let defaults = makeDefaults()
+        let now = Date()
+        let first = WebHomeResponse(
+            channelID: "UC_expected", fetchedAt: now, capability: .available,
+            sections: [WebHomeSection(
+                id: "first", title: "First", layout: .carousel,
+                items: [videoItem("first")])],
+            globalContinuationToken: "PAGE_ONE")
+        let second = WebHomeResponse(
+            channelID: "UC_expected", fetchedAt: now, capability: .available,
+            sections: [WebHomeSection(
+                id: "second", title: "Second", layout: .carousel,
+                items: [videoItem("second")])],
+            globalContinuationToken: "PAGE_TWO")
+        let last = WebHomeResponse(
+            channelID: "UC_expected", fetchedAt: now, capability: .available,
+            sections: [WebHomeSection(
+                id: "last", title: "Last", layout: .carousel,
+                items: [videoItem("last")])])
+        let recorder = WebHomeRequestRecorder(responses: [first, second, last])
+        let controller = makeController(defaults: defaults, recorder: recorder)
+        try controller.prepareDefaultBrowserConsent()
+        try controller.enableUsingDefaultBrowser()
+
+        _ = await controller.fetch(for: input())
+        #expect(controller.hasGlobalContinuation)
+        let pageTwo = await controller.more(page: 1, input: input())
+        let pageThree = await controller.more(page: 2, input: input())
+        let requests = await recorder.requests
+
+        #expect(pageTwo.map(\.id) == ["second"])
+        #expect(pageThree.map(\.id) == ["last"])
+        #expect(requests.map(\.action) == [
+            .fetchHome, .fetchContinuation, .fetchContinuation
+        ])
+        #expect(requests[1].continuationHandle == "PAGE_ONE")
+        #expect(requests[2].continuationHandle == "PAGE_TWO")
+        #expect(!controller.hasGlobalContinuation)
+    }
+
+    @Test("leaving Home drops volatile cursors and refreshes a fresh saved page")
+    func leavingHomeInvalidatesCursors() async throws {
+        let defaults = makeDefaults()
+        let recorder = WebHomeRequestRecorder(response: WebHomeResponse(
+            channelID: "UC_expected", fetchedAt: Date(), capability: .available,
+            sections: [WebHomeSection(
+                id: "first", title: "First", layout: .carousel,
+                items: [videoItem("first")], continuationToken: "SHELF")],
+            globalContinuationToken: "PAGE"))
+        let controller = makeController(defaults: defaults, recorder: recorder)
+        try controller.prepareDefaultBrowserConsent()
+        try controller.enableUsingDefaultBrowser()
+
+        _ = await controller.fetch(for: input())
+        #expect(controller.hasGlobalContinuation)
+        #expect(controller.hasContinuation(for: "first"))
+        #expect(!controller.needsLiveRefreshForContinuations)
+
+        controller.resetContinuations()
+        #expect(!controller.hasGlobalContinuation)
+        #expect(!controller.hasContinuation(for: "first"))
+        #expect(controller.needsLiveRefreshForContinuations)
     }
 
     @Test("exact OAuth channel mismatch rejects the response")

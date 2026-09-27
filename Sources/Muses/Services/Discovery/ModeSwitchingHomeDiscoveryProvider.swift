@@ -24,6 +24,14 @@ final class ModeSwitchingHomeDiscoveryProvider: HomeDiscoveryProvider {
     }
 
     var hasWebEnhancement: Bool { active.hasWebEnhancement }
+    var hasGlobalContinuation: Bool { active.hasGlobalContinuation }
+    var needsLiveRefreshForContinuations: Bool {
+        active.needsLiveRefreshForContinuations
+    }
+    func resetContinuations() {
+        muses.resetContinuations()
+        youtubeMusic.resetContinuations()
+    }
     func hasContinuation(for sectionID: String) -> Bool {
         active.hasContinuation(for: sectionID)
     }

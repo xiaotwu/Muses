@@ -174,6 +174,9 @@ struct HomeFetchResult: Sendable {
 @MainActor
 protocol HomeDiscoveryProvider: AnyObject {
     var hasWebEnhancement: Bool { get }
+    var hasGlobalContinuation: Bool { get }
+    var needsLiveRefreshForContinuations: Bool { get }
+    func resetContinuations()
     func hasContinuation(for sectionID: String) -> Bool
     func fetch(for input: HomeDiscoveryInput) async -> HomeFetchResult
     func more(page: Int, input: HomeDiscoveryInput) async -> [HomeSection]
@@ -182,6 +185,9 @@ protocol HomeDiscoveryProvider: AnyObject {
 
 extension HomeDiscoveryProvider {
     var hasWebEnhancement: Bool { false }
+    var hasGlobalContinuation: Bool { false }
+    var needsLiveRefreshForContinuations: Bool { false }
+    func resetContinuations() {}
     func hasContinuation(for sectionID: String) -> Bool { false }
     func more(page: Int, input: HomeDiscoveryInput) async -> [HomeSection] { [] }
     func more(sectionID: String, input: HomeDiscoveryInput) async -> [DiscoveryItem] { [] }

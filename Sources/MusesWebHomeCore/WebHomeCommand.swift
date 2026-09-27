@@ -47,7 +47,7 @@ public struct WebHomeCommand: Sendable {
                     guard let payload = session.payload else {
                         return failure(.malformedResponse)
                     }
-                    let sections = try payloadParser.parse(payload)
+                    let page = try payloadParser.parsePage(payload)
                     let fetchedAt = Date()
                     return WebHomeResponse(
                         helperVersion: Self.helperVersion,
@@ -56,7 +56,8 @@ public struct WebHomeCommand: Sendable {
                         fetchedAt: fetchedAt,
                         expiresAt: fetchedAt.addingTimeInterval(15 * 60),
                         capability: .available,
-                        sections: sections)
+                        sections: page.sections,
+                        globalContinuationToken: page.globalContinuationToken)
                 }
                 let fetchedAt = Date()
                 return WebHomeResponse(

@@ -116,6 +116,30 @@ extension HomeView {
             }) { section in
                 discoveryShelf(section, suppressFailureStrip: !failedSections.isEmpty)
             }
+
+            if discovery.hasGlobalContinuation {
+                HStack {
+                    Spacer()
+                    Button {
+                        discovery.loadMore()
+                    } label: {
+                        Label(tr("More recommendations", "更多推荐", zhHant: "更多推薦"),
+                              systemImage: "chevron.down")
+                    }
+                    .musesAction()
+                    .disabled(discovery.isLoadingMore || discovery.isRefreshing)
+                    .accessibilityLabel(tr("Load more Home recommendations",
+                                           "加载更多首页推荐", zhHant: "載入更多首頁推薦"))
+                    Spacer()
+                }
+                .padding(.horizontal, AppleMusicTokens.contentPaddingX)
+            }
+            if let error = discovery.globalContinuationError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(BrandColors.textSecondary)
+                    .padding(.horizontal, AppleMusicTokens.contentPaddingX)
+            }
         } else {
             listenAgainShelf
             if let fallbackError, fallbackEntries.isEmpty {

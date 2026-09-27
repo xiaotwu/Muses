@@ -10,6 +10,7 @@ set -euo pipefail
 
 SOURCE="assets/icon.png"
 ICONSET="build/AppIcon.iconset"
+OPAQUE_SOURCE="build/AppIcon-opaque.png"
 DEST="Sources/Muses/Resources/AppIcon.icns"
 
 if [[ ! -f "$SOURCE" ]]; then
@@ -18,7 +19,9 @@ if [[ ! -f "$SOURCE" ]]; then
 fi
 
 # 幂等:产物存在且新于源 → 跳过。
-if [[ -f "$DEST" ]] && [[ "$DEST" -nt "$SOURCE" ]] && [[ "$DEST" -nt "$0" ]]; then
+if [[ -f "$DEST" ]] && [[ "$DEST" -nt "$SOURCE" ]] \
+   && [[ "$DEST" -nt "$0" ]] \
+   && [[ "$DEST" -nt "Scripts/prepare-app-icon.swift" ]]; then
     echo "AppIcon.icns 已是最新,跳过。"
     exit 0
 fi
@@ -26,18 +29,22 @@ fi
 mkdir -p "$ICONSET"
 rm -f "$ICONSET"/*.png
 
+# macOS supplies the final icon shape. Flatten the source's transparent corners
+# so System Settings does not draw a second tile around an already rounded icon.
+swift Scripts/prepare-app-icon.swift "$SOURCE" "$OPAQUE_SOURCE"
+
 # 生成标准 iconset 尺寸(@1x + @2x)。
-sips -z 16 16     "$SOURCE" --out "$ICONSET/icon_16x16.png"        >/dev/null
-sips -z 32 32     "$SOURCE" --out "$ICONSET/icon_16x16@2x.png"     >/dev/null
-sips -z 32 32     "$SOURCE" --out "$ICONSET/icon_32x32.png"        >/dev/null
-sips -z 64 64     "$SOURCE" --out "$ICONSET/icon_32x32@2x.png"     >/dev/null
-sips -z 128 128   "$SOURCE" --out "$ICONSET/icon_128x128.png"      >/dev/null
-sips -z 256 256   "$SOURCE" --out "$ICONSET/icon_128x128@2x.png"   >/dev/null
-sips -z 256 256   "$SOURCE" --out "$ICONSET/icon_256x256.png"      >/dev/null
-sips -z 512 512   "$SOURCE" --out "$ICONSET/icon_256x256@2x.png"   >/dev/null
-sips -z 512 512   "$SOURCE" --out "$ICONSET/icon_512x512.png"      >/dev/null
+sips -z 16 16     "$OPAQUE_SOURCE" --out "$ICONSET/icon_16x16.png"        >/dev/null
+sips -z 32 32     "$OPAQUE_SOURCE" --out "$ICONSET/icon_16x16@2x.png"     >/dev/null
+sips -z 32 32     "$OPAQUE_SOURCE" --out "$ICONSET/icon_32x32.png"        >/dev/null
+sips -z 64 64     "$OPAQUE_SOURCE" --out "$ICONSET/icon_32x32@2x.png"     >/dev/null
+sips -z 128 128   "$OPAQUE_SOURCE" --out "$ICONSET/icon_128x128.png"      >/dev/null
+sips -z 256 256   "$OPAQUE_SOURCE" --out "$ICONSET/icon_128x128@2x.png"   >/dev/null
+sips -z 256 256   "$OPAQUE_SOURCE" --out "$ICONSET/icon_256x256.png"      >/dev/null
+sips -z 512 512   "$OPAQUE_SOURCE" --out "$ICONSET/icon_256x256@2x.png"   >/dev/null
+sips -z 512 512   "$OPAQUE_SOURCE" --out "$ICONSET/icon_512x512.png"      >/dev/null
 # 1024×1024 作为 512@2x(iconutil 不接受 icon_1024x1024.png)。
-sips -z 1024 1024 "$SOURCE" --out "$ICONSET/icon_512x512@2x.png"   >/dev/null
+sips -z 1024 1024 "$OPAQUE_SOURCE" --out "$ICONSET/icon_512x512@2x.png"   >/dev/null
 
 mkdir -p "$(dirname "$DEST")"
 iconutil -c icns "$ICONSET" -o "$DEST"

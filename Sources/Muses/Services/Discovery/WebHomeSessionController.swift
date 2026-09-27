@@ -49,9 +49,23 @@ final class WebHomeSessionController: HomeDiscoveryProvider {
     private let executeRequest: ExecuteRequest
     private let cancelRequest: CancelRequest
     private var continuationTokensBySectionID: [String: String] = [:]
+    private var globalContinuationToken: String?
+    private var continuationGeneration = UUID()
+    private var attemptedHomeFetchThisSession = false
     private var pendingBrowserSource: WebHomeBrowserSource?
 
     var hasWebEnhancement: Bool { isEnabled }
+    var hasGlobalContinuation: Bool { globalContinuationToken != nil }
+    var needsLiveRefreshForContinuations: Bool {
+        isEnabled && !attemptedHomeFetchThisSession
+    }
+
+    func resetContinuations() {
+        continuationTokensBySectionID.removeAll(keepingCapacity: false)
+        globalContinuationToken = nil
+        continuationGeneration = UUID()
+        attemptedHomeFetchThisSession = false
+    }
 
     var isEnabled: Bool {
         buildEnabled
@@ -189,6 +203,9 @@ final class WebHomeSessionController: HomeDiscoveryProvider {
         defaults.removeObject(forKey: PrefKey.webHomeBrowserSource)
         pendingBrowserSource = nil
         continuationTokensBySectionID.removeAll(keepingCapacity: false)
+        globalContinuationToken = nil
+        continuationGeneration = UUID()
+        attemptedHomeFetchThisSession = false
         await cancelRequest()
         status = buildEnabled ? .closed : .disabledByBuild
         lastCheckedAt = nil
@@ -196,6 +213,9 @@ final class WebHomeSessionController: HomeDiscoveryProvider {
 
     func accountDidChange() async {
         continuationTokensBySectionID.removeAll(keepingCapacity: false)
+        globalContinuationToken = nil
+        continuationGeneration = UUID()
+        attemptedHomeFetchThisSession = false
         await cancelRequest()
         if !buildEnabled {
             status = .disabledByBuild
@@ -254,11 +274,21 @@ final class WebHomeSessionController: HomeDiscoveryProvider {
                 capability: capability(for: code))
         }
 
+        attemptedHomeFetchThisSession = true
+        continuationGeneration = UUID()
+        let generation = continuationGeneration
+        continuationTokensBySectionID.removeAll(keepingCapacity: false)
+        globalContinuationToken = nil
         status = .refreshing
         let interval = PerfTrace.begin("home.web.fetch")
         defer { PerfTrace.end(interval) }
         do {
             let response = try await executeRequest(request)
+            guard !Task.isCancelled, generation == continuationGeneration else {
+                return failureResult(
+                    baseline: emptyBaseline, code: .timedOut,
+                    capability: .unavailable(reason: nil))
+            }
             if let error = response.error {
                 let code = map(error.code)
                 applyFailureStatus(code)
@@ -267,7 +297,8 @@ final class WebHomeSessionController: HomeDiscoveryProvider {
                     message: error.message,
                     capability: capability(for: code, message: error.message))
             }
-            guard response.channelID == expectedChannelID else {
+            guard response.channelID == expectedChannelID,
+                  expectedChannelID == normalizedChannelID() else {
                 status = .accountMismatch
                 return failureResult(
                     baseline: emptyBaseline, code: .accountMismatch,
@@ -297,6 +328,7 @@ final class WebHomeSessionController: HomeDiscoveryProvider {
                 response.expiresAt ?? fetchedAt.addingTimeInterval(HomeFeedCache.webFreshWindow),
                 fetchedAt.addingTimeInterval(HomeFeedCache.webFreshWindow))
             lastCheckedAt = fetchedAt
+            globalContinuationToken = response.globalContinuationToken
             status = .available(checkedAt: fetchedAt)
             PerfTrace.event("home.web.success.schema-\(max(1, response.parserSchemaVersion))")
             return HomeFetchResult(
@@ -312,16 +344,31 @@ final class WebHomeSessionController: HomeDiscoveryProvider {
                 cacheDirectives: HomeCacheDirectives(
                     storeBaseline: false, storeWeb: true))
         } catch let error as WebHomeHelperClientError {
+            guard generation == continuationGeneration else {
+                return failureResult(
+                    baseline: emptyBaseline, code: .timedOut,
+                    capability: .unavailable(reason: nil))
+            }
             applyFailureStatus(error.failureCode)
             return failureResult(
                 baseline: emptyBaseline, code: error.failureCode,
                 capability: .unavailable(reason: failureMessage(error.failureCode)))
         } catch is CancellationError {
+            guard generation == continuationGeneration else {
+                return failureResult(
+                    baseline: emptyBaseline, code: .timedOut,
+                    capability: .unavailable(reason: nil))
+            }
             status = .unavailable(.timedOut)
             return failureResult(
                 baseline: emptyBaseline, code: .timedOut,
                 capability: .unavailable(reason: failureMessage(.timedOut)))
         } catch {
+            guard generation == continuationGeneration else {
+                return failureResult(
+                    baseline: emptyBaseline, code: .timedOut,
+                    capability: .unavailable(reason: nil))
+            }
             status = .unavailable(.helperCrashed)
             return failureResult(
                 baseline: emptyBaseline, code: .helperCrashed,
@@ -329,7 +376,76 @@ final class WebHomeSessionController: HomeDiscoveryProvider {
         }
     }
 
-    func more(page: Int, input: HomeDiscoveryInput) async -> [HomeSection] { [] }
+    func more(page: Int, input: HomeDiscoveryInput) async -> [HomeSection] {
+        (try? await fetchGlobalContinuation(for: input)) ?? []
+    }
+
+    private func fetchGlobalContinuation(for input: HomeDiscoveryInput) async throws -> [HomeSection] {
+        guard case .account(let channelID) = input.scope,
+              channelID == normalizedChannelID(),
+              let token = globalContinuationToken,
+              let request = makeRequest(
+                action: .fetchContinuation,
+                continuationToken: token) else {
+            throw WebHomeContinuationError(code: preflightFailureCode())
+        }
+        let generation = continuationGeneration
+        status = .refreshing
+        let interval = PerfTrace.begin("home.web.globalContinuation")
+        defer { PerfTrace.end(interval) }
+        do {
+            let response = try await executeRequest(request)
+            guard !Task.isCancelled, generation == continuationGeneration else {
+                throw WebHomeContinuationError(code: .timedOut)
+            }
+            if let error = response.error {
+                let code = map(error.code)
+                applyFailureStatus(code)
+                throw WebHomeContinuationError(code: code)
+            }
+            guard !Task.isCancelled, generation == continuationGeneration,
+                  response.channelID == channelID,
+                  channelID == normalizedChannelID() else {
+                throw WebHomeContinuationError(code: .accountMismatch)
+            }
+            guard response.capability == .available,
+                  let fetchedAt = response.fetchedAt else {
+                status = .unavailable(.malformedResponse)
+                throw WebHomeContinuationError(code: .malformedResponse)
+            }
+            let sections = normalizedSections(
+                response.sections,
+                channelID: channelID,
+                fetchedAt: fetchedAt,
+                expiresAt: response.expiresAt,
+                schemaVersion: response.parserSchemaVersion)
+            guard !sections.isEmpty else {
+                status = .shapeChanged
+                throw WebHomeContinuationError(code: .shapeChanged)
+            }
+            globalContinuationToken = response.globalContinuationToken == token
+                ? nil : response.globalContinuationToken
+            lastCheckedAt = fetchedAt
+            status = .available(checkedAt: fetchedAt)
+            return sections
+        } catch let error as WebHomeContinuationError {
+            throw error
+        } catch let error as WebHomeHelperClientError {
+            guard generation == continuationGeneration else {
+                throw WebHomeContinuationError(code: .timedOut)
+            }
+            applyFailureStatus(error.failureCode)
+            throw WebHomeContinuationError(code: error.failureCode)
+        } catch is CancellationError {
+            throw WebHomeContinuationError(code: .timedOut)
+        } catch {
+            guard generation == continuationGeneration else {
+                throw WebHomeContinuationError(code: .timedOut)
+            }
+            status = .unavailable(.helperCrashed)
+            throw WebHomeContinuationError(code: .helperCrashed)
+        }
+    }
 
     func more(sectionID: String, input: HomeDiscoveryInput) async -> [DiscoveryItem] {
         (try? await fetchContinuation(for: sectionID)) ?? []
@@ -349,11 +465,15 @@ final class WebHomeSessionController: HomeDiscoveryProvider {
                 continuationToken: token) else {
             throw WebHomeContinuationError(code: preflightFailureCode())
         }
+        let generation = continuationGeneration
         status = .refreshing
         let interval = PerfTrace.begin("home.web.continuation")
         defer { PerfTrace.end(interval) }
         do {
             let response = try await executeRequest(request)
+            guard !Task.isCancelled, generation == continuationGeneration else {
+                throw WebHomeContinuationError(code: .timedOut)
+            }
             if let error = response.error {
                 let code = map(error.code)
                 applyFailureStatus(code)
@@ -388,12 +508,18 @@ final class WebHomeSessionController: HomeDiscoveryProvider {
         } catch let error as WebHomeContinuationError {
             throw error
         } catch let error as WebHomeHelperClientError {
+            guard generation == continuationGeneration else {
+                throw WebHomeContinuationError(code: .timedOut)
+            }
             applyFailureStatus(error.failureCode)
             throw WebHomeContinuationError(code: error.failureCode)
         } catch is CancellationError {
             status = .unavailable(.timedOut)
             throw WebHomeContinuationError(code: .timedOut)
         } catch {
+            guard generation == continuationGeneration else {
+                throw WebHomeContinuationError(code: .timedOut)
+            }
             status = .unavailable(.helperCrashed)
             throw WebHomeContinuationError(code: .helperCrashed)
         }
