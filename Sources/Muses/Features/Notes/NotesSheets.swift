@@ -124,7 +124,7 @@ struct TrackNotesSheet: View {
                 Button {
                     addBookmark()
                 } label: { Image(systemName: "plus.circle.fill") }
-                    .buttonStyle(.plain).foregroundStyle(BrandColors.accent)
+                    .buttonStyle(.fullAreaPlain).foregroundStyle(BrandColors.accent)
                     .help(tr("Add bookmark", "添加书签", zhHant: "新增書籤"))
                     .accessibilityLabel(tr("Add bookmark", "添加书签", zhHant: "新增書籤"))
                     .disabled(!enabled)
@@ -177,12 +177,12 @@ struct TrackNotesSheet: View {
             Spacer()
             Button { editingBookmark = bm; editTitle = bm.title ?? ""; editNote = bm.note ?? "" } label: {
                 Image(systemName: "pencil")
-            }.buttonStyle(.plain).foregroundStyle(BrandColors.textSecondary).disabled(!enabled)
+            }.buttonStyle(.fullAreaPlain).foregroundStyle(BrandColors.textSecondary).disabled(!enabled)
             .help(tr("Edit bookmark", "编辑书签", zhHant: "編輯書籤"))
             .accessibilityLabel(tr("Edit bookmark", "编辑书签", zhHant: "編輯書籤"))
             Button { deleteBookmark(bm) } label: {
                 Image(systemName: "trash")
-            }.buttonStyle(.plain).foregroundStyle(BrandColors.textSecondary).disabled(!enabled)
+            }.buttonStyle(.fullAreaPlain).foregroundStyle(BrandColors.textSecondary).disabled(!enabled)
             .help(tr("Delete bookmark", "删除书签", zhHant: "刪除書籤"))
             .accessibilityLabel(tr("Delete bookmark", "删除书签", zhHant: "刪除書籤"))
         }
@@ -260,7 +260,7 @@ struct BookmarksView: View {
                         .background(BrandColors.surface.opacity(0.6))
                         .cornerRadius(6)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.fullAreaPlain)
                     .disabled(playback.transportState.track?.id != trackId)
                 }
             }

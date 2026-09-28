@@ -81,6 +81,44 @@ struct CollectionTrackRow: Identifiable, Equatable, Sendable {
             .map { CollectionTrackRow(track: $0.element, canonicalIndex: $0.offset) }
     }
 
+    /// Songs is the union of active playlist memberships, including imported
+    /// items that have not yet materialized a Track. Deduplicate by video ID.
+    @MainActor
+    static func playlistUnion(playlists: [Playlist], imports: [YouTubeImport]) -> [CollectionTrackRow] {
+        var unique: [String: CollectionTrackRow] = [:]
+        for playlist in playlists.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
+            for row in Self.playlist(from: playlist.items ?? []) {
+                unique[row.snapshot.youTubeId] = CollectionTrackRow(
+                    snapshot: row.snapshot, canonicalIndex: 0, year: row.year,
+                    genre: row.genre, addedAt: row.addedAt, playCount: row.playCount)
+            }
+        }
+        for imported in imports.filter({ $0.deletedAt == nil })
+            .sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
+            for item in (imported.items ?? []).sorted(by: { $0.order < $1.order }) {
+                guard !item.youTubeId.isEmpty, unique[item.youTubeId] == nil else { continue }
+                let snapshot = item.track.map { TrackSnapshot(from: $0) } ?? TrackSnapshot(
+                    id: item.id, title: item.title, artist: item.artist,
+                    albumTitle: imported.title, durationSeconds: Double(item.durationMs) / 1000,
+                    youTubeId: item.youTubeId,
+                    artworkUrl: YouTubeThumbnail.urlString(videoId: item.youTubeId),
+                    sampleRate: nil, bitDepth: nil, codec: nil, isLossless: false)
+                unique[item.youTubeId] = CollectionTrackRow(snapshot: snapshot,
+                    canonicalIndex: 0, addedAt: imported.importedAt)
+            }
+        }
+        return unique.values.sorted {
+            let titleOrder = $0.title.localizedStandardCompare($1.title)
+            if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
+            let artistOrder = $0.artist.localizedStandardCompare($1.artist)
+            if artistOrder != .orderedSame { return artistOrder == .orderedAscending }
+            return $0.snapshot.youTubeId < $1.snapshot.youTubeId
+        }.enumerated().map { index, row in
+            CollectionTrackRow(snapshot: row.snapshot, canonicalIndex: index,
+                year: row.year, genre: row.genre, addedAt: row.addedAt, playCount: row.playCount)
+        }
+    }
+
     /// User playlists keep the explicit persisted PlaylistItem order.
     @MainActor
     static func playlist(from items: [PlaylistItem]) -> [CollectionTrackRow] {
@@ -131,5 +169,20 @@ enum CollectionTrackSort {
     ) -> [CollectionTrackRow] {
         guard !comparators.isEmpty else { return rows }
         return rows.sorted(using: comparators)
+    }
+}
+
+enum CollectionTablePaging {
+    static func pageCount(rowCount: Int, pageSize: Int) -> Int {
+        guard pageSize > 0 else { return 1 }
+        return max(1, (rowCount + pageSize - 1) / pageSize)
+    }
+
+    static func rows(_ rows: [CollectionTrackRow], page: Int,
+                     pageSize: Int) -> [CollectionTrackRow] {
+        guard pageSize > 0 else { return rows }
+        let clampedPage = min(max(0, page), pageCount(rowCount: rows.count,
+                                                     pageSize: pageSize) - 1)
+        return Array(rows.dropFirst(clampedPage * pageSize).prefix(pageSize))
     }
 }

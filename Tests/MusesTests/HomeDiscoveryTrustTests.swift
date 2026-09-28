@@ -31,6 +31,35 @@ struct HomeDiscoveryTrustTests {
         #expect(!service.hasGlobalContinuation)
     }
 
+    @Test("offline Home continuation keeps its cursor and retries the same page")
+    func offlineContinuationRetries() async throws {
+        let provider = GlobalPageHomeProvider()
+        provider.failNextPage = true
+        let service = HomeDiscoveryService(
+            provider: provider, cache: temporaryCache(),
+            library: LibraryService(modelContainer: try makeModelContainer(inMemory: true)),
+            enabledProvider: { true }, modeProvider: { .youtubeMusic })
+        service.load()
+        for _ in 0..<50 where service.isRefreshing {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        service.loadMore()
+        for _ in 0..<50 where service.isLoadingMore {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(service.globalContinuationError != nil)
+        #expect(service.hasGlobalContinuation)
+        #expect(service.sections.map(\.id) == ["shelf-a"])
+
+        service.loadMore()
+        for _ in 0..<50 where service.isLoadingMore {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(provider.requestedPages == [1, 1])
+        #expect(service.globalContinuationError == nil)
+        #expect(service.sections.map(\.id) == ["shelf-a", "shelf-b"])
+    }
+
     @Test("failed anonymous cold refresh preserves expired disk snapshot and recovers")
     func anonymousFailurePreservesSnapshot() async throws {
         let root = FileManager.default.temporaryDirectory
@@ -465,6 +494,8 @@ struct HomeDiscoveryTrustTests {
 @MainActor
 private final class GlobalPageHomeProvider: HomeDiscoveryProvider {
     private var pageLoaded = false
+    var failNextPage = false
+    private(set) var requestedPages: [Int] = []
     var hasGlobalContinuation: Bool { !pageLoaded }
 
     func fetch(for input: HomeDiscoveryInput) async -> HomeFetchResult {
@@ -472,6 +503,11 @@ private final class GlobalPageHomeProvider: HomeDiscoveryProvider {
     }
 
     func more(page: Int, input: HomeDiscoveryInput) async -> [HomeSection] {
+        requestedPages.append(page)
+        if failNextPage {
+            failNextPage = false
+            return []
+        }
         pageLoaded = true
         return [shelf("shelf-a", ["one", "two"]),
                 shelf("shelf-b", ["three"])]

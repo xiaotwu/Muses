@@ -22,6 +22,10 @@ struct CollectionPage<Controls: View>: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var mode = CollectionPageMode.stage
+    @State private var locateRequest = 0
+    @State private var pendingRemoval: ActionConfirmation?
+    @State private var removalRows: [CollectionTrackRow] = []
+    @Environment(PlaybackService.self) private var playback
     @Environment(\.collectionPresentation) private var presentation
 
     init(
@@ -58,8 +62,15 @@ struct CollectionPage<Controls: View>: View {
         self.controls = controls()
     }
 
-    @ViewBuilder
     var body: some View {
+        pageContent.actionConfirmation($pendingRemoval)
+            .onChange(of: pendingRemoval == nil) { _, cleared in
+                if cleared { removalRows = [] }
+            }
+    }
+
+    @ViewBuilder
+    private var pageContent: some View {
         if rows.isEmpty {
             CollectionEmptyPanel(
                 title: title,
@@ -84,8 +95,9 @@ struct CollectionPage<Controls: View>: View {
                         currentTrack: currentTrack,
                         playlists: playlists,
                         isInteractionEnabled: mode == .stage,
+                        locateRequest: locateRequest,
                         onPlay: onPlay,
-                        onRemove: onRemove,
+                        onRemove: confirmedRemoval,
                         onExpand: { transition(to: .list) },
                         controls: controls
                     )
@@ -106,7 +118,7 @@ struct CollectionPage<Controls: View>: View {
                         currentTrack: currentTrack,
                         playlists: playlists,
                         onPlay: onPlay,
-                        onRemove: onRemove,
+                        onRemove: confirmedRemoval,
                         onCollapse: { transition(to: .stage) },
                         controls: controls
                     )
@@ -121,12 +133,40 @@ struct CollectionPage<Controls: View>: View {
             .clipped()
             .background(BrandColors.background)
             .onExitCommand {
-                if mode == .list {
+                if mode == .list, pendingRemoval == nil {
                     transition(to: .stage)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if playback.state.isPlaying, rows.contains(where: { $0.matches(currentTrack) }) {
+                    ChromeIconButton(systemName: "scope",
+                        help: tr("Show playing song", "定位正在播放的歌曲"),
+                        accessibility: tr("Show playing song", "定位正在播放的歌曲")) {
+                            transition(to: .stage)
+                            locateRequest &+= 1
+                        }
+                        .padding(.trailing, 24)
+                        .padding(.bottom, OverlayChromeMetrics.scrollBottomInset + 16)
                 }
             }
             .onAppear { mode = presentation?.mode ?? .stage }
             .onChange(of: mode) { _, value in presentation?.mode = value }
+        }
+    }
+
+    private var confirmedRemoval: ((CollectionTrackRow) -> Void)? {
+        guard let onRemove else { return nil }
+        return { row in
+            if !removalRows.contains(where: { $0.id == row.id }) { removalRows.append(row) }
+            let selected = removalRows
+            pendingRemoval = ActionConfirmation(
+                title: tr("Remove songs from this playlist?", "从此歌单移除歌曲？"),
+                message: tr("\(removalRows.count) songs will be removed from ‘\(title)’ on this Mac. Push is required to update YTM.",
+                            "将从本机的“\(title)”移除 \(removalRows.count) 首歌曲。更新 YTM 需要另外推送。"),
+                actionTitle: tr("Remove", "移除")) {
+                    removalRows = []
+                    for item in selected { onRemove(item) }
+                }
         }
     }
 
@@ -200,19 +240,24 @@ struct CollectionPageHeader<Controls: View>: View {
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
 
+
+            }
+                .layoutPriority(1)
+
+            Spacer(minLength: AppleMusicSpacing.related)
+
+            MusesGlassGroup(spacing: 8) {
+            HStack(spacing: 16) {
+                controls
+                if youTubeURL != nil { Divider().frame(height: 20) }
                 if let youTubeURL {
                     if let target = YouTubeShareTarget(url: youTubeURL) {
-                        YouTubeShareMenu(target: target)
-                            .labelStyle(.iconOnly)
-                            .menuStyle(.borderlessButton)
-                            .fixedSize()
-                            .frame(minWidth: 28, minHeight: 28)
+                        YouTubeShareMenu(target: target, chrome: true)
                     }
                     Link(destination: youTubeURL) {
-                        YouTubeMark(size: 16)
-                            .frame(width: 28, height: 28)
+                        YouTubeMark(size: 14).chromeActionCircle()
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.fullAreaPlain)
                     .help(tr("Open on YouTube", "在 YouTube 打开"))
                     .accessibilityLabel(tr(
                         "Open playlist on YouTube",
@@ -221,12 +266,8 @@ struct CollectionPageHeader<Controls: View>: View {
                     .fixedSize()
                 }
             }
-                .layoutPriority(1)
-
-            Spacer(minLength: AppleMusicSpacing.related)
-
-            controls
-                .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+            .frame(minHeight: 44, alignment: .trailing)
+            }
         }
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
     }
@@ -300,6 +341,12 @@ private struct CollectionTrackTable: View {
     @State private var notesTrack: Track?
     @State private var pendingNewPlaylistTrackID: UUID?
     @State private var showCreatePlaylist = false
+    @State private var accessiblePage = 0
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @AppStorage(PrefKey.accessibleCollectionTables) private var pagedTablesEnabled = false
+    private let accessiblePageSize = 25
+
+    private var usesAccessiblePages: Bool { voiceOverEnabled || pagedTablesEnabled }
 
     init(
         rows: [CollectionTrackRow],
@@ -318,112 +365,227 @@ private struct CollectionTrackTable: View {
         _sortOrder = State(initialValue: defaultSort.comparators)
     }
 
-    private var displayedRows: [CollectionTrackRow] {
-        CollectionTrackSort.rows(rows, using: sortOrder)
+    // Sort only when data or sort criteria change, not once per row menu,
+    // playback update, selection change, and accessibility page calculation.
+    @State private var displayedRows: [CollectionTrackRow] = []
+
+    private var accessiblePageCount: Int {
+        CollectionTablePaging.pageCount(rowCount: rows.count,
+                                        pageSize: accessiblePageSize)
+    }
+
+    private var tableRows: [CollectionTrackRow] {
+        guard usesAccessiblePages, displayedRows.count > accessiblePageSize else { return displayedRows }
+        return CollectionTablePaging.rows(displayedRows, page: accessiblePage,
+                                          pageSize: accessiblePageSize)
     }
 
     var body: some View {
-        Table(
-            displayedRows,
-            selection: $selection,
-            sortOrder: $sortOrder,
-            columnCustomization: $columnCustomization
-        ) {
-            TableColumn(tr("Order", "顺序"), value: \.canonicalIndex) { row in
-                Text("\(row.canonicalIndex + 1)")
-                    .foregroundStyle(BrandColors.textSecondary)
-                    .monospacedDigit()
+        VStack(spacing: 0) {
+        if usesAccessiblePages {
+            HStack(spacing: 12) {
+                Spacer(minLength: 0)
+                Menu {
+                    Button(tr("Collection order", "歌单顺序", zhHant: "歌單順序")) {
+                        sortOrder = [KeyPathComparator(\.canonicalIndex)]
+                    }
+                    Button(tr("Title", "标题", zhHant: "標題")) {
+                        sortOrder = [KeyPathComparator(\.title, comparator: .localizedStandard)]
+                    }
+                    Button(tr("Artist", "艺术家", zhHant: "藝術家")) {
+                        sortOrder = [KeyPathComparator(\.artist, comparator: .localizedStandard)]
+                    }
+                    Button(tr("Album", "专辑", zhHant: "專輯")) {
+                        sortOrder = [KeyPathComparator(\.album, comparator: .localizedStandard)]
+                    }
+                    Button(tr("Time", "时长", zhHant: "時長")) {
+                        sortOrder = [KeyPathComparator(\.duration)]
+                    }
+                    Button(tr("Date Added", "添加日期", zhHant: "加入日期")) {
+                        sortOrder = [KeyPathComparator(\.addedAtSortValue)]
+                    }
+                    Button(tr("Plays", "播放次数", zhHant: "播放次數")) {
+                        sortOrder = [KeyPathComparator(\.playCount)]
+                    }
+                } label: {
+                    Label(tr("Sort songs", "歌曲排序", zhHant: "歌曲排序"), systemImage: "arrow.up.arrow.down")
+                }
+                .labelStyle(.iconOnly)
+                .help(tr("Sort songs", "歌曲排序"))
+                .fixedSize()
+                if accessiblePageCount > 1 {
+                    Button(tr("Previous page", "上一页", zhHant: "上一頁")) {
+                        accessiblePage = max(0, accessiblePage - 1)
+                        selection = []
+                    }
+                    .disabled(accessiblePage == 0)
+                    Text(tr("Page \(accessiblePage + 1) of \(accessiblePageCount)",
+                            "第 \(accessiblePage + 1) 页，共 \(accessiblePageCount) 页",
+                            zhHant: "第 \(accessiblePage + 1) 頁，共 \(accessiblePageCount) 頁"))
+                        .accessibilityAddTraits(.isStaticText)
+                    Button(tr("Next page", "下一页", zhHant: "下一頁")) {
+                        accessiblePage = min(accessiblePageCount - 1, accessiblePage + 1)
+                        selection = []
+                    }
+                    .disabled(accessiblePage + 1 >= accessiblePageCount)
+                }
             }
-            .width(min: 44, ideal: 52, max: 72)
-            .customizationID("collection-order")
-
-            TableColumn(
-                tr("Title", "标题"),
-                value: \.title,
-                comparator: .localizedStandard
-            ) { row in
-                CollectionTrackTitleCell(
-                    row: row,
-                    liked: likedIDs.contains(row.snapshot.id),
-                    isPlaying: matchesCurrent(row),
-                    onPlay: { onPlay(row) },
-                    onToggleLike: { library.toggleLike(id: row.snapshot.id) },
-                    onRemove: onRemove.map { handler in { handler(row) } }
-                )
-            }
-            .width(min: 220, ideal: 300)
-            .customizationID("collection-title")
-            .disabledCustomizationBehavior(.visibility)
-
-            TableColumn(
-                tr("Artist", "艺术家"),
-                value: \.artist,
-                comparator: .localizedStandard
-            ) { row in
-                secondaryText(row.artist)
-            }
-            .width(min: 120, ideal: 170)
-            .customizationID("collection-artist")
-
-            TableColumn(
-                tr("Album", "专辑"),
-                value: \.album,
-                comparator: .localizedStandard
-            ) { row in
-                secondaryText(row.album)
-            }
-            .width(min: 130, ideal: 190)
-            .customizationID("collection-album")
-
-            TableColumn(tr("Year", "年份"), value: \.yearSortValue) { row in
-                secondaryText(row.year.map(String.init) ?? "—")
-                    .monospacedDigit()
-            }
-            .width(min: 58, ideal: 66, max: 82)
-            .customizationID("collection-year")
-
-            TableColumn(
-                tr("Genre", "类型"),
-                value: \.genreSortValue,
-                comparator: .localizedStandard
-            ) { row in
-                secondaryText(row.genre ?? "—")
-            }
-            .width(min: 90, ideal: 120)
-            .customizationID("collection-genre")
-
-            TableColumn(tr("Time", "时长"), value: \.duration) { row in
-                secondaryText(formatDuration(row.duration))
-                    .monospacedDigit()
-            }
-            .width(min: 64, ideal: 72, max: 86)
-            .customizationID("collection-duration")
-
-            TableColumn(tr("Date Added", "添加日期"), value: \.addedAtSortValue) { row in
-                secondaryText(formatDate(row.addedAt))
-            }
-            .width(min: 100, ideal: 124)
-            .customizationID("collection-date-added")
-
-            TableColumn(tr("Plays", "播放次数"), value: \.playCount) { row in
-                secondaryText("\(row.playCount)")
-                    .monospacedDigit()
-            }
-            .width(min: 62, ideal: 72, max: 92)
-            .customizationID("collection-plays")
-
+            .font(.callout)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
         }
-        .tableStyle(.inset(alternatesRowBackgrounds: false))
-        .scrollContentBackground(.hidden)
-        .background(BrandColors.background)
-        .contextMenu(forSelectionType: UUID.self) { selectedIDs in
-            contextMenu(for: selectedIDs)
-        } primaryAction: { selectedIDs in
-            guard let row = firstRow(in: selectedIDs) else { return }
-            onPlay(row)
+        if usesAccessiblePages {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(tableRows) { row in
+                        HStack(spacing: 12) {
+                            Button { onPlay(row) } label: {
+                                HStack(spacing: 12) {
+                                    Text("\(row.canonicalIndex + 1)")
+                                        .monospacedDigit()
+                                        .foregroundStyle(BrandColors.textSecondary)
+                                        .frame(width: 40, alignment: .trailing)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(row.title).lineLimit(1)
+                                        Text(row.artist).font(.caption)
+                                            .foregroundStyle(BrandColors.textSecondary)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer(minLength: 8)
+                                    Text(formatDuration(row.duration))
+                                        .monospacedDigit()
+                                        .foregroundStyle(BrandColors.textSecondary)
+                                }
+                                .frame(minHeight: 42)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.fullAreaPlain)
+                            .accessibilityLabel(tr("Play \(row.title) by \(row.artist)",
+                                                   "播放 \(row.artist) 的 \(row.title)",
+                                                   zhHant: "播放 \(row.artist) 的 \(row.title)"))
+                            Button { library.toggleLike(snapshot: row.snapshot) } label: {
+                                Image(systemName: likedIDs.contains(row.snapshot.id) ? "heart.fill" : "heart")
+                                    .frame(width: 28, height: 28)
+                            }
+                            .buttonStyle(.fullAreaPlain)
+                            .accessibilityLabel(likedIDs.contains(row.snapshot.id)
+                                ? tr("Unlike \(row.title)", "取消收藏 \(row.title)", zhHant: "取消喜愛 \(row.title)")
+                                : tr("Like \(row.title)", "收藏 \(row.title)", zhHant: "喜愛 \(row.title)"))
+                        }
+                        .padding(.horizontal, 16)
+                        .contextMenu { contextMenu(for: [row.id]) }
+                        Divider()
+                    }
+                }
+            }
+            .background(BrandColors.background)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Color.clear.frame(height: OverlayChromeMetrics.scrollBottomInset)
+            }
+        } else {
+            Table(
+                tableRows,
+                selection: $selection,
+                sortOrder: $sortOrder,
+                columnCustomization: $columnCustomization
+            ) {
+                TableColumn(tr("Order", "顺序"), value: \.canonicalIndex) { row in
+                    Text("\(row.canonicalIndex + 1)")
+                        .foregroundStyle(BrandColors.textSecondary)
+                        .monospacedDigit()
+                }
+                .width(min: 44, ideal: 52, max: 72)
+                .customizationID("collection-order")
+
+                TableColumn(
+                    tr("Title", "标题"),
+                    value: \.title,
+                    comparator: .localizedStandard
+                ) { row in
+                    CollectionTrackTitleCell(
+                        row: row,
+                        liked: likedIDs.contains(row.snapshot.id),
+                        isPlaying: matchesCurrent(row),
+                        onPlay: { onPlay(row) },
+                        onToggleLike: { library.toggleLike(snapshot: row.snapshot) },
+                        onRemove: onRemove.map { handler in { handler(row) } }
+                    )
+                }
+                .width(min: 220, ideal: 300)
+                .customizationID("collection-title")
+                .disabledCustomizationBehavior(.visibility)
+
+                TableColumn(
+                    tr("Artist", "艺术家"),
+                    value: \.artist,
+                    comparator: .localizedStandard
+                ) { row in
+                    secondaryText(row.artist)
+                }
+                .width(min: 120, ideal: 170)
+                .customizationID("collection-artist")
+
+                TableColumn(
+                    tr("Album", "专辑"),
+                    value: \.album,
+                    comparator: .localizedStandard
+                ) { row in
+                    secondaryText(row.album)
+                }
+                .width(min: 130, ideal: 190)
+                .customizationID("collection-album")
+
+                TableColumn(tr("Year", "年份"), value: \.yearSortValue) { row in
+                    secondaryText(row.year.map(String.init) ?? "—")
+                        .monospacedDigit()
+                }
+                .width(min: 58, ideal: 66, max: 82)
+                .customizationID("collection-year")
+
+                TableColumn(
+                    tr("Genre", "类型"),
+                    value: \.genreSortValue,
+                    comparator: .localizedStandard
+                ) { row in
+                    secondaryText(row.genre ?? "—")
+                }
+                .width(min: 90, ideal: 120)
+                .customizationID("collection-genre")
+
+                TableColumn(tr("Time", "时长"), value: \.duration) { row in
+                    secondaryText(formatDuration(row.duration))
+                        .monospacedDigit()
+                }
+                .width(min: 64, ideal: 72, max: 86)
+                .customizationID("collection-duration")
+
+                TableColumn(tr("Date Added", "添加日期"), value: \.addedAtSortValue) { row in
+                    secondaryText(formatDate(row.addedAt))
+                }
+                .width(min: 100, ideal: 124)
+                .customizationID("collection-date-added")
+
+                TableColumn(tr("Plays", "播放次数"), value: \.playCount) { row in
+                    secondaryText("\(row.playCount)")
+                        .monospacedDigit()
+                }
+                .width(min: 62, ideal: 72, max: 92)
+                .customizationID("collection-plays")
+
+            }
+            .tableStyle(.inset(alternatesRowBackgrounds: false))
+            .scrollContentBackground(.hidden)
+            .background(BrandColors.background)
+            .contextMenu(forSelectionType: UUID.self) { selectedIDs in
+                contextMenu(for: selectedIDs)
+            } primaryAction: { selectedIDs in
+                guard let row = firstRow(in: selectedIDs) else { return }
+                onPlay(row)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Color.clear.frame(height: OverlayChromeMetrics.scrollBottomInset)
+            }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            Color.clear.frame(height: OverlayChromeMetrics.scrollBottomInset)
         }
         .onAppear {
             if let saved = presentation {
@@ -433,7 +595,19 @@ private struct CollectionTrackTable: View {
             }
         }
         .onChange(of: selection) { _, value in presentation?.selection = value }
-        .onChange(of: sortOrder) { _, value in presentation?.sortOrder = value }
+        .onChange(of: sortOrder) { _, value in
+            accessiblePage = 0
+            presentation?.sortOrder = value
+            displayedRows = CollectionTrackSort.rows(rows, using: value)
+        }
+        .onChange(of: usesAccessiblePages) { _, _ in
+            accessiblePage = 0
+            selection = []
+        }
+        .onChange(of: rows, initial: true) { _, value in
+            displayedRows = CollectionTrackSort.rows(value, using: sortOrder)
+            accessiblePage = min(accessiblePage, accessiblePageCount - 1)
+        }
         .onChange(of: columnCustomization) { _, value in presentation?.columns = value }
         .task(id: rows.map(\.id)) { refreshLikedIDs() }
         .onChange(of: library.likedRevision) { _, _ in refreshLikedIDs() }
@@ -496,7 +670,7 @@ private struct CollectionTrackTable: View {
     }
 
     private func refreshLikedIDs() {
-        likedIDs = library.likedIDs(for: rows.map(\.snapshot.id))
+        likedIDs = library.likedSnapshotIDs(for: rows.map(\.snapshot))
     }
 
     private func matchesCurrent(_ row: CollectionTrackRow) -> Bool {
@@ -556,7 +730,7 @@ private struct CollectionTrackTitleCell: View {
                     }
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.fullAreaPlain)
             .onHover { hoveringArtwork = $0 }
             .help(tr("Play \(row.title)", "播放 \(row.title)", zhHant: "播放 \(row.title)"))
             .accessibilityLabel(tr("Play \(row.title)", "播放 \(row.title)", zhHant: "播放 \(row.title)"))
@@ -575,7 +749,7 @@ private struct CollectionTrackTitleCell: View {
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.fullAreaPlain)
             .help(liked ? tr("Unlike", "取消收藏") : tr("Like", "收藏"))
             .accessibilityLabel(liked ? tr("Unlike \(row.title)", "取消收藏 \(row.title)", zhHant: "取消喜愛項目 \(row.title)")
                                       : tr("Like \(row.title)", "收藏 \(row.title)", zhHant: "喜愛項目 \(row.title)"))
@@ -588,7 +762,7 @@ private struct CollectionTrackTitleCell: View {
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.fullAreaPlain)
                 .help(tr("Remove \(row.title)", "移除 \(row.title)", zhHant: "移除 \(row.title)"))
                 .accessibilityLabel(tr("Remove \(row.title)", "移除 \(row.title)", zhHant: "移除 \(row.title)"))
             }

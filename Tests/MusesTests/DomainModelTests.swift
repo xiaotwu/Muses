@@ -17,7 +17,7 @@ struct DomainModelTests {
 
     @Test("schema generation 6 keeps retired models out and records podcast membership")
     func schemaDropsRetiredModels() {
-        #expect(MusesSchema.generation == 6)
+        #expect(MusesSchema.generation == 7)
         let names = Set(MusesSchema.models.map { String(describing: $0) })
         #expect(!names.contains("InboxItem"))
         #expect(!names.contains("AutomationRule"))

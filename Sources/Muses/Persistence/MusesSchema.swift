@@ -10,9 +10,10 @@ import SwiftData
 /// as read-only compatibility input for existing stores. Generation 5 adds
 /// local podcast follows and per-episode progress without a second player.
 /// Generation 6 records source-backed show/episode membership separately from
-/// the shared video progress row.
+/// the shared video progress row. Generation 7 preserves the collection order
+/// across a shuffled queue's restart.
 enum MusesSchema {
-    static let generation = 6
+    static let generation = 7
     static let version = Schema.Version(generation, 0, 0)
 
     static let models: [any PersistentModel.Type] = [

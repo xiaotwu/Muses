@@ -19,6 +19,7 @@ struct SidebarView: View {
     @State private var showCreatePlaylist = false
     @State private var showPlaylistChoice = false
     @State private var showImportPlaylist = false
+    @State private var pendingRemoval: ActionConfirmation?
     @State private var operationError: String?
     @FocusState private var focusedDestination: SidebarSection?
 
@@ -56,7 +57,7 @@ struct SidebarView: View {
                             .settingsSelection(selected)
                             .foregroundStyle(BrandColors.textPrimary)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.fullAreaPlain)
                         .help(category.label)
                         .accessibilityLabel(category.label)
                         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -64,6 +65,12 @@ struct SidebarView: View {
                 }
             }
             Spacer(minLength: 8)
+            if isCollapsed {
+                collapsedNavRow("house.fill", SidebarSection.home.title, .home)
+                    .frame(maxWidth: .infinity)
+            } else {
+                navRow("house.fill", SidebarSection.home.title, .home)
+            }
         }
     }
 
@@ -122,6 +129,7 @@ struct SidebarView: View {
         } message: {
             Text(operationError ?? "")
         }
+        .actionConfirmation($pendingRemoval)
         .onAppear { refreshPlaylists() }
         .onReceive(NotificationCenter.default.publisher(for: .musesPlaylistsChanged)) { _ in
             refreshPlaylists()
@@ -189,7 +197,12 @@ struct SidebarView: View {
                                 YouTubeShareMenu(target: target)
                             }
                             Button(tr("Remove", "移除"), role: .destructive) {
-                                removeSidebarItem(item)
+                                pendingRemoval = ActionConfirmation(
+                                    title: tr("Delete ‘\(item.name)’?", "删除“\(item.name)”？"),
+                                    message: tr("This deletes the local playlist. YTM is unchanged.",
+                                                "将删除本机歌单，不会更改 YTM 云端。")) {
+                                        removeSidebarItem(item)
+                                    }
                             }
                         }
                     }
@@ -264,7 +277,7 @@ struct SidebarView: View {
                         .selectionHalo(on)
                 )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.fullAreaPlain)
         .focused($focusedDestination, equals: tag)
         .accessibilityAddTraits(on ? .isSelected : [])
         .accessibilityLabel(title)
@@ -275,18 +288,16 @@ struct SidebarView: View {
         Button {
             NotificationCenter.default.post(name: .musesOpenSettings, object: nil)
         } label: {
-            VStack(spacing: 4) {
-                Image(systemName: "gearshape").font(.system(size: 16, weight: .semibold))
-                Text(tr("Settings", "设置", zhHant: "設定")).font(.system(size: 10, weight: .medium))
-            }
+            Image(systemName: "gearshape")
+                .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(selection == .settings ? BrandColors.accent : BrandColors.textSecondary)
                 .frame(width: 72, height: 48)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.fullAreaPlain)
         .accessibilityAddTraits(selection == .settings ? .isSelected : [])
         .help(SidebarNavPolicy.settingsFooterTitle())
-        .accessibilityLabel(tr("Open Settings", "打开设置"))
+        .accessibilityLabel(tr("Open Settings", "打开设置", zhHant: "開啟設定"))
     }
 
     private func sectionLabel(_ title: String) -> some View {
@@ -335,7 +346,7 @@ struct SidebarView: View {
             .settingsSelection(on)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.fullAreaPlain)
         .focused($focusedDestination, equals: tag)
         .accessibilityAddTraits(on ? .isSelected : [])
         .accessibilityLabel(title)

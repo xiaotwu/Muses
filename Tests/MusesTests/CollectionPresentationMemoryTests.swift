@@ -4,6 +4,20 @@ import Foundation
 
 @MainActor
 struct CollectionPresentationMemoryTests {
+    @Test func unchangedAnchorDoesNotPublishPreferencesAgain() {
+        var writes = 0
+        let entry = CollectionPresentationMemory.Entry { _ in writes += 1 }
+        let anchor = UUID()
+        entry.focusedID = anchor
+        entry.focusedID = anchor
+        entry.mode = .stage
+        entry.selection = []
+        #expect(writes == 1)
+        entry.mode = .list
+        entry.selection = [anchor]
+        #expect(writes == 3)
+    }
+
     @Test func returningPreservesPresentationAndSeparatesWindows() throws {
         let suite = "Muses.CollectionPresentationTest.\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))

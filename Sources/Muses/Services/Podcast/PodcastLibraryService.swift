@@ -48,13 +48,27 @@ final class PodcastLibraryService {
     static let completionRemainingMs = 60_000
 
     private let modelContainer: ModelContainer
+    private let saveContext: (ModelContext) throws -> Void
     private(set) var revision = 0
     private(set) var persistenceFailed = false
+    private enum PendingProgressWrite {
+        case position(videoID: String, positionMs: Double, durationMs: Int?)
+        case completed(videoID: String)
+
+        var videoID: String {
+            switch self {
+            case .position(let videoID, _, _), .completed(let videoID): videoID
+            }
+        }
+    }
+    private var pendingProgressWrites: [String: PendingProgressWrite] = [:]
     private var eventSubscription: UUID?
     private var activeEpisode: TrackSnapshot?
 
-    init(modelContainer: ModelContainer, eventBus: PlaybackEventBus? = nil) {
+    init(modelContainer: ModelContainer, eventBus: PlaybackEventBus? = nil,
+         saveContext: @escaping (ModelContext) throws -> Void = { try $0.save() }) {
         self.modelContainer = modelContainer
+        self.saveContext = saveContext
         eventSubscription = eventBus?.subscribe { [weak self] event in
             self?.handle(event)
         }
@@ -75,7 +89,7 @@ final class PodcastLibraryService {
                                    artworkURL: show.artwork?.absoluteString,
                                    followedAt: now, updatedAt: now))
         }
-        try ctx.save()
+        try saveContext(ctx)
         revision &+= 1
     }
 
@@ -85,7 +99,7 @@ final class PodcastLibraryService {
             predicate: #Predicate { $0.catalogID == catalogID })) {
             ctx.delete(show)
         }
-        try ctx.save()
+        try saveContext(ctx)
         revision &+= 1
     }
 
@@ -135,7 +149,7 @@ final class PodcastLibraryService {
                     updatedAt: now))
             }
         }
-        try ctx.save()
+        try saveContext(ctx)
         revision &+= 1
     }
 
@@ -154,7 +168,7 @@ final class PodcastLibraryService {
             if let availability = item.availability { row.availability = availability }
             row.updatedAt = now
         }
-        try ctx.save()
+        try saveContext(ctx)
         revision &+= 1
     }
 
@@ -182,7 +196,7 @@ final class PodcastLibraryService {
             episode.lastPositionMs = Double(effectiveDuration)
         }
         episode.updatedAt = now
-        try ctx.save()
+        try saveContext(ctx)
         revision &+= 1
     }
 
@@ -196,7 +210,7 @@ final class PodcastLibraryService {
         episode.playedAt = nil
         episode.lastPositionMs = 0
         episode.updatedAt = now
-        try ctx.save()
+        try saveContext(ctx)
         revision &+= 1
     }
 
@@ -224,11 +238,29 @@ final class PodcastLibraryService {
         let duration = durationSeconds.isFinite && durationSeconds > 0
             && durationSeconds < Double(Int.max / 1000)
             ? Int(durationSeconds * 1000) : Self.durationMs(track)
+        saveProgress(.position(videoID: track.youTubeId, positionMs: positionMs,
+                               durationMs: duration))
+    }
+
+    func retryPendingProgress() {
+        for pending in Array(pendingProgressWrites.values) { saveProgress(pending) }
+    }
+
+    private func saveProgress(_ write: PendingProgressWrite) {
         do {
-            try updateProgress(videoID: track.youTubeId, positionMs: positionMs,
-                               durationMs: duration)
-            persistenceFailed = false
-        } catch { persistenceFailed = true }
+            switch write {
+            case .position(let videoID, let positionMs, let durationMs):
+                try updateProgress(videoID: videoID, positionMs: positionMs,
+                                   durationMs: durationMs)
+            case .completed(let videoID):
+                try markPlayed(videoID: videoID)
+            }
+            pendingProgressWrites.removeValue(forKey: write.videoID)
+        } catch {
+            pendingProgressWrites[write.videoID] = write
+            AppLog.for("PodcastLibraryService").error("Podcast progress save failed: \(error.localizedDescription)")
+        }
+        persistenceFailed = !pendingProgressWrites.isEmpty
     }
 
     func markPlayed(videoID: String, now: Date = .init()) throws {
@@ -240,7 +272,7 @@ final class PodcastLibraryService {
         row.completed = true
         row.playedAt = now
         row.updatedAt = now
-        try ctx.save()
+        try saveContext(ctx)
         revision &+= 1
     }
 
@@ -329,22 +361,20 @@ final class PodcastLibraryService {
             activeEpisode = track.mediaKind == .podcastEpisode ? track : nil
         case .trackSeeked(let trackID, let toMs):
             guard let activeEpisode, activeEpisode.id == trackID else { return }
-            try? updateProgress(videoID: activeEpisode.youTubeId,
-                                positionMs: toMs,
-                                durationMs: Self.durationMs(activeEpisode))
+            saveProgress(.position(videoID: activeEpisode.youTubeId, positionMs: toMs,
+                                   durationMs: Self.durationMs(activeEpisode)))
         case .trackPaused(let track):
             guard track.mediaKind == .podcastEpisode else { return }
-        case .trackCompleted(let track, _):
+        case .trackCompleted(let track, _, _):
             guard track.mediaKind == .podcastEpisode else { return }
-            do { try markPlayed(videoID: track.youTubeId) }
-            catch { persistenceFailed = true }
+            saveProgress(.completed(videoID: track.youTubeId))
             activeEpisode = nil
-        case .trackSkipped(let track, let listenedMs),
-             .trackStopped(let track, let listenedMs):
+        case .trackSkipped(let track, let listenedMs, let positionMs),
+             .trackStopped(let track, let listenedMs, let positionMs):
             guard track.mediaKind == .podcastEpisode else { return }
-            try? updateProgress(videoID: track.youTubeId,
-                                positionMs: listenedMs,
-                                durationMs: Self.durationMs(track))
+            saveProgress(.position(videoID: track.youTubeId,
+                                   positionMs: positionMs ?? listenedMs,
+                                   durationMs: Self.durationMs(track)))
             activeEpisode = nil
         case .trackResumed, .queueChanged, .outputDeviceChanged:
             break

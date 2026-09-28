@@ -6,6 +6,51 @@ import Testing
 @Suite("Podcast library", .serialized)
 @MainActor
 struct PodcastLibraryTests {
+    private enum SaveError: Error { case injected }
+
+    @Test("seek and stop persistence failures remain visible until a successful retry")
+    func playbackEventSaveFailure() throws {
+        let container = try makeModelContainer(inMemory: true)
+        let bus = PlaybackEventBus()
+        var shouldFail = false
+        let service = PodcastLibraryService(modelContainer: container, eventBus: bus,
+            saveContext: { context in
+                if shouldFail { throw SaveError.injected }
+                try context.save()
+            })
+        try service.ingest(show: item(id: "browse:MPSPshow", kind: .podcast, title: "Show"),
+            episodes: [item(id: "video:abcdefghijk", kind: .episode, title: "One")])
+        let track = TrackSnapshot(from: Track(title: "One", artist: "Show",
+            durationMs: 300_000, youTubeId: "abcdefghijk", mediaKind: .podcastEpisode))
+        bus.post(.trackStarted(track))
+        shouldFail = true
+        bus.post(.trackSeeked(trackId: track.id, toMs: 42_000))
+        #expect(service.persistenceFailed)
+        bus.post(.trackStopped(track, listenedMs: 43_000))
+        #expect(service.persistenceFailed)
+        shouldFail = false
+        service.retryPendingProgress()
+        #expect(!service.persistenceFailed)
+        #expect(service.episode(videoID: "abcdefghijk")?.lastPositionMs == 43_000)
+        service.checkpoint(track: track, positionMs: 44_000, durationSeconds: 300)
+        #expect(!service.persistenceFailed)
+        #expect(service.episode(videoID: "abcdefghijk")?.lastPositionMs == 44_000)
+    }
+
+    @Test("a short listen after seeking keeps the podcast media position")
+    func terminalEventUsesPosition() throws {
+        let container = try makeModelContainer(inMemory: true)
+        let bus = PlaybackEventBus()
+        let service = PodcastLibraryService(modelContainer: container, eventBus: bus)
+        try service.ingest(show: item(id: "browse:MPSPshow", kind: .podcast, title: "Show"),
+            episodes: [item(id: "video:abcdefghijk", kind: .episode, title: "One")])
+        let track = TrackSnapshot(from: Track(title: "One", artist: "Show",
+            durationMs: 300_000, youTubeId: "abcdefghijk", mediaKind: .podcastEpisode))
+        bus.post(.trackStarted(track))
+        bus.post(.trackSkipped(track, listenedMs: 5_000, positionMs: 120_000))
+        #expect(service.episode(videoID: "abcdefghijk")?.lastPositionMs == 120_000)
+    }
+
     @Test("follow requires a stable podcast browse identity and remains local")
     func followIdentity() throws {
         let container = try makeModelContainer(inMemory: true)

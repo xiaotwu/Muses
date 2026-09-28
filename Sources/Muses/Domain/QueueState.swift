@@ -24,6 +24,9 @@ final class QueueState {
     var insertedCurrentJSON: String?
     /// Optional for compatibility with queue snapshots predating Smart Shuffle.
     var smartShuffleJSON: String?
+    /// Collection occurrence IDs before shuffle, so turning shuffle off after a
+    /// restart restores order without resurrecting entries removed meanwhile.
+    var originalOrderIDsJSON: String?
 
     /// Fixed UUID used by the singleton persisted row.
     static let sharedID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!

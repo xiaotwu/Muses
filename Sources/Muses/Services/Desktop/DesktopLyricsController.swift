@@ -91,7 +91,7 @@ struct DesktopLyricsOverlayView: View {
             .foregroundStyle(.white)
             .lineLimit(2)
             .fixedSize(horizontal: false, vertical: true)
-            .help(source == nil ? "" : source == .lrclib ? "LRCLIB" : source == .musixmatch ? "Musixmatch" : tr("Saved lyrics", "已保存的歌词"))
+            .help(source == nil ? "" : source?.displayName ?? "")
             .multilineTextAlignment(.center)
             .padding(.horizontal, 16).padding(.vertical, 12)
             .frame(maxWidth: .infinity)

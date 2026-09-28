@@ -52,7 +52,7 @@ struct SongStationCard: View {
         Button(action: onOpen) {
             content()
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.fullAreaPlain)
     }
 
     private func portraitContent(

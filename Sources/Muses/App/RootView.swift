@@ -17,6 +17,7 @@ struct RootView: View {
     @Environment(LibraryService.self) private var library
     @Environment(PlaylistService.self) private var playlistService
     @Environment(PlaybackService.self) private var playback
+    @Environment(PodcastLibraryService.self) private var podcasts
     @Environment(YouTubeCatalogService.self) private var catalog
     @Environment(\.openWindow) private var openWindow
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -46,6 +47,7 @@ struct RootView: View {
     @AppStorage(PrefKey.nowPlayingLyricsMode) private var lyricsModeRaw: String = NowPlayingLyricsMode.inline.rawValue
     @Environment(\.libraryStoreFallback) private var libraryStoreFallback
     @State private var showStoreFallbackAlert = false
+    @State private var showPodcastSaveAlert = false
     @State private var showYouTubeVideo = false
     @AppStorage(PrefKey.nowPlayingMode) private var nowPlayingModeRaw: String = NowPlayingMode.cover.rawValue
     @AppStorage(PrefKey.sidebarCollapsed) private var isSidebarCollapsed = false
@@ -71,6 +73,21 @@ struct RootView: View {
             )) {
                 Button(tr("OK", "好")) { externalPlaybackRouter.errorMessage = nil }
             } message: { Text(externalPlaybackRouter.errorMessage ?? "") }
+            .alert(tr("Podcast progress was not saved", "播客进度未保存", zhHant: "Podcast 進度未儲存"),
+                   isPresented: $showPodcastSaveAlert) {
+                Button(tr("Retry", "重试", zhHant: "重試")) {
+                    podcasts.retryPendingProgress()
+                    showPodcastSaveAlert = podcasts.persistenceFailed
+                }
+                Button(tr("Later", "稍后", zhHant: "稍後"), role: .cancel) { }
+            } message: {
+                Text(tr("Your recent episode position is still in memory. Retry before quitting the app.",
+                        "最近的单集位置仍保存在内存中。请在退出应用前重试。",
+                        zhHant: "最近的單集位置仍保存在記憶體中。請在結束 App 前重試。"))
+            }
+            .onChange(of: podcasts.persistenceFailed) { _, failed in
+                if failed { showPodcastSaveAlert = true }
+            }
             .onChange(of: browseRoute) { _, route in
                 navigationHistory.visit(route)
                 pendingAccountRestoration = nil
@@ -94,7 +111,11 @@ struct RootView: View {
             .onChange(of: account.isConnected) { _, connected in
                 if !connected { globalSearch.reset(); clearPrivateNavigation() }
             }
+            .onChange(of: playback.queue.persistenceFailed) { _, failed in
+                if failed { showQueue = true }
+            }
             .onAppear {
+                if playback.queue.persistenceFailed { showQueue = true }
                 if MusesSingleInstance.pendingVideoPresentation {
                     MusesSingleInstance.pendingVideoPresentation = false
                     showYouTubeVideo = playback.videoSession != nil

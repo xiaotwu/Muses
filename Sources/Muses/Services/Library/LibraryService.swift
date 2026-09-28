@@ -54,6 +54,49 @@ final class LibraryService {
         }
     }
 
+    /// Imported playlist rows can exist before a Track is materialized.
+    /// Resolve by stable video identity so their visible Like action always works.
+    func toggleLike(snapshot: TrackSnapshot) {
+        guard !snapshot.youTubeId.isEmpty else { return }
+        let context = ModelContext(modelContainer)
+        let videoID = snapshot.youTubeId
+        do {
+            let existing = try context.fetch(FetchDescriptor<Track>(
+                predicate: #Predicate { $0.youTubeId == videoID }))
+            let track: Track
+            if let found = YouTubeImportService.preferredTrack(among: existing) {
+                track = found
+            } else {
+                track = Track(id: snapshot.id, title: snapshot.title, artist: snapshot.artist,
+                    albumTitle: snapshot.albumTitle,
+                    durationMs: Int(snapshot.durationSeconds * 1000),
+                    youTubeId: videoID, artworkUrl: snapshot.artworkUrl,
+                    mediaKind: snapshot.mediaKind)
+                context.insert(track)
+            }
+            track.liked.toggle()
+            if track.liked { track.libraryMember = true }
+            for item in try context.fetch(FetchDescriptor<YouTubeImportItem>(
+                predicate: #Predicate { $0.youTubeId == videoID })) where item.track == nil {
+                item.track = track
+            }
+            try context.save()
+            likedRevision &+= 1
+        } catch {
+            AppLog.for("LibraryService").warning("toggleLike snapshot save failed: \(error.localizedDescription)")
+        }
+    }
+
+    func likedSnapshotIDs(for snapshots: [TrackSnapshot]) -> Set<UUID> {
+        let videoIDs = snapshots.map(\.youTubeId)
+        guard !videoIDs.isEmpty else { return [] }
+        let context = ModelContext(modelContainer)
+        let liked = (try? context.fetch(FetchDescriptor<Track>(
+            predicate: #Predicate { videoIDs.contains($0.youTubeId) && $0.liked == true }))) ?? []
+        let likedVideos = Set(liked.map(\.youTubeId))
+        return Set(snapshots.filter { likedVideos.contains($0.youTubeId) }.map(\.id))
+    }
+
     func updateTrack(id: UUID, title: String, artist: String,
                      albumTitle: String?, albumArtist: String?,
                      trackNo: Int?, discNo: Int?, year: Int?,

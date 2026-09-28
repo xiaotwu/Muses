@@ -28,7 +28,7 @@ struct SectionHeader: View {
                         }
                         .foregroundStyle(BrandColors.textSecondary)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.fullAreaPlain)
                     .accessibilityLabel(moreLabel)
                 }
             }

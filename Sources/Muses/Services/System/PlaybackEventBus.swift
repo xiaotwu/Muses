@@ -12,13 +12,14 @@ enum PlaybackEvent: Sendable {
     case trackPaused(TrackSnapshot)
     case trackResumed(TrackSnapshot)
     case trackSeeked(trackId: UUID, toMs: Double)
-    /// Natural completion (engine completion callback). `listenedMs` is the actual listened milliseconds.
-    case trackCompleted(TrackSnapshot, listenedMs: Double)
+    /// Listening duration and media position are separate: a seek or podcast
+    /// resume must not count the skipped span as time actually listened.
+    case trackCompleted(TrackSnapshot, listenedMs: Double, positionMs: Double? = nil)
     /// User-initiated skip (next/previous without reaching the completion threshold).
     /// Detected and posted by History.
-    case trackSkipped(TrackSnapshot, listenedMs: Double)
+    case trackSkipped(TrackSnapshot, listenedMs: Double, positionMs: Double? = nil)
     /// Stop (switching to another track after pausing / still playing at quit).
-    case trackStopped(TrackSnapshot, listenedMs: Double)
+    case trackStopped(TrackSnapshot, listenedMs: Double, positionMs: Double? = nil)
     case queueChanged
     case outputDeviceChanged
 }

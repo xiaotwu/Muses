@@ -21,11 +21,12 @@ struct LyricsInteractionPresentedKey: PreferenceKey {
 enum LyricsLayout: Equatable {
     case centered
     case leading
+    case immersiveCentered
     case fullscreen
 
     var alignment: Alignment { self == .leading ? .leading : .center }
     var textAlignment: TextAlignment { self == .leading ? .leading : .center }
-    var isImmersive: Bool { self == .leading }
+    var isImmersive: Bool { self == .leading || self == .immersiveCentered }
 }
 
 /// Pure distance styling keeps the lyric hierarchy deterministic and testable.
@@ -131,7 +132,7 @@ struct LyricsView: View {
     @AppStorage(PrefKey.nowPlayingLyricsMode) private var displayMode = NowPlayingLyricsMode.inline.rawValue
     @AppStorage(PrefKey.lyricsTranslationLanguage) private var translationTarget = "off"
     @AppStorage(PrefKey.lyricsRomanization) private var showRomanization = false
-    @AppStorage(PrefKey.lyricsSource) private var provider = "lrclib"
+    @AppStorage(PrefKey.lyricsSource) private var provider = "auto"
     @AppStorage(PrefKey.lyricsIntelligence) private var intelligentMatching = true
 
     private var loadKey: String {
@@ -170,9 +171,9 @@ struct LyricsView: View {
                 Spacer()
                 if lines?.contains(where: { $0.time != nil }) == true {
                     Button { showTiming.toggle() } label: {
-                        Image(systemName: "timer").frame(width: 28, height: 28)
+                        Image(systemName: "timer").chromeActionCircle()
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.fullAreaPlain)
                     .help(tr("Adjust lyric timing", "调整歌词时间", zhHant: "調整歌詞時間"))
                     .accessibilityLabel(tr("Adjust lyric timing", "调整歌词时间", zhHant: "調整歌詞時間"))
                     .popover(isPresented: $showTiming) { timingControls }
@@ -181,7 +182,7 @@ struct LyricsView: View {
                     Image(systemName: "info.circle").help(processingMessage)
                         .accessibilityLabel(processingMessage)
                 }
-                Menu {
+                ChromeIconMenu(systemName: "ellipsis", title: tr("Lyrics options", "歌词选项")) {
                     if layout != .centered {
                         Picker(tr("Lyrics display", "歌词显示", zhHant: "歌詞顯示"), selection: $displayMode) {
                             Text(tr("With artwork", "封面与歌词", zhHant: "封面與歌詞")).tag(NowPlayingLyricsMode.inline.rawValue)
@@ -191,7 +192,7 @@ struct LyricsView: View {
                         Divider()
                     }
                     if let source {
-                        Text(source == .cached ? tr("Source: lyrics stored with this track", "来源：此曲目保存的歌词", zhHant: "來源：此曲目儲存的歌詞") : tr("Source: ", "来源：", zhHant: "來源：") + (source == .lrclib ? "LRCLIB" : "Musixmatch"))
+                        Text(tr("Source: ", "来源：", zhHant: "來源：") + source.displayName)
                         Divider()
                     }
                     LyricsTranslationPicker(selection: $translationTarget)
@@ -202,11 +203,7 @@ struct LyricsView: View {
                     Button(tr("Lyrics Settings…", "歌词设置…")) {
                         NotificationCenter.default.post(name: .musesOpenSettings, object: SettingsCategory.lyrics)
                     }
-                } label: {
-                    Image(systemName: "ellipsis.circle").frame(width: 28, height: 28)
                 }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
                 .help(tr("Lyrics options", "歌词选项"))
                 .accessibilityLabel(tr("Lyrics options", "歌词选项"))
             }
@@ -337,64 +334,68 @@ struct LyricsView: View {
                                 paused: !playback.transportState.isPlaying)) { _ in
             let position = playback.transportState.position
             let idx = Self.currentLineIndex(in: lines, at: position, offset: offsetSeconds)
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: layout.isImmersive ? 42 : 20) {
-                        ForEach(Array(lines.enumerated()), id: \.element.id) { i, line in
-                            let distance = abs((idx ?? 0) - i)
-                            let isCurrent = i == idx
-                            lyricRow(line, isCurrent: isCurrent, position: position)
-                            .opacity(idx == nil
-                                ? 1
-                                : LyricsVisualStyle.opacity(
+            GeometryReader { geometry in
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: layout.isImmersive ? 42 : 20) {
+                            ForEach(Array(lines.enumerated()), id: \.element.id) { i, line in
+                                let distance = abs((idx ?? 0) - i)
+                                let isCurrent = i == idx
+                                lyricRow(line, isCurrent: isCurrent, position: position)
+                                .opacity(idx == nil
+                                    ? 1
+                                    : LyricsVisualStyle.opacity(
+                                        distance: distance,
+                                        isCurrent: isCurrent,
+                                        immersive: layout.isImmersive,
+                                        prioritizeLegibility: prioritizeLegibility
+                                    ))
+                                .blur(radius: idx == nil ? 0 : LyricsVisualStyle.blurRadius(
                                     distance: distance,
                                     isCurrent: isCurrent,
                                     immersive: layout.isImmersive,
                                     prioritizeLegibility: prioritizeLegibility
                                 ))
-                            .blur(radius: idx == nil ? 0 : LyricsVisualStyle.blurRadius(
-                                distance: distance,
-                                isCurrent: isCurrent,
-                                immersive: layout.isImmersive,
-                                prioritizeLegibility: prioritizeLegibility
-                            ))
-                            .id(line.id)
-                            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: idx)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                guard let t = line.time else { return }
-                                playback.seek(to: t + offsetSeconds)
+                                .id(line.id)
+                                .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: idx)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    guard let t = line.time else { return }
+                                    playback.seek(to: t + offsetSeconds)
+                                }
+                                .focusable(line.time != nil)
+                                .focusEffectDisabled()
+                                .focused($focusedLineID, equals: line.id)
+                                .lyricKeyboardFocusHalo(
+                                    focusedLineID == line.id,
+                                    prioritizeLegibility: prioritizeLegibility
+                                )
+                                .onKeyPress(.return) {
+                                    guard let t = line.time else { return .ignored }
+                                    playback.seek(to: t + offsetSeconds)
+                                    return .handled
+                                }
+                                .accessibilityAddTraits(line.time == nil ? [] : .isButton)
+                                .accessibilityHint(line.time == nil
+                                    ? ""
+                                    : tr("Jump to this lyric", "跳转到这句歌词"))
+                                .help(line.time != nil ? tr("Jump to this line", "跳转到此行") : "")
                             }
-                            .focusable(line.time != nil)
-                            .focusEffectDisabled()
-                            .focused($focusedLineID, equals: line.id)
-                            .lyricKeyboardFocusHalo(
-                                focusedLineID == line.id,
-                                prioritizeLegibility: prioritizeLegibility
-                            )
-                            .onKeyPress(.return) {
-                                guard let t = line.time else { return .ignored }
-                                playback.seek(to: t + offsetSeconds)
-                                return .handled
-                            }
-                            .accessibilityAddTraits(line.time == nil ? [] : .isButton)
-                            .accessibilityHint(line.time == nil
-                                ? ""
-                                : tr("Jump to this lyric", "跳转到这句歌词"))
-                            .help(line.time != nil ? tr("Jump to this line", "跳转到此行") : "")
                         }
+                        .padding(.vertical, layout.isImmersive && lines.contains(where: { $0.time != nil })
+                                 ? max(72, geometry.size.height / 2 - 24) : 24)
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: geometry.size.height, alignment: .center)
                     }
-                    .padding(.vertical, layout.isImmersive ? 72 : 24)
-                    .frame(maxWidth: .infinity)
-                }
-                .scrollIndicators(.hidden)
-                .onChange(of: idx, initial: true) { _, newIdx in
-                    if let newIdx, newIdx < lines.count {
-                        if reduceMotion {
-                            proxy.scrollTo(lines[newIdx].id, anchor: .center)
-                        } else {
-                            withAnimation(.easeInOut(duration: 0.3)) {
+                    .scrollIndicators(.hidden)
+                    .onChange(of: idx, initial: true) { _, newIdx in
+                        if let newIdx, newIdx < lines.count {
+                            if reduceMotion {
                                 proxy.scrollTo(lines[newIdx].id, anchor: .center)
+                            } else {
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    proxy.scrollTo(lines[newIdx].id, anchor: .center)
+                                }
                             }
                         }
                     }
@@ -448,7 +449,7 @@ struct LyricsView: View {
                 Button {
                     if let time = lines[index].time { playback.seek(to: time + offsetSeconds) }
                 } label: { lyricRow(lines[index], isCurrent: true, position: position) }
-                .buttonStyle(.plain)
+                .buttonStyle(.fullAreaPlain)
                 .help(tr("Jump to this lyric", "跳转到这句歌词"))
             } else {
                 Text(tr("Lyrics begin soon", "歌词即将开始", zhHant: "歌詞即將開始"))
@@ -487,7 +488,8 @@ struct LyricsView: View {
 
     /// Empty lyrics: quiet, Demus / Better Lyrics style. No instructional copy.
     private var placeholder: some View {
-        Text(tr("No lyrics available", "无可用歌词"))
+        Text(loading ? tr("Finding lyrics…", "正在查找歌词…", zhHant: "正在尋找歌詞…")
+                     : tr("No lyrics available", "无可用歌词", zhHant: "無可用歌詞"))
             .font(.title3)
             .foregroundStyle(BrandColors.textSecondary.opacity(0.7))
             .frame(maxWidth: .infinity, maxHeight: .infinity,

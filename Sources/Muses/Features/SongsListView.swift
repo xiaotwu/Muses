@@ -47,11 +47,10 @@ struct SongsListView: View {
     @Environment(LibraryService.self) private var library
     @Environment(PlaybackService.self) private var playback
     @Query(sort: \Playlist.name) private var allPlaylists: [Playlist]
+    @State private var rows: [CollectionTrackRow] = []
+    @State private var loadError: String?
 
     var body: some View {
-        let _ = library.likedRevision
-        let _ = library.metadataRevision
-        let rows = CollectionTrackRow.songs(from: library.allTracks().filter { filter.includes($0) })
         let snapshots = rows.map(\.snapshot)
 
         CollectionPage(
@@ -68,7 +67,7 @@ struct SongsListView: View {
             emptyTitle: filter == .liked ? tr("No favorites yet", "还没有收藏") : filter == .musicVideos ? tr("No music videos yet", "还没有音乐视频") : tr("No songs in library", "资料库中没有歌曲"),
             emptySubtitle: filter == .liked
                 ? tr("Like a song to find it here. Favorites are saved in Muses.", "收藏歌曲后会显示在这里。收藏保存在 Muses 中。")
-                : tr("Search YouTube and paste a link to start your library.", "搜索 YouTube 并粘贴链接，开始建立资料库。"),
+                : tr("Add a playlist to see its songs here.", "添加歌单后，其歌曲会显示在这里。"),
             emptyActionTitle: tr("Open Search", "打开搜索"),
             emptyAction: {
                 NotificationCenter.default.post(name: .musesFocusSearch, object: nil)
@@ -99,5 +98,30 @@ struct SongsListView: View {
                 }
             }
         }
+        .onAppear(perform: reloadRows)
+        .onChange(of: filter) { _, _ in reloadRows() }
+        .onChange(of: library.likedRevision) { _, _ in reloadRows() }
+        .onChange(of: library.metadataRevision) { _, _ in reloadRows() }
+        .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave)) { _ in reloadRows() }
+        .onReceive(NotificationCenter.default.publisher(for: .musesPlaylistsChanged)) { _ in reloadRows() }
+        .overlay(alignment: .top) {
+            if let loadError { MetadataProjectionErrorBanner(message: loadError).padding(16) }
+        }
+    }
+
+    private func reloadRows() {
+        do {
+            let updated: [CollectionTrackRow]
+            if filter == .all {
+                let context = ModelContext(library.modelContainer)
+                updated = CollectionTrackRow.playlistUnion(
+                    playlists: try context.fetch(FetchDescriptor<Playlist>()),
+                    imports: try context.fetch(FetchDescriptor<YouTubeImport>()))
+            } else {
+                updated = CollectionTrackRow.songs(from: library.allTracks().filter { filter.includes($0) })
+            }
+            if rows != updated { rows = updated }
+            loadError = nil
+        } catch { loadError = error.localizedDescription }
     }
 }

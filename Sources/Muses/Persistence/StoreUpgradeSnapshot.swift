@@ -14,7 +14,8 @@ enum StoreUpgradeSnapshot {
         // An upgraded store needs no additional recovery copy on normal launches.
         if try hasColumn("ZLIBRARYMEMBER", table: "ZTRACK", database: database),
            try hasColumn("ZINSERTEDCURRENTJSON", table: "ZQUEUESTATE", database: database),
-           try hasColumn("ZSMARTSHUFFLEJSON", table: "ZQUEUESTATE", database: database) {
+           try hasColumn("ZSMARTSHUFFLEJSON", table: "ZQUEUESTATE", database: database),
+           try hasColumn("ZORIGINALORDERIDSJSON", table: "ZQUEUESTATE", database: database) {
             return nil
         }
         return try archive(database: database, source: source, prefix: "membership-upgrade-recovery")

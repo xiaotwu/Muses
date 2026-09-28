@@ -15,8 +15,8 @@ struct QueueDrawerView: View {
     /// Target group id and draft text for the rename-group alert.
     @State private var renameTarget: QueueGroup.ID?
     @State private var renameText = ""
-    /// Queue has no search field; keep the drawer itself key-focusable so
-    /// Escape reaches `.onKeyPress` the way Search's focused field does.
+    @State private var pendingRemoval: ActionConfirmation?
+    /// Keep Escape available while painting focus only on the close affordance.
     @FocusState private var focusedTarget: QueueFocusTarget?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -33,14 +33,16 @@ struct QueueDrawerView: View {
                 .musesGlass(in: SidebarPaneShape.trailingShape, role: .persistentChrome)
                 .clipShape(SidebarPaneShape.trailingShape)
                 .focusable()
+                .focusEffectDisabled()
                 .focused($focusedTarget, equals: .drawer)
                 .onKeyPress(.escape) {
-                    guard renameTarget == nil else { return .ignored }
+                    guard renameTarget == nil, pendingRemoval == nil else { return .ignored }
                     isPresented = false
                     return .handled
                 }
                 .transition(.move(edge: .trailing))
         }
+        .actionConfirmation($pendingRemoval)
         .onExitCommand { dismissUnlessRenaming() }
         .onAppear { focusedTarget = .drawer }
         .onChange(of: renameTarget) { _, target in
@@ -50,7 +52,7 @@ struct QueueDrawerView: View {
     }
 
     private func dismissUnlessRenaming() {
-        if renameTarget == nil { isPresented = false }
+        if renameTarget == nil, pendingRemoval == nil { isPresented = false }
     }
 
     private var repeatAccessibilityValue: String {
@@ -64,6 +66,21 @@ struct QueueDrawerView: View {
     private var drawer: some View {
         VStack(spacing: 0) {
             header
+            if playback.queue.persistenceFailed {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                    Text(tr("Queue changes could not be saved.", "队列更改未能保存。", zhHant: "佇列變更未能儲存。"))
+                    Spacer(minLength: 4)
+                    Button(tr("Retry", "重试", zhHant: "重試")) {
+                        playback.queue.persist()
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 10)
+                .accessibilityElement(children: .combine)
+            }
             Toggle(isOn: Binding(get: { playback.queue.smartShuffle.enabled },
                                  set: { playback.setSmartShuffle($0) })) {
                 Label(tr("Smart Shuffle", "智能随机播放", zhHant: "智慧隨機播放"), systemImage: "sparkles")
@@ -91,13 +108,13 @@ struct QueueDrawerView: View {
             } label: {
                 Image(systemName: playback.queue.repeatMode == .one ? "repeat.1" : "repeat")
                     .font(.body.weight(.semibold))
+                    .chromeActionCircle()
+                    .background(playback.queue.repeatMode == .off ? Color.clear : BrandColors.accent.opacity(0.12), in: Circle())
+                    .overlay(Circle().stroke(playback.queue.repeatMode == .off ? Color.clear : BrandColors.accent.opacity(0.25), lineWidth: 1).allowsHitTesting(false))
             }
             .foregroundStyle(playback.queue.repeatMode == .off
                              ? BrandColors.textSecondary : BrandColors.accent)
-            .buttonStyle(.plain)
-            .frame(width: 28, height: 28)
-            .background(playback.queue.repeatMode == .off ? Color.clear : BrandColors.accent.opacity(0.12), in: Circle())
-            .overlay(Circle().stroke(playback.queue.repeatMode == .off ? Color.clear : BrandColors.accent.opacity(0.25), lineWidth: 1))
+            .buttonStyle(.fullAreaPlain)
             .help(tr("Repeat mode", "循环模式"))
             .accessibilityLabel(tr("Repeat mode", "循环模式"))
             .accessibilityValue(repeatAccessibilityValue)
@@ -108,13 +125,13 @@ struct QueueDrawerView: View {
             } label: {
                 Image(systemName: "shuffle")
                     .font(.body.weight(.semibold))
+                    .chromeActionCircle()
+                    .background(playback.queue.shuffle ? BrandColors.accent.opacity(0.12) : Color.clear, in: Circle())
+                    .overlay(Circle().stroke(playback.queue.shuffle ? BrandColors.accent.opacity(0.25) : Color.clear, lineWidth: 1).allowsHitTesting(false))
             }
             .foregroundStyle(playback.queue.shuffle
                              ? BrandColors.accent : BrandColors.textSecondary)
-            .buttonStyle(.plain)
-            .frame(width: 28, height: 28)
-            .background(playback.queue.shuffle ? BrandColors.accent.opacity(0.12) : Color.clear, in: Circle())
-            .overlay(Circle().stroke(playback.queue.shuffle ? BrandColors.accent.opacity(0.25) : Color.clear, lineWidth: 1))
+            .buttonStyle(.fullAreaPlain)
             .help(tr("Shuffle", "随机播放"))
             .accessibilityLabel(tr("Shuffle", "随机播放"))
             .accessibilityValue(playback.queue.shuffle ? tr("On", "开启") : tr("Off", "关闭"))
@@ -126,12 +143,12 @@ struct QueueDrawerView: View {
                     let n = playback.queue.groups.count + 1
                     playback.queue.addGroup(tr("Group \(n)", "分组 \(n)", zhHant: "分組 \(n)"))
                 } label: {
-                    Image(systemName: "rectangle.group.badge.plus")
+                    Image(systemName: "plus")
                         .font(.body.weight(.semibold))
+                        .chromeActionCircle()
                 }
                 .foregroundStyle(BrandColors.textSecondary)
-                .buttonStyle(.plain)
-                .frame(width: 28, height: 28)
+                .buttonStyle(.fullAreaPlain)
                 .help(tr("Add group", "新建分组"))
                 .accessibilityLabel(tr("Add group", "新建分组"))
             }
@@ -141,6 +158,12 @@ struct QueueDrawerView: View {
                 help: tr("Close", "关闭"),
                 accessibility: tr("Close queue", "关闭队列")
             ) { isPresented = false }
+            .overlay {
+                if focusedTarget == .drawer {
+                    Capsule().stroke(BrandColors.textPrimary.opacity(0.7), lineWidth: 1.5)
+                        .allowsHitTesting(false)
+                }
+            }
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
@@ -162,7 +185,7 @@ struct QueueDrawerView: View {
                                     .foregroundStyle(BrandColors.textSecondary)
                                     .frame(width: 14)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.fullAreaPlain)
                             .help(group.collapsed ? tr("Expand group", "展开分组")
                                                   : tr("Collapse group", "折叠分组"))
                             .accessibilityLabel(group.collapsed
@@ -179,7 +202,11 @@ struct QueueDrawerView: View {
                                 renameText = group.name
                             }
                             Button(tr("Delete group", "删除分组"), role: .destructive) {
-                                playback.queue.removeGroup(id: group.id)
+                                pendingRemoval = ActionConfirmation(
+                                    title: tr("Delete group?", "删除分组？"),
+                                    message: tr("Remove \(group.name). Its songs remain in the queue.", "删除「\(group.name)」，歌曲仍保留在队列中。"),
+                                    action: { playback.queue.removeGroup(id: group.id) }
+                                )
                             }
                         }
                     }
@@ -208,10 +235,17 @@ struct QueueDrawerView: View {
                                     }
                                 }
                                 Button(tr("Remove from history", "从历史移除"), role: .destructive) {
-                                    if let idx = playback.queue.history.firstIndex(where: { $0.id == item.id }) {
-                                        playback.queue.history.remove(at: idx)
-                                        playback.queue.persist()
-                                    }
+                                    pendingRemoval = ActionConfirmation(
+                                        title: tr("Remove history item?", "移除历史记录？"),
+                                        message: tr("Remove \(item.track.title) from queue history. Playlists are unchanged.", "从队列历史中移除「\(item.track.title)」，歌单不受影响。"),
+                                        actionTitle: tr("Remove", "移除"),
+                                        action: {
+                                            if let idx = playback.queue.history.firstIndex(where: { $0.id == item.id }) {
+                                                playback.queue.history.remove(at: idx)
+                                                playback.queue.persist()
+                                            }
+                                        }
+                                    )
                                 }
                             }
                         }
@@ -329,11 +363,19 @@ struct QueueDrawerView: View {
         if canRemove(item: item, inUpNext: inUpNext) {
             Divider()
             Button(tr("Remove", "移除"), role: .destructive) {
-                if inUpNext, let idx = playback.queue.upNext.firstIndex(where: { $0.id == item.id }) {
-                    playback.queue.removeUpNext(at: idx)
-                } else if !inUpNext, let idx = playback.queue.items.firstIndex(where: { $0.id == item.id }) {
-                    playback.queue.removeItem(at: idx)
-                }
+                pendingRemoval = ActionConfirmation(
+                    title: tr("Remove from queue?", "从队列移除？"),
+                    message: tr("Remove \(item.track.title) from the queue. Playlists are unchanged.", "从队列移除「\(item.track.title)」，歌单不受影响。"),
+                    actionTitle: tr("Remove", "移除"),
+                    action: {
+                        guard canRemove(item: item, inUpNext: inUpNext) else { return }
+                        if inUpNext, let idx = playback.queue.upNext.firstIndex(where: { $0.id == item.id }) {
+                            playback.queue.removeUpNext(at: idx)
+                        } else if !inUpNext, let idx = playback.queue.items.firstIndex(where: { $0.id == item.id }) {
+                            playback.queue.removeItem(at: idx)
+                        }
+                    }
+                )
             }
         }
     }
@@ -404,6 +446,14 @@ private struct QueueRow: View {
                 .accessibilityHidden(true)
         }
         .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .background {
+            if isCurrent {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(BrandColors.textPrimary.opacity(0.08))
+            }
+        }
+        .accessibilityAddTraits(isCurrent ? .isSelected : [])
     }
 
     /// Current playback uses play.fill; history entries get an icon from their state label; otherwise music.note.
@@ -442,11 +492,11 @@ private extension View {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(BrandColors.textSecondary)
-                        .frame(width: 28, height: 28)
+                        .chromeActionCircle()
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
-                .frame(width: 28, height: 28)
+                .chromeActionCircle()
                 .tint(BrandColors.textSecondary)
                 .help(tr("Track options", "曲目选项", zhHant: "曲目選項"))
                 .accessibilityLabel(tr("Track options", "曲目选项", zhHant: "曲目選項"))

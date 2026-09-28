@@ -4,12 +4,21 @@ import SwiftUI
 /// Platform actions open a compose surface; Muses never posts on the user's behalf.
 struct YouTubeShareMenu: View {
     let target: YouTubeShareTarget
+    var chrome = false
 
     var body: some View {
-        Menu {
-            YouTubeShareMenuItems(target: target)
-        } label: {
-            Label(tr("Share", "分享"), systemImage: "square.and.arrow.up")
+        Group {
+            if chrome {
+                ChromeIconMenu(systemName: "square.and.arrow.up", title: tr("Share", "分享")) {
+                    YouTubeShareMenuItems(target: target)
+                }
+            } else {
+                Menu {
+                    YouTubeShareMenuItems(target: target)
+                } label: {
+                    Label(tr("Share", "分享"), systemImage: "square.and.arrow.up")
+                }
+            }
         }
         .help(tr("Share official YouTube links", "分享 YouTube 官方链接"))
     }

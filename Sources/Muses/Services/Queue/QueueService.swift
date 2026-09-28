@@ -5,6 +5,8 @@ import SwiftData
 @Observable
 @MainActor
 final class QueueService {
+    private let saveContext: (ModelContext) throws -> Void
+    private(set) var persistenceFailed = false
     private(set) var smartShuffle = SmartShuffleState()
     var items: [QueueItem] = []
     var currentIndex: Int = -1
@@ -12,7 +14,7 @@ final class QueueService {
     var history: [QueueItem] = []
     var repeatMode: RepeatMode = .off
     var shuffle: Bool = false
-    private var originalOrder: [QueueItem] = []
+    private var originalOrderIDs: [UUID] = []
     /// Crash recovery: the playing track/position from the last checkpoint. Written by PlaybackService checkpoints.
     private(set) var insertedCurrent: QueueItem?
     var currentTrackId: UUID?
@@ -23,6 +25,10 @@ final class QueueService {
     /// Injected by `MusesApp` after container creation so `persist()`/`restore()` can reach SwiftData.
     var modelContext: ModelContext?
 
+    init(saveContext: @escaping (ModelContext) throws -> Void = { try $0.save() }) {
+        self.saveContext = saveContext
+    }
+
     func play(_ track: TrackSnapshot, context: [TrackSnapshot], from: QueueSource) {
         smartShuffle = SmartShuffleState(enabled: smartShuffle.enabled)
         insertedCurrent = nil
@@ -31,7 +37,7 @@ final class QueueService {
             QueueItem(id: UUID(), track: t,
                       queuedAt: .init(), fromContext: from)
         }
-        originalOrder = items
+        originalOrderIDs = items.map(\.id)
         currentIndex = resolvedContext.firstIndex(where: { $0.id == track.id }) ?? 0
         upNext.removeAll()
         persist()
@@ -141,7 +147,7 @@ final class QueueService {
     func toggleShuffle() {
         shuffle.toggle()
         if shuffle {
-            originalOrder = items
+            originalOrderIDs = items.map(\.id)
             let cur = currentIndex >= 0 && currentIndex < items.count ? items[currentIndex] : nil
             shuffleUnlockedItems()
             if let cur = cur, let idx = items.firstIndex(where: { $0.id == cur.id }) {
@@ -149,7 +155,13 @@ final class QueueService {
             }
         } else {
             let cur = (currentIndex >= 0 && currentIndex < items.count) ? items[currentIndex] : nil
-            items = originalOrder
+            let rank = Dictionary(uniqueKeysWithValues: originalOrderIDs.enumerated().map { ($0.element, $0.offset) })
+            let currentRanks = Dictionary(uniqueKeysWithValues: items.enumerated().map { ($0.element.id, $0.offset) })
+            items.sort { lhs, rhs in
+                (rank[lhs.id] ?? Int.max, currentRanks[lhs.id] ?? Int.max)
+                    < (rank[rhs.id] ?? Int.max, currentRanks[rhs.id] ?? Int.max)
+            }
+            originalOrderIDs = items.map(\.id)
             if let cur, let idx = items.firstIndex(where: { $0.id == cur.id }) {
                 currentIndex = idx
             } else if !items.isEmpty {
@@ -383,59 +395,110 @@ final class QueueService {
 
     /// Writes the current queue state to `modelContext` (single-row upsert). No-op without a context.
     func persist() {
-        guard let ctx = modelContext else { return }
+        guard let source = modelContext else { return }
+        let ctx = ModelContext(source.container)
         let encoder = JSONEncoder()
-        let itemsJSON = (try? String(data: encoder.encode(items), encoding: .utf8)) ?? "[]"
-        let upNextJSON = (try? String(data: encoder.encode(upNext), encoding: .utf8)) ?? "[]"
-        let historyJSON = (try? String(data: encoder.encode(history), encoding: .utf8)) ?? "[]"
-        let groupsJSON = (try? String(data: encoder.encode(groups), encoding: .utf8)) ?? "[]"
-        let smartJSON = try? String(data: encoder.encode(smartShuffle), encoding: .utf8)
-        let insertedJSON = insertedCurrent.flatMap { try? String(data: encoder.encode($0), encoding: .utf8) }
+        do {
+            let itemsJSON = String(decoding: try encoder.encode(items), as: UTF8.self)
+            let upNextJSON = String(decoding: try encoder.encode(upNext), as: UTF8.self)
+            let historyJSON = String(decoding: try encoder.encode(history), as: UTF8.self)
+            let groupsJSON = String(decoding: try encoder.encode(groups), as: UTF8.self)
+            let smartJSON = String(decoding: try encoder.encode(smartShuffle), as: UTF8.self)
+            let insertedJSON = try insertedCurrent.map { String(decoding: try encoder.encode($0), as: UTF8.self) }
+            let originalOrderIDsJSON = String(decoding: try encoder.encode(originalOrderIDs), as: UTF8.self)
 
-        let existing = (try? ctx.fetch(FetchDescriptor<QueueState>())) ?? []
-        let row: QueueState
-        if let found = existing.first(where: { $0.id == QueueState.sharedID }) {
-            row = found
-        } else {
-            row = QueueState(itemsJSON: itemsJSON, currentIndex: currentIndex,
-                             upNextJSON: upNextJSON, historyJSON: historyJSON,
-                             repeatModeRaw: repeatMode.rawValue, shuffle: shuffle,
-                             currentTrackId: currentTrackId, lastPositionMs: lastPositionMs,
-                             groupsJSON: groupsJSON)
+            let existing = try ctx.fetch(FetchDescriptor<QueueState>())
+            let row: QueueState
+            if let found = existing.first(where: { $0.id == QueueState.sharedID }) {
+                row = found
+            } else {
+                row = QueueState(itemsJSON: itemsJSON, currentIndex: currentIndex,
+                                 upNextJSON: upNextJSON, historyJSON: historyJSON,
+                                 repeatModeRaw: repeatMode.rawValue, shuffle: shuffle,
+                                 currentTrackId: currentTrackId, lastPositionMs: lastPositionMs,
+                                 groupsJSON: groupsJSON)
+                row.smartShuffleJSON = smartJSON
+                row.insertedCurrentJSON = insertedJSON
+                row.originalOrderIDsJSON = originalOrderIDsJSON
+                ctx.insert(row)
+                try saveContext(ctx)
+                persistenceFailed = false
+                return
+            }
             row.smartShuffleJSON = smartJSON
             row.insertedCurrentJSON = insertedJSON
-            ctx.insert(row)
-            try? ctx.save()
-            return
+            row.originalOrderIDsJSON = originalOrderIDsJSON
+            row.itemsJSON = itemsJSON
+            row.currentIndex = currentIndex
+            row.upNextJSON = upNextJSON
+            row.historyJSON = historyJSON
+            row.repeatModeRaw = repeatMode.rawValue
+            row.shuffle = shuffle
+            row.currentTrackId = currentTrackId
+            row.lastPositionMs = lastPositionMs
+            row.groupsJSON = groupsJSON
+            row.savedAt = .init()
+            try saveContext(ctx)
+            persistenceFailed = false
+        } catch {
+            persistenceFailed = true
+            AppLog.for("QueueService").error("Queue save failed: \(error.localizedDescription)")
         }
-        row.smartShuffleJSON = smartJSON
-        row.insertedCurrentJSON = insertedJSON
-        row.itemsJSON = itemsJSON
-        row.currentIndex = currentIndex
-        row.upNextJSON = upNextJSON
-        row.historyJSON = historyJSON
-        row.repeatModeRaw = repeatMode.rawValue
-        row.shuffle = shuffle
-        row.currentTrackId = currentTrackId
-        row.lastPositionMs = lastPositionMs
-        row.groupsJSON = groupsJSON
-        row.savedAt = .init()
-        try? ctx.save()
     }
 
     /// Restores queue state from `modelContext`. No-op without a context or row.
     func restore() {
-        guard let ctx = modelContext else { return }
-        let rows = (try? ctx.fetch(FetchDescriptor<QueueState>())) ?? []
+        guard let source = modelContext else { return }
+        let ctx = ModelContext(source.container)
+        let rows: [QueueState]
+        do { rows = try ctx.fetch(FetchDescriptor<QueueState>()) }
+        catch {
+            persistenceFailed = true
+            AppLog.for("QueueService").error("Queue restore failed: \(error.localizedDescription)")
+            return
+        }
         guard let row = rows.first(where: { $0.id == QueueState.sharedID }) else { return }
         let decoder = JSONDecoder()
-        items = (try? decoder.decode([QueueItem].self, from: Data(row.itemsJSON.utf8))) ?? []
-        upNext = (try? decoder.decode([QueueItem].self, from: Data(row.upNextJSON.utf8))) ?? []
-        history = (try? decoder.decode([QueueItem].self, from: Data(row.historyJSON.utf8))) ?? []
-        let decodedGroups = (row.groupsJSON.flatMap { try? decoder.decode([QueueGroup].self, from: Data($0.utf8)) }) ?? []
+        let decodedItems: [QueueItem]
+        let decodedUpNext: [QueueItem]
+        let decodedHistory: [QueueItem]
+        do {
+            decodedItems = try decoder.decode([QueueItem].self, from: Data(row.itemsJSON.utf8))
+            decodedUpNext = try decoder.decode([QueueItem].self, from: Data(row.upNextJSON.utf8))
+            decodedHistory = try decoder.decode([QueueItem].self, from: Data(row.historyJSON.utf8))
+        } catch {
+            persistenceFailed = true
+            AppLog.for("QueueService").error("Queue data decode failed: \(error.localizedDescription)")
+            return
+        }
+        let decodedGroups: [QueueGroup]
+        let decodedInserted: QueueItem?
+        let decodedSmart: SmartShuffleState
+        let decodedOriginalOrderIDs: [UUID]
+        do {
+            decodedGroups = try row.groupsJSON.map {
+                try decoder.decode([QueueGroup].self, from: Data($0.utf8))
+            } ?? []
+            decodedInserted = try row.insertedCurrentJSON.map {
+                try decoder.decode(QueueItem.self, from: Data($0.utf8))
+            }
+            decodedSmart = try row.smartShuffleJSON.map {
+                try decoder.decode(SmartShuffleState.self, from: Data($0.utf8))
+            } ?? SmartShuffleState()
+            decodedOriginalOrderIDs = try row.originalOrderIDsJSON.map {
+                try decoder.decode([UUID].self, from: Data($0.utf8))
+            } ?? decodedItems.map(\.id)
+        } catch {
+            persistenceFailed = true
+            AppLog.for("QueueService").error("Queue metadata decode failed: \(error.localizedDescription)")
+            return
+        }
+        items = decodedItems
+        upNext = decodedUpNext
+        history = decodedHistory
         groups = decodedGroups.sorted { $0.order < $1.order }
-        insertedCurrent = row.insertedCurrentJSON.flatMap { try? decoder.decode(QueueItem.self, from: Data($0.utf8)) }
-        smartShuffle = row.smartShuffleJSON.flatMap { try? decoder.decode(SmartShuffleState.self, from: Data($0.utf8)) } ?? SmartShuffleState()
+        insertedCurrent = decodedInserted
+        smartShuffle = decodedSmart
         if !smartShuffle.enabled {
             smartShuffle.pending = nil
             upNext.removeAll { $0.recommendationSourceVideoID != nil }
@@ -445,7 +508,8 @@ final class QueueService {
         shuffle = row.shuffle
         currentTrackId = row.currentTrackId
         lastPositionMs = row.lastPositionMs
-        originalOrder = items
+        originalOrderIDs = decodedOriginalOrderIDs
+        persistenceFailed = false
     }
 
     // MARK: - Crash-recovery slot (Listening Sessions)

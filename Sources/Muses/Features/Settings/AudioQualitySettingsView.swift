@@ -26,6 +26,7 @@ struct AudioQualitySettingsView: View {
     @Environment(PlaybackService.self) private var playback
     @AppStorage(PrefKey.ytAudioQuality) private var ytQuality: String = "bestaudio"
     @State private var cacheBytes: Int64 = 0
+    @State private var pendingRemoval: ActionConfirmation?
 
     var body: some View {
         Section {
@@ -48,16 +49,28 @@ struct AudioQualitySettingsView: View {
         } header: { Text(tr("Download Quality", "下载音质")).font(.headline.weight(.semibold)) }
 
         Section {
-            LabeledContent(tr("Size", "占用")) {
+            LabeledContent {
+                Button(tr("Clear cache", "清除缓存"), role: .destructive) {
+                    pendingRemoval = ActionConfirmation(
+                        title: tr("Clear media cache?", "清除媒体缓存？"),
+                        message: tr("Downloaded media will be removed and can be downloaded again. Playlists are unchanged.", "移除已下载媒体，可再次下载。歌单不受影响。"),
+                        actionTitle: tr("Clear", "清除"),
+                        action: {
+                            MediaFileCache.clearAll()
+                            cacheBytes = 0
+                            playback.reloadCurrent()
+                        }
+                    )
+                }
+                .musesAction()
+            } label: {
+                Text(tr("Downloaded media", "已下载媒体"))
                 Text(ByteCountFormatter.string(fromByteCount: cacheBytes, countStyle: .file))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            Button(tr("Clear cache", "清除缓存"), role: .destructive) {
-                MediaFileCache.clearAll()
-                cacheBytes = 0
-                playback.reloadCurrent()
-            }
-            .musesAction()
         } header: { Text(tr("Media cache", "媒体缓存")).font(.headline.weight(.semibold)) }
+        .actionConfirmation($pendingRemoval)
         .onAppear { cacheBytes = MediaFileCache.totalBytes() }
     }
 

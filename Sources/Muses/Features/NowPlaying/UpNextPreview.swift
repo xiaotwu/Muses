@@ -22,7 +22,7 @@ struct UpNextPreview: View {
                         Image(systemName: "list.bullet")
                             .foregroundStyle(BrandColors.textSecondary)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.fullAreaPlain)
                     .help(tr("Show Full Queue", "显示完整队列"))
                 }
 
@@ -45,7 +45,7 @@ struct UpNextPreview: View {
                         }
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.fullAreaPlain)
                 }
             }
         }

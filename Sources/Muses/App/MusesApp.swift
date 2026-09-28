@@ -191,6 +191,9 @@ struct MusesApp: App {
             modelContainer: container, account: youTubeAccount,
             pushExecutionPolicy: .applicationOwned())
         self.youTubePlaylistSyncService = playlistSync
+        youTubeAccount.importConnectedPlaylists = { [weak playlistSync] onlyIfNeeded in
+            await playlistSync?.importAccountPlaylists(onlyIfNeeded: onlyIfNeeded)
+        }
         do {
             try playlistSync.purgeExpiredRecentlyDeleted()
         } catch {

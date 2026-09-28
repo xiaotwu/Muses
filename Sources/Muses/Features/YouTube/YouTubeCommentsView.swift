@@ -26,7 +26,7 @@ struct YouTubeCommentsView: View {
                         .font(.body.weight(.semibold))
                         .frame(width: 28, height: 28)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.fullAreaPlain)
                 .accessibilityLabel(tr("Close comments", "关闭评论", zhHant: "關閉留言"))
                 .help(tr("Close comments", "关闭评论", zhHant: "關閉留言"))
             }

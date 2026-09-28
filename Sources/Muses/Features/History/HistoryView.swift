@@ -36,7 +36,7 @@ struct HistoryView: View {
         .task { reload() }
         .onChange(of: range) { _, _ in reload() }
         .onChange(of: history.historyRevision) { _, _ in reload() }
-        .confirmationDialog(
+        .alert(
             tr("Clear all listening history?", "清空全部收听历史？"),
             isPresented: $showClearConfirm
         ) {
@@ -240,10 +240,10 @@ struct HistoryView: View {
                             .frame(width: 60, alignment: .trailing)
                         Button { play(event, within: events) } label: {
                             Image(systemName: "play.fill")
+                                .frame(width: 28, height: 28)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.fullAreaPlain)
                         .foregroundStyle(BrandColors.accent)
-                        .frame(width: 28, height: 28)
                         .disabled(track == nil)
                         .help(track == nil
                               ? tr("This song is no longer in the library", "这首歌曲已不在资料库中")

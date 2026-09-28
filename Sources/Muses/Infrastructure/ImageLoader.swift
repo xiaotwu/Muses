@@ -1,21 +1,12 @@
 import Foundation
 import AppKit
 import SwiftUI
+import ImageIO
 
-/// Shared image loader: memory cache + request coalescing + low-resolution-first
-/// + cancellation of offscreen loads.
-///
-/// - Memory: `NSCache<NSString, NSImage>` (the system evicts automatically under
-///   memory pressure).
-/// - Coalescing: concurrent requests for the same URL trigger a single
-///   network/disk read; the rest await the same task.
-/// - Low-resolution first: YouTube `hqdefault` (<200px) is shown as soon as it
-///   arrives, then upgraded when needed.
-/// - Cancellation: the task returned by `load(_:)` is cancelled in the view's
-///   `.onDisappear`, so offscreen fetches stop.
-///
-/// The disk layer relies on the system's shared `URLCache` (same as AsyncImage);
-/// this class only adds the memory cache, coalescing, and cancellation.
+/// Shared URL requests and decoded-image cache. One consumer cancelling its
+/// view task must not cancel a coalesced request needed by another surface.
+/// A serial decoder keeps image decompression off the UI executor and bounds
+/// concurrent decode memory. Cache cost reflects decoded pixels, not JPEG size.
 @MainActor
 final class ImageLoader {
     static let shared = ImageLoader()
@@ -45,14 +36,14 @@ final class ImageLoader {
         let keyStr = url.absoluteString
         if let existing = inFlight[keyStr] { return existing }
         let task = Task<NSImage?, Never> { [self] in
-            defer { Task { @MainActor in self.inFlight[keyStr] = nil } }
+            defer { self.inFlight[keyStr] = nil }
             do {
                 let (data, _) = try await URLSession.shared.data(from: url)
-                guard !Task.isCancelled, let decoded = NSImage(data: data) else { return nil }
-                let img = YouTubeThumbnail.cropLetterboxIfNeeded(decoded, url: url)
-                // Estimated cost to help NSCache make eviction decisions.
-                let cost = data.count
-                self.memory.setObject(img, forKey: key, cost: cost)
+                guard !Task.isCancelled,
+                      let decoded = await ArtworkImageDecoder.shared.decode(data, url: url),
+                      !Task.isCancelled else { return nil }
+                let img = NSImage(cgImage: decoded, size: NSSize(width: decoded.width, height: decoded.height))
+                self.memory.setObject(img, forKey: key, cost: decoded.bytesPerRow * decoded.height)
                 return img
             } catch {
                 return nil
@@ -66,11 +57,11 @@ final class ImageLoader {
 /// Memory-cached image view replacing a bare `AsyncImage`.
 /// Draws a memory hit on the first frame; otherwise loads asynchronously with
 /// cancellation support, preferring the low-resolution URL.
-struct CachedAsyncImage: View {
+struct CachedAsyncImage<Content: View, Placeholder: View>: View {
     let url: URL?
     var lowResURL: URL? = nil
-    private let renderer: (NSImage) -> AnyView
-    private let placeholderView: AnyView
+    private let renderer: (Image) -> Content
+    private let placeholderView: Placeholder
 
     @State private var image: NSImage? = nil
     @State private var loadedIdentity: String?
@@ -81,18 +72,18 @@ struct CachedAsyncImage: View {
 
     init(url: URL?,
          lowResURL: URL? = nil,
-         content: @escaping (Image) -> some View,
-         placeholder: @escaping () -> some View) {
+         @ViewBuilder content: @escaping (Image) -> Content,
+         @ViewBuilder placeholder: () -> Placeholder) {
         self.url = url
         self.lowResURL = lowResURL
-        self.renderer = { ns in AnyView(content(Image(nsImage: ns))) }
-        self.placeholderView = AnyView(placeholder())
+        self.renderer = content
+        self.placeholderView = placeholder()
     }
 
     var body: some View {
         Group {
             if loadedIdentity == requestIdentity, let img = image {
-                renderer(img)
+                renderer(Image(nsImage: img))
             } else {
                 placeholderView
             }
@@ -139,5 +130,30 @@ struct CachedAsyncImage: View {
             loadedIdentity = expectedIdentity
             PerfTrace.event("artwork.firstVisible")
         }
+    }
+}
+
+/// ImageIO produces decoded CGImages without touching AppKit on a worker.
+/// Keep full thumbnail resolution; cap oversized sources at 2048 pixels for
+/// Retina Now Playing while avoiding unbounded full-resolution allocations.
+actor ArtworkImageDecoder {
+    static let shared = ArtworkImageDecoder()
+
+    func decode(_ data: Data, url: URL, maximumPixelSize: Int = 2048) -> CGImage? {
+        guard maximumPixelSize > 0,
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize,
+                kCGImageSourceShouldCacheImmediately: true
+              ] as CFDictionary) else { return nil }
+        guard YouTubeThumbnail.isLetterboxed(url) else { return image }
+        let aspect = Double(image.width) / Double(image.height)
+        guard (1.22...1.48).contains(aspect) else { return image }
+        let bar = Int((Double(image.height) * 0.125).rounded(.down))
+        guard bar > 0, image.height - 2 * bar > 8 else { return image }
+        return image.cropping(to: CGRect(x: 0, y: bar, width: image.width,
+                                         height: image.height - 2 * bar)) ?? image
     }
 }

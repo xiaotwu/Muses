@@ -165,7 +165,7 @@ struct GlobalSearchView: View {
                         Button { search.cancelSearch() } label: {
                             Image(systemName: "stop.circle")
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.fullAreaPlain)
                         .help(tr("Cancel Search", "取消搜索", zhHant: "取消搜尋"))
                         .accessibilityLabel(tr("Cancel Search", "取消搜索", zhHant: "取消搜尋"))
                         ProgressView()
@@ -180,7 +180,7 @@ struct GlobalSearchView: View {
                             Image(systemName: "xmark.circle.fill")
                                 .foregroundStyle(BrandColors.textSecondary)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.fullAreaPlain)
                         .help(tr("Clear Search", "清除搜索"))
                         .accessibilityLabel(tr("Clear Search", "清除搜索"))
                     }
@@ -201,7 +201,7 @@ struct GlobalSearchView: View {
                         )
                         .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.fullAreaPlain)
                 .musesGlass(
                     in: Capsule(),
                     role: .compactControl
@@ -370,7 +370,7 @@ struct GlobalSearchView: View {
                                                 .foregroundStyle(.secondary)
                                             Image(systemName: "arrow.up.right")
                                         }.padding(.vertical, 12).contentShape(Rectangle())
-                                    }.buttonStyle(.plain)
+                                    }.buttonStyle(.fullAreaPlain)
                                     .help(tr("Open in YouTube", "在 YouTube 中打开", zhHant: "在 YouTube 中開啟"))
                                 }
                             }

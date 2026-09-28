@@ -16,6 +16,7 @@ struct YouTubeSettingsView: View {
     @Environment(\.ytDlpBridge) private var bridge
     // Real Google OAuth account — credentials live in the Keychain with a minimal read-only scope.
     @Environment(YouTubeAccountService.self) private var account
+    @Environment(YouTubePlaylistSyncService.self) private var playlistSync
     @Environment(WebHomeSessionController.self) private var webHome
     @Environment(HomeDiscoveryService.self) private var homeDiscovery
 
@@ -67,14 +68,13 @@ struct YouTubeSettingsView: View {
     }
 
     var body: some View {
-        // Normal mode: one status card + one primary action; yt-dlp, permission, and cookie
-        // details all collapse into Advanced so connecting stays clear for regular users.
+        // Account connection and inline Home status actions share the overview.
         Group {
             if let destination {
                 detail(destination)
             } else {
-                homeRecommendationSource
                 accountOverview
+                homeRecommendationSource
                 Section { accountDetails } header: { Text(tr("Account permissions & sync", "账号权限与同步")).font(.headline.weight(.semibold)) }
                 Section { webHomeDetails } header: { Text(tr("Personalized Home", "个性化首页")).font(.headline.weight(.semibold)) }
                 Section { playbackCookieDetails } header: { Text(tr("Playback access", "播放访问")).font(.headline.weight(.semibold)) }
@@ -132,15 +132,12 @@ struct YouTubeSettingsView: View {
                 Text("Muses").tag(HomeRecommendationMode.muses.rawValue)
                 Text("YouTube Music").tag(HomeRecommendationMode.youtubeMusic.rawValue)
             }
-            .pickerStyle(.radioGroup)
+            .pickerStyle(.menu)
 
             Text(homeModeRaw == HomeRecommendationMode.muses.rawValue
-                 ? tr("Private recommendations generated from your library and listening activity on this Mac. Your recommendation profile stays on this Mac.",
-                      "根据这台 Mac 上的资料库与聆听活动生成私密推荐。你的推荐档案不会离开这台 Mac。",
-                      zhHant: "根據這台 Mac 上的資料庫與聆聽活動產生私密推薦。你的推薦檔案不會離開這台 Mac。")
-                 : tr("Muses requests recommendations directly from YouTube Music. Signed-in requests may be associated with your YouTube account. Muses does not upload local listening history as recommendation input.",
-                      "Muses 会直接向 YouTube Music 请求推荐。登录后的请求可能与你的 YouTube 账号关联；Muses 不会上传本地聆听历史作为推荐输入。",
-                      zhHant: "Muses 會直接向 YouTube Music 請求推薦。登入後的請求可能與你的 YouTube 帳號關聯；Muses 不會上傳本機聆聽記錄作為推薦輸入。"))
+                 ? tr("Recommendations stay on this Mac.", "推荐档案保留在本机。")
+                 : tr("YouTube Music uses your account. Local listening history is not uploaded.",
+                      "YouTube Music 使用你的账号，不上传本地收听历史。"))
                 .font(.caption)
                 .foregroundStyle(BrandColors.textSecondary)
         } header: {
@@ -168,7 +165,7 @@ struct YouTubeSettingsView: View {
                             Label(
                                 account.account?.channel?.title ?? tr("Connected", "已连接", zhHant: "已連接"),
                                 systemImage: "checkmark.circle.fill")
-                                .font(.title3.weight(.semibold))
+                                .font(.body.weight(.semibold))
                                 .foregroundStyle(BrandColors.textPrimary)
                             Text(tr("YouTube connected", "已连接 YouTube", zhHant: "已連接 YouTube"))
                                 .font(.caption)
@@ -180,15 +177,15 @@ struct YouTubeSettingsView: View {
                                   ? tr("Session expired", "登录已过期", zhHant: "登入已過期")
                                   : tr("Not connected", "未连接", zhHant: "未連接"),
                                   systemImage: "person.crop.circle.badge.questionmark")
-                                .font(.title3.weight(.semibold))
+                                .font(.body.weight(.semibold))
                                 .foregroundStyle(BrandColors.textSecondary)
                             Text(account.connectionState == .expired
                                  ? tr("Your YouTube session expired. Sign in again to restore account access.",
                                       "YouTube 登录已过期。请重新登录以恢复账号访问。",
                                       zhHant: "YouTube 登入已過期。請重新登入以恢復帳號存取。")
-                                 : tr("Connect your YouTube account to personalize Home.",
-                                      "连接你的 YouTube 账号以个性化首页。",
-                                      zhHant: "連接你的 YouTube 帳號以個人化首頁。"))
+                                 : tr("Sign in to import playlists and personalize Home.",
+                                      "登录即可导入歌单并个性化首页。",
+                                      zhHant: "登入即可匯入歌單並個人化首頁。"))
                                 .font(.caption)
                                 .foregroundStyle(BrandColors.textSecondary)
                         }
@@ -207,16 +204,40 @@ struct YouTubeSettingsView: View {
 
                 if account.isConnected {
                     HStack {
+                        Text(tr("Playlists", "歌单", zhHant: "歌單"))
+                            .foregroundStyle(BrandColors.textSecondary)
+                        Spacer()
+                        if playlistSync.isImportingAccountPlaylists {
+                            ProgressView().controlSize(.small)
+                            Text("\(playlistSync.accountImportCompleted)/\(playlistSync.accountImportTotal)")
+                                .font(.caption.monospacedDigit())
+                        } else {
+                            Text(tr("Auto-import on sign-in", "登录时自动导入", zhHant: "登入時自動匯入"))
+                                .font(.caption)
+                                .foregroundStyle(BrandColors.textSecondary)
+                        }
+                        Button {
+                            Task {
+                                await account.refresh()
+                                await playlistSync.importAccountPlaylists()
+                            }
+                        } label: {
+                            Image(systemName: "arrow.down.to.line")
+                                .frame(minWidth: 28, minHeight: 28)
+                        }
+                        .musesAction().controlSize(.small)
+                        .disabled(account.isConnecting || playlistSync.isImportingAccountPlaylists)
+                        .help(tr("Import account playlists", "导入账号歌单", zhHant: "匯入帳號歌單"))
+                        .accessibilityLabel(tr("Import account playlists", "导入账号歌单", zhHant: "匯入帳號歌單"))
+                    }
+                    if let error = playlistSync.accountImportError {
+                        Text(error).font(.caption).foregroundStyle(.red)
+                    }
+                    HStack {
                         Text(tr("Personalized Home", "个性化首页"))
                             .foregroundStyle(BrandColors.textSecondary)
                         Spacer()
-                        Text(
-                            webHome.isEnabled
-                                ? "\(webHomeStatusText) · \(webHomeBrowserDescription)"
-                                : webHomeStatusText)
-                            .foregroundStyle(webHome.isEnabled
-                                ? BrandColors.textPrimary : BrandColors.textSecondary)
-                            .font(.callout)
+                        webHomeStatusAction
                     }
                     .padding(.top, 8)
                 }
@@ -247,11 +268,13 @@ struct YouTubeSettingsView: View {
             }
             .padding(.vertical, 4)
 
-            primaryAction
-                .fixedSize(horizontal: true, vertical: false)
-                .padding(.top, 4)
+            if !account.isConnected {
+                primaryAction
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(.top, 4)
+            }
 
-            VStack(alignment: .leading, spacing: 10) {
+            Group {
                 officialPageLink(
                     tr("Watch Later", "稍后观看", zhHant: "稍後觀看"),
                     url: URL(string: "https://www.youtube.com/playlist?list=WL")!
@@ -260,12 +283,7 @@ struct YouTubeSettingsView: View {
                     tr("YouTube watch history", "YouTube 观看历史", zhHant: "YouTube 觀看記錄"),
                     url: URL(string: "https://www.youtube.com/feed/history")!
                 )
-                Text(tr("Opens in your browser using the YouTube account signed in there.",
-                        "在浏览器中打开，使用该浏览器已登录的 YouTube 账号。",
-                        zhHant: "在瀏覽器中開啟，使用該瀏覽器已登入的 YouTube 帳號。"))
-                    .font(.caption).italic().foregroundStyle(.secondary)
             }
-            .padding(.vertical, 4)
         } header: { Text(tr("YouTube", "YouTube")).font(.headline.weight(.semibold)) }
     }
 
@@ -279,17 +297,38 @@ struct YouTubeSettingsView: View {
                     .font(.caption.weight(.semibold))
             }
             .foregroundStyle(BrandColors.textPrimary)
-            .padding(.horizontal, 12)
-            .frame(height: 36)
-            .background(BrandColors.surface, in: Capsule())
-            .overlay(Capsule().strokeBorder(BrandColors.hairline, lineWidth: 1))
+            .frame(minHeight: 28)
+            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .help(tr("Open on YouTube", "在 YouTube 打开", zhHant: "在 YouTube 開啟"))
+        .buttonStyle(.fullAreaPlain)
+        .help(tr("Open in your browser's YouTube account", "使用浏览器已登录的 YouTube 账号打开"))
     }
 
-    /// One-click state machine: connect OAuth first, then continue straight into the Home consent;
-    /// connected-but-disabled offers only the enable action; when enabled, the single action is refreshing the session.
+    private var webHomeStatusAction: some View {
+        Button {
+            if webHome.isEnabled {
+                checkSession()
+            } else {
+                enableWebHomeFlow()
+            }
+        } label: {
+            Text(webHome.isEnabled
+                 ? "\(webHomeStatusText) · \(webHomeBrowserDescription)"
+                 : webHomeStatusText)
+        }
+        .musesAction()
+        .controlSize(.small)
+        .disabled(!webHome.isBuildEnabled || isWebHomeBusy)
+        .help(webHome.isEnabled
+              ? tr("Check Session", "检查会话")
+              : tr("Turn On Personalized Home", "开启个性化首页"))
+        .accessibilityLabel(webHome.isEnabled
+                            ? tr("Check Session", "检查会话")
+                            : tr("Turn On Personalized Home", "开启个性化首页"))
+        .accessibilityValue(webHomeStatusText)
+    }
+
+    /// Connecting continues to the separate, explicit Home consent dialog.
     @ViewBuilder
     private var primaryAction: some View {
         if !account.isOAuthConfigured {
@@ -311,25 +350,6 @@ struct YouTubeSettingsView: View {
             .musesAction(prominent: true)
             .tint(BrandColors.accent)
             .disabled(account.isConnecting)
-        } else if !webHome.isEnabled {
-            Button {
-                enableWebHomeFlow()
-            } label: {
-                Label(tr("Turn On Personalized Home", "开启个性化首页"),
-                      systemImage: "person.crop.circle.badge.checkmark")
-            }
-            .musesAction(prominent: true)
-            .tint(BrandColors.accent)
-            .disabled(!webHome.isBuildEnabled || isWebHomeBusy)
-        } else {
-            Button {
-                checkSession()
-            } label: {
-                Label(tr("Check Session", "检查会话"), systemImage: "checkmark.shield")
-            }
-            .musesAction(prominent: true)
-            .tint(BrandColors.accent)
-            .disabled(isWebHomeBusy)
         }
     }
 
@@ -419,13 +439,12 @@ struct YouTubeSettingsView: View {
     }
 
     private var oAuthHelpText: String {
-        tr("Muses opens Google sign-in in your default browser. It reads your channel identity, liked videos, subscriptions, and playlists to personalize Home. With your confirmation, it can update playlists you own. Tokens stay in macOS Keychain; playlist sync history stays on this Mac. You can disconnect here or revoke Muses from your Google Account at any time.",
-           "Muses 会在默认浏览器中打开 Google 登录。它会读取你的频道身份、点赞视频、订阅和歌单来个性化首页；经你确认后，也可以更新你拥有的歌单。令牌保存在 macOS 钥匙串，同步历史仅保存在本机。你可以随时在此断开连接，或在 Google 账号中撤销 Muses 的访问权限。")
+        tr("Reads your channel, likes, subscriptions and playlists. Playlist writes require confirmation. Tokens stay in Keychain; sync history stays on this Mac. Revoke access at any time.",
+           "读取频道、点赞、订阅和歌单；写入歌单须经确认。令牌保存在钥匙串，同步历史保存在本机。可随时撤销授权。")
     }
 
     @ViewBuilder
     private var ytDlpDetails: some View {
-        Divider().padding(.vertical, 8)
         row(tr("yt-dlp Path", "yt-dlp 路径"), value: binaryPath ?? tr("Not found (will use yt-dlp from PATH or bundled binary)", "未找到(将用 PATH 中的 yt-dlp 或随包二进制)"))
 
         HStack {
@@ -453,7 +472,6 @@ struct YouTubeSettingsView: View {
     /// Home management actions and the full privacy disclosure — normal users do not need them expanded.
     @ViewBuilder
     private var webHomeDetails: some View {
-        Divider().padding(.vertical, 8)
         row(
             webHome.isEnabled
                 ? tr("Approved browser", "已批准的浏览器")
@@ -496,7 +514,6 @@ struct YouTubeSettingsView: View {
 
     @ViewBuilder
     private var playbackCookieDetails: some View {
-        Divider().padding(.vertical, 8)
         Picker(tr("Playback Cookie Source", "播放 Cookie 来源"), selection: $cookieSourceRaw) {
             ForEach(YTCookieSource.settingsCases, id: \.rawValue) { src in
                 Text(src.displayName).tag(src.rawValue)
@@ -526,8 +543,8 @@ struct YouTubeSettingsView: View {
             .foregroundStyle(BrandColors.textSecondary)
 
         Text(tr(
-            "This setting is only for yt-dlp playback and import. Personalized Home detects the supported default browser separately and never changes this selection.",
-            "此设置仅用于 yt-dlp 播放与导入。个性化首页会单独识别受支持的默认浏览器，且绝不会修改这里的选择。"))
+            "Only used for playback and import. Personalized Home uses separate browser consent and never changes this selection.",
+            "仅用于播放与导入；个性化首页会单独请求浏览器授权，不会改变此选项。"))
             .font(.caption)
             .foregroundStyle(BrandColors.textSecondary)
     }
@@ -593,8 +610,8 @@ struct YouTubeSettingsView: View {
 
     private var webHomeDisclosureSummary: String {
         tr(
-            "Off by default. Muses detects Safari, Chrome, or Firefox when it is your default browser, then asks once before a separate one-shot helper reads that browser session locally. It is read-only, never controls playback or playlist writes, and keeps no Cookie, auth hash, raw response, or continuation token in the app's saved data.",
-            "默认关闭。当 Safari、Chrome 或 Firefox 是系统默认浏览器时，Muses 会自动识别，并在独立的一次性 Helper 本机读取该浏览器会话前单独询问一次。该能力只读，不参与播放或歌单写入，也不会在 App 的持久数据中保存 Cookie、鉴权哈希、原始响应或 continuation token。")
+            "Off by default. With separate consent, an isolated helper reads your browser session for Home only. It never controls playback or playlist writes, and does not save browser credentials.",
+            "默认关闭。单独授权后，隔离助手仅读取浏览器会话以显示首页；不参与播放或歌单写入，也不保存浏览器凭据。")
     }
 
     private var webHomeConsentMessage: String {

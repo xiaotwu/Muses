@@ -33,7 +33,7 @@ struct PlaylistSidebarRow: View {
                     .fill(isSelected ? BrandColors.textPrimary.opacity(0.08) : Color.clear)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.fullAreaPlain)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)

@@ -91,11 +91,10 @@ struct YouTubeAlbumDetailView: View {
                 try playlistSync.discardResourceOperation(operationID: preview.id)
             }
         }
-        .confirmationDialog(
+        .alert(
             tr("Delete this YouTube playlist import?",
                "删除此 YouTube 歌单导入?"),
-            isPresented: $showDeleteConfirm,
-            titleVisibility: .visible
+            isPresented: $showDeleteConfirm
         ) {
             Button(tr("Delete", "删除"), role: .destructive) {
                 do {
@@ -113,89 +112,62 @@ struct YouTubeAlbumDetailView: View {
     }
 
     private var controls: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 8) {
-                if !rows.isEmpty {
-                    ChromeIconButton(
-                        systemName: "play.fill",
-                        help: tr("Play All", "播放全部"),
-                        accessibility: tr("Play All", "播放全部"),
-                        action: playAll
-                    )
-                    ChromeIconButton(
-                        systemName: "shuffle",
-                        help: tr("Shuffle", "随机播放"),
-                        accessibility: tr("Shuffle", "随机播放"),
-                        action: shuffleAll
-                    )
+        VStack(alignment: .trailing, spacing: 6) {
+            HStack(spacing: 16) {
+                HStack(spacing: 8) {
+                    ChromeIconButton(systemName: "play.fill", help: tr("Play All", "播放全部"),
+                        accessibility: tr("Play All", "播放全部"), action: playAll)
+                    ChromeIconButton(systemName: "shuffle", help: tr("Shuffle", "随机播放"),
+                        accessibility: tr("Shuffle", "随机播放"), action: shuffleAll)
                 }
-                ChromeIconButton(
-                    systemName: "arrow.down.to.line",
-                    help: tr("Pull from YouTube", "从 YouTube 拉取"),
-                    accessibility: tr("Pull from YouTube", "从 YouTube 拉取")
-                ) {
-                    Task { await previewPull() }
+                .disabled(rows.isEmpty)
+                Divider().frame(height: 20)
+                HStack(spacing: 8) {
+                    if isOwned {
+                        ChromeIconButton(systemName: "plus", help: tr("Add Tracks", "添加曲目"),
+                            accessibility: tr("Add Tracks", "添加曲目")) { showAddTrack = true }
+                    }
+                    ChromeIconButton(systemName: "arrow.down.to.line",
+                        help: tr("Pull from YouTube", "从 YouTube 拉取"),
+                        accessibility: tr("Pull from YouTube", "从 YouTube 拉取")) {
+                            Task { await previewPull() }
+                        }
+                        .disabled(!youTubeAccount.isConnected || syncing)
+                    if isOwned {
+                        ChromeIconButton(systemName: "arrow.up.to.line",
+                            help: tr("Push local changes to YouTube", "推送本地修改到 YouTube"),
+                            accessibility: tr("Push to YouTube", "推送到 YouTube")) {
+                                Task { await previewPush() }
+                            }
+                            .disabled(syncing)
+                    }
                 }
-                .disabled(!youTubeAccount.isConnected || syncing)
-                if isOwned {
-                    ChromeIconButton(
-                        systemName: "arrow.up.to.line",
-                        help: tr("Push to YouTube", "推送到 YouTube"),
-                        accessibility: tr("Push to YouTube", "推送到 YouTube")
-                    ) { Task { await previewPush() } }
-                    .disabled(syncing)
-                }
-                ChromeIconButton(
-                    systemName: "trash",
-                    help: tr("Delete", "删除"),
-                    accessibility: tr("Delete", "删除")
-                ) { showDeleteConfirm = true }
-                if isOwned {
-                    ChromeIconButton(
-                        systemName: "plus",
-                        help: tr("Add Tracks", "添加曲目"),
-                        accessibility: tr("Add Tracks", "添加曲目")
-                    ) { showAddTrack = true }
-                    ChromeIconButton(
-                        systemName: "trash.slash",
-                        help: tr("Delete from YouTube", "从 YouTube 删除"),
-                        accessibility: tr("Delete from YouTube", "从 YouTube 删除")
-                    ) { Task { await previewRemoteDelete() } }
-                    .disabled(syncing)
-                    if youTubeImport.remoteWriteApprovedAt != nil {
-                        ChromeIconButton(
-                            systemName: "shield.slash",
-                            help: tr("Revoke remote write approval", "撤销远端写入批准"),
-                            accessibility: tr("Revoke remote write approval", "撤销远端写入批准")
-                        ) {
-                            do {
-                                try playlistSync.revokeRemoteWriteApproval(
-                                    importID: youTubeImport.id)
-                                writeError = nil
-                            } catch {
-                                writeError = error.localizedDescription
+                ChromeIconMenu(systemName: "ellipsis", title: tr("Playlist options", "歌单选项")) {
+                    Button(tr("Delete from Muses", "从 Muses 删除"), systemImage: "trash", role: .destructive) {
+                        showDeleteConfirm = true
+                    }
+                    if isOwned {
+                        Button(tr("Delete from YouTube", "从 YouTube 删除"), systemImage: "trash.slash", role: .destructive) {
+                            Task { await previewRemoteDelete() }
+                        }
+                        .disabled(syncing)
+                        if youTubeImport.remoteWriteApprovedAt != nil {
+                            Button(tr("Revoke remote write approval", "撤销远端写入批准"), systemImage: "shield.slash") {
+                                do {
+                                    try playlistSync.revokeRemoteWriteApproval(importID: youTubeImport.id)
+                                    writeError = nil
+                                } catch { writeError = error.localizedDescription }
                             }
                         }
                     }
                 }
             }
-
             if syncing {
-                ProgressView()
-                    .controlSize(.small)
+                ProgressView().controlSize(.small)
                     .accessibilityLabel(tr("Syncing playlist", "正在同步歌单"))
-            } else if isOwned {
-                Text(tr("Edits stay local until you choose Push. Pull never writes YouTube.",
-                        "编辑会先保存在本地，只有选择“推送”才会写入 YouTube；“拉取”不会写入 YouTube。"))
-                    .font(.caption2)
-                    .foregroundStyle(BrandColors.textSecondary)
             }
-
             if let writeError {
-                Text(writeError)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .lineLimit(2)
+                Text(writeError).font(.caption).foregroundStyle(.red).lineLimit(2)
             }
         }
     }

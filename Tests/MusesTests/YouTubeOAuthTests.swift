@@ -420,6 +420,37 @@ struct YouTubeOAuthTests {
 
     // MARK: - AccountService.refresh() partial failures
 
+    @Test("successful Google sign-in imports playlists after the account snapshot is ready")
+    func signInStartsAccountPlaylistImport() async throws {
+        let session = GoogleOAuthSession(keychain: InMemoryKeychain(), presenter: StubPresenter(),
+                                        tokenExchange: { _ in
+            let body = "{\"access_token\":\"AT\",\"refresh_token\":\"RT\",\"expires_in\":3600,\"scope\":\"\(GoogleOAuthConfig.readOnlyScope)\"}"
+            return (Data(body.utf8), Self.http200())
+        })
+        try session.saveConfig(GoogleOAuthConfig(clientID: "cid", clientSecret: "csec",
+                                                 redirectURI: "muses:/oauth", scopes: []))
+        let account = YouTubeAccountService(session: session, clientFactory: { _ in
+            YouTubeDataAPIClient(accessTokenProvider: { "AT" }, http: { request in
+                let body = request.url?.path.hasSuffix("/channels") == true
+                    ? #"{"items":[{"id":"owner","snippet":{"title":"Owner"}}]}"#
+                    : #"{"items":[]}"#
+                return (Data(body.utf8), Self.http200())
+            })
+        })
+        var calls = 0
+        account.importConnectedPlaylists = { onlyIfNeeded in
+            #expect(!onlyIfNeeded)
+            #expect(account.activeChannelID == "owner")
+            #expect(account.playlistsState == .empty)
+            calls += 1
+        }
+        await account.connect()
+        #expect(calls == 1)
+        #expect(account.canReadAccount)
+        #expect(!account.canManagePlaylists)
+        account.importConnectedPlaylists = nil
+    }
+
     @Test("AccountService: cancelled refresh restores the previous account view")
     func cancelledAccountRefreshKeepsPreviousContent() async throws {
         let keychain = InMemoryKeychain()

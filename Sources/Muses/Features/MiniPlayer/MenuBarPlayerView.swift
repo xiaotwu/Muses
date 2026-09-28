@@ -74,7 +74,7 @@ struct MenuBarPlayerView: View {
                         .font(.system(size: 24, weight: .semibold))
                         .frame(width: 40, height: 40)
                 }
-                .buttonStyle(.plain).help(playback.primaryAction.title)
+                .buttonStyle(.fullAreaPlain).help(playback.primaryAction.title)
                 .accessibilityLabel(playback.primaryAction.title)
                 ChromeIconButton(systemName: "forward.fill", help: tr("Next", "下一首"),
                                  accessibility: tr("Next", "下一首")) { playback.next() }

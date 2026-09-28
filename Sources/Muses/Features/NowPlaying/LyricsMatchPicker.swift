@@ -6,6 +6,11 @@ struct LyricsMatchPicker: View {
     @Environment(\.dismiss) private var dismiss
     @State private var candidates: [LyricsCandidate] = []
     @State private var loading = true
+    @State private var titleQuery = ""
+    @State private var artistQuery = ""
+    @State private var source = "auto"
+    @State private var searchRevision = 0
+    @State private var initializedQuery = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -17,6 +22,23 @@ struct LyricsMatchPicker: View {
                     .help(tr("Close", "关闭")).keyboardShortcut(.cancelAction)
             }
             Text(track.title + " · " + track.artist).foregroundStyle(.secondary).lineLimit(2)
+            HStack {
+                TextField(tr("Song title", "歌名", zhHant: "歌名"), text: $titleQuery)
+                TextField(tr("Artist", "艺人", zhHant: "藝人"), text: $artistQuery)
+                Button { searchRevision += 1 } label: {
+                    Image(systemName: "magnifyingglass").frame(width: 28, height: 28)
+                }.musesAction()
+                .help(tr("Search lyrics", "搜索歌词", zhHant: "搜尋歌詞"))
+                .accessibilityLabel(tr("Search lyrics", "搜索歌词", zhHant: "搜尋歌詞"))
+            }
+            .textFieldStyle(.roundedBorder)
+            .onSubmit { searchRevision += 1 }
+            Picker(tr("Source", "来源", zhHant: "來源"), selection: $source) {
+                Text(tr("All sources", "全部来源", zhHant: "全部來源")).tag("auto")
+                Text("LRCLIB").tag("lrclib")
+                Text("Musixmatch").tag("musixmatch")
+                Text("Lyrics.ovh").tag("lyricsOVH")
+            }.pickerStyle(.menu)
             if loading {
                 ProgressView(tr("Finding matching recordings…", "正在查找匹配的录音版本…"))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -30,7 +52,7 @@ struct LyricsMatchPicker: View {
                         Text([candidate.artistName, candidate.albumName].compactMap { $0 }.joined(separator: " · "))
                             .font(.caption).foregroundStyle(.secondary)
                         HStack {
-                            Text("LRCLIB")
+                            Text(candidate.source.displayName)
                             if let duration = candidate.duration { Text(Duration.seconds(duration).formatted(.time(pattern: .minuteSecond))) }
                             if candidate.syncedLyrics?.isEmpty == false { Text(tr("Synced", "逐行同步")) }
                         }.font(.caption).foregroundStyle(.secondary)
@@ -45,10 +67,19 @@ struct LyricsMatchPicker: View {
             }
         }
         .padding(24)
-        .frame(width: 480, height: 500)
-        .task {
-            candidates = await lyrics.findCandidates(track: track, refresh: true)
+        .frame(width: 560, height: 600)
+        .task(id: source + ":" + String(searchRevision)) {
+            if !initializedQuery {
+                titleQuery = LyricsService.sanitizedTitle(track.title)
+                artistQuery = LyricsMatchPolicy.queryArtist(track.artist)
+                initializedQuery = true
+            }
+            loading = true
+            candidates = []
+            let query = LyricsSearchQuery(title: titleQuery, artist: artistQuery).applying(to: track)
+            let found = await lyrics.findCandidates(track: query, refresh: true, source: source)
             guard !Task.isCancelled else { return }
+            candidates = found
             loading = false
         }
     }

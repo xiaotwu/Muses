@@ -276,8 +276,7 @@ struct NowPlayingView: View {
             leftColumn(layout)
                 .frame(width: layout.stageSide)
 
-            LyricsView(layout: .leading)
-                .padding(.leading, layout.lyricsLeadingInset)
+            LyricsView(layout: .immersiveCentered)
                 .padding(.top, 8)
                 .padding(.bottom, 24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -295,7 +294,7 @@ struct NowPlayingView: View {
                 leftColumn(layout)
                     .frame(width: layout.stageSide)
 
-                LyricsView(layout: .leading)
+                LyricsView(layout: .immersiveCentered)
                     .frame(maxWidth: .infinity)
                     .frame(minHeight: 360)
             }
@@ -356,7 +355,7 @@ struct NowPlayingView: View {
     }
 
     private var moreMenu: some View {
-        Menu {
+        ChromeIconMenu(systemName: "ellipsis", title: tr("More playback actions", "更多播放操作")) {
             Button(tr("Play Next", "下一首播放")) {
                 if let track = playback.state.track { playback.queue.playNext(track) }
             }
@@ -381,17 +380,7 @@ struct NowPlayingView: View {
                 }
                 .accessibilityLabel(tr("Open on YouTube", "在 YouTube 打开"))
             }
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(BrandColors.textPrimary.opacity(0.78))
-                .frame(width: 28, height: 28)
-                .background(BrandColors.textPrimary.opacity(0.12), in: Circle())
-                .contentShape(Circle())
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .frame(width: 28, height: 28)
         .disabled(playback.state.track == nil)
         .help(tr("More", "更多"))
         .accessibilityLabel(tr("More playback actions", "更多播放操作"))
@@ -419,7 +408,7 @@ struct NowPlayingView: View {
                 .background(BrandColors.textPrimary.opacity(0.12), in: Circle())
                 .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.fullAreaPlain)
         .help(liked ? tr("Unlike", "取消收藏") : tr("Like", "收藏"))
         .accessibilityLabel(liked
             ? tr("Unlike current song", "取消收藏当前歌曲")
@@ -499,7 +488,7 @@ struct NowPlayingView: View {
                         .frame(width: 38, height: 38)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.fullAreaPlain)
                 .help(playback.state.isPlaying ? tr("Pause", "暂停") : tr("Play", "播放"))
                 .accessibilityLabel(
                     playback.state.isPlaying ? tr("Pause", "暂停") : tr("Play", "播放")
@@ -579,7 +568,7 @@ struct NowPlayingView: View {
                 )
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.fullAreaPlain)
         .help(help)
         .accessibilityLabel(help)
         .accessibilityValue(selected ? tr("On", "开启") : tr("Off", "关闭"))

@@ -14,15 +14,28 @@ struct RetainedCollectionSurface<Content: View>: NSViewRepresentable {
         self.content = content()
     }
 
+    final class Coordinator {
+        var wasVisible = false
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeNSView(context: Context) -> NSHostingView<AnyView> {
-        let host = NSHostingView(rootView: root(context))
+        // A never-opened table must not sort, fetch artwork, or build AX rows.
+        let host = NSHostingView(rootView: isVisible ? root(context) : AnyView(EmptyView()))
+        context.coordinator.wasVisible = isVisible
         host.sizingOptions = []
         host.isHidden = !isVisible
         return host
     }
 
     func updateNSView(_ host: NSHostingView<AnyView>, context: Context) {
-        host.rootView = root(context)
+        // Deliver the disabling transition once, then retain native state
+        // without replacing the hidden hosting tree on unrelated updates.
+        if isVisible || context.coordinator.wasVisible {
+            host.rootView = root(context)
+        }
+        context.coordinator.wasVisible = isVisible
         if !isVisible, let responder = host.window?.firstResponder as? NSView,
            responder.isDescendant(of: host) {
             host.window?.makeFirstResponder(nil)

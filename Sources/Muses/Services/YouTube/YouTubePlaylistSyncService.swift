@@ -196,6 +196,7 @@ final class YouTubePlaylistSyncService {
     static let recentlyDeletedRetention: TimeInterval = 30 * 24 * 60 * 60
 
     private let modelContainer: ModelContainer
+    private let accountImportPreferences: UserDefaults?
     private weak var account: YouTubeAccountService?
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
@@ -206,18 +207,129 @@ final class YouTubePlaylistSyncService {
 
     private(set) var activeImportID: UUID?
     private(set) var lastError: String?
+    private(set) var isImportingAccountPlaylists = false
+    private(set) var accountImportCompleted = 0
+    private(set) var accountImportTotal = 0
+    private(set) var accountImportError: String?
+    @ObservationIgnored private var pendingAccountImport: Bool?
 
     init(modelContainer: ModelContainer, account: YouTubeAccountService,
+         accountImportPreferences: UserDefaults? = .standard,
          pushExecutionPolicy: YouTubePushExecutionPolicy = .disabled,
          pushFaultInjector: (@MainActor (YouTubePushFaultPoint) throws -> Void)? = nil,
          pushReadbackRetryDelays: [Duration] = [
             .milliseconds(250), .milliseconds(750), .seconds(2)
          ]) {
         self.modelContainer = modelContainer
+        self.accountImportPreferences = accountImportPreferences
         self.account = account
         self.pushExecutionPolicy = pushExecutionPolicy
         self.pushFaultInjector = pushFaultInjector
         self.pushReadbackRetryDelays = pushReadbackRetryDelays
+    }
+
+    // MARK: - Account library import
+
+    /// Imports only missing owned playlists. Existing local edits and Recently
+    /// Deleted entries remain untouched; importing is never a Pull or Push.
+    func importAccountPlaylists(onlyIfNeeded: Bool = false) async {
+        if isImportingAccountPlaylists {
+            pendingAccountImport = (pendingAccountImport ?? true) && onlyIfNeeded
+            return
+        }
+        accountImportError = nil
+        guard let account, account.isConnected,
+              case .content(let channel) = account.channelState,
+              let client = account.dataAPIClient() else { return }
+        let completedChannels = accountImportPreferences?.stringArray(
+            forKey: PrefKey.ytAccountPlaylistsImportedChannels) ?? []
+        // Cold launches finish a first import, but never resurrect playlists
+        // deliberately removed after that import. Sign-in and explicit retry
+        // still discover new playlists from the authenticated account.
+        if onlyIfNeeded, completedChannels.contains(channel.id) { return }
+        let playlists: [YouTubePlaylist]
+        switch account.playlistsState {
+        case .content(let values): playlists = values
+        case .empty: playlists = []
+        default:
+            accountImportError = account.playlistsState.errorMessage
+            return
+        }
+        isImportingAccountPlaylists = true
+        accountImportCompleted = 0
+        accountImportTotal = playlists.count
+        defer {
+            isImportingAccountPlaylists = false
+            if let pending = pendingAccountImport {
+                pendingAccountImport = nil
+                Task { @MainActor [weak self] in
+                    await self?.importAccountPlaylists(onlyIfNeeded: pending)
+                }
+            }
+        }
+        var failed = 0
+        for playlist in playlists {
+            guard !Task.isCancelled, account.isConnected,
+                  account.activeChannelID == channel.id else { return }
+            do {
+                let context = ModelContext(modelContainer)
+                if try fetchImport(playlistID: playlist.id, context: context) == nil {
+                    let result = await client.playlistItemsPaginated(playlistId: playlist.id)
+                    try Task.checkCancellation()
+                    guard account.isConnected, account.activeChannelID == channel.id else { return }
+                    let snapshot = Self.remoteSnapshot(
+                        playlistID: playlist.id, accountChannelID: channel.id,
+                        title: playlist.title, values: result.items,
+                        pagination: .init(completeness: result.completeness,
+                                          pageCount: result.pageCount,
+                                          nextPageToken: result.nextPageToken,
+                                          itemCount: result.items.count))
+                    try saveAccountPlaylist(playlist, channel: channel, snapshot: snapshot)
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                failed += 1
+                accountImportError = tr(
+                    "\(failed) playlists could not be imported. Retry to continue.",
+                    "\(failed) 个歌单未能导入，请重试。", zhHant: "\(failed) 個歌單未能匯入，請重試。")
+            }
+            accountImportCompleted += 1
+        }
+        if failed == 0 {
+            let channels = Set(completedChannels).union([channel.id]).sorted()
+            accountImportPreferences?.set(channels, forKey: PrefKey.ytAccountPlaylistsImportedChannels)
+        }
+    }
+
+    /// A complete authenticated read is the initial sync base. Nothing is
+    /// persisted for partial reads, so retry cannot mistake a partial import
+    /// for an existing playlist. Re-fetch after suspension to avoid duplicates.
+    func saveAccountPlaylist(_ playlist: YouTubePlaylist, channel: YouTubeChannel,
+                             snapshot: YouTubePlaylistSnapshot) throws {
+        guard snapshot.isCompleteRemote,
+              snapshot.playlistID == playlist.id,
+              snapshot.accountChannelID == channel.id else {
+            throw YouTubePlaylistSyncError.invalidSnapshot("Incomplete or mismatched account import")
+        }
+        let context = ModelContext(modelContainer)
+        guard try fetchImport(playlistID: playlist.id, context: context) == nil else { return }
+        let imported = YouTubeImport(
+            playlistId: playlist.id,
+            url: "https://music.youtube.com/playlist?list=\(playlist.id)",
+            title: playlist.title, channel: channel.title,
+            artworkUrl: playlist.thumbnailURL, lastSyncedAt: .init(),
+            accountChannelID: channel.id)
+        imported.remoteWritable = true
+        context.insert(imported)
+        try apply(snapshot, to: imported, context: context)
+        let base = try insertRevision(importID: imported.id, accountChannelID: channel.id,
+                                      kind: .base, snapshot: snapshot, context: context)
+        let shadow = try insertRevision(importID: imported.id, accountChannelID: channel.id,
+                                        kind: .remoteShadow, snapshot: snapshot, context: context)
+        imported.baseRevisionID = base.id
+        imported.remoteShadowRevisionID = shadow.id
+        try context.save()
     }
 
     // MARK: - Remote Shadow / Pull
@@ -1007,6 +1119,36 @@ final class YouTubePlaylistSyncService {
         imported.deletedAt = .init()
         try context.save()
         try pruneRevisions(importID: importID, context: context)
+    }
+
+    /// Explicitly forget local recovery records. Never deletes Track rows or
+    /// sends a remote request; unfinished remote journals must be resolved first.
+    func permanentlyDeleteLocalImports(ids: Set<UUID>) throws {
+        guard !ids.isEmpty else { return }
+        let context = ModelContext(modelContainer)
+        let imports = try context.fetch(FetchDescriptor<YouTubeImport>()).filter { ids.contains($0.id) }
+        let batches = try context.fetch(FetchDescriptor<YouTubeSyncBatch>()).filter { ids.contains($0.importID) }
+        let resources = try context.fetch(FetchDescriptor<YouTubePlaylistResourceOperation>())
+            .filter { $0.importID.map(ids.contains) == true }
+        guard imports.count == ids.count, imports.allSatisfy({ $0.deletedAt != nil }) else {
+            throw YouTubePlaylistSyncError.importNotFound
+        }
+        guard activeImportID.map(ids.contains) != true,
+              batches.allSatisfy({ [.planned, .locallyCommitted, .discarded].contains($0.state) }),
+              resources.allSatisfy({ [.planned, .locallyCommitted, .discarded].contains($0.state) }) else {
+            throw YouTubePlaylistSyncError.invalidSnapshot(tr(
+                "Finish or resolve playlist sync before clearing its recovery record.",
+                "请先完成或解决歌单同步，再清除恢复记录。"))
+        }
+        for revision in try context.fetch(FetchDescriptor<YouTubePlaylistRevision>())
+            where ids.contains(revision.importID) { context.delete(revision) }
+        for operation in try context.fetch(FetchDescriptor<YouTubeSyncOperation>())
+            where ids.contains(operation.importID) { context.delete(operation) }
+        for batch in batches { context.delete(batch) }
+        for resource in resources { context.delete(resource) }
+        for imported in imports { context.delete(imported) }
+        try context.save()
+        NotificationCenter.default.post(name: .musesPlaylistsChanged, object: nil)
     }
 
     static func isWithinRecentlyDeletedRetention(_ imported: YouTubeImport,

@@ -275,7 +275,7 @@ extension HomeView {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.fullAreaPlain)
             .youTubeEntryContextMenu(card: card) {
                 Task { await play(card, siblings: context) }
             }
@@ -293,7 +293,7 @@ extension HomeView {
                     Spacer()
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.fullAreaPlain)
         }
     }
 
@@ -941,7 +941,7 @@ private struct MoodChipButton: View {
                 .scaleEffect(isHovered && !reduceMotion ? 1.03 : 1.0)
                 .offset(y: isHovered && !reduceMotion ? -1 : 0)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.fullAreaPlain)
         .onHover { isHovered = $0 }
         .animation(MusesMotion.hoverAnimation(reduceMotion: reduceMotion), value: isHovered)
     }

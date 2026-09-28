@@ -750,10 +750,10 @@ struct ChromeLayoutTests {
         #expect(!prefs.contains("muses.ff.advancedLyrics"))
 
         let lyrics = try readSource("Sources/Muses/Features/Settings/LyricsSettingsView.swift")
-        #expect(lyrics.contains("original lyrics are never generated from memory"))
+        #expect(lyrics.contains("Lyrics come from sources, never generated from memory"))
 
-        let desktop = try readSource("Sources/Muses/Features/Settings/DesktopSettingsView.swift")
-        #expect(desktop.contains("macOS default device"))
+        let help = try readSource("Sources/Muses/Features/Settings/SettingsHelpView.swift")
+        #expect(help.contains("macOS default output device"))
 
         let home = try readSource("Sources/Muses/Features/HomeView+Sections.swift")
         #expect(HomeGuestStatusPolicy.unsignedInShowsSingleCue)

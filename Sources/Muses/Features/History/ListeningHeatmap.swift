@@ -163,8 +163,9 @@ struct ListeningHeatmapView: View {
             .frame(width: cellSize, height: 30)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.fullAreaPlain)
         .focusable()
+        .focusEffectDisabled()
         .focused($focusedCellID, equals: cell.id)
         .onChange(of: focusedCellID) { _, newValue in
             if newValue == cell.id { selectedCellID = cell.id }
@@ -249,7 +250,7 @@ struct ListeningHeatmapView: View {
                                                     in: RoundedRectangle(cornerRadius: 7,
                                                                          style: .continuous))
                                     }
-                                    .buttonStyle(.plain)
+                                    .buttonStyle(.fullAreaPlain)
                                     .accessibilityLabel(cellAccessibilityLabel(cell, row: row))
                                 }
                             }

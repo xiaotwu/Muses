@@ -78,12 +78,15 @@ final class HistoryService {
         switch event {
         case .trackStarted(let snap):
             open(snap)
-        case .trackCompleted(let snap, let listenedMs):
-            close(snap: snap, listenedMs: Int(listenedMs), outcome: .completed)
-        case .trackSkipped(let snap, let listenedMs):
-            close(snap: snap, listenedMs: Int(listenedMs), outcome: .skipped)
-        case .trackStopped(let snap, let listenedMs):
-            close(snap: snap, listenedMs: Int(listenedMs), outcome: .stopped)
+        case .trackCompleted(let snap, let listenedMs, let positionMs):
+            close(snap: snap, listenedMs: Int(listenedMs),
+                  positionMs: positionMs ?? listenedMs, outcome: .completed)
+        case .trackSkipped(let snap, let listenedMs, let positionMs):
+            close(snap: snap, listenedMs: Int(listenedMs),
+                  positionMs: positionMs ?? listenedMs, outcome: .skipped)
+        case .trackStopped(let snap, let listenedMs, let positionMs):
+            close(snap: snap, listenedMs: Int(listenedMs),
+                  positionMs: positionMs ?? listenedMs, outcome: .stopped)
         case .trackPaused, .trackResumed, .trackSeeked, .queueChanged,
              .outputDeviceChanged:
             // Not handled at this granularity; pause/resume/seek may later feed behavioral profiling.
@@ -104,10 +107,11 @@ final class HistoryService {
     }
 
     /// Closes the in-progress event (snap comes from the terminal event and carries the latest track metadata).
-    private func close(snap: TrackSnapshot, listenedMs: Int, outcome: ListeningOutcome) {
+    private func close(snap: TrackSnapshot, listenedMs: Int,
+                       positionMs: Double, outcome: ListeningOutcome) {
         let startedAt = (pending?.trackId == snap.id) ? pending!.startedAt : Date()
         let durMs = snap.durationSeconds * 1000.0
-        let ratio: Double? = durMs > 0 ? Double(listenedMs) / durMs : nil
+        let ratio: Double? = durMs > 0 ? max(0, min(1, positionMs / durMs)) : nil
         let event = ListeningEvent(
             trackId: snap.id, trackTitle: snap.title, artist: snap.artist,
             albumTitle: snap.albumTitle,

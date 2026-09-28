@@ -27,6 +27,7 @@ struct PackagingTests {
         let scripts = [
             "Scripts/copy-ytdlp.sh",
             "Scripts/make-icon.sh",
+            "Scripts/sync-app-icon.sh",
             "Scripts/build-app.sh",
             "Scripts/sign-update.sh",
             "Scripts/notarize.sh",
@@ -45,6 +46,26 @@ struct PackagingTests {
     }
 
     // MARK: - Info.plist template
+
+    @Test("modern icon preserves canonical artwork with an opaque white background")
+    func modernIconAppearance() throws {
+        let document = try Data(contentsOf: repositoryRoot.appending(path: "assets/Muses.icon/icon.json"))
+        let icon = try #require(JSONSerialization.jsonObject(with: document) as? [String: Any])
+        let fill = try #require(icon["fill"] as? [String: String])
+        #expect(fill["solid"] == "extended-srgb:1.00000,1.00000,1.00000,1.00000")
+        let groups = try #require(icon["groups"] as? [[String: Any]])
+        #expect(groups.count == 1)
+        let group = try #require(groups.first)
+        #expect(group["specular"] as? Bool == false)
+        #expect((group["shadow"] as? [String: Any])?["kind"] as? String == "none")
+        #expect((group["translucency"] as? [String: Any])?["enabled"] as? Bool == false)
+        let layers = try #require(group["layers"] as? [[String: Any]])
+        #expect(layers.count == 1)
+        #expect(layers.first?["glass"] as? Bool == false)
+        let canonical = try Data(contentsOf: repositoryRoot.appending(path: "assets/icon.png"))
+        let layer = try Data(contentsOf: repositoryRoot.appending(path: "assets/Muses.icon/Assets/icon.png"))
+        #expect(layer == canonical)
+    }
 
     /// Info.plist is a Muses module resource (SPM `.copy("Resources")`).
     @Test("Info.plist template parses and contains release-required keys")
@@ -165,6 +186,28 @@ struct PackagingTests {
         let size = (try? FileManager.default.attributesOfItem(
             atPath: path)[.size] as? Int) ?? 0
         #expect(size > 0, "AppIcon.icns is empty")
+    }
+
+    @Test("Application icon resources preserve the original white background")
+    func iconWhiteBackground() throws {
+        let canonical = try Data(contentsOf: URL(fileURLWithPath: repositoryPath("assets/icon.png")))
+        for copy in ["Sources/Muses/Resources/icon.png", "docs/assets/icon.png"] {
+            #expect(try Data(contentsOf: URL(fileURLWithPath: repositoryPath(copy))) == canonical)
+        }
+        for path in ["assets/icon.png", "Sources/Muses/Resources/AppIcon.icns"] {
+            let absolute = repositoryPath(path)
+            guard FileManager.default.fileExists(atPath: absolute) else { continue }
+            let image = try #require(NSImage(contentsOfFile: absolute))
+            let bitmap = try #require(image.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)))
+            let outside = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 20,
+                                                      y: bitmap.pixelsHigh / 2)?.usingColorSpace(.deviceRGB))
+            #expect(outside.alphaComponent > 0.95)
+            #expect(outside.redComponent > 0.95 && outside.greenComponent > 0.95
+                && outside.blueComponent > 0.95, "The original white background is missing from \(path)")
+            let inside = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2,
+                                                     y: bitmap.pixelsHigh / 2))
+            #expect(inside.alphaComponent > 0.95)
+        }
     }
 
     @Test("sign-update.sh passes bash -n and is executable")

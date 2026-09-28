@@ -5,6 +5,13 @@ import Foundation
 /// Every method returns a percent-encoded `URL`, ready to hand to `URLSession`.
 /// Pure functions with no I/O, unit-testable in isolation.
 enum LyricsEndpoint {
+    static func lyricsOVH(track: String, artist: String) -> URL {
+        let allowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/?#%"))
+        var components = URLComponents(string: "https://api.lyrics.ovh")!
+        components.percentEncodedPath = "/v1/" + (artist.addingPercentEncoding(withAllowedCharacters: allowed) ?? "")
+            + "/" + (track.addingPercentEncoding(withAllowedCharacters: allowed) ?? "")
+        return components.url!
+    }
     /// LRCLIB exact-match endpoint. Returns a single lyric (with plainLyrics / syncedLyrics).
     /// Example: `https://lrclib.net/api/get?track_name=One%20More%20Time&artist_name=Daft%20Punk`
     static func lrclib(track: String, artist: String, album: String?, duration: Double? = nil) -> URL {

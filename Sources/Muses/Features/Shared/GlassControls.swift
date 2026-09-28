@@ -1,5 +1,16 @@
 import SwiftUI
 
+/// Include transparent spacing inside a button's label in its interaction area.
+struct FullAreaPlainButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.contentShape(.interaction, Rectangle())
+    }
+}
+
+extension ButtonStyle where Self == FullAreaPlainButtonStyle {
+    static var fullAreaPlain: Self { .init() }
+}
+
 /// Use the platform's interaction, focus, menu, and accessibility implementations.
 private struct MusesControls: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -67,7 +78,7 @@ struct SettingsGlassChoice: View {
                 } label: {
                     choiceLabel(option)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.fullAreaPlain)
                 .accessibilityAddTraits(selection == option.id ? .isSelected : [])
                 .help(option.title)
             }

@@ -161,6 +161,7 @@ struct AlbumObjectView: View {
                         if isYouTube {
                             ContentScrimCircle {
                                 YouTubeMark(size: 12)
+                                    .environment(\.colorScheme, .dark)
                             }
                         }
                         ContentScrimCircle {
@@ -204,41 +205,20 @@ struct AlbumObjectView: View {
                         .truncationMode(.tail)
                         .shadow(color: .black.opacity(0.7), radius: 2, y: 1)
 
-                    HStack(alignment: .center, spacing: 6) {
+                    HStack {
                         if let tag = customTag {
-                            HStack(spacing: 3) {
-                                Image(systemName: isNowPlaying ? "waveform" : "square.stack")
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundStyle(isNowPlaying ? BrandColors.accent : Color.white.opacity(0.8))
-                                Text(tag)
-                                    .font(.system(size: 8.5, weight: .bold))
-                                    .foregroundStyle(Color.white.opacity(0.9))
-                            }
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(Color.white.opacity(0.14), in: Capsule())
+                            Image(systemName: isNowPlaying ? "waveform" : "square.stack")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.8))
+                                .accessibilityLabel(tag)
                         }
-
                         Spacer(minLength: 0)
-
-                        HStack(spacing: 3) {
-                            Image(systemName: isNowPlaying ? "speaker.wave.2.fill" : "play.fill")
-                                .font(.system(size: 8, weight: .bold))
-                            Text(isNowPlaying ? tr("Playing", "播放中") : tr("Play", "播放"))
-                                .font(.system(size: 9, weight: .semibold))
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(
-                            isNowPlaying || hovering
-                                ? BrandColors.accent
-                                : Color.white.opacity(0.22),
-                            in: Capsule()
-                        )
-                        .overlay(
-                            Capsule().stroke(Color.white.opacity(0.35), lineWidth: 0.75)
-                        )
+                        Image(systemName: isNowPlaying ? "speaker.wave.2.fill" : "play.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 28, height: 28)
+                            .background(Color.black.opacity(0.6), in: Circle())
+                            .overlay(Circle().stroke(Color.white.opacity(0.35), lineWidth: 1))
                     }
                     .padding(.top, 2)
                 }
@@ -328,6 +308,7 @@ private struct AlbumObjectPressStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
+            .contentShape(.interaction, Rectangle())
             .scaleEffect(configuration.isPressed && !reduceMotion ? scale : 1)
             .animation(
                 reduceMotion ? nil : .easeOut(duration: MusesMotion.hover),

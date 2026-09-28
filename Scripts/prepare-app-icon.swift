@@ -21,6 +21,7 @@ guard let source = CGImageSourceCreateWithURL(sourceURL as CFURL, nil),
 }
 
 let bounds = CGRect(x: 0, y: 0, width: 1_024, height: 1_024)
+// Preserve the original white-backed artwork. macOS supplies the outer shape.
 context.setFillColor(CGColor(gray: 1, alpha: 1))
 context.fill(bounds)
 context.interpolationQuality = .high

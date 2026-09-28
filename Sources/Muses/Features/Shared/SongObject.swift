@@ -90,7 +90,7 @@ struct SongObjectView: View {
                         .font(.caption)
                 }
                 .foregroundStyle(isLiked ? BrandColors.accent : BrandColors.textSecondary)
-                .buttonStyle(.plain)
+                .buttonStyle(.fullAreaPlain)
                 .help(isLiked ? tr("Unlike", "取消收藏") : tr("Like", "收藏"))
                 .accessibilityLabel(isLiked ? tr("Unlike", "取消收藏") : tr("Like", "收藏"))
             }
@@ -107,7 +107,7 @@ struct SongObjectView: View {
                     Image(systemName: "play.fill")
                         .foregroundStyle(BrandColors.accent)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.fullAreaPlain)
                 .help(tr("Play", "播放"))
                 .accessibilityLabel(tr("Play", "播放"))
             }
@@ -117,7 +117,7 @@ struct SongObjectView: View {
                     Image(systemName: "text.badge.plus")
                         .foregroundStyle(BrandColors.textSecondary)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.fullAreaPlain)
                 .help(tr("Add to Queue", "加入队列"))
                 .accessibilityLabel(tr("Add to Queue", "加入队列"))
             }
@@ -127,7 +127,7 @@ struct SongObjectView: View {
                     Image(systemName: "ellipsis")
                         .foregroundStyle(BrandColors.textSecondary)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.fullAreaPlain)
                 .accessibilityLabel(tr("More", "更多"))
             }
 
@@ -135,7 +135,7 @@ struct SongObjectView: View {
                 Button(role: .destructive, action: onRemove) {
                     Image(systemName: "minus.circle")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.fullAreaPlain)
                 .foregroundStyle(BrandColors.textSecondary)
                 .help(tr("Remove", "移除"))
                 .accessibilityLabel(tr("Remove", "移除"))

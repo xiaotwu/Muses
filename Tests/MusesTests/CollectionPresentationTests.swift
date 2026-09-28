@@ -5,6 +5,25 @@ import Testing
 @MainActor
 @Suite("Collection presentation")
 struct CollectionPresentationTests {
+    @Test("accessible pages preserve all 507 sorted collection occurrences")
+    func accessiblePaging() {
+        let rows = (0..<507).map { index in
+            CollectionTrackRow(snapshot: TrackSnapshot(
+                id: UUID(), title: String(format: "%04d", index),
+                artist: "Synthetic", albumTitle: nil, durationSeconds: 1,
+                youTubeId: String(format: "%011d", index), artworkUrl: nil,
+                sampleRate: nil, bitDepth: nil, codec: nil, isLossless: false),
+                canonicalIndex: index)
+        }
+        let count = CollectionTablePaging.pageCount(rowCount: rows.count, pageSize: 25)
+        #expect(count == 21)
+        let presented = (0..<count).flatMap {
+            CollectionTablePaging.rows(rows, page: $0, pageSize: 25)
+        }
+        #expect(presented.map(\.id) == rows.map(\.id))
+        #expect(CollectionTablePaging.rows(rows, page: 20, pageSize: 25).count == 7)
+    }
+
     @Test("Collection pages share the leading page-header rhythm")
     func collectionHeaderRhythm() {
         #expect(AppleMusicSpacing.pageHorizontal == 40)

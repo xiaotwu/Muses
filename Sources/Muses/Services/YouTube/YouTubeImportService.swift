@@ -395,7 +395,7 @@ final class YouTubeImportService {
     }
 
     /// Prefer the row linked to an import item, then highest play count, then oldest.
-    fileprivate static func preferredTrack(among tracks: [Track]) -> Track? {
+    static func preferredTrack(among tracks: [Track]) -> Track? {
         tracks.max { a, b in
             let aLinked = !(a.youTubeImportItems ?? []).isEmpty
             let bLinked = !(b.youTubeImportItems ?? []).isEmpty

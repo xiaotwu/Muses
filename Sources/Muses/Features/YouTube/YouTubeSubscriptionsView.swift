@@ -90,7 +90,7 @@ struct YouTubeSubscriptionsView: View {
         }
         .onChange(of: account.activeChannelID) { _, _ in selectedChannelID = nil }
         .onChange(of: account.isConnected) { _, connected in if !connected { selectedChannelID = nil } }
-        .confirmationDialog(
+        .alert(
             tr("Subscribe to \(pendingChannel?.title ?? "") (\(pendingChannel?.id ?? "")) using \(account.account?.channel?.title ?? "YouTube")?",
                "使用 \(account.account?.channel?.title ?? "YouTube") 账号订阅 \(pendingChannel?.title ?? "")（\(pendingChannel?.id ?? "")）？",
                zhHant: "使用 \(account.account?.channel?.title ?? "YouTube") 帳號訂閱 \(pendingChannel?.title ?? "")（\(pendingChannel?.id ?? "")）？"),
@@ -202,7 +202,7 @@ private struct YouTubeChannelUploadsView: View {
                         .help(tr("Unsubscribe from this channel", "取消订阅此频道"))
                     }
                     if let target = YouTubeShareTarget(kind: .channel, id: channel.channelId) {
-                        YouTubeShareMenu(target: target)
+                        YouTubeShareMenu(target: target, chrome: true)
                             .fixedSize(horizontal: true, vertical: false)
                     }
                     ChromeIconButton(systemName: "arrow.clockwise", help: tr("Refresh", "刷新"), accessibility: tr("Refresh", "刷新")) {
@@ -236,12 +236,13 @@ private struct YouTubeChannelUploadsView: View {
             }.padding(28).padding(.bottom, 100)
         }
         .task(id: refreshID) { await load() }
-        .confirmationDialog(
+        .alert(
             tr("Unsubscribe from \(channel.title) (\(channel.channelId)) using \(account.account?.channel?.title ?? "YouTube")?",
                "使用 \(account.account?.channel?.title ?? "YouTube") 账号取消订阅 \(channel.title)（\(channel.channelId)）？",
                zhHant: "使用 \(account.account?.channel?.title ?? "YouTube") 帳號取消訂閱 \(channel.title)（\(channel.channelId)）？"),
             isPresented: $showingUnsubscribe
         ) {
+            Button(tr("Cancel", "取消"), role: .cancel) {}
             Button(tr("Unsubscribe", "取消订阅"), role: .destructive) {
                 let ownerID = account.activeChannelID
                 Task {

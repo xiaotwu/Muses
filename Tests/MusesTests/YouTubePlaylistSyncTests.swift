@@ -349,6 +349,139 @@ struct YouTubePlaylistSyncAPIErrorTests {
 @MainActor
 @Suite("YouTube playlist sync — recovery")
 struct YouTubePlaylistSyncRecoveryTests {
+    @Test("account import reads every page and preserves local edits on retry")
+    func accountImportPaginationAndIdempotence() async throws {
+        let container = try makeModelContainer(inMemory: true)
+        let account = try await connectedAccount(total: 120, maxPages: 10,
+                                                 scope: GoogleOAuthConfig.readOnlyScope)
+        let service = YouTubePlaylistSyncService(modelContainer: container, account: account, accountImportPreferences: nil)
+        await service.importAccountPlaylists()
+        let context = ModelContext(container)
+        let imported = try #require(context.fetch(FetchDescriptor<YouTubeImport>()).first)
+        #expect(imported.items?.count == 120)
+        #expect(imported.accountChannelID == "owner")
+        #expect(imported.baseRevisionID != nil)
+        #expect(imported.remoteShadowRevisionID != nil)
+        #expect(Set((imported.items ?? []).compactMap(\.playlistItemID)).count == 120)
+        imported.title = "Local edit"
+        try context.save()
+        await service.importAccountPlaylists()
+        let verify = ModelContext(container)
+        #expect(try verify.fetch(FetchDescriptor<YouTubeImport>()).count == 1)
+        #expect(try verify.fetch(FetchDescriptor<YouTubeImport>()).first?.title == "Local edit")
+        #expect(try verify.fetch(FetchDescriptor<YouTubeImportItem>()).count == 120)
+        #expect(try verify.fetch(FetchDescriptor<YouTubeSyncBatch>()).isEmpty)
+        #expect(service.accountImportError == nil)
+        try service.moveToRecentlyDeleted(importID: imported.id)
+        await service.importAccountPlaylists()
+        #expect(try ModelContext(container).fetch(FetchDescriptor<YouTubeImport>()).first?.deletedAt != nil)
+    }
+
+    @Test("partial account imports persist nothing and can retry with a complete read")
+    func accountImportPartialAndRetry() async throws {
+        let container = try makeModelContainer(inMemory: true)
+        let limited = try await connectedAccount(total: 120, maxPages: 1)
+        let incomplete = YouTubePlaylistSyncService(modelContainer: container, account: limited, accountImportPreferences: nil)
+        await incomplete.importAccountPlaylists()
+        #expect(incomplete.accountImportError != nil)
+        #expect(try ModelContext(container).fetch(FetchDescriptor<YouTubeImport>()).isEmpty)
+        #expect(try ModelContext(container).fetch(FetchDescriptor<Track>()).isEmpty)
+        let account = try await connectedAccount(total: 120, maxPages: 10)
+        let retry = YouTubePlaylistSyncService(modelContainer: container, account: account, accountImportPreferences: nil)
+        await retry.importAccountPlaylists()
+        #expect(retry.accountImportError == nil)
+        #expect(try ModelContext(container).fetch(FetchDescriptor<YouTubeImportItem>()).count == 120)
+    }
+
+    @Test("cold launch does not resurrect removed playlists after a successful initial import")
+    func accountImportLaunchCheckpoint() async throws {
+        let suite = "MusesTests.accountImport.\(UUID().uuidString)"
+        let preferences = try #require(UserDefaults(suiteName: suite))
+        defer { preferences.removePersistentDomain(forName: suite) }
+        let container = try makeModelContainer(inMemory: true)
+        let account = try await connectedAccount(total: 1, maxPages: 10)
+        let service = YouTubePlaylistSyncService(modelContainer: container, account: account,
+                                                  accountImportPreferences: preferences)
+        await service.importAccountPlaylists(onlyIfNeeded: true)
+        let context = ModelContext(container)
+        let imported = try #require(context.fetch(FetchDescriptor<YouTubeImport>()).first)
+        context.delete(imported)
+        try context.save()
+        await service.importAccountPlaylists(onlyIfNeeded: true)
+        #expect(try ModelContext(container).fetch(FetchDescriptor<YouTubeImport>()).isEmpty)
+        await service.importAccountPlaylists()
+        #expect(try ModelContext(container).fetch(FetchDescriptor<YouTubeImport>()).count == 1)
+    }
+
+    @Test("restored Google connection automatically imports owned playlists")
+    func restoredAccountImportsLibrary() async throws {
+        let container = try makeModelContainer(inMemory: true)
+        let account = try await connectedAccount(total: 2, maxPages: 10, refreshInitially: false)
+        let service = YouTubePlaylistSyncService(modelContainer: container, account: account, accountImportPreferences: nil)
+        account.importConnectedPlaylists = { onlyIfNeeded in await service.importAccountPlaylists(onlyIfNeeded: onlyIfNeeded) }
+        await account.refreshPersistedConnectionIfNeeded()
+        #expect(try ModelContext(container).fetch(FetchDescriptor<YouTubeImportItem>()).count == 2)
+    }
+
+    @Test("sign-out during an account import prevents saving its pending response")
+    func disconnectedAccountDoesNotImport() async throws {
+        let container = try makeModelContainer(inMemory: true)
+        let recorder = PlaylistPageTokenRecorder()
+        let account = try await connectedAccount(total: 2, maxPages: 10,
+                                                 recorder: recorder, stallPage: 0)
+        let service = YouTubePlaylistSyncService(modelContainer: container, account: account, accountImportPreferences: nil)
+        let task = Task { await service.importAccountPlaylists() }
+        await recorder.waitUntilRecorded("first")
+        account.disconnect()
+        task.cancel()
+        await task.value
+        #expect(!service.isImportingAccountPlaylists)
+        #expect(try ModelContext(container).fetch(FetchDescriptor<YouTubeImport>()).isEmpty)
+    }
+
+    @Test("empty owned playlists and unavailable duplicate items retain their identities")
+    func accountImportEmptyAndUnavailable() throws {
+        let container = try makeModelContainer(inMemory: true)
+        let service = makeService(container)
+        let channel = YouTubeChannel(id: "owner", title: "Owner", thumbnailURL: nil)
+        let empty = YouTubePlaylist(id: "empty", title: "Empty", thumbnailURL: nil, itemCount: 0)
+        try service.saveAccountPlaylist(empty, channel: channel,
+                                       snapshot: snapshot(playlistID: "empty", items: []))
+        let playlist = YouTubePlaylist(id: "duplicates", title: "Duplicates", thumbnailURL: nil, itemCount: 3)
+        let remote = YouTubePlaylistSyncService.remoteSnapshot(
+            playlistID: playlist.id, accountChannelID: channel.id, title: playlist.title,
+            values: [
+                .init(playlistItemId: "one", videoId: "same", title: "Song", channelTitle: "Artist", thumbnailURL: nil),
+                .init(playlistItemId: "two", videoId: "same", title: "Song", channelTitle: "Artist", thumbnailURL: nil),
+                .init(playlistItemId: "private", videoId: "", title: "Private video", channelTitle: "", thumbnailURL: nil, availability: .private)
+            ], pagination: .init(completeness: .complete, pageCount: 1, nextPageToken: nil, itemCount: 3))
+        try service.saveAccountPlaylist(playlist, channel: channel, snapshot: remote)
+        let context = ModelContext(container)
+        #expect(try context.fetch(FetchDescriptor<YouTubeImport>()).count == 2)
+        #expect(try context.fetch(FetchDescriptor<Track>()).count == 1)
+        #expect(try context.fetch(FetchDescriptor<YouTubeImportItem>()).count == 3)
+    }
+
+    @Test("an import requested during a cancelled prior run is completed afterwards")
+    func queuedAccountImportSurvivesCancellation() async throws {
+        let container = try makeModelContainer(inMemory: true)
+        let recorder = PlaylistPageTokenRecorder()
+        let account = try await connectedAccount(total: 1, maxPages: 10,
+                                                 recorder: recorder, stallPage: 0)
+        let service = YouTubePlaylistSyncService(modelContainer: container, account: account,
+                                                  accountImportPreferences: nil)
+        let first = Task { await service.importAccountPlaylists() }
+        await recorder.waitUntilRecorded("first")
+        await service.importAccountPlaylists()
+        first.cancel()
+        await first.value
+        for _ in 0..<100 {
+            if try ModelContext(container).fetchCount(FetchDescriptor<YouTubeImport>()) == 1 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(try ModelContext(container).fetchCount(FetchDescriptor<YouTubeImport>()) == 1)
+    }
+
     @Test("playlist overview exposes remote check and read-only state")
     func playlistOverviewStatus() throws {
         let container = try makeModelContainer(inMemory: true)
@@ -1306,7 +1439,9 @@ struct YouTubePlaylistSyncRecoveryTests {
         total: Int,
         maxPages: Int,
         recorder: PlaylistPageTokenRecorder? = nil,
-        stallPage: Int? = nil
+        stallPage: Int? = nil,
+        refreshInitially: Bool = true,
+        scope: String = GoogleOAuthConfig.manageScope
     ) async throws -> YouTubeAccountService {
         let session = GoogleOAuthSession(keychain: InMemoryKeychain())
         try session.saveConfig(GoogleOAuthConfig(
@@ -1315,7 +1450,7 @@ struct YouTubePlaylistSyncRecoveryTests {
         try session.storeTokens(OAuthTokenSet(
             accessToken: "AT", refreshToken: "RT",
             expiresAt: Date().addingTimeInterval(3_600),
-            scope: GoogleOAuthConfig.manageScope))
+            scope: scope))
         let account = YouTubeAccountService(session: session, clientFactory: { _ in
             YouTubeDataAPIClient(
                 accessTokenProvider: { "AT" },
@@ -1333,7 +1468,7 @@ struct YouTubePlaylistSyncRecoveryTests {
                         let index = YouTubePlaylistPaginationTests.pageIndex(request)
                         let token = index == 0 ? "first" : "p\(index)"
                         await recorder?.record(token)
-                        if index == stallPage {
+                        if index == stallPage, await recorder?.consumeStall() ?? true {
                             try await Task.sleep(for: .seconds(30))
                         }
                         return (YouTubePlaylistPaginationTests.pageData(
@@ -1345,9 +1480,11 @@ struct YouTubePlaylistSyncRecoveryTests {
                 },
                 maxPages: maxPages)
         })
-        await account.refresh()
-        #expect(account.activeChannelID == "owner")
-        #expect(account.ownsPlaylist("PL"))
+        if refreshInitially {
+            await account.refresh()
+            #expect(account.activeChannelID == "owner")
+            #expect(account.ownsPlaylist("PL"))
+        }
         return account
     }
 
@@ -1370,6 +1507,12 @@ struct YouTubePlaylistSyncRecoveryTests {
 
 private actor PlaylistPageTokenRecorder {
     private var tokens: [String] = []
+    private var didStall = false
+    func consumeStall() -> Bool {
+        guard !didStall else { return false }
+        didStall = true
+        return true
+    }
     private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
 
     func record(_ token: String) {

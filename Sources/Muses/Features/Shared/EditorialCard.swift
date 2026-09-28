@@ -40,7 +40,7 @@ struct EditorialCard: View {
                 .clipped()
                 .clipShape(RoundedRectangle(cornerRadius: AppleMusicTokens.cardCorner, style: .continuous))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.fullAreaPlain)
             .overlay(alignment: .bottomTrailing) {
                 if hovering {
                     HoverPlayButton(onPlay: onPlay)

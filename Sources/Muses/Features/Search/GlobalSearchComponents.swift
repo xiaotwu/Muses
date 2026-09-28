@@ -98,7 +98,7 @@ struct SearchCategoryButton: View {
             .contentShape(RoundedRectangle(cornerRadius: AppleMusicTokens.cardCorner,
                                            style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.fullAreaPlain)
         .onHover { hovering = $0 }
         .animation(MusesMotion.hoverAnimation(reduceMotion: reduceMotion), value: hovering)
         .accessibilityLabel(title)
@@ -137,7 +137,7 @@ struct GlobalSearchTrackRow: View {
             .frame(minHeight: SearchWindowPolicy.resultRowHeight)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.fullAreaPlain)
         .overlay(alignment: .bottom) {
             Rectangle().fill(BrandColors.hairline).frame(height: 1)
         }
@@ -177,7 +177,7 @@ struct GlobalSearchYouTubeRow: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.fullAreaPlain)
             if isSaved {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(BrandColors.accent)
@@ -194,7 +194,7 @@ struct GlobalSearchYouTubeRow: View {
                     .font(.system(size: 12, weight: .semibold))
                     .frame(width: 28, height: 28)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.fullAreaPlain)
             .help(tr("Open in Browser", "在浏览器中打开"))
             .accessibilityLabel(tr("Open in Browser", "在浏览器中打开"))
         }
@@ -264,7 +264,7 @@ struct GlobalSearchNoteRow: View {
             .frame(minHeight: SearchWindowPolicy.resultRowHeight)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.fullAreaPlain)
         .overlay(alignment: .bottom) {
             Rectangle().fill(BrandColors.hairline).frame(height: 1)
         }

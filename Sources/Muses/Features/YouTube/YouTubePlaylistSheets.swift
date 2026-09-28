@@ -37,7 +37,7 @@ struct AddToYouTubePlaylistSheet: View {
                             .foregroundStyle(BrandColors.textSecondary)
                     }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.fullAreaPlain)
             }
             .listStyle(.plain)
         }
@@ -253,8 +253,8 @@ struct PlaylistPushPreviewSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(tr("Push Preview", "推送预览"))
                 .font(.title2.weight(.semibold))
-            Text(tr("YouTube writes are not atomic. Muses records every completed step so a partial failure can resume safely.",
-                    "YouTube 写入不是原子操作。Muses 会记录每个已完成步骤，以便部分失败后安全续传。"))
+            Text(tr("This updates the YTM cloud playlist. Completed changes are saved if interrupted.",
+                    "将更新 YTM 云端歌单；中断后可继续已完成的变更。"))
                 .font(.caption)
                 .foregroundStyle(BrandColors.textSecondary)
 
@@ -282,12 +282,13 @@ struct PlaylistPushPreviewSheet: View {
                     }
                 }
                 .listStyle(.inset)
+                .frame(height: min(160, max(48, CGFloat(preview.operations.count) * 34)))
 
                 Toggle(isOn: $confirmedTarget) {
                     Text(tr(
-                        "I reviewed this exact account, playlist, and operation list, and allow Muses to write this owned playlist",
-                        "我已核对这个确切账号、歌单和操作列表，并允许 Muses 写入这个归我所有的歌单",
-                        zhHant: "我已核對這個確切帳號、歌單和操作列表，並允許 Muses 寫入這個歸我所有的歌單"))
+                        "I checked the account, playlist and changes",
+                        "已核对账号、歌单和变更",
+                        zhHant: "已核對帳號、歌單和變更"))
                 }
                 .toggleStyle(.checkbox)
             }
@@ -300,6 +301,7 @@ struct PlaylistPushPreviewSheet: View {
                 Button(tr("Cancel", "取消")) {
                     cancel()
                 }
+                .disabled(pushing)
                 if preview.operations.isEmpty {
                     Button(tr("Done", "完成")) {
                         cancel()
@@ -317,8 +319,8 @@ struct PlaylistPushPreviewSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 600, height: 480)
-        .musesFloatingChrome(cornerRadius: 18)
+        .frame(width: 460)
+        .interactiveDismissDisabled(pushing)
     }
 
     private func push() async {
@@ -432,16 +434,16 @@ struct YouTubePlaylistCreatePreviewSheet: View {
         resourcePreviewShell(
             title: tr("Create Playlist on YouTube", "在 YouTube 上创建歌单"),
             warning: tr(
-                "A failed response with no playlist ID will stop for manual review and will never be retried by title.",
-                "若响应失败且未取得歌单 ID，操作会停止并等待人工检查，绝不会按标题盲目重试。"),
+                "A new playlist will be created in this YTM account.",
+                "将在此 YTM 账号中创建歌单。"),
             rows: [
                 (tr("Account", "账号"), preview.accountChannelID),
                 (tr("Title", "标题"), preview.title),
                 (tr("Visibility", "可见性"), privacyLabel(preview.privacy)),
             ],
             confirmation: tr(
-                "I reviewed this exact account, title, and visibility",
-                "我已核对这个确切账号、标题和可见性"),
+                "I checked the account, title and visibility",
+                "已核对账号、标题和可见性"),
             actionTitle: tr("Create on YouTube", "在 YouTube 上创建"),
             destructive: false,
             action: onCreate)
@@ -470,6 +472,7 @@ struct YouTubePlaylistCreatePreviewSheet: View {
             HStack {
                 Spacer()
                 Button(tr("Cancel", "取消")) { cancel() }
+                    .disabled(working)
                 Button(actionTitle, role: destructive ? .destructive : nil) {
                     Task { await perform(action) }
                 }
@@ -479,8 +482,8 @@ struct YouTubePlaylistCreatePreviewSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 560)
-        .musesFloatingChrome(cornerRadius: 18)
+        .frame(width: 440)
+        .interactiveDismissDisabled(working)
     }
 
     private func perform(_ action: () async throws -> Void) async {
@@ -526,8 +529,8 @@ struct YouTubePlaylistDeletePreviewSheet: View {
             Text(tr("Delete Playlist from YouTube", "从 YouTube 删除歌单"))
                 .font(.title2.weight(.semibold))
             Text(tr(
-                "This permanently deletes the YouTube playlist. Muses keeps a pinned local recovery snapshot, but it cannot restore the same remote resource ID.",
-                "这会永久删除 YouTube 歌单。Muses 会保留固定的本地恢复快照，但无法恢复相同的远端资源 ID。"))
+                "This permanently deletes the YTM cloud playlist. The same cloud playlist cannot be restored.",
+                "将永久删除 YTM 云端歌单，无法恢复原云端歌单。"))
                 .font(.caption)
                 .foregroundStyle(.red)
             VStack(alignment: .leading, spacing: 6) {
@@ -540,8 +543,8 @@ struct YouTubePlaylistDeletePreviewSheet: View {
             .textSelection(.enabled)
             Toggle(isOn: $confirmed) {
                 Text(tr(
-                    "I reviewed this exact account and playlist and understand deletion is irreversible",
-                    "我已核对这个确切账号与歌单，并了解删除不可撤销"))
+                    "I checked the account and playlist; deletion is irreversible",
+                    "已核对账号和歌单，了解删除不可撤销"))
             }
             .toggleStyle(.checkbox)
             if let errorMessage {
@@ -550,6 +553,7 @@ struct YouTubePlaylistDeletePreviewSheet: View {
             HStack {
                 Spacer()
                 Button(tr("Cancel", "取消")) { cancel() }
+                    .disabled(working)
                 Button(tr("Delete from YouTube", "从 YouTube 删除"), role: .destructive) {
                     Task { await performDelete() }
                 }
@@ -559,8 +563,8 @@ struct YouTubePlaylistDeletePreviewSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 580)
-        .musesFloatingChrome(cornerRadius: 18)
+        .frame(width: 440)
+        .interactiveDismissDisabled(working)
     }
 
     private func performDelete() async {

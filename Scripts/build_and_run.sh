@@ -72,6 +72,7 @@ RESOURCE_BUNDLE="$(dirname "$BUILD_BINARY")/Muses_Muses.bundle"
 if [[ -d "$RESOURCE_BUNDLE" ]]; then
     /usr/bin/ditto "$RESOURCE_BUNDLE" "$APP_CONTENTS/Resources/Muses_Muses.bundle"
 fi
+"$ROOT_DIR/Scripts/sync-app-icon.sh" "$APP_BUNDLE"
 codesign --deep --force --options runtime \
     --entitlements "$ENTITLEMENTS" \
     --sign - "$APP_BUNDLE" >/dev/null

@@ -158,7 +158,7 @@ struct FollowedPodcastsView: View {
                             .font(.caption2).foregroundStyle(.secondary)
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)
-            }.buttonStyle(.plain)
+            }.buttonStyle(.fullAreaPlain)
                 .disabled(state?.availability == .unavailable)
             Button {
                 do {
@@ -169,7 +169,7 @@ struct FollowedPodcastsView: View {
             } label: {
                 Image(systemName: state?.completed == true ? "checkmark.circle.fill" : "circle")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.fullAreaPlain)
             .help(state?.completed == true
                 ? tr("Mark unplayed", "标为未听", zhHant: "標為未聽")
                 : tr("Mark played", "标为已听", zhHant: "標為已聽"))

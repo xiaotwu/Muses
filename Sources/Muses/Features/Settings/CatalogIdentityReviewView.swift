@@ -26,20 +26,32 @@ struct CatalogIdentityReviewView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(tr("Review source evidence before confirming changes to library identities.",
-                    "确认修改资料库身份前，请核对来源证据。",
-                    zhHant: "確認修改資料庫身分前，請核對來源證據。"))
-                .font(.callout).foregroundStyle(.secondary)
-            HStack {
-                TextField(tr("Find a track", "查找曲目", zhHant: "尋找曲目"), text: $query)
-                    .textFieldStyle(.roundedBorder)
-                Button { Task { await refresh() } } label: {
-                    Label(tr("Refresh preview", "刷新预览", zhHant: "重新整理預覽"), systemImage: "arrow.clockwise")
+        VStack(alignment: .leading, spacing: 16) {
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 12) {
+                        TextField(tr("Find a track", "查找曲目", zhHant: "尋找曲目"), text: $query)
+                            .textFieldStyle(.roundedBorder)
+                        Button { Task { await refresh() } } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .frame(minWidth: 28, minHeight: 28)
+                                .contentShape(Rectangle())
+                        }
+                        .musesAction()
+                        .help(tr("Refresh preview", "刷新预览", zhHant: "重新整理預覽"))
+                        .accessibilityLabel(tr("Refresh preview", "刷新预览", zhHant: "重新整理預覽"))
+                        .disabled(loading)
+                    }
+                    migrationControls
+                    if let preview {
+                        Text(tr("Tracks: \(preview.rows.count) · New release relationships: \(candidateCount)",
+                                "\(preview.rows.count) 首曲目 · \(candidateCount) 条新发行关系",
+                                zhHant: "\(preview.rows.count) 首曲目 · \(candidateCount) 條新發行關係"))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
-                .disabled(loading)
+                .padding(8)
             }
-            migrationControls
             if loading {
                 ProgressView(tr("Reading library…", "正在读取资料库…", zhHant: "正在讀取資料庫…"))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -50,10 +62,6 @@ struct CatalogIdentityReviewView: View {
                     Text(tr("No changes were made. Refresh to try again.", "未做任何修改。请刷新重试。", zhHant: "未做任何修改。請重新整理再試。"))
                 }
             } else if let preview {
-                Text(tr("Tracks: \(preview.rows.count) · New release relationships: \(candidateCount)",
-                        "\(preview.rows.count) 首曲目 · \(candidateCount) 条新发行关系",
-                        zhHant: "\(preview.rows.count) 首曲目 · \(candidateCount) 條新發行關係"))
-                    .font(.caption).italic().foregroundStyle(.secondary)
                 if visibleRows.isEmpty {
                     ContentUnavailableView(tr("No tracks to review", "没有可核对的曲目", zhHant: "沒有可核對的曲目"), systemImage: "music.note.list")
                 } else {
@@ -88,18 +96,22 @@ struct CatalogIdentityReviewView: View {
                         } label: {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(row.title).lineLimit(2)
-                                Text(row.resolution.reviewLabel).font(.caption).italic().foregroundStyle(.secondary)
+                                Text(row.resolution.reviewLabel).font(.caption).foregroundStyle(.secondary)
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.vertical, 4)
                         }
+                        .disclosureGroupStyle(CatalogReviewDisclosureStyle())
                     }
+                    .listStyle(.inset)
                     .scrollContentBackground(.hidden)
+                    .background(.background, in: RoundedRectangle(cornerRadius: 12))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
             }
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .settingsPageTitle(tr("Library identity review", "资料库身份核对", zhHant: "資料庫身分核對"))
         .task { await refresh() }
         .confirmationDialog(
             undoRequested
@@ -192,6 +204,33 @@ struct CatalogIdentityReviewView: View {
         }
         catch { preview = nil; failed = true }
         loading = false
+    }
+}
+
+/// Keep the complete visible row keyboard- and pointer-accessible.
+private struct CatalogReviewDisclosureStyle: DisclosureGroupStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                configuration.isExpanded.toggle()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: configuration.isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 12)
+                    configuration.label
+                }
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.fullAreaPlain)
+            .accessibilityValue(configuration.isExpanded
+                                ? tr("Expanded", "已展开") : tr("Collapsed", "已收起"))
+            if configuration.isExpanded {
+                configuration.content.padding(.leading, 20)
+            }
+        }
     }
 }
 

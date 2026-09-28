@@ -113,7 +113,7 @@ struct ArtistObjectView: View {
                                 Capsule().stroke(Color.white.opacity(0.35), lineWidth: 0.75)
                             )
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.fullAreaPlain)
                     }
                     .padding(.top, 2)
                 }
@@ -137,7 +137,7 @@ struct ArtistObjectView: View {
                 y: hovering ? 8 : 4
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.fullAreaPlain)
         .onHover { hovering = $0 }
         .offset(y: hovering && !reduceMotion ? -4 : 0)
         .animation(MusesMotion.hoverAnimation(reduceMotion: reduceMotion), value: hovering)

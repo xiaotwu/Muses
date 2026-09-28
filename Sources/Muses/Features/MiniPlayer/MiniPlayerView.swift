@@ -61,7 +61,7 @@ struct MiniPlayerView: View {
                             .foregroundStyle(alwaysOnTop ? BrandColors.accent : BrandColors.textSecondary)
                             .frame(width: 22, height: 22)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.fullAreaPlain)
                     .help(tr("Keep on top", "常驻置顶"))
                 }
             }
@@ -116,7 +116,7 @@ struct MiniPlayerView: View {
                 }
                 .contentShape(Circle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.fullAreaPlain)
             .help(playback.transportState.isPlaying ? tr("Pause", "暂停") : tr("Play", "播放"))
         }
     }
@@ -130,7 +130,7 @@ struct MiniPlayerView: View {
 
                 .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.fullAreaPlain)
         .help(help)
         .accessibilityLabel(help)
     }

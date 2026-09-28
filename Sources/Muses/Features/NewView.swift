@@ -392,7 +392,7 @@ private struct CompactDiscoveryTrackRow: View {
                         in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.fullAreaPlain)
         .onHover { hovering = $0 }
         .animation(MusesMotion.hoverAnimation(reduceMotion: reduceMotion), value: hovering)
         .overlay(alignment: .bottom) {

@@ -106,6 +106,7 @@ enum PrefKey {
     static let lastUpdateCheckAt = "muses.updates.lastCheckAt"
     static let latestKnownVersion = "muses.updates.latestVersion"
     static let ytCookieSource = "muses.yt.cookieSource"
+    static let ytAccountPlaylistsImportedChannels = "muses.yt.importedPlaylistChannels"
     static let ytCookiePath = "muses.yt.cookiePath"
     /// Isolated YouTube Music Web Home. This is deliberately independent of
     /// playback's yt-dlp cookie preference and defaults to disabled.
@@ -135,6 +136,7 @@ enum PrefKey {
     static let resumeAfterVideo = "muses.playback.resumeAfterVideo"
     // MARK: - Feature flags (product upgrade switches; default false = existing behavior, opt in per feature)
     static let ffSmartHistory       = "muses.ff.smartHistory"
+    static let accessibleCollectionTables = "muses.accessibility.pagedCollectionTables"
     static let ffSessions           = "muses.ff.sessions"
     static let ffAdvancedQueue      = "muses.ff.advancedQueue"
     static let ffNotes              = "muses.ff.notes"

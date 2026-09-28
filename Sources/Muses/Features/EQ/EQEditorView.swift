@@ -14,6 +14,7 @@ struct EQEditorView: View {
     @State private var bands: [EQBand] = EQPresets.flat
     @State private var showSaveDialog = false
     @State private var newPresetName = ""
+    @State private var pendingRemoval: ActionConfirmation?
 
     private let gainRange: ClosedRange<Float> = -24...24
 
@@ -27,6 +28,7 @@ struct EQEditorView: View {
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .musesFloatingChrome(cornerRadius: 16)
+        .actionConfirmation($pendingRemoval)
         .onAppear {
             bands = playback.eqBands
         }
@@ -41,8 +43,9 @@ struct EQEditorView: View {
                     .foregroundStyle(BrandColors.textPrimary)
                 Spacer()
                 Button { playback.setEQBypassed(!playback.eqBypassed) } label: {
-                    Image(systemName: "power")
+                    Image(systemName: "power").chromeActionCircle()
                 }
+                .buttonStyle(.fullAreaPlain)
                 .tint(playback.eqBypassed ? BrandColors.textSecondary : BrandColors.accent)
                 .help(tr("Bypass equalizer", "旁路均衡器", zhHant: "旁路均衡器"))
                 .accessibilityLabel(tr("Bypass equalizer", "旁路均衡器", zhHant: "旁路均衡器"))
@@ -51,14 +54,11 @@ struct EQEditorView: View {
                     bands = EQPresets.flat
                     applyBands()
                     activePresetIdRaw = "Flat"
-                } label: { Image(systemName: "arrow.counterclockwise") }
+                } label: { Image(systemName: "arrow.counterclockwise").chromeActionCircle() }
                 .help(tr("Reset", "重置"))
                 .accessibilityLabel(tr("Reset", "重置"))
-                .musesAction()
-                .tint(BrandColors.accent)
-            .focusEffectDisabled()
-                Button(tr("Close", "关闭"), systemImage: "xmark") { dismiss() }
-                    .labelStyle(ActionIconLabelStyle())
+                .buttonStyle(.fullAreaPlain)
+                ChromeIconButton(systemName: "xmark", accessibility: tr("Close", "关闭")) { dismiss() }
                     .help(tr("Close", "关闭"))
                     .keyboardShortcut(.cancelAction)
             }
@@ -188,7 +188,15 @@ struct EQEditorView: View {
                             applyBands()
                             activePresetIdRaw = preset.id.uuidString
                         }
-                        .contextMenu { Button(tr("Delete", "删除"), role: .destructive) { deletePreset(preset) } }
+                        .contextMenu {
+                            Button(tr("Delete", "删除"), role: .destructive) {
+                                pendingRemoval = ActionConfirmation(
+                                    title: tr("Delete preset?", "删除预设？"),
+                                    message: tr("Delete \(preset.name) from this Mac.", "从本机删除「\(preset.name)」。"),
+                                    action: { deletePreset(preset) }
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -208,7 +216,7 @@ struct EQEditorView: View {
                 .foregroundStyle(isActive ? BrandColors.accent : BrandColors.textPrimary)
                 .cornerRadius(6)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.fullAreaPlain)
     }
 
     // MARK: - Actions

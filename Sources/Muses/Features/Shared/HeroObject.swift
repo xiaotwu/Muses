@@ -26,7 +26,7 @@ struct HeroObjectView: View {
                 .shadow(radius: 20)
                 .overlay(alignment: .bottomLeading) { nowPlayingBadge }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.fullAreaPlain)
             .overlay(alignment: .bottomTrailing) { hoverPlayOverlay }
             .onHover { hovering = $0 }
             .scaleEffect(showsHoverPlay && hovering && !reduceMotion ? 1.06 : 1.0)
@@ -46,7 +46,7 @@ struct HeroObjectView: View {
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.fullAreaPlain)
 
                 Text(subtitle)
                     .font(.title3)

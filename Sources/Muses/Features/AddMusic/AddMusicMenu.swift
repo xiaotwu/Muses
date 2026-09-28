@@ -10,7 +10,7 @@ struct AddMusicMenu: View {
         } label: {
             YouTubeMark(size: 16)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.fullAreaPlain)
         .help(tr("Paste YouTube Link", "粘贴 YouTube 链接"))
         .accessibilityLabel(tr("Add YouTube music", "添加 YouTube 音乐"))
     }

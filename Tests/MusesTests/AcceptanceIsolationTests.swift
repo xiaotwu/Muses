@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 @testable import Muses
 
@@ -64,6 +65,26 @@ struct AcceptanceIsolationTests {
         #expect(KeychainStore.defaultService(bundleID: "com.muses.app") == "muses.youtube.oauth")
         #expect(KeychainStore.defaultService(bundleID: nil) == "muses.youtube.oauth")
         #expect(KeychainStore(service: "test.explicit").service == "test.explicit")
+    }
+
+    @Test("Opt-in synthetic large library is isolated from production")
+    @MainActor func seedLargeLibraryForAccessibility() throws {
+        guard ProcessInfo.processInfo.environment["MUSES_SEED_AX_REPAIR"] == "1" else { return }
+        let bundleID = "com.muses.acceptance.axrepair"
+        let data = MusesDataPaths.dataDirectory(bundleID: bundleID)
+        let store = data.appending(path: "muses-youtube-native.sqlite")
+        #expect(store.path.contains("/.muses/acceptance/\(bundleID)/data/"))
+        let container = try makeModelContainer(storeURL: store)
+        let context = ModelContext(container)
+        if try context.fetchCount(FetchDescriptor<Track>()) == 0 {
+            for index in 1...507 {
+                context.insert(Track(title: String(format: "AX Fixture %04d", index),
+                    artist: "Synthetic", durationMs: 180_000,
+                    youTubeId: String(format: "%011d", index)))
+            }
+            try context.save()
+        }
+        #expect(try context.fetchCount(FetchDescriptor<Track>()) == 507)
     }
 }
 

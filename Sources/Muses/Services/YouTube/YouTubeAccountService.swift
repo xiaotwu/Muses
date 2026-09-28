@@ -49,6 +49,7 @@ final class YouTubeAccountService {
     private(set) var subscriptionsState: LoadState<[YouTubeSubscription]> = .idle
     private(set) var likedVideosState: LoadState<[YouTubeVideo]> = .idle
     @ObservationIgnored private var refreshGeneration: UInt64 = 0
+    @ObservationIgnored var importConnectedPlaylists: (@MainActor (_ onlyIfNeeded: Bool) async -> Void)?
 
     init(session: GoogleOAuthSession = GoogleOAuthSession(keychain: KeychainStore()),
          clientFactory: @escaping @Sendable (GoogleOAuthSession) -> YouTubeDataAPIClient = { session in
@@ -71,6 +72,7 @@ final class YouTubeAccountService {
     func refreshPersistedConnectionIfNeeded() async {
         guard isConnected, account == nil else { return }
         await refresh()
+        await importConnectedPlaylists?(true)
     }
 
     // MARK: - Config
@@ -139,6 +141,7 @@ final class YouTubeAccountService {
             clearAccountSnapshot()
             lastError = nil
             await refresh()
+            await importConnectedPlaylists?(false)
         } catch let e as OAuthError {
             lastError = e.errorDescription
             isConnected = session.isConnected

@@ -9,9 +9,9 @@ import SwiftUI
 final class CollectionPresentationMemory {
     @MainActor
     final class Entry {
-        var mode = CollectionPageMode.stage { didSet { persist() } }
-        var focusedID: UUID? { didSet { persist() } }
-        var selection = Set<UUID>() { didSet { persist() } }
+        var mode = CollectionPageMode.stage { didSet { if oldValue != mode { persist() } } }
+        var focusedID: UUID? { didSet { if oldValue != focusedID { persist() } } }
+        var selection = Set<UUID>() { didSet { if oldValue != selection { persist() } } }
         var sortOrder: [KeyPathComparator<CollectionTrackRow>]?
         var columns = TableColumnCustomization<CollectionTrackRow>()
 

@@ -33,16 +33,24 @@ struct DesktopSettingsView: View {
                 .tint(BrandColors.accent)
                 .onChange(of: desktopLyrics) { _, _ in notify() }
 
-            Text(tr(
-                "Output switching is limited to the macOS default device.",
-                "输出切换受 macOS 默认设备限制。"
-            ))
-            .font(.caption)
-            .foregroundStyle(BrandColors.textSecondary)
         } header: { Text(tr("Desktop Integration", "桌面集成")).font(.headline.weight(.semibold)) }
     }
 
     private func notify() {
         NotificationCenter.default.post(name: .musesDesktopFlagsChanged, object: nil)
+    }
+}
+
+struct CollectionAccessibilitySettingsView: View {
+    @AppStorage(PrefKey.accessibleCollectionTables) private var pagedTables = false
+
+    var body: some View {
+        Section {
+            Toggle(tr("Paged song tables", "分页歌曲表格"), isOn: $pagedTables)
+        } header: { Text(tr("Accessibility", "辅助功能")) }
+        footer: {
+            Text(tr("25 songs per page. Enabled automatically with VoiceOver.",
+                    "每页 25 首，VoiceOver 开启时自动启用。"))
+        }
     }
 }

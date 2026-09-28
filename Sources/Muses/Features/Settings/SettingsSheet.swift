@@ -25,14 +25,14 @@ enum SettingsCategory: String, Hashable, CaseIterable, Identifiable {
         case .identity: return tr("Library Review", "资料库核对", zhHant: "資料庫核對")
         case .help: return tr("Help & Privacy", "帮助与隐私", zhHant: "說明與隱私")
         case .general:      return tr("General", "通用")
-        case .playback:     return tr("Playback & Quality", "播放与音质")
+        case .playback:     return tr("Playback", "播放")
         case .audioQuality: return tr("Quality", "清晰度")
-        case .appearance:   return tr("Appearance & Desktop", "外观与桌面")
-        case .youtube:      return tr("Account & Content", "账号与内容")
-        case .lyrics:       return tr("Lyrics & Intelligence", "歌词与智能")
+        case .appearance:   return tr("Appearance", "外观")
+        case .youtube:      return tr("Account", "账号")
+        case .lyrics:       return tr("Lyrics", "歌词")
         case .desktop:      return tr("Desktop", "桌面")
         case .updates:      return tr("Updates", "更新")
-        case .about:        return tr("About & Updates", "关于与更新", zhHant: "關於與更新")
+        case .about:        return tr("About", "关于", zhHant: "關於")
         }
     }
 
@@ -84,27 +84,31 @@ struct SettingsPage: View {
         Group {
             if currentCategory == .identity {
                 CatalogIdentityReviewView()
-                    .padding(24)
+                    .controlSize(.regular)
+                    .font(.system(size: 13))
+                    .frame(maxWidth: 760)
+                    .frame(maxWidth: .infinity, alignment: .top)
+                    .settingsPageTitle(currentCategory.label)
             } else {
-                ScrollView {
-                    Form {
+                Form {
                         switch currentCategory {
                         case .general:
                             LanguageSettingsView()
                             NotificationsSettingsView()
+                            DesktopSettingsView()
                         case .playback, .audioQuality:
                             PlaybackSettingsView()
                             AudioQualitySettingsView()
                         case .appearance, .desktop:
                             ThemeSettingsView()
-                            DesktopSettingsView()
-                            GPUSettingsView()
+                            CollectionAccessibilitySettingsView()
                         case .youtube:
                             YouTubeSettingsView()
                         case .lyrics:
                             LyricsSettingsView()
                             LyricsSupportView(availability: LyricsIntelligence.availability)
                         case .diagnostics:
+                            GPUSettingsView()
                             YouTubeSettingsView(destination: .diagnostics)
                         case .about, .updates:
                             AboutSettingsView()
@@ -115,11 +119,12 @@ struct SettingsPage: View {
                             EmptyView()
                         }
                     }
-                    .formStyle(SettingsContentStyle())
-                    .frame(maxWidth: 860, alignment: .leading)
-                    .padding(32)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                }
+                .formStyle(.grouped)
+                .controlSize(.regular)
+                .toggleStyle(.switch)
+                .font(.system(size: 13))
+                .frame(maxWidth: 760)
+                .frame(maxWidth: .infinity, alignment: .top)
                 .settingsPageTitle(currentCategory.label)
             }
         }
@@ -128,19 +133,6 @@ struct SettingsPage: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(BrandColors.background)
         .tint(BrandColors.accent)
-    }
-}
-
-/// Open sections share consistent spacing without nested scroll views or cards.
-struct SettingsContentStyle: FormStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        VStack(alignment: .leading, spacing: 28) {
-            configuration.content
-        }
-        .font(.system(size: 13))
-        .lineSpacing(4)
-        .controlSize(.large)
-        .toggleStyle(.switch)
     }
 }
 
@@ -157,22 +149,16 @@ struct AboutSettingsView: View {
     var body: some View {
         Section {
             HStack(spacing: 16) {
-                MusesMark(size: 56)
+                MusesMark(size: 40)
                     .accessibilityLabel("Muses")
                 VStack(alignment: .leading) {
-                    Text("Muses").font(BrandFont.muses(30))
+                    Text("Muses").font(BrandFont.muses(26))
                         .foregroundStyle(BrandColors.textPrimary)
                     Text("\(tr("Version", "版本")) \(appVersion)")
                         .font(.caption).foregroundStyle(BrandColors.textSecondary)
                 }
                 Spacer()
             }
-
-            Text(tr("A thoughtful place for your music. Explore collections, follow shows, and stay with the moment through artwork, lyrics, and a queue that travels with you.",
-                    "一个自在聆听音乐的地方。探索收藏、关注节目，以封面、歌词和随行播放队列沉浸其中。",
-                    zhHant: "一個自在聆聽音樂的地方。探索收藏、關注節目，以封面、歌詞和隨行播放佇列沉浸其中。"))
-                .foregroundStyle(BrandColors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
 
             Button {
                 if let url = URL(string: "https://github.com/xiaotwu/Muses") {
@@ -212,7 +198,10 @@ private struct SettingsPageTitle: ViewModifier {
                         .accessibilityAddTraits(.isHeader)
                 }
                 .padding(.horizontal, 20)
-                .padding(.vertical, 16)
+                .frame(maxWidth: 760)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 32)
+                .padding(.bottom, 12)
                 .background(BrandColors.background)
             }
             .background(BrandColors.background)

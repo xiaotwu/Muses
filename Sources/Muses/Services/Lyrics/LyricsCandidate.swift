@@ -9,6 +9,8 @@ struct LyricsCandidate: Decodable, Sendable, Identifiable {
     let instrumental: Bool?
     let plainLyrics: String?
     let syncedLyrics: String?
+    var provider: LyricsSource? = nil
+    var source: LyricsSource { provider ?? .lrclib }
 
     var hasLyrics: Bool {
         instrumental != true && (plainLyrics?.isEmpty == false || syncedLyrics?.isEmpty == false)
@@ -70,8 +72,24 @@ enum LyricsMatchPolicy {
     static func ranked(_ candidates: [LyricsCandidate], track: TrackSnapshot) -> [LyricsCandidate] {
         candidates.filter(\.hasLyrics).sorted {
             let a = score($0, track: track), b = score($1, track: track)
-            return a == b ? $0.id < $1.id : a > b
+            if a != b { return a > b }
+            // Broad title-only results are discovery, not evidence for auto-
+            // selection. Put plausible durations ahead of unrelated long sets.
+            let left = discoveryScore($0, track: track)
+            let right = discoveryScore($1, track: track)
+            return left == right ? $0.id < $1.id : left > right
         }
+    }
+
+    private static func discoveryScore(_ candidate: LyricsCandidate, track: TrackSnapshot) -> Double {
+        let titleScore = similarity(title(track.title, artist: track.artist),
+                                    title(candidate.trackName, artist: candidate.artistName))
+        let artistScore = similarity(artist(track.artist), artist(candidate.artistName))
+        let durationScore: Double
+        if let duration = candidate.duration, duration > 0, track.durationSeconds > 0 {
+            durationScore = max(0, 1 - abs(duration - track.durationSeconds) / max(15, track.durationSeconds * 0.15))
+        } else { durationScore = 0 }
+        return titleScore * 0.5 + artistScore * 0.3 + durationScore * 0.2
     }
 
     static func automatic(_ candidates: [LyricsCandidate], track: TrackSnapshot) -> LyricsCandidate? {

@@ -187,7 +187,7 @@ struct PlayerBar: View {
                     .frame(width: PlayerDockMetrics.art, height: PlayerDockMetrics.art)
                     .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.fullAreaPlain)
             .focused($artworkFocused)
             .help(tr("Open Now Playing", "打开正在播放"))
             .accessibilityLabel(tr(
@@ -239,7 +239,7 @@ struct PlayerBar: View {
                     ChromeGlyph(systemName: volumeIcon, selected: showVolume,
                                 size: 14, hit: PlayerDockMetrics.play)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.fullAreaPlain)
                 .help(tr("Volume", "音量"))
                 .accessibilityLabel(tr("Volume", "音量"))
                 .accessibilityValue("\(Int((playback.volume * 100).rounded()))%")
@@ -260,7 +260,7 @@ struct PlayerBar: View {
                 .frame(width: PlayerDockMetrics.icon, height: PlayerDockMetrics.icon)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.fullAreaPlain)
         .help(tr("Watch YouTube video", "观看 YouTube 视频"))
         .accessibilityLabel(tr("Watch YouTube video", "观看 YouTube 视频"))
         .opacity(playback.state.track?.youTubeId == nil ? 0.35 : 1)
@@ -280,7 +280,7 @@ struct PlayerBar: View {
         Button(action: action) {
             ChromeGlyph(systemName: system, selected: selected, size: 13, hit: PlayerDockMetrics.icon)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.fullAreaPlain)
         .help(help)
         .accessibilityLabel(help)
         .accessibilityValue(selected ? tr("On", "开启") : tr("Off", "关闭"))
@@ -336,7 +336,7 @@ struct PlaybackTransport: View {
                 .scaleEffect(isPlayHovered && !reduceMotion ? 1.06 : 1.0)
                 .offset(y: isPlayHovered && !reduceMotion ? -1 : 0)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.fullAreaPlain)
             .onHover { isPlayHovered = $0 }
             .animation(MusesMotion.hoverAnimation(reduceMotion: reduceMotion), value: isPlayHovered)
             .help(playback.state.isPlaying ? tr("Pause", "暂停") : tr("Play", "播放"))
@@ -369,7 +369,7 @@ struct PlaybackTransport: View {
         Button(action: action) {
             ChromeGlyph(systemName: system, selected: selected, size: iconSize, hit: iconHit)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.fullAreaPlain)
         .help(help)
         .accessibilityLabel(help)
         .accessibilityValue(selected ? tr("On", "开启") : tr("Off", "关闭"))

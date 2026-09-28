@@ -55,7 +55,7 @@ struct StructuredCatalogSearchView: View {
                             browser.open(.init(id: artist.id, kind: .artist, title: artist.title,
                                                subtitle: "", artwork: nil, artists: [], releases: [], channels: []))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.fullAreaPlain)
                         .accessibilityLabel(tr("Album artist", "专辑艺人", zhHant: "專輯藝人") + " " + artist.title)
                     }
                 }
@@ -193,11 +193,11 @@ struct StructuredCatalogSearchView: View {
                             .font(.caption2).foregroundStyle(.secondary)
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-            }.buttonStyle(.plain)
+            }.buttonStyle(.fullAreaPlain)
                 .disabled(podcastState(item)?.availability == .unavailable)
             if item.playableEntry != nil && podcastState(item)?.availability != .unavailable {
                 Button { activate(item, index: index, related: related) } label: { Image(systemName: "play.fill") }
-                    .buttonStyle(.plain).help(tr("Play", "播放"))
+                    .buttonStyle(.fullAreaPlain).help(tr("Play", "播放"))
                     .accessibilityLabel(tr("Play", "播放") + " " + item.title)
             }
             if let state = podcastState(item) {
@@ -210,7 +210,7 @@ struct StructuredCatalogSearchView: View {
                 } label: {
                     Image(systemName: state.completed ? "checkmark.circle.fill" : "circle")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.fullAreaPlain)
                 .help(state.completed
                     ? tr("Mark unplayed", "标为未听", zhHant: "標為未聽")
                     : tr("Mark played", "标为已听", zhHant: "標為已聽"))

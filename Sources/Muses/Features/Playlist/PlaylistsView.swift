@@ -19,6 +19,7 @@ struct PlaylistsView: View {
     @State private var addError: String?
     @State private var revisionImport: YouTubeImport?
     @State private var pendingDeletion: PlaylistDeletionTarget?
+    @State private var pendingPurgeIDs = Set<UUID>()
     @State private var undoablePlaylistDeletion: PlaylistDeletionSnapshot?
     @State private var syncStatuses: [UUID: YouTubePlaylistOverviewStatus] = [:]
 
@@ -71,6 +72,9 @@ struct PlaylistsView: View {
                     Button(tr("Undo", "撤销"), action: undoPlaylistDeletion)
                         .musesAction()
                         .controlSize(.small)
+                    ChromeIconButton(systemName: "xmark", accessibility: tr("Dismiss", "关闭")) {
+                        undoablePlaylistDeletion = nil
+                    }
                 }
                 .font(.caption)
                 .foregroundStyle(BrandColors.textSecondary)
@@ -306,13 +310,12 @@ struct PlaylistsView: View {
             PlaylistRevisionBrowserSheet(importID: imported.id,
                                          playlistTitle: imported.title)
         }
-        .confirmationDialog(
+        .alert(
             pendingDeletion?.title ?? "",
             isPresented: Binding(
                 get: { pendingDeletion != nil },
                 set: { if !$0 { pendingDeletion = nil } }
-            ),
-            titleVisibility: .visible
+            )
         ) {
             Button(tr("Delete", "删除"), role: .destructive) {
                 confirmDeletion()
@@ -323,6 +326,22 @@ struct PlaylistsView: View {
         } message: {
             Text(pendingDeletion?.message ?? "")
         }
+        .alert(tr("Clear deleted playlist records?", "清除已删除歌单记录？"),
+            isPresented: Binding(get: { !pendingPurgeIDs.isEmpty },
+                                 set: { if !$0 { pendingPurgeIDs = [] } })) {
+                Button(tr("Delete Permanently", "永久删除"), role: .destructive) {
+                    let ids = pendingPurgeIDs
+                    pendingPurgeIDs = []
+                    do {
+                        try playlistSync.permanentlyDeleteLocalImports(ids: ids)
+                        refresh()
+                    } catch { addError = error.localizedDescription }
+                }
+                Button(tr("Cancel", "取消"), role: .cancel) { pendingPurgeIDs = [] }
+            } message: {
+                Text(tr("Local recovery copies will be removed. YouTube playlists and song history are kept.",
+                        "将移除本地恢复副本，保留 YouTube 歌单和歌曲播放历史。"))
+            }
         .onAppear { refresh() }
         .onReceive(NotificationCenter.default.publisher(for: .musesPlaylistsChanged)) { _ in
             refresh()
@@ -551,10 +570,15 @@ struct PlaylistsView: View {
 
     private var recentlyDeletedSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(tr("Recently Deleted", "最近删除"))
-                .font(.headline)
-            Text(tr("Local recovery is available for 30 days. Restoring never pushes to YouTube.",
-                    "本地恢复保留 30 天，恢复操作不会推送到 YouTube。"))
+            HStack {
+                Text(tr("Recently Deleted", "最近删除")).font(.headline)
+                Spacer()
+                Button(tr("Clear All", "清空记录"), role: .destructive) {
+                    pendingPurgeIDs = Set(deletedYouTubeImports.map(\.id))
+                }
+                .controlSize(.small)
+            }
+            Text(tr("Recover locally for 30 days.", "可在 30 天内恢复到本地。"))
                 .font(.caption)
                 .foregroundStyle(BrandColors.textSecondary)
             ForEach(deletedYouTubeImports, id: \.id) { imported in
@@ -573,6 +597,11 @@ struct PlaylistsView: View {
                         restoreYouTubeImport(imported)
                     }
                     .musesAction()
+                    ChromeIconButton(systemName: "trash",
+                        help: tr("Delete Permanently", "永久删除"),
+                        accessibility: tr("Delete Permanently", "永久删除")) {
+                            pendingPurgeIDs = [imported.id]
+                        }
                 }
                 .padding(10)
                 .background(BrandColors.surface,
@@ -673,7 +702,7 @@ struct PlaylistAddChoiceSheet: View {
             .background(BrandColors.surface,
                         in: Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.fullAreaPlain)
     }
 }
 

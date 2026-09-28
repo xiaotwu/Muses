@@ -124,7 +124,7 @@ struct PlaylistRevisionBrowserSheet: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.fullAreaPlain)
             .accessibilityLabel(tr(
                 "\(revisionLabel(revision.kind)), \(revision.itemCount) songs, \(revision.createdAt.formatted(date: .complete, time: .shortened))",
                 "\(revisionLabel(revision.kind))，\(revision.itemCount) 首，\(revision.createdAt.formatted(date: .complete, time: .shortened))", zhHant: "\(revisionLabel(revision.kind))，\(revision.itemCount) 首，\(revision.createdAt.formatted(date: .complete, time: .shortened))"))
@@ -135,7 +135,7 @@ struct PlaylistRevisionBrowserSheet: View {
                 Image(systemName: revision.pinned ? "pin.fill" : "pin")
                     .frame(width: 28, height: 28)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.fullAreaPlain)
             .help(revision.pinned ? tr("Unpin version", "取消固定版本")
                                   : tr("Pin version", "固定版本"))
             .accessibilityLabel(revision.pinned ? tr("Unpin version", "取消固定版本")

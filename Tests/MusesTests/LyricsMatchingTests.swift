@@ -32,6 +32,14 @@ struct LyricsMatchingTests {
         #expect(LyricsMatchPolicy.automatic([candidate(), candidate(id: 2)], track: track()) != nil)
     }
 
+    @Test("same-title discovery prefers plausible duration without accepting a different artist")
+    func broadDiscoveryRanking() {
+        let longRecording = candidate(id: 1, artist: "Different Artist", duration: 800)
+        let plausible = candidate(id: 2, artist: "Another Artist", duration: 181)
+        #expect(LyricsMatchPolicy.ranked([longRecording, plausible], track: track()).first?.id == 2)
+        #expect(LyricsMatchPolicy.automatic([longRecording, plausible], track: track()) == nil)
+    }
+
     @Test("YouTube artist prefixes and Topic suffixes do not prevent matching")
     func decorations() {
         #expect(LyricsMatchPolicy.automatic([candidate()], track: track(title: "Example Artist - Evening Light (Official Video)", artist: "Example Artist - Topic"))?.id == 1)

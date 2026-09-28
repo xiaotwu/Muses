@@ -187,9 +187,43 @@ struct ListeningHistoryTests {
         try await Task.sleep(for: .milliseconds(120))
 
         let events = try ModelContext(container).fetch(FetchDescriptor<ListeningEvent>())
-        // completed listenedMs = the full track duration = 200s = 200000ms
-        #expect(events.contains { $0.outcome == .completed && $0.trackTitle == "A" && $0.listenedMs == 200_000 })
+        // A completion marks the media position as complete, while listening
+        // time reflects the short interval actually played by this test.
+        #expect(events.contains { $0.outcome == .completed && $0.trackTitle == "A"
+            && $0.listenedMs > 0 && $0.listenedMs < 5_000 && $0.completionRatio == 1 })
         _ = svc
+    }
+
+    @Test("seek and pause do not inflate listening time or suppress a skip")
+    func seekPauseListeningTime() async throws {
+        let container = try makeContainer()
+        let queue = QueueService()
+        let engine = StubPlayerEngine17()
+        var uptime = 1_000.0
+        let playback = PlaybackService(engine: engine, queue: queue,
+                                       uptimeProvider: { uptime })
+        let history = HistoryService(modelContainer: container,
+                                     eventBus: playback.eventBus,
+                                     enabledProvider: { true })
+        let track = snap("A", durationSec: 200)
+        playback.playTrack(track, context: [track], from: .songs)
+        for _ in 0..<100 where engine.state.track?.id != track.id {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        playback.seek(to: 180)
+        uptime += 3
+        playback.pause()
+        uptime += 100
+        playback.play()
+        uptime += 2
+        playback.next()
+
+        let event = try #require(ModelContext(container)
+            .fetch(FetchDescriptor<ListeningEvent>()).first)
+        #expect(event.outcome == .skipped)
+        #expect(event.listenedMs == 5_000)
+        #expect(event.completionRatio == 0.9)
+        withExtendedLifetime(history) {}
     }
 
     // MARK: - Query and aggregation

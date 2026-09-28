@@ -188,7 +188,7 @@ struct CatalogReleasesView: View {
                             .font(.system(size: 12))
                             .foregroundStyle(BrandColors.textSecondary)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.fullAreaPlain)
                 }
             }
             .padding(.horizontal, 10)
@@ -218,14 +218,14 @@ struct CatalogReleasesView: View {
                             )
                             .foregroundStyle(filter == item ? .white : BrandColors.textPrimary)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.fullAreaPlain)
                 }
             }
 
             Spacer()
 
             // Sort Menu
-            Menu {
+            ChromeIconMenu(systemName: "arrow.up.arrow.down", title: tr("Sort", "排序")) {
                 ForEach(ReleaseSort.allCases) { s in
                     Button {
                         sort = s
@@ -238,23 +238,8 @@ struct CatalogReleasesView: View {
                         }
                     }
                 }
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "arrow.up.arrow.down")
-                        .font(.system(size: 11))
-                    Text(sort.localizedTitle)
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(BrandColors.surface, in: Capsule())
-                .overlay(
-                    Capsule()
-                        .stroke(BrandColors.hairline, lineWidth: 1)
-                )
-                .foregroundStyle(BrandColors.textPrimary)
             }
-            .buttonStyle(.plain)
+            .help(sort.localizedTitle)
         }
     }
 
@@ -390,7 +375,7 @@ struct CatalogReleaseDetailView: View {
                             .foregroundStyle(BrandColors.accent.opacity(0.8))
                     }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.fullAreaPlain)
 
                 HStack(spacing: 6) {
                     if let year = release.year {
@@ -422,7 +407,7 @@ struct CatalogReleaseDetailView: View {
                         .padding(.vertical, 8)
                         .background(BrandColors.accent, in: Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.fullAreaPlain)
 
                     Button(action: shuffle) {
                         HStack(spacing: 6) {
@@ -437,7 +422,7 @@ struct CatalogReleaseDetailView: View {
                         .background(BrandColors.surface, in: Capsule())
                         .overlay(Capsule().stroke(BrandColors.hairline, lineWidth: 1))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.fullAreaPlain)
 
                     Button(action: checkOnlineTracklist) {
                         HStack(spacing: 6) {
@@ -457,7 +442,7 @@ struct CatalogReleaseDetailView: View {
                         .background(BrandColors.surface, in: Capsule())
                         .overlay(Capsule().stroke(BrandColors.hairline, lineWidth: 1))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.fullAreaPlain)
 
                     if let url = YouTubeCatalogLink.releaseURL(stableID: release.stableID) {
                         Button {
@@ -468,7 +453,7 @@ struct CatalogReleaseDetailView: View {
                                 .background(BrandColors.surface, in: Circle())
                                 .overlay(Circle().stroke(BrandColors.hairline, lineWidth: 1))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.fullAreaPlain)
                         .help(tr("Open in YouTube Music", "在 YouTube Music 打开"))
                     }
                 }
@@ -528,7 +513,7 @@ struct CatalogReleaseDetailView: View {
                     .foregroundStyle(BrandColors.textPrimary)
                     .frame(width: 28, height: 28)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.fullAreaPlain)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -567,7 +552,7 @@ struct CatalogReleaseDetailView: View {
                         .padding(.vertical, 6)
                         .background(BrandColors.accent, in: Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.fullAreaPlain)
                 }
             }
 
@@ -614,7 +599,7 @@ struct CatalogReleaseDetailView: View {
                                 .padding(.vertical, 3)
                                 .background(BrandColors.accent.opacity(0.12), in: Capsule())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.fullAreaPlain)
                         }
 
                         Button {
@@ -624,7 +609,7 @@ struct CatalogReleaseDetailView: View {
                                 .font(.system(size: 16))
                                 .foregroundStyle(BrandColors.accent)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.fullAreaPlain)
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
@@ -848,7 +833,7 @@ struct CatalogArtistsView: View {
                             .font(.system(size: 12))
                             .foregroundStyle(BrandColors.textSecondary)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.fullAreaPlain)
                 }
             }
             .padding(.horizontal, 10)
@@ -862,7 +847,7 @@ struct CatalogArtistsView: View {
 
             Spacer()
 
-            Menu {
+            ChromeIconMenu(systemName: "arrow.up.arrow.down", title: tr("Sort", "排序")) {
                 ForEach(ArtistSort.allCases) { s in
                     Button {
                         sort = s
@@ -875,23 +860,8 @@ struct CatalogArtistsView: View {
                         }
                     }
                 }
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "arrow.up.arrow.down")
-                        .font(.system(size: 11))
-                    Text(sort.localizedTitle)
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(BrandColors.surface, in: Capsule())
-                .overlay(
-                    Capsule()
-                        .stroke(BrandColors.hairline, lineWidth: 1)
-                )
-                .foregroundStyle(BrandColors.textPrimary)
             }
-            .buttonStyle(.plain)
+            .help(sort.localizedTitle)
         }
     }
 
@@ -1019,7 +989,7 @@ struct CatalogArtistDetailView: View {
                         .padding(.vertical, 8)
                         .background(BrandColors.accent, in: Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.fullAreaPlain)
 
                     Button(action: shuffle) {
                         HStack(spacing: 6) {
@@ -1034,7 +1004,7 @@ struct CatalogArtistDetailView: View {
                         .background(BrandColors.surface, in: Capsule())
                         .overlay(Capsule().stroke(BrandColors.hairline, lineWidth: 1))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.fullAreaPlain)
 
                     Button(action: toggleOnlineDiscovery) {
                         HStack(spacing: 6) {
@@ -1053,7 +1023,7 @@ struct CatalogArtistDetailView: View {
                         .background(BrandColors.surface, in: Capsule())
                         .overlay(Capsule().stroke(BrandColors.hairline, lineWidth: 1))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.fullAreaPlain)
 
                     if let url = YouTubeCatalogLink.artistURL(stableID: artist.stableID) {
                         Button {
@@ -1064,7 +1034,7 @@ struct CatalogArtistDetailView: View {
                                 .background(BrandColors.surface, in: Circle())
                                 .overlay(Circle().stroke(BrandColors.hairline, lineWidth: 1))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.fullAreaPlain)
                         .help(tr("Open in YouTube Music", "在 YouTube Music 打开"))
                     }
                 }
@@ -1114,7 +1084,7 @@ struct CatalogArtistDetailView: View {
                                 .foregroundStyle(BrandColors.textPrimary)
                                 .frame(width: 28, height: 28)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.fullAreaPlain)
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
@@ -1273,7 +1243,7 @@ struct CatalogArtistDetailView: View {
                 .padding(.vertical, 3)
                 .background(BrandColors.accent.opacity(0.12), in: Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.fullAreaPlain)
 
             Button {
                 playOnlineTrack(entry)
@@ -1282,7 +1252,7 @@ struct CatalogArtistDetailView: View {
                     .font(.system(size: 16))
                     .foregroundStyle(BrandColors.accent)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.fullAreaPlain)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -1325,7 +1295,7 @@ struct CatalogArtistDetailView: View {
                 .padding(.vertical, 3)
                 .background(BrandColors.accent, in: Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.fullAreaPlain)
         }
         .frame(width: 140)
     }

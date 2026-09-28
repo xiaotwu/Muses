@@ -43,6 +43,10 @@ final class PlaybackService {
     /// Prevents a pause that wins an initial load race from producing a resume
     /// event before the track has ever actually started.
     private var startedTrackId: UUID?
+    private let uptimeProvider: () -> TimeInterval
+    private var listeningTrackId: UUID?
+    private var listeningStartedAt: TimeInterval?
+    private var accumulatedListeningMs = 0.0
     /// Incremented synchronously when a user-facing load is requested. Assigning
     /// the identity before spawning its Task prevents scheduler reordering from
     /// letting an older resume/reload request become the newest load.
@@ -66,8 +70,10 @@ final class PlaybackService {
     }
 
     init(engine: any PlayerEngine, queue: QueueService,
-         library: LibraryService? = nil, volumeDefaults: UserDefaults = .standard) {
+         library: LibraryService? = nil, volumeDefaults: UserDefaults = .standard,
+         uptimeProvider: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
         self.volumeDefaults = volumeDefaults
+        self.uptimeProvider = uptimeProvider
         self.engine = engine
         self.queue = queue
         self.library = library
@@ -225,6 +231,7 @@ final class PlaybackService {
         engine.play()
         restoreCompletionEligibility(for: track)
         if startedTrackId == track.id {
+            resumeListening(track.id)
             if !wasRequested { eventBus.post(.trackResumed(track)) }
         } else {
             markStarted(track)
@@ -239,6 +246,7 @@ final class PlaybackService {
         engine.pause()
         state.isPlaying = false
         if wasActive, let track = state.track, startedTrackId == track.id {
+            pauseListening(track.id)
             eventBus.post(.trackPaused(track))
         }
     }
@@ -260,9 +268,11 @@ final class PlaybackService {
             guard let self, let session, self.videoSession === session,
                   let track = session.state.track else { return }
             if playing {
+                self.resumeListening(track.id)
                 if self.startedTrackId == track.id { self.eventBus.post(.trackResumed(track)) }
                 else { self.markStarted(track) }
             } else {
+                self.pauseListening(track.id)
                 self.eventBus.post(.trackPaused(track))
             }
         }
@@ -336,6 +346,7 @@ final class PlaybackService {
         engine.pause()
         state.isPlaying = false
         if wasAudible, let track = state.track, startedTrackId == track.id {
+            pauseListening(track.id)
             eventBus.post(.trackPaused(track))
         }
         return token
@@ -360,6 +371,7 @@ final class PlaybackService {
         engine.play()
         restoreCompletionEligibility(for: track)
         if startedTrackId == track.id {
+            resumeListening(track.id)
             eventBus.post(.trackResumed(track))
         } else {
             markStarted(track)
@@ -465,6 +477,7 @@ final class PlaybackService {
 
     func previous() {
         retireVideoSession()
+        guard !queue.history.isEmpty || queue.currentIndex > 0 else { return }
         // Explicit previous: record the current track's displacement first.
         postDisplacementForCurrent()
         guard let item = queue.previous() else { return }
@@ -495,6 +508,7 @@ final class PlaybackService {
 
     private func scheduleLoad(_ track: TrackSnapshot, resumeMs: Double? = nil) {
         retireVideoSession()
+        if let currentID = state.track?.id { pauseListening(currentID) }
         loadSeq &+= 1
         let seq = loadSeq
         completionEligibleIdentity = nil
@@ -530,7 +544,10 @@ final class PlaybackService {
             guard loadRequestIsCurrent(seq: seq, trackId: track.id),
                   !Task.isCancelled else { return }
             lastCompletedTrackId = nil
-            if nativePlaybackAllowed { markStarted(track) }
+            if nativePlaybackAllowed {
+                if startedTrackId == track.id { resumeListening(track.id) }
+                else { markStarted(track) }
+            }
             consumeResume(resumeMs, for: track, seq: seq)
         } catch {
             guard loadRequestIsCurrent(seq: seq, trackId: track.id) else { return }
@@ -643,7 +660,27 @@ final class PlaybackService {
     private func markStarted(_ track: TrackSnapshot) {
         guard startedTrackId != track.id else { return }
         startedTrackId = track.id
+        listeningTrackId = track.id
+        accumulatedListeningMs = 0
+        listeningStartedAt = uptimeProvider()
         didStart(track)
+    }
+
+    private func pauseListening(_ trackID: UUID) {
+        guard listeningTrackId == trackID, let started = listeningStartedAt else { return }
+        accumulatedListeningMs += max(0, uptimeProvider() - started) * 1000
+        listeningStartedAt = nil
+    }
+
+    private func resumeListening(_ trackID: UUID) {
+        guard listeningTrackId == trackID, listeningStartedAt == nil else { return }
+        listeningStartedAt = uptimeProvider()
+    }
+
+    private func listenedMilliseconds(for trackID: UUID) -> Double {
+        guard listeningTrackId == trackID else { return 0 }
+        let active = listeningStartedAt.map { max(0, uptimeProvider() - $0) * 1000 } ?? 0
+        return accumulatedListeningMs + active
     }
 
     func setSmartShuffle(_ enabled: Bool) {
@@ -682,9 +719,9 @@ final class PlaybackService {
     /// (listened meaningfully but not to natural completion). Unknown duration degrades the threshold to 30s. Emits the event only; playback behavior is unchanged.
     /// Uses a passed-in `isSkip` when provided (avoids recomputation); computes it internally when nil.
     private func currentDisplacementIsSkip() -> Bool {
-        guard state.track != nil else { return false }
-        let listenedMs = max(0, state.position) * 1000.0
-        let durMs = (state.track?.durationSeconds ?? 0) * 1000.0
+        guard let track = state.track else { return false }
+        let listenedMs = listenedMilliseconds(for: track.id)
+        let durMs = track.durationSeconds * 1000.0
         let threshold = durMs > 0 ? min(30_000.0, 0.2 * durMs) : 30_000.0
         return listenedMs < threshold
     }
@@ -692,20 +729,24 @@ final class PlaybackService {
     private func postDisplacementForCurrent(isSkip: Bool? = nil) {
         guard let track = state.track else { return }
         let skip = isSkip ?? currentDisplacementIsSkip()
-        let listenedMs = max(0, state.position) * 1000.0
+        let listenedMs = listenedMilliseconds(for: track.id)
+        let positionMs = max(0, state.position) * 1000.0
+        pauseListening(track.id)
         if skip {
-            eventBus.post(.trackSkipped(track, listenedMs: listenedMs))
+            eventBus.post(.trackSkipped(track, listenedMs: listenedMs, positionMs: positionMs))
         } else {
-            eventBus.post(.trackStopped(track, listenedMs: listenedMs))
+            eventBus.post(.trackStopped(track, listenedMs: listenedMs, positionMs: positionMs))
         }
     }
 
     /// Natural completion (engine callback, or polling observing position reach duration): emits `.trackCompleted`,
-    /// recording listenedMs as the full duration (0 when unknown).
+    /// recording the actual listening interval separately from the final position.
     private func postCompletedForCurrent() {
         guard let track = state.track else { return }
-        let listenedMs = track.durationSeconds * 1000.0
-        eventBus.post(.trackCompleted(track, listenedMs: max(0, listenedMs)))
+        let listenedMs = listenedMilliseconds(for: track.id)
+        pauseListening(track.id)
+        let positionMs = max(0, track.durationSeconds, state.position) * 1000.0
+        eventBus.post(.trackCompleted(track, listenedMs: listenedMs, positionMs: positionMs))
     }
 
     private func observeCompletion() {

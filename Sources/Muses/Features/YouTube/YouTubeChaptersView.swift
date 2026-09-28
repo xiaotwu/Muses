@@ -47,7 +47,7 @@ struct YouTubeChaptersView: View {
                                 .padding(8).frame(maxWidth: .infinity, alignment: .leading)
                                 .contentShape(Rectangle())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.fullAreaPlain)
                             .help(tr("Jump to chapter", "跳到章节", zhHant: "跳至章節"))
                         }
                     }

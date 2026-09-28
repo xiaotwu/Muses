@@ -9,16 +9,14 @@ enum ContentBadgeStyle {
     static let lineWidth: CGFloat = 1
 }
 
+/// Compact artwork action using the same circle as page chrome.
 struct ContentScrimCircle<Content: View>: View {
-    var size: CGFloat = 24
+    var size: CGFloat = 28
     @ViewBuilder var content: Content
 
     var body: some View {
-        content
-            .frame(width: size, height: size)
-            .background(ContentBadgeStyle.fill, in: Circle())
-            .overlay(Circle().stroke(ContentBadgeStyle.stroke, lineWidth: ContentBadgeStyle.lineWidth))
-            .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
+        content.chromeActionCircle(diameter: size)
+            .environment(\.colorScheme, .dark)
     }
 }
 
@@ -30,24 +28,66 @@ struct ChromeIconButton: View {
     var accessibility: String
     var action: () -> Void
 
-    @State private var isHovered = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemName)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(BrandColors.textPrimary)
-                .frame(width: 28, height: 28)
-                .musesGlass(in: Capsule(), role: .compactControl)
-                .scaleEffect(isHovered && !reduceMotion ? 1.05 : 1.0)
-                .offset(y: isHovered && !reduceMotion ? -1 : 0)
+            Image(systemName: systemName).chromeActionCircle()
         }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-        .animation(MusesMotion.hoverAnimation(reduceMotion: reduceMotion), value: isHovered)
+        .buttonStyle(.fullAreaPlain)
         .help(help ?? accessibility)
         .accessibilityLabel(accessibility)
+    }
+}
+
+/// Shared circle metrics for page actions, menus, and links. The glyph owns no
+/// padding or background of its own; the entire visible circle is interactive.
+enum ChromeActionMetrics {
+    static let diameter: CGFloat = 32
+    static let glyphSize: CGFloat = 14
+}
+
+private struct ChromeActionCircle: ViewModifier {
+    var diameter: CGFloat
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: ChromeActionMetrics.glyphSize, weight: .semibold))
+            .foregroundStyle(.primary)
+            .frame(width: diameter, height: diameter, alignment: .center)
+            .contentShape(Circle())
+            .musesGlass(in: Circle(), role: .compactControl)
+    }
+}
+
+extension View {
+    func chromeActionCircle(diameter: CGFloat = ChromeActionMetrics.diameter) -> some View {
+        modifier(ChromeActionCircle(diameter: diameter))
+    }
+}
+
+struct ChromeIconMenu<Items: View>: View {
+    let systemName: String
+    let title: String
+    var diameter: CGFloat = ChromeActionMetrics.diameter
+    var foreground: Color = .primary
+    @ViewBuilder var items: () -> Items
+
+    var body: some View {
+        Menu(content: items) {
+            Color.clear.frame(width: diameter, height: diameter)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: diameter, height: diameter)
+        .overlay {
+            Image(systemName: systemName)
+                .font(.system(size: ChromeActionMetrics.glyphSize, weight: .semibold))
+                .foregroundStyle(foreground)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+        .contentShape(Circle())
+        .musesGlass(in: Circle(), role: .compactControl)
+        .help(title)
+        .accessibilityLabel(title)
     }
 }
 

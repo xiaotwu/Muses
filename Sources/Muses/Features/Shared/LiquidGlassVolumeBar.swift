@@ -145,7 +145,7 @@ struct LiquidGlassVolumeBar: View {
                 .frame(width: 26, height: 26)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.fullAreaPlain)
         .help(playback.volume <= 0.001 ? tr("Unmute", "取消静音") : tr("Mute", "静音"))
         .accessibilityLabel(playback.volume <= 0.001 ? tr("Unmute", "取消静音") : tr("Mute", "静音"))
         .accessibilityValue("\(Int((currentVolume * 100).rounded()))%")
