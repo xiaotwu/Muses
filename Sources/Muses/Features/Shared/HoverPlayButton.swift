@@ -8,9 +8,9 @@ struct HoverPlayButton: View {
         Button(action: onPlay) {
             Image(systemName: "play.fill")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(BrandColors.onPlayback)
                 .frame(width: 30, height: 30)
-                .background(BrandColors.accent, in: Circle())
+                .background(BrandColors.playback, in: Circle())
         }
         .buttonStyle(.fullAreaPlain)
         .help(tr("Play", "播放"))

@@ -35,8 +35,8 @@ struct PlaylistsView: View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: 16) {
                 Text(tr("All Playlists", "全部歌单"))
-                    .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
-                    .foregroundStyle(BrandColors.textPrimary)
+                    .font(MusesTypography.pageTitle)
+                    .foregroundStyle(BrandColors.heading)
                 Spacer(minLength: 16)
                 ChromeIconButton(
                     systemName: "plus",

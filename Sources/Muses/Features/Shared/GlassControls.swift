@@ -92,16 +92,16 @@ struct SettingsGlassChoice: View {
     @ViewBuilder private func choiceLabel(_ option: Option) -> some View {
         let label = Label(option.title, systemImage: option.symbol)
             .font(.body.weight(selection == option.id ? .semibold : .regular))
-            .foregroundStyle(BrandColors.textPrimary)
+            .foregroundStyle(selection == option.id ? BrandColors.selectionText : BrandColors.textPrimary)
             .frame(maxWidth: .infinity, minHeight: 42)
             .padding(.horizontal, 12)
             .contentShape(Capsule())
         if selection == option.id {
             if #available(macOS 26.0, *), !reduceTransparency, contrast != .increased {
-                label.glassEffect(.regular.interactive(!reduceMotion), in: Capsule())
+                label.glassEffect(.regular.tint(BrandColors.selectionFill).interactive(!reduceMotion), in: Capsule())
                     .glassEffectID("selection", in: glassSelection)
             } else {
-                label.background(BrandColors.accent.opacity(0.15), in: Capsule())
+                label.background(BrandColors.selectionFill, in: Capsule())
                     .overlay(Capsule().strokeBorder(.primary.opacity(0.5), lineWidth: 1))
             }
         } else {
@@ -114,13 +114,20 @@ private struct SettingsSelection: ViewModifier {
     let selected: Bool
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
     @ViewBuilder func body(content: Content) -> some View {
-        if #available(macOS 26.0, *), selected, !reduceTransparency {
-            content.glassEffect(.regular.interactive(!reduceMotion), in: Capsule())
+        if #available(macOS 26.0, *), selected, !reduceTransparency, contrast != .increased {
+            content.glassEffect(.regular.tint(BrandColors.selectionFill).interactive(!reduceMotion), in: Capsule())
+                .overlay(alignment: .leading) { indicator }
         } else {
-            content.background(selected ? BrandColors.accent.opacity(0.12) : .clear,
-                               in: Capsule())
+            content.background(selected ? BrandColors.selectionFill : .clear, in: Capsule())
+                .overlay(alignment: .leading) { if selected { indicator } }
         }
+    }
+
+    private var indicator: some View {
+        Capsule().fill(BrandColors.accent).frame(width: 3, height: 14)
+            .padding(.leading, 3).allowsHitTesting(false).accessibilityHidden(true)
     }
 }
 

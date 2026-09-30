@@ -34,10 +34,15 @@ enum LyricsEndpoint {
     /// Example: `https://lrclib.net/api/search?track_name=One%20More%20Time&artist_name=Daft%20Punk`
     static func lrclibSearch(track: String, artist: String) -> URL {
         var components = URLComponents(string: "https://lrclib.net/api/search")!
-        components.queryItems = [
-            URLQueryItem(name: "track_name", value: track),
-            URLQueryItem(name: "artist_name", value: artist),
-        ]
+        components.queryItems = [URLQueryItem(name: "track_name", value: track)]
+        if !artist.isEmpty { components.queryItems?.append(URLQueryItem(name: "artist_name", value: artist)) }
+        return components.url!
+    }
+
+    /// Keyword discovery spans title, artist and album; recording checks still govern selection.
+    static func lrclibKeywordSearch(_ query: String) -> URL {
+        var components = URLComponents(string: "https://lrclib.net/api/search")!
+        components.queryItems = [URLQueryItem(name: "q", value: query)]
         return components.url!
     }
 

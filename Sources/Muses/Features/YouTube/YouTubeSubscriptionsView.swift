@@ -25,7 +25,8 @@ struct YouTubeSubscriptionsView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         HStack {
-                            Text(tr("Subscriptions", "订阅")).font(.largeTitle.bold())
+                            Text(tr("Subscriptions", "订阅")).font(MusesTypography.pageTitle)
+                                .foregroundStyle(BrandColors.heading)
                             Spacer()
                             ChromeIconButton(systemName: "arrow.clockwise", help: tr("Refresh", "刷新"),
                                              accessibility: tr("Refresh subscriptions", "刷新订阅")) {
@@ -192,7 +193,7 @@ private struct YouTubeChannelUploadsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 HStack {
-                    Text(channel.title).font(.largeTitle.bold())
+                    Text(channel.title).font(MusesTypography.pageTitle)
                     Spacer()
                     if !channel.id.isEmpty {
                         Button(tr("Unsubscribe", "取消订阅")) {

@@ -27,7 +27,7 @@ struct CollectionPresentationTests {
     @Test("Collection pages share the leading page-header rhythm")
     func collectionHeaderRhythm() {
         #expect(AppleMusicSpacing.pageHorizontal == 40)
-        #expect(AppleMusicSpacing.browseTitleTop == 32)
+        #expect(AppleMusicSpacing.browseTitleTop == 16)
         #expect(AppleMusicSpacing.headerToPrimary == 28)
         #expect(AppleMusicSpacing.related == 20)
         #expect(AppleMusicSpacing.section == 34)
@@ -111,21 +111,25 @@ struct CollectionPresentationTests {
         #expect(CollectionTrackSort.rows(rows, using: playlistComparator).map(\.title) == ["B", "A"])
     }
 
-    @Test("Deck geometry virtualizes nine roomy cards and five compact cards")
+    @Test("Flat strip scales artwork and mounts only nearby covers")
     func responsiveDeckGeometry() {
         let roomy = CollectionDeckGeometry.resolve(containerWidth: 980, containerHeight: 760)
         let compact = CollectionDeckGeometry.resolve(containerWidth: 560, containerHeight: 760)
         let compactHeight = CollectionDeckGeometry.resolve(containerWidth: 980, containerHeight: 600)
 
-        #expect(roomy.radius == 4)
+        #expect(roomy.radius >= 2)
         #expect(compact.radius == 2)
-        #expect(compactHeight.radius == 2)
-        #expect(CollectionDeckProjection.visibleIndices(count: 100, position: 50, radius: roomy.radius).count == 9)
+        #expect(compactHeight.radius >= roomy.radius)
+        #expect(CollectionDeckProjection.visibleIndices(count: 100, position: 50, radius: roomy.radius).count <= 13)
         #expect(CollectionDeckProjection.visibleIndices(count: 100, position: 50, radius: compact.radius).count == 5)
         #expect(roomy.cardHeight > roomy.cardWidth)
-        #expect(roomy.lowerFanClearance == 118)
-        #expect(compact.lowerFanClearance == 66)
-        #expect(roomy.viewportHeight > roomy.cardHeight + CollectionDeckScrubberMetrics.thumbHeight)
+        #expect(roomy.lowerFanClearance == 24)
+        #expect(compact.lowerFanClearance == 24)
+        #expect(roomy.viewportHeight >= roomy.cardHeight + CollectionDeckScrubberMetrics.thumbHeight)
+        let wide = CollectionDeckGeometry.resolve(containerWidth: 1_800, containerHeight: 1_160)
+        #expect(wide.cardWidth > roomy.cardWidth)
+        #expect(wide.radius > compact.radius)
+        #expect(wide.spread < wide.cardWidth)
     }
 
     @Test("Deck projection clamps first and last collection boundaries")

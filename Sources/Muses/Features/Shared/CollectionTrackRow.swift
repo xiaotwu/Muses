@@ -14,11 +14,18 @@ struct CollectionTrackRow: Identifiable, Equatable, Sendable {
     /// Collection occurrence identity. A playlist may contain the same Track
     /// more than once, so row identity cannot always equal media identity.
     let collectionItemID: UUID?
+    let collectionOwner: String?
+    let collectionTitle: String?
 
     var id: UUID { collectionItemID ?? snapshot.id }
     var title: String { snapshot.title }
-    var artist: String { snapshot.artist }
-    var album: String { snapshot.albumTitle ?? "" }
+    var artist: String {
+        snapshot.artist.isEmpty || snapshot.artist == collectionOwner
+            ? tr("Artist unavailable", "艺人信息暂缺") : snapshot.artist
+    }
+    var album: String {
+        snapshot.albumTitle == collectionTitle ? "" : (snapshot.albumTitle ?? "")
+    }
     var duration: Double { snapshot.durationSeconds }
 
     func matches(_ currentTrack: TrackSnapshot?) -> Bool {
@@ -42,7 +49,9 @@ struct CollectionTrackRow: Identifiable, Equatable, Sendable {
         playCount: Int = 0,
         trackNumber: Int? = nil,
         discNumber: Int? = nil,
-        collectionItemID: UUID? = nil
+        collectionItemID: UUID? = nil,
+        collectionOwner: String? = nil,
+        collectionTitle: String? = nil
     ) {
         self.snapshot = snapshot
         self.canonicalIndex = canonicalIndex
@@ -53,10 +62,13 @@ struct CollectionTrackRow: Identifiable, Equatable, Sendable {
         self.trackNumber = trackNumber
         self.discNumber = discNumber
         self.collectionItemID = collectionItemID
+        self.collectionOwner = collectionOwner
+        self.collectionTitle = collectionTitle
     }
 
     @MainActor
-    init(track: Track, canonicalIndex: Int, collectionItemID: UUID? = nil) {
+    init(track: Track, canonicalIndex: Int, collectionItemID: UUID? = nil,
+         collectionOwner: String? = nil, collectionTitle: String? = nil) {
         self.init(
             snapshot: TrackSnapshot(from: track),
             canonicalIndex: canonicalIndex,
@@ -66,7 +78,9 @@ struct CollectionTrackRow: Identifiable, Equatable, Sendable {
             playCount: track.playCount,
             trackNumber: track.trackNo,
             discNumber: track.discNo,
-            collectionItemID: collectionItemID
+            collectionItemID: collectionItemID,
+            collectionOwner: collectionOwner,
+            collectionTitle: collectionTitle
         )
     }
 
@@ -99,12 +113,14 @@ struct CollectionTrackRow: Identifiable, Equatable, Sendable {
                 guard !item.youTubeId.isEmpty, unique[item.youTubeId] == nil else { continue }
                 let snapshot = item.track.map { TrackSnapshot(from: $0) } ?? TrackSnapshot(
                     id: item.id, title: item.title, artist: item.artist,
-                    albumTitle: imported.title, durationSeconds: Double(item.durationMs) / 1000,
+                    albumTitle: nil, durationSeconds: Double(item.durationMs) / 1000,
                     youTubeId: item.youTubeId,
                     artworkUrl: YouTubeThumbnail.urlString(videoId: item.youTubeId),
                     sampleRate: nil, bitDepth: nil, codec: nil, isLossless: false)
                 unique[item.youTubeId] = CollectionTrackRow(snapshot: snapshot,
-                    canonicalIndex: 0, addedAt: imported.importedAt)
+                    canonicalIndex: 0, addedAt: imported.importedAt,
+                    collectionOwner: imported.channel,
+                    collectionTitle: YouTubePlaylistID.isMusicAlbum(imported.playlistId) ? nil : imported.title)
             }
         }
         return unique.values.sorted {
@@ -115,7 +131,8 @@ struct CollectionTrackRow: Identifiable, Equatable, Sendable {
             return $0.snapshot.youTubeId < $1.snapshot.youTubeId
         }.enumerated().map { index, row in
             CollectionTrackRow(snapshot: row.snapshot, canonicalIndex: index,
-                year: row.year, genre: row.genre, addedAt: row.addedAt, playCount: row.playCount)
+                year: row.year, genre: row.genre, addedAt: row.addedAt, playCount: row.playCount,
+                collectionOwner: row.collectionOwner, collectionTitle: row.collectionTitle)
         }
     }
 

@@ -6,11 +6,22 @@ enum CollectionPageMode: Equatable, Sendable {
     case list
 }
 
+enum CollectionArtworkLayout: String, CaseIterable, Sendable {
+    case focusStrip
+    case coverWall
+
+    var title: String {
+        self == .focusStrip ? tr("Focus strip", "焦点带") : tr("Cover wall", "封面墙")
+    }
+
+    var symbol: String { self == .focusStrip ? "rectangle.stack" : "square.grid.2x2" }
+}
+
 enum CollectionDeckScrubberMetrics {
     static let maximumWidth: CGFloat = 460
     static let minimumWidth: CGFloat = 160
     static let horizontalClearance: CGFloat = 220
-    static let stageClearance: CGFloat = 24
+    static let stageClearance: CGFloat = 40
     static let trackHeight: CGFloat = 4
     static let thumbWidth: CGFloat = 46
     static let thumbHeight: CGFloat = 24
@@ -40,6 +51,26 @@ enum CollectionDeckScrubberMetrics {
     }
 }
 
+/// Fits complete preview rows between the collection stage and floating player.
+enum CollectionStageSpacing {
+    static let previewRowHeight: CGFloat = 44
+    static let previewGap: CGFloat = 16
+    static let maximumPreviewRows = 5
+
+    static func topInset(height: CGFloat) -> CGFloat {
+        min(56, max(12, (height - 720) * 0.12))
+    }
+
+    static func previewCount(height: CGFloat, geometry: CollectionDeckGeometry, itemCount: Int) -> Int {
+        // Reserve the title/actions, subtitle, handle, and player before revealing rows.
+        let occupied = AppleMusicSpacing.browseTitleTop + 96 + topInset(height: height)
+            + geometry.viewportHeight + CollectionDeckScrubberMetrics.stageClearance
+            + CollectionDeckScrubberMetrics.totalHeight + AppleMusicTokens.collectionDeckHandleHeight
+            + previewGap + OverlayChromeMetrics.scrollBottomInset
+        return min(itemCount, maximumPreviewRows, max(0, Int((height - occupied) / previewRowHeight)))
+    }
+}
+
 struct CollectionDeckGeometry: Equatable, Sendable {
     let cardWidth: CGFloat
     let footerHeight: CGFloat
@@ -47,42 +78,27 @@ struct CollectionDeckGeometry: Equatable, Sendable {
     let radius: Int
 
     var cardHeight: CGFloat { cardWidth + footerHeight }
-    /// The roomy fan's fourth card has the largest rotation and vertical drop.
-    /// Reserve its complete transformed bounds so the scrubber remains a
-    /// separate control below the stage instead of painting underneath it.
-    var lowerFanClearance: CGFloat {
-        switch radius {
-        case 4...: 118
-        case 3: 92
-        default: 66
-        }
-    }
+    /// The flat strip needs only the focused card's lift and shadow clearance.
+    var lowerFanClearance: CGFloat { 24 }
     var viewportHeight: CGFloat { cardHeight + lowerFanClearance }
 
     static func resolve(containerWidth: CGFloat, containerHeight: CGFloat) -> Self {
-        let compactHeight = containerHeight < AppleMusicTokens.collectionDeckCompactHeight
-        if containerWidth < AppleMusicTokens.collectionDeckCompactBreakpoint || compactHeight {
-            return Self(
-                cardWidth: AppleMusicTokens.collectionDeckCompactCardWidth,
-                footerHeight: AppleMusicTokens.collectionDeckCompactFooterHeight,
-                spread: AppleMusicTokens.collectionDeckCompactSpread,
-                radius: 2
-            )
-        }
-        if containerWidth < AppleMusicTokens.collectionDeckWideBreakpoint {
-            return Self(
-                cardWidth: min(146, max(136, containerWidth * 0.19)),
-                footerHeight: AppleMusicTokens.collectionDeckRoomyFooterHeight,
-                spread: AppleMusicTokens.collectionDeckMediumSpread,
-                radius: 3
-            )
-        }
+        let side = min(340, max(136, min(containerWidth * 0.27, containerHeight - 550)))
+        let spread = side * 0.66
+        // Only nearby cards are mounted; overlap makes room for more covers.
+        let radius = min(6, max(2, Int((containerWidth - side - 96) / (2 * spread))))
         return Self(
-            cardWidth: AppleMusicTokens.collectionDeckRoomyCardWidth,
-            footerHeight: AppleMusicTokens.collectionDeckRoomyFooterHeight,
-            spread: AppleMusicTokens.collectionDeckRoomySpread,
-            radius: 4
+            cardWidth: side,
+            footerHeight: 86,
+            spread: spread,
+            radius: radius
         )
+    }
+
+    static func wall(containerWidth: CGFloat) -> (columns: Int, geometry: Self) {
+        let columns = max(1, Int((containerWidth + 24) / 204))
+        let side = max(80, (containerWidth - CGFloat(columns - 1) * 24) / CGFloat(columns))
+        return (columns, Self(cardWidth: side, footerHeight: 86, spread: side, radius: 0))
     }
 }
 
@@ -155,6 +171,7 @@ enum CollectionDeckInputPolicy {
 
 struct CollectionDeckStage<Controls: View>: View {
     @Environment(PlaybackService.self) private var playback
+    @Environment(YouTubeImportService.self) private var importService
     let title: String
     let subtitle: String
     let youTubeURL: URL?
@@ -171,7 +188,9 @@ struct CollectionDeckStage<Controls: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.isEnabled) private var environmentIsEnabled
     @Environment(\.collectionPresentation) private var presentation
+    @State private var songMetadata: [String: YTDlpBridge.YTDlpPlaylistEntry] = [:]
     @State private var position: CGFloat = 0
+    @State private var artworkLayout = CollectionArtworkLayout.focusStrip
     @State private var focusedID: UUID?
     @State private var hoveredID: UUID?
     @State private var dragOrigin: CGFloat?
@@ -180,10 +199,16 @@ struct CollectionDeckStage<Controls: View>: View {
     @State private var activationID: UUID?
     @State private var activationProgress: CGFloat = 0
     @FocusState private var deckFocused: Bool
+    @FocusState private var wallFocusedID: UUID?
 
     private var focusedIndex: Int {
         guard !rows.isEmpty else { return 0 }
         return min(rows.count - 1, max(0, Int(position.rounded())))
+    }
+
+    private var metadataVideoID: String? {
+        isInteractionEnabled && environmentIsEnabled && rows.indices.contains(focusedIndex)
+            ? rows[focusedIndex].snapshot.youTubeId : nil
     }
 
     var body: some View {
@@ -201,36 +226,62 @@ struct CollectionDeckStage<Controls: View>: View {
                 }
                     .padding(.horizontal, AppleMusicTokens.contentPaddingX)
                     .padding(.top, AppleMusicSpacing.browseTitleTop)
-                    .padding(.bottom, AppleMusicSpacing.headerToPrimary)
+                    .padding(.bottom, 16)
                     .fixedSize(horizontal: false, vertical: true)
                     .layoutPriority(2)
 
-                Spacer(minLength: 0)
+                HStack {
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(BrandColors.textSecondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 12)
+                    layoutPicker
+                }
+                .padding(.horizontal, horizontalPadding)
+                .padding(.bottom, 12)
 
-                deck(geometry: geometry)
-                    .frame(width: availableWidth, height: geometry.viewportHeight)
+                if artworkLayout == .coverWall {
+                    coverWall(availableWidth: availableWidth)
+                } else {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            deck(geometry: geometry)
+                                .frame(width: availableWidth, height: geometry.viewportHeight)
+                                .padding(.top, CollectionStageSpacing.topInset(height: proxy.size.height))
 
-                CollectionDeckScrubber(
-                    position: position,
-                    rows: rows,
-                    isEnabled: isInteractionEnabled,
-                    onPositionChanged: { value, animated in
-                        setPosition(value, animated: animated)
+                            CollectionDeckScrubber(
+                                position: position,
+                                rows: rows,
+                                isEnabled: isInteractionEnabled,
+                                onPositionChanged: { value, animated in
+                                    setPosition(value, animated: animated)
+                                }
+                            )
+                            .frame(width: CollectionDeckScrubberMetrics.width(availableWidth: availableWidth))
+                            .padding(.top, CollectionDeckScrubberMetrics.stageClearance)
+
+                            CollectionExpansionHandle(
+                                direction: .up,
+                                accessibilityLabel: tr("Show complete song list", "展开完整歌曲列表"),
+                                help: tr("Show complete song list", "展开完整歌曲列表"),
+                                action: onExpand
+                            )
+                            .disabled(!isInteractionEnabled)
+
+                            let previewCount = CollectionStageSpacing.previewCount(
+                                height: proxy.size.height, geometry: geometry, itemCount: rows.count
+                            )
+                            if previewCount > 0 {
+                                listPreview(count: previewCount)
+                                    .frame(width: availableWidth)
+                                    .padding(.top, CollectionStageSpacing.previewGap)
+                            }
+                            Color.clear.frame(height: OverlayChromeMetrics.scrollBottomInset)
+                        }
                     }
-                )
-                .frame(width: CollectionDeckScrubberMetrics.width(availableWidth: availableWidth))
-                .padding(.top, CollectionDeckScrubberMetrics.stageClearance)
-
-                CollectionExpansionHandle(
-                    direction: .up,
-                    accessibilityLabel: tr("Show complete song list", "展开完整歌曲列表"),
-                    help: tr("Show complete song list", "展开完整歌曲列表"),
-                    action: onExpand
-                )
-                .disabled(!isInteractionEnabled)
-
-                Color.clear
-                    .frame(height: CollectionDeckScrubberMetrics.playerClearance)
+                    .scrollIndicators(.hidden)
+                }
             }
             .frame(
                 width: proxy.size.width,
@@ -238,7 +289,14 @@ struct CollectionDeckStage<Controls: View>: View {
                 alignment: .top
             )
         }
-        .onAppear(perform: establishInitialFocus)
+        .onAppear {
+            artworkLayout = presentation?.artworkLayout ?? .focusStrip
+            establishInitialFocus()
+        }
+        .onChange(of: artworkLayout) { _, value in
+            cancelActivation()
+            presentation?.artworkLayout = value
+        }
         .onChange(of: locateRequest) { _, _ in
             guard let index = rows.firstIndex(where: { $0.matches(currentTrack) }) else { return }
             deckFocused = true
@@ -246,6 +304,14 @@ struct CollectionDeckStage<Controls: View>: View {
         }
         // Persist only a settled anchor: UserDefaults notifications otherwise
         // invalidate unrelated @AppStorage consumers during every drag step.
+        .task(id: metadataVideoID) {
+            guard let videoID = metadataVideoID, songMetadata[videoID] == nil else { return }
+            do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+            let metadata = await importService.songMetadata(videoID: videoID)
+            guard !Task.isCancelled, metadataVideoID == videoID, let metadata else { return }
+            if songMetadata.count >= 96 { songMetadata.removeAll() }
+            songMetadata[videoID] = metadata
+        }
         .task(id: focusedID) {
             do { try await Task.sleep(for: .milliseconds(350)) }
             catch { return }
@@ -265,6 +331,114 @@ struct CollectionDeckStage<Controls: View>: View {
                 cancelActivation()
             }
         }
+    }
+
+    private var layoutPicker: some View {
+        MusesGlassGroup(spacing: 4) {
+            HStack(spacing: 4) {
+                ForEach(CollectionArtworkLayout.allCases, id: \.self) { layout in
+                    Button {
+                        artworkLayout = layout
+                    } label: {
+                        Image(systemName: layout.symbol)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(artworkLayout == layout ? BrandColors.selectionText : BrandColors.textPrimary)
+                            .frame(width: 36, height: 30)
+                            .background(artworkLayout == layout
+                                ? BrandColors.selectionFill : .clear, in: Capsule())
+                    }
+                    .buttonStyle(.fullAreaPlain)
+                    .help(layout.title)
+                    .accessibilityLabel(layout.title)
+                    .accessibilityValue(artworkLayout == layout ? tr("Selected", "已选中") : "")
+                    .disabled(!isInteractionEnabled)
+                }
+                Divider().frame(height: 16).padding(.horizontal, 2)
+                Button(action: onExpand) {
+                    Image(systemName: "list.bullet")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 36, height: 30)
+                }
+                .buttonStyle(.fullAreaPlain)
+                .help(tr("Show complete song list", "展开完整歌曲列表"))
+                .accessibilityLabel(tr("Show complete song list", "展开完整歌曲列表"))
+                .disabled(!isInteractionEnabled)
+            }
+            .padding(4)
+            .musesGlass(in: Capsule(), role: .compactControl)
+        }
+    }
+
+    private func coverWall(availableWidth: CGFloat) -> some View {
+        let metrics = CollectionDeckGeometry.wall(containerWidth: availableWidth)
+        return ScrollViewReader { reader in
+            ScrollView {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 24),
+                                         count: metrics.columns), spacing: 24) {
+                    ForEach(rows.indices, id: \.self) { index in
+                        card(at: index, geometry: metrics.geometry,
+                             containerWidth: availableWidth, wall: true)
+                            .id(rows[index].id)
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.top, 8)
+                CollectionExpansionHandle(
+                    direction: .up,
+                    accessibilityLabel: tr("Show complete song list", "展开完整歌曲列表"),
+                    help: tr("Show complete song list", "展开完整歌曲列表"),
+                    action: onExpand
+                )
+                .disabled(!isInteractionEnabled)
+                Color.clear.frame(height: CollectionDeckScrubberMetrics.playerClearance)
+            }
+            .frame(width: availableWidth + 16)
+            .onAppear {
+                if let focusedID { reader.scrollTo(focusedID, anchor: .center) }
+            }
+            .onChange(of: locateRequest) { _, _ in
+                if let focusedID { reader.scrollTo(focusedID, anchor: .center) }
+            }
+        }
+    }
+
+    private func listPreview(count: Int) -> some View {
+        VStack(spacing: 0) {
+            ForEach(rows.prefix(count)) { row in
+                Button { onPlay(row) } label: {
+                    HStack(spacing: 12) {
+                        Text("\(row.canonicalIndex + 1)")
+                            .monospacedDigit().foregroundStyle(BrandColors.textSecondary)
+                            .frame(width: 28, alignment: .trailing)
+                        ArtworkView(source: ArtworkSource.resolve(for: row.snapshot),
+                                    cornerRadius: 5, glyphSize: 16, targetSize: 30,
+                                    targetHeight: 30, presentation: .fill)
+                            .frame(width: 30, height: 30)
+                        Text(row.title).font(MusesTypography.song(size: 14, emphasized: true, text: row.title)).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                        Text(row.artist).font(MusesTypography.song(size: 13, text: row.artist)).foregroundStyle(BrandColors.textSecondary)
+                            .lineLimit(1).frame(width: 180, alignment: .leading)
+                        Text(row.duration.isFinite && row.duration > 0
+                            ? Duration.seconds(row.duration).formatted(.time(pattern: .minuteSecond)) : "—").monospacedDigit()
+                            .foregroundStyle(BrandColors.textSecondary)
+                    }
+                    .font(.callout)
+                    .padding(.horizontal, 12)
+                    .frame(height: CollectionStageSpacing.previewRowHeight)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.fullAreaPlain)
+                .disabled(!isInteractionEnabled)
+                .accessibilityLabel(tr("Play \(row.title), \(row.artist)", "播放 \(row.title)，\(row.artist)"))
+                .contextMenu {
+                    TrackContextMenuItems(snapshot: row.snapshot, playlists: playlists,
+                        onPlay: { onPlay(row) },
+                        onRemoveFromContainer: onRemove.map { handler in { handler(row) } })
+                }
+                .overlay(alignment: .bottom) { BrandColors.hairline.frame(height: 1) }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(tr("Song list preview", "歌曲列表预览"))
     }
 
     private func deck(geometry: CollectionDeckGeometry) -> some View {
@@ -391,24 +565,28 @@ struct CollectionDeckStage<Controls: View>: View {
     private func card(
         at index: Int,
         geometry: CollectionDeckGeometry,
-        containerWidth: CGFloat
+        containerWidth: CGFloat,
+        wall: Bool = false
     ) -> some View {
         let row = rows[index]
         let relative = CGFloat(index) - position
         let distance = abs(relative)
         let hovered = hoveredID == row.id
         let playing = row.matches(currentTrack) && playback.state.isPlaying
-        // Keep pointer targets stable: hovering must not spread the fan or
+        // Keep pointer targets stable: hovering must not spread the strip or
         // lift a neighbouring card above the canonical selection.
-        let x = relative * geometry.spread
-        let y = 1.7 * relative * relative + 5.5 * distance
-        let scale = 1 - min(distance * 0.035, 0.14)
+        let x = wall ? 0 : relative * geometry.spread
+        let y: CGFloat = wall ? 0 : (index == focusedIndex ? 0 : 12)
+        let scale: CGFloat = 1
         let selected = index == focusedIndex
 
         return Button {
             guard isInteractionEnabled, !horizontalDragActive else { return }
             deckFocused = true
-            if index != focusedIndex {
+            if wall {
+                setPosition(CGFloat(index), animated: false)
+                if row.matches(playback.state.track) { playback.toggle() } else { onPlay(row) }
+            } else if index != focusedIndex {
                 moveFocus(to: index)
             } else {
                 activate(row, source: .pointer)
@@ -416,13 +594,14 @@ struct CollectionDeckStage<Controls: View>: View {
         } label: {
             CollectionDeckCardSurface(
                 row: row,
+                information: SongDisplayInformation(row: row, metadata: songMetadata[row.snapshot.youTubeId]),
                 cardWidth: geometry.cardWidth,
                 footerHeight: geometry.footerHeight,
                 isFocused: index == focusedIndex,
                 isPlaying: playing,
                 isHovered: hovered,
                 primaryAction: row.matches(currentTrack) ? playback.primaryAction : .play,
-                showsKeyboardFocus: deckFocused && index == focusedIndex
+                showsKeyboardFocus: wall ? wallFocusedID == row.id : deckFocused && index == focusedIndex
             )
             .equatable()
             .animation(MusesMotion.hoverAnimation(reduceMotion: reduceMotion), value: hovered)
@@ -437,7 +616,8 @@ struct CollectionDeckStage<Controls: View>: View {
         }
         .buttonStyle(.fullAreaPlain)
         .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .focusable(false)
+        .focusable(wall)
+        .focused($wallFocusedID, equals: row.id)
         .overlay(alignment: .topTrailing) {
             cardActions(row: row, index: index)
                 .padding(10)
@@ -446,9 +626,9 @@ struct CollectionDeckStage<Controls: View>: View {
             x: x,
             y: 18 + y
         )
-        .rotationEffect(.degrees(Double(relative * 3.15)))
+
         .scaleEffect(scale)
-        .zIndex(selected ? 600 : 200 - distance * 10)
+        .zIndex(wall ? 0 : (selected ? 600 : 200 - distance * 10))
         .animation(MusesMotion.collectionCardAnimation(reduceMotion: reduceMotion), value: playing)
         .onHover { inside in hoveredID = inside ? row.id : (hoveredID == row.id ? nil : hoveredID) }
         .trackContextMenu(
@@ -461,10 +641,10 @@ struct CollectionDeckStage<Controls: View>: View {
             },
             onRemoveFromContainer: onRemove.map { handler in { handler(row) } }
         )
-        .help(selected
+        .help((selected || wall)
             ? tr("Play or pause \(row.title)", "播放或暂停 \(row.title)")
             : tr("Select \(row.title)", "选中 \(row.title)"))
-        .accessibilityLabel(cardAccessibilityLabel(row: row, index: index, playing: playing))
+        .accessibilityLabel(cardAccessibilityLabel(row: row, index: index, playing: playing, wall: wall))
         .accessibilityValue(index == focusedIndex ? tr("Focused", "当前焦点") : "")
     }
 
@@ -638,12 +818,14 @@ struct CollectionDeckStage<Controls: View>: View {
     private func cardAccessibilityLabel(
         row: CollectionTrackRow,
         index: Int,
-        playing: Bool
+        playing: Bool,
+        wall: Bool = false
     ) -> String {
         let positionText = tr("\(index + 1) of \(rows.count)", "第 \(index + 1) 首，共 \(rows.count) 首", zhHant: "第 \(index + 1) 首，共 \(rows.count) 首")
-        let playbackText = index != focusedIndex ? tr("Select", "选中")
+        let information = SongDisplayInformation(row: row, metadata: songMetadata[row.snapshot.youTubeId])
+        let playbackText = index != focusedIndex && !wall ? tr("Select", "选中")
             : (row.matches(currentTrack) ? playback.primaryAction.title : tr("Play", "播放"))
-        return "\(positionText), \(row.title) — \(row.artist), \(playbackText)"
+        return "\(positionText), \(information.title) — \(information.artist), \(playbackText)"
     }
 }
 
@@ -695,6 +877,7 @@ private struct CollectionDeckCardActions: View {
 
 struct CollectionDeckCardSurface: View, Equatable {
     let row: CollectionTrackRow
+    var information: SongDisplayInformation? = nil
     let cardWidth: CGFloat
     let footerHeight: CGFloat
     let isFocused: Bool
@@ -707,7 +890,7 @@ struct CollectionDeckCardSurface: View, Equatable {
     @State private var glowIdentity = ""
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.row == rhs.row && lhs.cardWidth == rhs.cardWidth
+        lhs.row == rhs.row && lhs.information == rhs.information && lhs.cardWidth == rhs.cardWidth
             && lhs.footerHeight == rhs.footerHeight && lhs.isFocused == rhs.isFocused
             && lhs.isPlaying == rhs.isPlaying && lhs.isHovered == rhs.isHovered
             && lhs.primaryAction == rhs.primaryAction
@@ -725,69 +908,50 @@ struct CollectionDeckCardSurface: View, Equatable {
     var body: some View {
         let totalHeight = cardWidth + footerHeight
         let cardShape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+        let information = information ?? SongDisplayInformation(row: row)
 
         ZStack(alignment: .bottomLeading) {
-            // Full-bleed artwork
             ArtworkView(
                 source: artworkSource,
                 cornerRadius: 0,
                 glyphSize: max(32, cardWidth * 0.22),
                 targetSize: cardWidth,
-                targetHeight: totalHeight,
+                targetHeight: cardWidth,
                 presentation: .fill
             )
-            .frame(width: cardWidth, height: totalHeight)
-            .clipShape(cardShape)
+            .frame(width: cardWidth, height: cardWidth)
+            .frame(height: totalHeight, alignment: .top)
 
-            // Bottom gradient scrim
-            LinearGradient(
-                stops: [
-                    .init(color: .clear, location: 0.0),
-                    .init(color: Color.black.opacity(0.45), location: 0.45),
-                    .init(color: Color.black.opacity(0.85), location: 0.75),
-                    .init(color: Color.black.opacity(0.95), location: 1.0)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: totalHeight * 0.58)
-            .clipShape(cardShape)
-
-            // Bottom content: Title, Artist, and Action Row
-            VStack(alignment: .leading, spacing: 4) {
-                Text(row.title)
-                    .font(.system(size: footerHeight <= 52 ? 12.5 : 14.5, weight: .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .shadow(color: .black.opacity(0.7), radius: 3, y: 1)
-
-                Text(row.artist)
-                    .font(.system(size: footerHeight <= 52 ? 10.5 : 12, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.82))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .shadow(color: .black.opacity(0.7), radius: 2, y: 1)
-
-                HStack {
-                    if isPlaying {
-                        Image(systemName: "waveform")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .accessibilityLabel(tr("Playing", "正在播放"))
+            HStack(alignment: .bottom, spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(information.title)
+                        .font(MusesTypography.song(size: 14, emphasized: true, text: information.title))
+                        .foregroundStyle(BrandColors.textPrimary)
+                        .lineLimit(2)
+                    Text(information.artist)
+                        .font(MusesTypography.song(size: 12, text: information.artist))
+                        .foregroundStyle(BrandColors.textSecondary)
+                        .lineLimit(1)
+                    if !information.album.isEmpty {
+                        Text(information.album)
+                            .font(MusesTypography.song(size: 11, text: information.album))
+                            .foregroundStyle(BrandColors.textSecondary.opacity(0.75))
+                            .lineLimit(1)
                     }
-                    Spacer(minLength: 0)
-                    Image(systemName: isFocused ? primaryAction.symbol : "viewfinder")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 28, height: 28)
-                        .background(Color.black.opacity(0.6), in: Circle())
-                        .overlay(Circle().stroke(Color.white.opacity(0.35), lineWidth: 1))
                 }
-                .padding(.top, 2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: isPlaying ? "waveform" : (isFocused ? primaryAction.symbol : "viewfinder"))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(isFocused ? BrandColors.onPlayback : BrandColors.textPrimary)
+                    .frame(width: 28, height: 28)
+                    .background(isFocused ? BrandColors.playback : BrandColors.selectionFill, in: Circle())
+                    .accessibilityHidden(true)
             }
             .padding(.horizontal, 12)
-            .padding(.bottom, 10)
+            .padding(.vertical, 10)
+            .frame(width: cardWidth, height: footerHeight, alignment: .leading)
+            .background(BrandColors.surface)
+
         }
         .frame(width: cardWidth, height: totalHeight)
         .background(BrandColors.surface)
@@ -795,16 +959,16 @@ struct CollectionDeckCardSurface: View, Equatable {
         .overlay {
             cardShape.stroke(
                 isPlaying
-                    ? BrandColors.accent.opacity(0.85)
+                    ? BrandColors.playback.opacity(0.85)
                     : (isFocused
-                        ? Color.white.opacity(0.38)
-                        : (isHovered ? Color.white.opacity(0.28) : BrandColors.hairline)),
+                        ? BrandColors.accent.opacity(0.85)
+                        : (isHovered ? BrandColors.textPrimary.opacity(0.28) : BrandColors.hairline)),
                 lineWidth: (isFocused || isPlaying) ? 1.5 : 1.0
             )
         }
         .overlay {
             if showsKeyboardFocus {
-                cardShape.inset(by: 3).stroke(Color.white, lineWidth: 2)
+                cardShape.inset(by: 3).stroke(BrandColors.accent, lineWidth: 2)
                     .shadow(color: .black, radius: 1)
                     .allowsHitTesting(false)
             }
@@ -971,7 +1135,7 @@ private struct CollectionDeckScrubber: View {
             VStack(spacing: CollectionDeckScrubberMetrics.valueSpacing) {
                 ZStack(alignment: .leading) {
                     Capsule()
-                        .fill(BrandColors.textPrimary.opacity(focused ? 0.26 : 0.18))
+                        .fill(BrandColors.accent.opacity(focused ? 0.45 : 0.24))
                         .frame(height: CollectionDeckScrubberMetrics.trackHeight)
                         .overlay {
                             Capsule()

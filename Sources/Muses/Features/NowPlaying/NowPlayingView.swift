@@ -3,18 +3,16 @@ import AppKit
 
 /// Pure, testable geometry for the full-window Now Playing composition.
 ///
-/// At the 1440×900 reference size the left stage is 404pt wide and the whole
-/// composition is 1240pt wide, using more of the available window. Pausing
-/// preserves the artwork and stage geometry; only playback-driven motion stops.
+/// Artwork grows with both available height and width. Pausing preserves its
+/// geometry; hiding lyrics centers the same artwork without changing identity.
 struct NowPlayingLayout: Equatable {
     enum Presentation: Equatable {
         case split
         case stacked
+        case centered
     }
 
     static let splitBreakpoint: CGFloat = 1_040
-    static let referenceContentWidth: CGFloat = 1_240
-    static let referenceStageSide: CGFloat = 404
     static let liveCoverPlayingScale: CGFloat = 1.06
     static let vinylVerticalOffset: CGFloat = -12
     static let edgeInset: CGFloat = 22
@@ -52,20 +50,20 @@ struct NowPlayingLayout: Equatable {
         width: CGFloat,
         height: CGFloat,
         isPlaying: Bool,
-        reduceMotion: Bool = false
+        reduceMotion: Bool = false,
+        showsLyrics: Bool = true
     ) -> Self {
         let safeWidth = max(0, width)
         let safeHeight = max(0, height)
-        let presentation: Presentation = safeWidth >= splitBreakpoint ? .split : .stacked
+        let presentation: Presentation = !showsLyrics ? .centered
+            : (safeWidth >= splitBreakpoint ? .split : .stacked)
         let artworkScale = reduceMotion ? 1 : liveCoverPlayingScale
 
         if presentation == .split {
-            // Preserve the reference's calm outer field as the window narrows;
-            // giving all spare width to the columns makes the cover cling to
-            // the leading edge and the lyrics feel detached from it.
-            let contentWidth = min(referenceContentWidth, max(0, safeWidth - 160))
-            let stageSide = min(referenceStageSide, max(292, safeHeight * 0.45))
-            let gap = min(144, max(64, 64 + (safeWidth - splitBreakpoint) * 0.2))
+            // Reserve room for song identity and the shared bottom dock.
+            let contentWidth = min(1_600, max(0, safeWidth - 96))
+            let stageSide = min(620, max(248, min(safeHeight - 270, contentWidth * 0.43)))
+            let gap = min(112, max(40, safeWidth * 0.06))
             let slotSide = stageSide / artworkScale
             return Self(
                 presentation: presentation,
@@ -78,7 +76,8 @@ struct NowPlayingLayout: Equatable {
             )
         }
 
-        let stageSide = min(360, max(248, min(safeWidth - 64, safeHeight * 0.58)))
+        let stageSide = min(showsLyrics ? 420 : 620,
+                            max(200, min(safeWidth - 64, safeHeight - 270)))
         let slotSide = stageSide / artworkScale
         return Self(
             presentation: presentation,
@@ -156,8 +155,7 @@ enum NowPlayingVolumePolicy {
     }
 }
 
-/// Full-window Now Playing: fixed artwork stage and controls at leading,
-/// distance-layered lyrics at trailing, and compact semantic glass chrome.
+/// Responsive artwork, optional trailing lyrics and a shared glass control dock.
 struct NowPlayingView: View {
     @Binding var isPresented: Bool
     @Binding var showLyrics: Bool
@@ -165,6 +163,7 @@ struct NowPlayingView: View {
 
     @Environment(PlaybackService.self) private var playback
     @Environment(LibraryService.self) private var library
+    @Environment(YouTubeImportService.self) private var importService
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @AppStorage(PrefKey.nowPlayingMode) private var modeRaw: String = NowPlayingMode.cover.rawValue
@@ -175,6 +174,15 @@ struct NowPlayingView: View {
     @State private var chaptersPresented = false
     @State private var seekValue: Double = 0
     @State private var rememberedAudibleVolume = NowPlayingVolumePolicy.fallbackAudibleVolume
+    @State private var presentationRow: CollectionTrackRow?
+    @State private var songMetadata: YTDlpBridge.YTDlpPlaylistEntry?
+
+    private var songInformation: SongDisplayInformation? {
+        guard let track = playback.transportState.track else { return nil }
+        let row = presentationRow.flatMap { $0.snapshot.id == track.id ? $0 : nil }
+            ?? CollectionTrackRow(snapshot: track, canonicalIndex: 0)
+        return SongDisplayInformation(row: row, metadata: songMetadata)
+    }
 
     private var mode: NowPlayingMode { NowPlayingMode(rawValue: modeRaw) ?? .cover }
     private var lyricsMode: NowPlayingLyricsMode {
@@ -188,7 +196,8 @@ struct NowPlayingView: View {
                 width: proxy.size.width,
                 height: proxy.size.height,
                 isPlaying: playback.state.isPlaying,
-                reduceMotion: reduceMotion
+                reduceMotion: reduceMotion,
+                showsLyrics: showLyrics
             )
 
             ZStack(alignment: .bottomTrailing) {
@@ -206,14 +215,29 @@ struct NowPlayingView: View {
                             splitContent(layout)
                         case .stacked:
                             stackedContent(layout)
+                        case .centered:
+                            leftColumn(layout)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .padding(.bottom, 180)
                         }
                     }
                 }
-
-
+                if playback.state.track != nil, !lyricsFullscreen {
+                    playbackDock(width: min(820, max(280, proxy.size.width - 48)))
+                        .frame(maxWidth: .infinity)
+                        .padding(.bottom, 24)
+                }
             }
         }
         .onPreferenceChange(LyricsInteractionPresentedKey.self) { lyricsInteractionPresented = $0 }
+        .task(id: playback.transportState.track?.id) {
+            songMetadata = nil
+            guard let track = playback.transportState.track else { return }
+            presentationRow = importService.songPresentationRow(for: track)
+            let metadata = await importService.songMetadata(videoID: track.youTubeId)
+            guard !Task.isCancelled, playback.transportState.track?.id == track.id else { return }
+            songMetadata = metadata
+        }
         .onExitCommand {
             guard acceptsGlobalKeyEvents, !chaptersPresented else { return }
             isPresented = false
@@ -276,7 +300,7 @@ struct NowPlayingView: View {
             leftColumn(layout)
                 .frame(width: layout.stageSide)
 
-            LyricsView(layout: .immersiveCentered)
+            LyricsView(layout: .leading)
                 .padding(.top, 8)
                 .padding(.bottom, 24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -284,7 +308,7 @@ struct NowPlayingView: View {
         .frame(width: layout.contentWidth)
         .frame(maxHeight: .infinity)
         .padding(.top, 16)
-        .padding(.bottom, 24)
+        .padding(.bottom, 180)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -301,7 +325,7 @@ struct NowPlayingView: View {
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 24)
             .padding(.top, 20)
-            .padding(.bottom, 72)
+            .padding(.bottom, 200)
         }
         .scrollIndicators(.hidden)
     }
@@ -316,33 +340,64 @@ struct NowPlayingView: View {
             trackIdentity
                 .padding(.top, 14)
 
-            seekRow
-                .padding(.top, 13)
-
-            if playback.state.track?.mediaKind == .podcastEpisode {
-                podcastControls.padding(.top, 8)
-            }
-
-            transportRow
-                .padding(.top, 6)
-
-            LiquidGlassVolumeBar(width: layout.stageSide, height: 40)
-                .padding(.top, 18)
-                .blocksWindowDrag()
         }
         .frame(width: layout.stageSide)
+    }
+
+    private func playbackDock(width: CGFloat) -> some View {
+        MusesGlassGroup {
+            VStack(spacing: 8) {
+                seekRow
+                if playback.state.track?.mediaKind == .podcastEpisode {
+                    podcastControls
+                }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 20) {
+                        lyricsToggle
+                        transportRow.frame(width: 300)
+                        LiquidGlassVolumeBar(width: 250, height: 36, drawsGlass: false)
+                    }
+                    VStack(spacing: 8) {
+                        transportRow
+                        HStack {
+                            lyricsToggle
+                            Spacer()
+                            LiquidGlassVolumeBar(width: min(250, width - 100), height: 36, drawsGlass: false)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 22)
+            .padding(.vertical, 14)
+            .frame(width: width)
+            .musesGlass(in: RoundedRectangle(cornerRadius: 28, style: .continuous), role: .artworkControl)
+            .blocksWindowDrag()
+        }
+    }
+
+    private var lyricsToggle: some View {
+        Button { showLyrics.toggle() } label: {
+            Image(systemName: "quote.bubble")
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: 34, height: 34)
+                .background(showLyrics ? BrandColors.textPrimary.opacity(0.12) : .clear, in: Circle())
+        }
+        .buttonStyle(.fullAreaPlain)
+        .help(tr("Show lyrics", "显示歌词"))
+        .accessibilityLabel(tr("Show lyrics", "显示歌词"))
+        .accessibilityValue(showLyrics ? tr("On", "开") : tr("Off", "关"))
     }
 
     private var trackIdentity: some View {
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(playback.state.track?.title ?? "—")
-                    .font(.system(size: 20, weight: .bold))
+                Text(songInformation?.title ?? "—")
+                    .font(MusesTypography.song(size: 20, emphasized: true, text: songInformation?.title ?? ""))
                     .foregroundStyle(BrandColors.textPrimary)
                     .lineLimit(2)
 
                 Text(subtitleLine)
-                    .font(.system(size: 14, weight: .regular))
+                    .font(MusesTypography.song(size: 14))
                     .foregroundStyle(BrandColors.textPrimary.opacity(0.7))
                     .lineLimit(1)
             }
@@ -435,7 +490,7 @@ struct NowPlayingView: View {
                 }
             )
             .controlSize(.mini)
-            .tint(BrandColors.accent)
+            .tint(BrandColors.playback)
             .focusEffectDisabled()
             .blocksWindowDrag()
             .accessibilityLabel(tr("Playback position", "播放进度"))
@@ -483,10 +538,11 @@ struct NowPlayingView: View {
                 Button { playback.toggle() } label: {
                     Image(systemName: playback.state.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(BrandColors.textPrimary)
+                        .foregroundStyle(BrandColors.onPlayback)
                         .offset(x: playback.state.isPlaying ? 0 : 1)
                         .frame(width: 38, height: 38)
-                        .contentShape(Rectangle())
+                        .background(BrandColors.playback, in: Circle())
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.fullAreaPlain)
                 .help(playback.state.isPlaying ? tr("Pause", "暂停") : tr("Play", "播放"))
@@ -593,11 +649,11 @@ struct NowPlayingView: View {
     }
 
     private var subtitleLine: String {
-        guard let track = playback.state.track else { return " " }
-        if let album = track.albumTitle, !album.isEmpty {
-            return "\(track.artist) — \(album)"
+        guard let information = songInformation else { return " " }
+        if !information.album.isEmpty {
+            return "\(information.artist) — \(information.album)"
         }
-        return track.artist
+        return information.artist
     }
 
     private var qualityLabel: String? {

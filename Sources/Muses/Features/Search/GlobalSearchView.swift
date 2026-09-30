@@ -233,7 +233,7 @@ struct GlobalSearchView: View {
     private var searchLanding: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text(tr("Browse Your Music", "浏览你的音乐"))
-                .font(.system(size: AppleMusicTokens.sectionTitleSize, weight: .semibold))
+                .font(MusesTypography.sectionTitle)
                 .foregroundStyle(BrandColors.textPrimary)
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 170, maximum: 240), spacing: 14)],
@@ -394,7 +394,7 @@ struct GlobalSearchView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
-                .font(.system(size: AppleMusicTokens.sectionTitleSize, weight: .semibold))
+                .font(MusesTypography.sectionTitle)
                 .foregroundStyle(BrandColors.textPrimary)
             content()
         }

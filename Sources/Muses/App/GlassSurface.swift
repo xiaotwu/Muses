@@ -8,9 +8,10 @@ enum MusesGlassRole: Equatable {
     case player
     case floatingPanel
     case compactControl
+    case artworkControl
 
     var isInteractive: Bool {
-        self == .player || self == .compactControl
+        self == .player || self == .compactControl || self == .artworkControl
     }
 }
 
@@ -45,7 +46,8 @@ struct MusesGlass<S: Shape>: ViewModifier {
 
     @available(macOS 26.0, *)
     private var glassVariant: Glass {
-        let base = tint.map { Glass.regular.tint($0) } ?? .regular
+        let material: Glass = role == .artworkControl ? .clear : .regular
+        let base = tint.map { material.tint($0) } ?? material
         return role.isInteractive ? base.interactive(!reduceMotion) : base
     }
 }

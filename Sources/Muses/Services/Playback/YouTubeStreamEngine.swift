@@ -10,10 +10,12 @@ protocol YTDlpBridgeProtocol: AnyObject {
     func searchYouTube(query: String, limit: Int, timeout: TimeInterval) async throws -> [YTDlpBridge.YTDlpPlaylistEntry]
     func version() async -> String?
     func invalidateSearch(query: String, limit: Int)
+    func fetchSongMetadata(videoId: String, timeout: TimeInterval) async throws -> YTDlpBridge.YTDlpPlaylistEntry?
 }
 
 extension YTDlpBridgeProtocol {
     func invalidateSearch(query: String, limit: Int) {}
+    func fetchSongMetadata(videoId: String, timeout: TimeInterval) async throws -> YTDlpBridge.YTDlpPlaylistEntry? { nil }
 }
 
 extension YTDlpBridge: YTDlpBridgeProtocol {}

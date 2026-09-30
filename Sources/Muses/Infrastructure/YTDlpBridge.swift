@@ -54,6 +54,7 @@ final class YTDlpBridge {
         /// YouTube Music metadata. These fields distinguish an official audio
         /// song from a generic video without changing video identity.
         let track: String?
+        let artist: String?
         let album: String?
         let releaseYear: Int?
         enum ResourceKind: String, Sendable { case video, channel, playlist, unknown }
@@ -84,7 +85,8 @@ final class YTDlpBridge {
              channelID: String? = nil,
              track: String? = nil,
              album: String? = nil,
-             releaseYear: Int? = nil) {
+             releaseYear: Int? = nil,
+             artist: String? = nil) {
             self.id = id
             self.title = title
             self.uploader = uploader
@@ -92,6 +94,7 @@ final class YTDlpBridge {
             self.playlistTitle = playlistTitle
             self.channelID = channelID
             self.track = track
+            self.artist = artist
             self.album = album
             self.releaseYear = releaseYear
         }
@@ -109,6 +112,7 @@ final class YTDlpBridge {
             let uploaderID = try c.decodeIfPresent(String.self, forKey: .uploaderID)
             self.channelID = Self.nonEmpty(channelID) ?? Self.nonEmpty(uploaderID)
             self.track = Self.nonEmpty(try c.decodeIfPresent(String.self, forKey: .track))
+            self.artist = Self.nonEmpty(try c.decodeIfPresent(String.self, forKey: .artist))
             self.album = Self.nonEmpty(try c.decodeIfPresent(String.self, forKey: .album))
             self.releaseYear = try c.decodeIfPresent(Int.self, forKey: .releaseYear)
         }
@@ -122,6 +126,7 @@ final class YTDlpBridge {
             try c.encodeIfPresent(playlistTitle, forKey: .playlistTitle)
             try c.encodeIfPresent(channelID, forKey: .channelID)
             try c.encodeIfPresent(track, forKey: .track)
+            try c.encodeIfPresent(artist, forKey: .artist)
             try c.encodeIfPresent(album, forKey: .album)
             try c.encodeIfPresent(releaseYear, forKey: .releaseYear)
         }
@@ -139,7 +144,7 @@ final class YTDlpBridge {
             case playlist
             case channelID = "channel_id"
             case uploaderID = "uploader_id"
-            case track, album
+            case track, artist, album
             case releaseYear = "release_year"
         }
 
@@ -405,6 +410,19 @@ final class YTDlpBridge {
             entries.append(entry)
         }
         return entries
+    }
+
+    /// Resolves music metadata without downloading media or writing metadata files.
+    func fetchSongMetadata(videoId: String, timeout: TimeInterval = 20) async throws -> YTDlpPlaylistEntry? {
+        guard YTDlpPlaylistEntry(id: videoId, title: "").resourceKind == .video else { return nil }
+        let bin = try await resolveBinary()
+        let args = cookieArgs() + ["--ignore-config", "--skip-download", "--no-playlist",
+                                  "--dump-single-json", "https://www.youtube.com/watch?v=\(videoId)"]
+        let (stdout, _) = try await runInternal(executablePath: bin, args: args, timeout: timeout)
+        try Task.checkCancellation()
+        guard let data = stdout.data(using: .utf8) else { return nil }
+        let entry = try JSONDecoder().decode(YTDlpPlaylistEntry.self, from: data)
+        return entry.id == videoId ? entry : nil
     }
 
     /// Extracts publisher chapter markers without downloading media or writing metadata files.

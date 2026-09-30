@@ -99,11 +99,11 @@ struct AlbumObjectView: View {
             VStack(alignment: .leading, spacing: 8) {
                 artworkStack
                 Text(title)
-                    .font(size >= 160 ? .subheadline : .caption)
+                    .font(MusesTypography.song(size: size >= 160 ? 13 : 12, text: title))
                     .foregroundStyle(BrandColors.textPrimary)
                     .lineLimit(1)
                 Text(subtitle)
-                    .font(size >= 160 ? .caption : .caption2)
+                    .font(MusesTypography.song(size: size >= 160 ? 12 : 11, text: subtitle))
                     .foregroundStyle(BrandColors.textSecondary)
                     .lineLimit(1)
             }
@@ -114,12 +114,12 @@ struct AlbumObjectView: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
-                        .font(size >= 160 ? .subheadline.weight(.semibold) : .caption.weight(.semibold))
+                        .font(MusesTypography.song(size: size >= 160 ? 13 : 12, emphasized: true, text: title))
                         .foregroundStyle(BrandColors.textPrimary)
                         .lineLimit(2)
                         .truncationMode(.tail)
                     Text(subtitle)
-                        .font(size >= 160 ? .caption : .caption2)
+                        .font(MusesTypography.song(size: size >= 160 ? 12 : 11, text: subtitle))
                         .foregroundStyle(BrandColors.textSecondary)
                         .lineLimit(2)
                         .truncationMode(.tail)

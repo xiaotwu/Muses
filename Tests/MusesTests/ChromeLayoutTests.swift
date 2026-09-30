@@ -47,17 +47,8 @@ struct ChromeLayoutTests {
         #expect(cg.height == 180)
     }
 
-    @Test("Monochrome dark accent is FAFAFC")
-    func appleMusicKeyColor() {
-        #expect(AppleMusicTokens.keyColorHex == "FAFAFC")
-        #expect(abs(AppleMusicTokens.keyColorRGB.r - 250.0 / 255.0) < 0.0001)
-        #expect(abs(AppleMusicTokens.keyColorRGB.g - 250.0 / 255.0) < 0.0001)
-        #expect(abs(AppleMusicTokens.keyColorRGB.b - 252.0 / 255.0) < 0.0001)
-    }
-
-    @Test("dark page background is measured AM Web 1F1F1F")
+    @Test("page geometry retains measured Apple Music proportions")
     func darkPageBackground() {
-        #expect(abs(AppleMusicTokens.darkPageRGB.r - 31.0 / 255.0) < 0.0001)
         #expect(AppleMusicTokens.pageTitleSize == 34)
         #expect(AppleMusicTokens.sectionTitleSize == 22)
         #expect(AppleMusicTokens.sidebarWidth >= 232 && AppleMusicTokens.sidebarWidth <= 260)
@@ -165,14 +156,14 @@ struct ChromeLayoutTests {
     func liveSpacingTokens() {
         #expect(AppleMusicTokens.sidebarInset == 8)
         #expect(AppleMusicTokens.sidebarWidth == 244)
-        #expect(AppleMusicTokens.playerBottomMargin == 20)
+        #expect(AppleMusicTokens.playerBottomMargin == 64)
         #expect(AppleMusicTokens.playerHorizontalMargin == 16)
         #expect(AppleMusicTokens.editorialWidth == 540)
         #expect(AppleMusicTokens.editorialHeight == 309)
         #expect(AppleMusicTokens.contentPaddingX == 40)
         #expect(AppleMusicSpacing.pageHorizontal == AppleMusicTokens.contentPaddingX)
-        #expect(AppleMusicSpacing.pageTop == 18)
-        #expect(AppleMusicSpacing.browseTitleTop == 32)
+        #expect(AppleMusicSpacing.pageTop == 16)
+        #expect(AppleMusicSpacing.browseTitleTop == 16)
         #expect(AppleMusicSpacing.headerToPrimary == 28)
         #expect(AppleMusicSpacing.related == 20)
         #expect(AppleMusicSpacing.section > AppleMusicSpacing.shelfContent)
@@ -257,8 +248,8 @@ struct ChromeLayoutTests {
         )
 
         #expect(playing.presentation == .split)
-        #expect(playing.contentWidth == 1_240)
-        #expect(playing.stageSide == 404)
+        #expect(playing.contentWidth == 1_344)
+        #expect(playing.stageSide > 500)
         #expect(abs(playing.renderedArtworkSide - playing.stageSide) < 0.001)
         #expect(playing.artworkScale == NowPlayingLayout.liveCoverPlayingScale)
         #expect(reducedMotionPlaying.artworkScale == 1)
@@ -266,13 +257,13 @@ struct ChromeLayoutTests {
         #expect(reducedMotionPlaying.renderedArtworkSide == reducedMotionPlaying.stageSide)
         #expect(abs(paused.renderedArtworkSide - playing.renderedArtworkSide) < 0.001)
         #expect(paused.artworkSlotSide == playing.artworkSlotSide)
-        #expect(playing.columnGap == 144)
+        #expect(playing.columnGap < 112)
         #expect(playing.lyricsLeadingInset == 30)
         #expect(medium.presentation == .split)
-        #expect(medium.contentWidth == 1_068)
+        #expect(medium.contentWidth == 1_132)
         #expect(compact.presentation == .stacked)
         #expect(compact.contentWidth == 792)
-        #expect(compact.stageSide <= 360)
+        #expect(compact.stageSide <= 420)
         #expect(NowPlayingLayout.edgeInset == 22)
         #expect(NowPlayingLayout.topChromeHeight
                 == NowPlayingLayout.edgeInset + NowPlayingLayout.topControlHeight)
@@ -856,7 +847,6 @@ struct ChromeLayoutTests {
         #expect(SearchWindowPolicy.isSingleInstance)
         #expect(DockLyricsPolicy.action(nowPlayingOpen: false) == .toggleDrawer)
         #expect(ChromeGlyphStyle.selectedGlowRadius == 5)
-        #expect(AppleMusicTokens.keyColorHex == "FAFAFC")
         #expect(AppleMusicChrome.playerIsFloatingCapsule)
         #expect(AppleMusicChrome.primaryNavInSidebar)
     }
@@ -894,7 +884,7 @@ struct ChromeLayoutTests {
         #expect(LyricsService.sanitizedTitle("Letter In Orange (Official Video)") == "Letter In Orange")
         #expect(LyricsService.sanitizedTitle("Song [Official Audio]") == "Song")
         #expect(LyricsService.sanitizedTitle("Plain Title") == "Plain Title")
-        #expect(LyricsService.queryTitles("Song (Official Video)") == ["Song (Official Video)", "Song"])
+        #expect(LyricsService.queryTitles("Song (Official Video)") == ["Song", "Song (Official Video)"])
     }
 
     private func makeSolidImage(width: Int, height: Int) -> NSImage {

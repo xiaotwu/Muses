@@ -54,6 +54,30 @@ struct LyricsSourcesTests {
         #expect(service.fetchCached(track: recording)?.source == .lyricsOVH)
     }
 
+    @Test("Keyword discovery finds a Japanese title without accepting publisher identity")
+    func keywordDiscovery() async throws {
+        let suite = "MusesTests.keywordLyrics.\(UUID())"
+        let preferences = try #require(UserDefaults(suiteName: suite))
+        defer { preferences.removePersistentDomain(forName: suite) }
+        preferences.set(false, forKey: PrefKey.lyricsIntelligence)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [LyricsKeywordProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let service = LyricsService(session: session, offsetDefaults: preferences)
+        let recording = track(title: "「ティファニーに連れてって」【MV】", artist: "Publisher")
+        let found = await service.findCandidates(track: recording, refresh: true, source: "lrclib")
+        #expect(found.count == 1)
+        #expect(found.first?.artistName == "Performer")
+        #expect(LyricsMatchPolicy.automatic(found, track: recording) == nil)
+        #expect(LyricsService.queryTitles(recording.title).contains("ティファニーに連れてって"))
+        let variants = LyricsService.queryTitles("Ａｒｔｉｓｔ - Ｓｏｎｇ (Live)")
+        #expect(variants.contains("Artist - Song (Live)"))
+        #expect(variants.allSatisfy { LyricsMatchPolicy.versions($0).contains("live") })
+        let url = LyricsEndpoint.lrclibSearch(track: "Song", artist: "")
+        #expect(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains { $0.name == "artist_name" } == false)
+    }
+
     @Test("immersive lyrics center text without losing large playback styling")
     func centeredImmersiveLayout() {
         #expect(LyricsLayout.immersiveCentered.alignment == .center)
@@ -71,6 +95,22 @@ private final class LyricsSourcesProtocol: URLProtocol, @unchecked Sendable {
                                        httpVersion: nil, headerFields: nil)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data((isOVH ? #"{"lyrics":"Synthetic test line"}"# : "{}").utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+private final class LyricsKeywordProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let keyword = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?
+            .queryItems?.first { $0.name == "q" }?.value
+        let match = keyword == "ティファニーに連れてって"
+        let body = match ? #"[{"id":42,"trackName":"ティファニーに連れてって","artistName":"Performer","duration":180,"plainLyrics":"Synthetic test text"}]"# : "[]"
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}

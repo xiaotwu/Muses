@@ -47,6 +47,7 @@ struct SongObjectView: View {
                 HStack(spacing: 6) {
                     nowPlayingBadge
                     Text(title)
+                        .font(MusesTypography.song(size: 14, emphasized: true, text: title))
                         .foregroundStyle(BrandColors.textPrimary)
                         .lineLimit(1)
                     if isLossless {

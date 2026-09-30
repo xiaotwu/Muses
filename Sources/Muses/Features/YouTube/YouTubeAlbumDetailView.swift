@@ -192,12 +192,17 @@ struct YouTubeAlbumDetailView: View {
     private func collectionRow(for item: YouTubeImportItem) -> CollectionTrackRow {
         if let track = item.track {
             return CollectionTrackRow(track: track, canonicalIndex: item.order,
-                                      collectionItemID: item.id)
+                                      collectionItemID: item.id,
+                                      collectionOwner: youTubeImport.channel,
+                                      collectionTitle: YouTubePlaylistID.isMusicAlbum(youTubeImport.playlistId) ? nil : youTubeImport.title)
         }
         return CollectionTrackRow(
             snapshot: snapshot(for: item),
             canonicalIndex: item.order,
-            addedAt: youTubeImport.importedAt
+            addedAt: youTubeImport.importedAt,
+            collectionItemID: item.id,
+            collectionOwner: youTubeImport.channel,
+            collectionTitle: YouTubePlaylistID.isMusicAlbum(youTubeImport.playlistId) ? nil : youTubeImport.title
         )
     }
 
@@ -221,7 +226,7 @@ struct YouTubeAlbumDetailView: View {
             id: item.id,
             title: item.title,
             artist: item.artist,
-            albumTitle: youTubeImport.title,
+            albumTitle: YouTubePlaylistID.isMusicAlbum(youTubeImport.playlistId) ? youTubeImport.title : nil,
             durationSeconds: Double(item.durationMs) / 1000,
             youTubeId: item.youTubeId,
             artworkUrl: YouTubeThumbnail.urlString(videoId: item.youTubeId),

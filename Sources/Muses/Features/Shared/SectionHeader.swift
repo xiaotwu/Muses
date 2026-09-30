@@ -15,7 +15,7 @@ struct SectionHeader: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(title)
-                    .font(.title2).fontWeight(.bold)
+                    .font(MusesTypography.heading(title, size: 22))
                     .foregroundStyle(BrandColors.textPrimary)
                 Spacer(minLength: 0)
                 if let moreLabel, let onMore {

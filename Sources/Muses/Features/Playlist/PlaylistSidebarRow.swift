@@ -21,17 +21,14 @@ struct PlaylistSidebarRow: View {
                 }
                 Text(item.name)
                     .lineLimit(1)
-                    .foregroundStyle(isSelected ? BrandColors.accent : BrandColors.textPrimary)
+                    .foregroundStyle(isSelected ? BrandColors.selectionText : BrandColors.textPrimary)
                 Spacer(minLength: 0)
             }
             .padding(.vertical, 6)
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, minHeight: AppleMusicTokens.navItemHeight, alignment: .leading)
             .contentShape(Rectangle())
-            .background(
-                Capsule()
-                    .fill(isSelected ? BrandColors.textPrimary.opacity(0.08) : Color.clear)
-            )
+            .settingsSelection(isSelected)
         }
         .buttonStyle(.fullAreaPlain)
         .contentShape(Rectangle())

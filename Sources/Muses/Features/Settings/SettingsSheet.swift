@@ -192,7 +192,8 @@ private struct SettingsPageTitle: ViewModifier {
             .safeAreaInset(edge: .top, spacing: 0) {
                 HStack(alignment: .top, spacing: 12) {
                     Text(title)
-                        .font(.title2.weight(.semibold))
+                        .font(MusesTypography.settingsTitle)
+                        .foregroundStyle(BrandColors.heading)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .accessibilityAddTraits(.isHeader)
@@ -200,7 +201,7 @@ private struct SettingsPageTitle: ViewModifier {
                 .padding(.horizontal, 20)
                 .frame(maxWidth: 760)
                 .frame(maxWidth: .infinity)
-                .padding(.top, 32)
+                .padding(.top, AppleMusicSpacing.browseTitleTop)
                 .padding(.bottom, 12)
                 .background(BrandColors.background)
             }

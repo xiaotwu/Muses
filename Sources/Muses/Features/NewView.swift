@@ -44,8 +44,8 @@ struct NewView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: AppleMusicSpacing.section) {
                 Text(SidebarSection.new.title)
-                    .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
-                    .foregroundStyle(BrandColors.textPrimary)
+                    .font(MusesTypography.pageTitle)
+                    .foregroundStyle(BrandColors.heading)
                     .padding(.horizontal, AppleMusicTokens.contentPaddingX)
 
                 if recommendationsLoading && !hasContent {

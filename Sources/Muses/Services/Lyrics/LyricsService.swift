@@ -366,23 +366,12 @@ final class LyricsService {
             }
         }
         if LyricsMatchPolicy.automatic(candidates, track: track) == nil || refresh {
-            for title in titles {
-                guard !Task.isCancelled else { return [] }
-                let url = LyricsEndpoint.lrclibSearch(track: title, artist: artist)
-                if let data = await get(url),
-                   let found = try? JSONDecoder().decode([LyricsCandidate].self, from: data) {
-                    candidates.append(contentsOf: found.prefix(50))
-                }
-            }
-            // Channel names are often labels rather than performers. Broad
-            // discovery remains subject to recording validation or manual choice.
-            for title in titles.prefix(2) {
-                guard !Task.isCancelled else { return [] }
-                if let data = await get(LyricsEndpoint.lrclibSearch(track: title, artist: "")),
-                   let found = try? JSONDecoder().decode([LyricsCandidate].self, from: data) {
-                    candidates.append(contentsOf: found.prefix(30))
-                }
-            }
+            var searchURLs = titles.prefix(4).map { LyricsEndpoint.lrclibSearch(track: $0, artist: artist) }
+            // Never require the uploader/channel to be the performing artist.
+            searchURLs += titles.prefix(4).map { LyricsEndpoint.lrclibSearch(track: $0, artist: "") }
+            searchURLs += titles.prefix(3).map { LyricsEndpoint.lrclibKeywordSearch($0) }
+            var seenURLs = Set<URL>()
+            candidates += await searchLrclib(searchURLs.filter { seenURLs.insert($0).inserted })
             if offsetDefaults.object(forKey: PrefKey.lyricsIntelligence) as? Bool ?? true,
                let query = await LyricsIntelligence.searchQuery(track: track) {
                 guard !Task.isCancelled else { return [] }
@@ -401,6 +390,29 @@ final class LyricsService {
         if selectedCache.count >= 20 { selectedCache.removeAll() }
         candidateCache[key] = ranked
         return ranked
+    }
+
+    /// Bound request concurrency while collecting independent query variants.
+    private func searchLrclib(_ urls: [URL]) async -> [LyricsCandidate] {
+        var candidates: [LyricsCandidate] = []
+        for start in stride(from: 0, to: urls.count, by: 3) {
+            guard !Task.isCancelled else { return [] }
+            let batch = Array(urls[start..<min(start + 3, urls.count)])
+            let found = await withTaskGroup(of: [LyricsCandidate].self) { group in
+                for url in batch {
+                    group.addTask { [self] in
+                        guard let data = await get(url), !Task.isCancelled,
+                              let results = try? JSONDecoder().decode([LyricsCandidate].self, from: data) else { return [] }
+                        return Array(results.prefix(50))
+                    }
+                }
+                var results: [LyricsCandidate] = []
+                for await items in group { results += items }
+                return results
+            }
+            candidates += found
+        }
+        return Task.isCancelled ? [] : candidates
     }
 
     func findCandidates(track: TrackSnapshot, refresh: Bool = false,
@@ -438,14 +450,16 @@ final class LyricsService {
 
     nonisolated static func queryTitles(_ raw: String, artist: String? = nil) -> [String] {
         let cleaned = sanitizedTitle(raw)
-        guard let artist, !LyricsMatchPolicy.queryArtist(artist).isEmpty else {
-            return cleaned.isEmpty || cleaned == raw ? [raw] : [raw, cleaned]
-        }
-        let name = NSRegularExpression.escapedPattern(for: LyricsMatchPolicy.queryArtist(artist))
-        let withoutArtist = cleaned.replacingOccurrences(
+        let name = NSRegularExpression.escapedPattern(for: LyricsMatchPolicy.queryArtist(artist ?? ""))
+        let withoutArtist = name.isEmpty ? cleaned : cleaned.replacingOccurrences(
             of: "^" + name + #"\s*[-–—:]\s*"#, with: "", options: [.regularExpression, .caseInsensitive])
+        let compatible = withoutArtist.precomposedStringWithCompatibilityMapping
+        let unquoted = compatible.replacingOccurrences(of: #"[「」『』“”‘’"]"#, with: "", options: .regularExpression)
+        let compactSpaces = unquoted.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
         var seen = Set<String>()
-        return [withoutArtist, cleaned, raw].filter { !$0.isEmpty && seen.insert($0).inserted }
+        return [withoutArtist, compatible, compactSpaces, cleaned, raw]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
     // MARK: - Musixmatch

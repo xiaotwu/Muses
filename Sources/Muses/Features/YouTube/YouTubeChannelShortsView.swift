@@ -19,7 +19,7 @@ struct YouTubeChannelShortsView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 18) {
                 HStack {
-                    Text(channel.title).font(.largeTitle.bold())
+                    Text(channel.title).font(MusesTypography.pageTitle)
                     Spacer()
                     ChromeIconButton(systemName: "arrow.clockwise", help: tr("Refresh", "刷新"),
                                      accessibility: tr("Refresh Shorts", "刷新 Shorts", zhHant: "重新整理 Shorts")) {

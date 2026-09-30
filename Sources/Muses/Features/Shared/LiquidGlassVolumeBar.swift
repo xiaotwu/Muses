@@ -12,6 +12,7 @@ struct LiquidGlassVolumeBar: View {
 
     var width: CGFloat = 220
     var height: CGFloat = 36
+    var drawsGlass = true
     var onDeviceSelected: (() -> Void)? = nil
 
     @State private var isDragging = false
@@ -27,6 +28,14 @@ struct LiquidGlassVolumeBar: View {
     }
 
     var body: some View {
+        if drawsGlass {
+            controls.musesGlass(in: Capsule(), role: .compactControl)
+        } else {
+            controls
+        }
+    }
+
+    private var controls: some View {
         HStack(spacing: 10) {
             speakerButton
             sliderTrack.frame(maxWidth: .infinity)
@@ -37,7 +46,6 @@ struct LiquidGlassVolumeBar: View {
         }
         .padding(.horizontal, 10)
         .frame(width: width, height: height)
-        .musesGlass(in: Capsule(), role: .compactControl)
 
     }
 

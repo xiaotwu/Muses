@@ -22,6 +22,29 @@ struct YouTubeImportServiceTests {
         #expect(try context.fetch(FetchDescriptor<YouTubeImportItem>()).map(\.youTubeId) == ["abcdefghijk"])
     }
 
+    @Test("Presentation context hides a playlist publisher without rewriting stored or edited song fields")
+    func songPresentationContext() throws {
+        let container = try makeModelContainer(inMemory: true)
+        let context = ModelContext(container)
+        let imported = YouTubeImport(playlistId: "PLpresentation", url: "", title: "Liked", channel: "Publisher")
+        let item = YouTubeImportItem(youTubeId: "abcdefghijk", title: "Song", artist: "Publisher")
+        imported.items = [item]
+        context.insert(imported)
+        try context.save()
+        let service = makeService(bridge: MockImportBridge(), container: container)
+        func snapshot(artist: String) -> TrackSnapshot {
+            TrackSnapshot(id: UUID(), title: "Song", artist: artist, albumTitle: "Liked",
+                durationSeconds: 180, youTubeId: "abcdefghijk", artworkUrl: nil,
+                sampleRate: nil, bitDepth: nil, codec: nil, isLossless: false)
+        }
+        let row = service.songPresentationRow(for: snapshot(artist: "Publisher"))
+        #expect(row.artist != "Publisher")
+        #expect(row.album.isEmpty)
+        #expect(row.snapshot.artist == "Publisher")
+        #expect(service.songPresentationRow(for: snapshot(artist: "Edited performer")).artist == "Edited performer")
+        #expect(try ModelContext(container).fetch(FetchDescriptor<YouTubeImportItem>()).first?.artist == "Publisher")
+    }
+
     // MARK: - 1. importPlaylist creates import + items + tracks
 
     @Test("importPlaylist creates import, items, and tracks")

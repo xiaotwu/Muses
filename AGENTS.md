@@ -96,7 +96,7 @@ The approved visual reconstruction contract is encoded in the source and its gua
 - The PlayerBar is a floating glass capsule over browsing content. Its idle state retains the normal layout and a rounded lyre-mark tile; unavailable transport, lyrics, and video actions are disabled while queue and app volume remain usable. Hide it in Now Playing and the video overlay.
 - Queue is an integrated full-height trailing pane. Keep current collection, Up Next, and history distinct, including repeat, shuffle, Smart Shuffle, reorder, and persistence behavior.
 - Now Playing is a fullscreen overlay with square cover or circular vinyl on the left and optional lyrics on the right. The native toolbar Back action closes it; opening it closes Queue and hides the PlayerBar. Lyric display modes belong to the lyrics options menu. Current timed lyrics use artwork-derived multicolor gradients with a neutral high-contrast fallback; never invent timing or source.
-- Selection and playback accents are adaptive black/white with restrained static halos on active controls. Keep YouTube red and destructive/error colors semantic. Shared action buttons and compact selection controls use native glass and capsule shapes where available, with supported-system and accessibility fallbacks. Group glass within bounded control clusters; artwork, video, and reading regions keep their aspect ratios.
+- The approved T3C theme uses adaptive indigo for navigation, selection, and page headings, blue graphite for primary playback controls, and mist-gray surfaces with restrained static halos on active controls. Keep YouTube red and destructive/error colors semantic. Shared action buttons and compact selection controls use native glass and capsule shapes where available, with supported-system and accessibility fallbacks. Group glass within bounded control clusters; artwork, video, and reading regions keep their aspect ratios.
 - Volume and output controls share `PlaybackService` state across surfaces. Output selection is trailing and visually distinct from volume. App volume never writes system volume. Volume scales retain keyboard and accessibility adjustment without an enclosing focus rectangle, and pointer input maps across the entire visible scale.
 - Use heavier monochrome SF Symbols for sidebar and player chrome, with at least 28pt hit targets. The macOS application menu stays text. The menu-bar status item uses a monochrome template lyre; its compact 332pt popover has one native surface without a second framed glass card.
 
@@ -105,7 +105,7 @@ Unless a task explicitly changes them, preserve:
 - The persistent PlayerBar across browsing and detail navigation.
 - Contextual previous/next behavior.
 - Current queue, Up Next, history, repeat, shuffle, reorder, and persistence semantics.
-- Artwork-led discovery, page-specific content patterns, and playlist detail hierarchy. Songs and playlist details use the approved D3 centered card-deck stage + expandable complete sortable table; playlists overview uses square cards; Home and New retain measured editorial hero regions.
+- Artwork-led discovery, page-specific content patterns, and playlist detail hierarchy. Songs and playlist details use the approved flat overlapping focus strip or switchable cover wall + expandable complete sortable table; playlists overview uses square cards; Home and New retain measured editorial hero regions.
 - Songs, playlists, pins, recently played, search, YouTube imports, followed podcasts, and subscriptions. Inbox tables remain on disk but have no chrome entry.
 - Likes, pins, metadata, and playback-history preservation.
 - YouTube resynchronization of imported playlists.
@@ -128,7 +128,7 @@ Do not simplify mature queue/history workflows merely to make implementation eas
 
 Muses should remain distinctly macOS-native. Prioritize artwork (and Now Playing video), hierarchy, depth, clarity, responsiveness, desktop information density, and an expressive playback surface.
 
-Chrome layout follows live Apple Music Web: left nav (Search / Home / New + Library), page-specific editorial and table patterns, square shelves, integrated Queue, and a floating capsule player. Visual skin uses SF Pro, neutral surfaces, adaptive monochrome selection/playback accents, and restrained semantic glass. Native SwiftUI interpretation, not a WebView wrap of music.apple.com or music.youtube.com.
+Chrome layout follows live Apple Music Web: left nav (Search / Home / New + Library), page-specific editorial and table patterns, square shelves, integrated Queue, and a floating capsule player. Visual skin uses the approved F3 typography (Georgia/Songti headings and lyrics, Avenir Next/PingFang/Hiragino song information, native SF Pro chrome), mist-gray surfaces, adaptive indigo navigation/headings and blue-graphite playback accents, and restrained semantic glass. Native SwiftUI interpretation, not a WebView wrap of music.apple.com or music.youtube.com.
 
 Avoid:
 
@@ -145,7 +145,9 @@ Avoid:
 - Do not make every surface compete visually with Now Playing.
 - Preserve legibility and functional control contrast over artwork-derived backgrounds in light, dark, and high-contrast appearances.
 - Home includes a measured Apple Music Web editorial hero region, portrait Top Picks, and square shelves. New includes landscape editorial content, compact song matrices, and square shelves. Both pages stay calmer than Now Playing.
-- Songs and playlist details center collection identity/actions above a virtualized, fan-shaped all-track hero deck. The deck has one canonical focus shared by drag, trackpad/wheel, chevrons, keyboard, and a first-to-last scrubber. Only hero-card activation performs the centered ember-burn playback ritual. A dedicated chevron handle or upward swipe replaces the stage with the complete sortable table inside the content pane; sidebar and PlayerBar remain. Songs defaults to title A–Z with no manual order; playlists default to their persisted Playlist Order. Table sorting never rewrites canonical order or playback context.
+- Songs and playlist details center collection identity/actions above a virtualized, flat overlapping all-track focus strip, with a user-selectable lazy cover wall. Layout choice retains collection focus and is remembered per collection. The focus strip has one canonical focus shared by drag, trackpad/wheel, chevrons, keyboard, and a first-to-last scrubber. Only focus-strip hero-card activation performs the centered ember-burn playback ritual. A dedicated chevron handle or upward swipe replaces the stage with the complete sortable table inside the content pane; sidebar and PlayerBar remain. Songs defaults to title A–Z with no manual order; playlists default to their persisted Playlist Order. Table sorting never rewrites canonical order or playback context.
+- Browsing page titles share a compact top inset. The floating PlayerBar uses a shared 64pt bottom inset across browsing surfaces. In focus-strip mode, the scrubber has a distinct gap below the cards; available vertical space reveals a bounded preview of complete canonical-order list rows above the PlayerBar. Compact windows omit previews that do not fit.
+
 - Search opens one auxiliary window with a centered field, source scope, categories, grouped results, and its own toolbar history. Settings is an integrated main-window destination with a replacement category sidebar, semantic icons, accessible native forms, and flat content sections.
 - Icon-first chrome: controls that can be an icon should be an icon, with `.help` and VoiceOver. Track titles, empty states, and settings explanations stay as text.
 - YouTube affordances use `YouTubeMark` (red rounded play rectangle), not a generic SF Symbol stand-in.
@@ -163,7 +165,7 @@ When performing explicitly scoped Liquid Glass work:
 - Use custom glass only for meaningful application-specific surfaces.
 - Establish reusable primitives and semantic surface roles instead of scattering blur or material modifiers through individual views.
 - Group related custom glass elements coherently; avoid fragmented floating decoration.
-- Use tint only when it communicates selection, status, playback, or another clear semantic meaning. Selection and playback use adaptive monochrome accents; semantic YouTube red and destructive/error colors remain distinct.
+- Use tint only when it communicates selection, status, playback, or another clear semantic meaning. Selection uses the approved T3C indigo and primary playback uses blue graphite; semantic YouTube red and destructive/error colors remain distinct.
 - Preserve legibility over artwork and support light, dark, and high-contrast, and Reduce Transparency modes.
 - Maintain appropriate fallback behavior when a supported OS does not provide the desired native API.
 

@@ -21,6 +21,20 @@ enum ArtworkAtmospherePalette {
         return (candidates.isEmpty ? converted : candidates).map(toned)
     }
 
+    /// Light glass keeps chromatic samples instead of expanding dark neutral clusters.
+    static func lightColors(from samples: [NSColor]) -> [NSColor] {
+        let converted = samples.compactMap { $0.usingColorSpace(.sRGB) }
+        let chromatic = converted.filter { color in
+            var hue: CGFloat = 0
+            var saturation: CGFloat = 0
+            var brightness: CGFloat = 0
+            var alpha: CGFloat = 0
+            color.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+            return saturation > 0.12 && brightness > 0.15
+        }
+        return Array((chromatic.isEmpty ? converted : chromatic).prefix(3))
+    }
+
     static func brightness(of color: NSColor) -> CGFloat {
         guard let converted = color.usingColorSpace(.sRGB) else { return 0 }
         var hue: CGFloat = 0
@@ -122,6 +136,7 @@ struct NowPlayingEnvironmentLayer: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(PlaybackService.self) private var playback
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @State private var lightGradient: [Color] = [.clear]
     @State private var gradient: [Color] = [
         Color(red: 0.10, green: 0.12, blue: 0.18),
         Color(red: 0.035, green: 0.040, blue: 0.055)
@@ -136,11 +151,17 @@ struct NowPlayingEnvironmentLayer: View {
             if requiresOpaqueBackground {
                 BrandColors.background
             } else if colorScheme == .light {
-                LinearGradient(colors: [Color(nsColor: .windowBackgroundColor), .white],
+                LinearGradient(colors: [.white, Color(nsColor: .windowBackgroundColor)],
                                startPoint: .topLeading, endPoint: .bottomTrailing)
                     .overlay {
-                        LinearGradient(colors: gradient, startPoint: .topLeading, endPoint: .bottomTrailing)
-                            .opacity(0.08)
+                        RadialGradient(colors: lightGradient + [.clear],
+                                       center: .topLeading, startRadius: 0, endRadius: 1_100)
+                            .opacity(0.55)
+                    }
+                    .overlay {
+                        RadialGradient(colors: lightGradient.reversed() + [.clear],
+                                       center: .bottomTrailing, startRadius: 0, endRadius: 900)
+                            .opacity(0.38)
                     }
             } else {
                 LinearGradient(
@@ -152,27 +173,30 @@ struct NowPlayingEnvironmentLayer: View {
             }
         }
             .ignoresSafeArea()
-            .onAppear { if !requiresOpaqueBackground { extractGradient() } }
-            .onChange(of: playback.state.track?.id) {
-                if !requiresOpaqueBackground { extractGradient() }
+            .task(id: playback.state.track?.id) {
+                lightGradient = [.clear]
+                gradient = [Color(red: 0.10, green: 0.12, blue: 0.18),
+                            Color(red: 0.035, green: 0.040, blue: 0.055)]
+                guard !requiresOpaqueBackground else { return }
+                await extractGradient()
             }
             .onChange(of: reduceTransparency) {
-                if !requiresOpaqueBackground { extractGradient() }
+                if !requiresOpaqueBackground { Task { await extractGradient() } }
             }
     }
 
-    private func extractGradient() {
+    @MainActor
+    private func extractGradient() async {
         let source = ArtworkSource.resolve(for: playback.state.track)
         let expectedID = playback.state.track?.id
-        Task { @MainActor in
-            let img = await Task.detached(priority: .userInitiated) {
-                source.loadNSImage()
-            }.value
-            guard playback.state.track?.id == expectedID, let img else { return }
-            let colors = AlbumArtworkExtractor.dominantColors(img, count: 4)
-            gradient = ArtworkAtmospherePalette.colors(from: colors).map { Color(nsColor: $0) }
-        }
+        guard case .remote(let url) = source,
+              let image = await ImageLoader.shared.load(url).value,
+              !Task.isCancelled, playback.state.track?.id == expectedID else { return }
+        let colors = AlbumArtworkExtractor.dominantColors(image, count: 4)
+        lightGradient = ArtworkAtmospherePalette.lightColors(from: colors).map { Color(nsColor: $0) }
+        gradient = ArtworkAtmospherePalette.colors(from: colors).map { Color(nsColor: $0) }
     }
+
 }
 
 /// Slot-sized cover token above Now Playing chrome. Morphs still `CoverArtModeView`;

@@ -55,7 +55,7 @@ struct SidebarView: View {
                             .padding(.horizontal, 10)
                             .frame(maxWidth: .infinity, minHeight: AppleMusicTokens.navItemHeight, alignment: .leading)
                             .settingsSelection(selected)
-                            .foregroundStyle(BrandColors.textPrimary)
+                            .foregroundStyle(selected ? BrandColors.selectionText : BrandColors.textPrimary)
                         }
                         .buttonStyle(.fullAreaPlain)
                         .help(category.label)
@@ -90,7 +90,7 @@ struct SidebarView: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .background {
             Color.clear
-                .musesGlass(in: SidebarPaneShape.shape, role: .persistentChrome)
+                .musesGlass(in: SidebarPaneShape.shape, tint: BrandColors.sidebar.opacity(0.35), role: .persistentChrome)
                 .ignoresSafeArea(.container, edges: .top)
                 .allowsHitTesting(false)
         }
@@ -269,11 +269,11 @@ struct SidebarView: View {
             Image(systemName: icon)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(on && AppleMusicChrome.selectedNavUsesAccent
-                                 ? BrandColors.accent : BrandColors.textPrimary.opacity(on ? 1 : 0.85))
+                                 ? BrandColors.selectionText : BrandColors.textPrimary.opacity(on ? 1 : 0.85))
                 .frame(width: 36, height: 36)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(on ? BrandColors.accent.opacity(0.18) : Color.clear)
+                        .fill(on ? BrandColors.selectionFill : Color.clear)
                         .selectionHalo(on)
                 )
         }
@@ -340,7 +340,7 @@ struct SidebarView: View {
                 Spacer(minLength: 0)
             }
             .foregroundStyle(on && AppleMusicChrome.selectedNavUsesAccent
-                             ? BrandColors.accent : BrandColors.textPrimary.opacity(on ? 1 : 0.85))
+                             ? BrandColors.selectionText : BrandColors.textPrimary.opacity(on ? 1 : 0.85))
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, minHeight: AppleMusicTokens.navItemHeight, alignment: .leading)
             .settingsSelection(on)

@@ -20,7 +20,8 @@ struct FollowedPodcastsView: View {
             LazyVStack(alignment: .leading, spacing: 16) {
                 HStack {
                     Text(tr("Followed Podcasts", "已关注的播客", zhHant: "已追蹤的 Podcast"))
-                        .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
+                        .font(MusesTypography.pageTitle)
+                        .foregroundStyle(BrandColors.heading)
                     Spacer()
                     if selectedID != nil {
                         ChromeIconButton(systemName: "arrow.clockwise",

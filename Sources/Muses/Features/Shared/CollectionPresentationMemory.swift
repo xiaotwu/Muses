@@ -10,6 +10,7 @@ final class CollectionPresentationMemory {
     @MainActor
     final class Entry {
         var mode = CollectionPageMode.stage { didSet { if oldValue != mode { persist() } } }
+        var artworkLayout = CollectionArtworkLayout.focusStrip { didSet { if oldValue != artworkLayout { persist() } } }
         var focusedID: UUID? { didSet { if oldValue != focusedID { persist() } } }
         var selection = Set<UUID>() { didSet { if oldValue != selection { persist() } } }
         var sortOrder: [KeyPathComparator<CollectionTrackRow>]?
@@ -22,6 +23,7 @@ final class CollectionPresentationMemory {
             onChange: @escaping (CollectionPresentationSnapshot) -> Void = { _ in }
         ) {
             mode = snapshot?.mode ?? .stage
+            artworkLayout = snapshot?.artworkLayout ?? .focusStrip
             focusedID = snapshot?.focusedID
             selection = snapshot?.selection ?? []
             self.onChange = onChange
@@ -31,7 +33,8 @@ final class CollectionPresentationMemory {
             onChange(CollectionPresentationSnapshot(
                 mode: mode,
                 focusedID: focusedID,
-                selection: selection
+                selection: selection,
+                artworkLayout: artworkLayout
             ))
         }
     }
@@ -82,14 +85,20 @@ struct CollectionPresentationSnapshot: Codable, Equatable {
     let modeRawValue: String
     let focusedID: UUID?
     let selection: Set<UUID>
+    let artworkLayoutRawValue: String?
 
-    init(mode: CollectionPageMode, focusedID: UUID?, selection: Set<UUID>) {
+    init(mode: CollectionPageMode, focusedID: UUID?, selection: Set<UUID>,
+         artworkLayout: CollectionArtworkLayout = .focusStrip) {
         modeRawValue = mode == .list ? "list" : "stage"
         self.focusedID = focusedID
         self.selection = Set(selection.prefix(500))
+        artworkLayoutRawValue = artworkLayout.rawValue
     }
 
     var mode: CollectionPageMode { modeRawValue == "list" ? .list : .stage }
+    var artworkLayout: CollectionArtworkLayout {
+        artworkLayoutRawValue.flatMap(CollectionArtworkLayout.init(rawValue:)) ?? .focusStrip
+    }
 
     static func read(key: String, defaults: UserDefaults) -> Self? {
         guard let data = defaults.data(forKey: key), data.count <= 64 * 1024 else { return nil }

@@ -235,8 +235,8 @@ struct CollectionPageHeader<Controls: View>: View {
         HStack(alignment: .center, spacing: AppleMusicSpacing.related) {
             HStack(alignment: .center, spacing: 10) {
                 Text(title)
-                    .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
-                    .foregroundStyle(BrandColors.textPrimary)
+                    .font(MusesTypography.heading(title))
+                    .foregroundStyle(BrandColors.heading)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -446,8 +446,8 @@ private struct CollectionTrackTable: View {
                                         .foregroundStyle(BrandColors.textSecondary)
                                         .frame(width: 40, alignment: .trailing)
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(row.title).lineLimit(1)
-                                        Text(row.artist).font(.caption)
+                                        Text(row.title).font(MusesTypography.song(size: 14, emphasized: true, text: row.title)).lineLimit(1)
+                                        Text(row.artist).font(MusesTypography.song(size: 12, text: row.artist))
                                             .foregroundStyle(BrandColors.textSecondary)
                                             .lineLimit(1)
                                     }
@@ -682,7 +682,7 @@ private struct CollectionTrackTable: View {
 
     private func secondaryText(_ value: String) -> some View {
         Text(value.isEmpty ? "—" : value)
-            .font(.system(size: 12.5))
+            .font(MusesTypography.song(size: 12.5))
             .foregroundStyle(BrandColors.textSecondary)
             .lineLimit(1)
     }
@@ -736,7 +736,7 @@ private struct CollectionTrackTitleCell: View {
             .accessibilityLabel(tr("Play \(row.title)", "播放 \(row.title)", zhHant: "播放 \(row.title)"))
 
             Text(row.title)
-                .font(.system(size: 13, weight: isPlaying ? .semibold : .regular))
+                .font(MusesTypography.song(size: 13, emphasized: isPlaying, text: row.title))
                 .foregroundStyle(isPlaying ? BrandColors.accent : BrandColors.textPrimary)
                 .lineLimit(1)
 

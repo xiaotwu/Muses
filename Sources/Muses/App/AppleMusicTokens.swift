@@ -5,8 +5,8 @@ import Foundation
 /// responsive breakpoints so constrained layouts can adapt without drifting.
 enum AppleMusicSpacing {
     static let pageHorizontal: CGFloat = 40
-    static let pageTop: CGFloat = 18
-    static let browseTitleTop: CGFloat = 32
+    static let pageTop: CGFloat = 16
+    static let browseTitleTop: CGFloat = pageTop
     /// Space from a page-level title/action row to its primary content.
     static let headerToPrimary: CGFloat = 28
     /// Space between controls that belong to the same content group.
@@ -41,7 +41,9 @@ enum AppleMusicTokens {
     static let maxContentWidth: CGFloat = 1560
     static let scrollBottomInset: CGFloat = OverlayChromeMetrics.scrollBottomInset
     static let navItemHeight: CGFloat = 34
-    static let playerBottomMargin: CGFloat = 20
+    // Keep the floating player clear of the window edge while leaving more room
+    // for collection previews above it. Shared by every browsing surface.
+    static let playerBottomMargin: CGFloat = 64
     static let playerHorizontalMargin: CGFloat = 16
     static let capsuleWidth: CGFloat = 668
     static let capsuleHeight: CGFloat = 56
@@ -382,5 +384,5 @@ enum SongGridMetrics {
 }
 
 enum OverlayChromeMetrics {
-    static let scrollBottomInset: CGFloat = 96
+    static let scrollBottomInset: CGFloat = AppleMusicTokens.capsuleHeight + AppleMusicTokens.playerBottomMargin + 20
 }

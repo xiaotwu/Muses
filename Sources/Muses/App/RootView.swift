@@ -782,7 +782,7 @@ extension Notification.Name {
 }
 
 enum BrandColors {
-    /// Dynamic theme colors: Apple Music near-black in dark mode and a restrained light palette.
+    /// Semantic T3C surfaces and accents, with neutral reading colors.
     /// Uses `NSColor(name:dynamicProvider:)` so every call site follows appearance changes with no extra code.
     private static func dynamic(_ dark: NSColor, _ light: NSColor) -> Color {
         Color(nsColor: NSColor(name: nil) { (appearance: NSAppearance) -> NSColor in
@@ -806,22 +806,15 @@ enum BrandColors {
         NSColor(srgbRed: r, green: g, blue: b, alpha: a)
     }
 
-    /// Measured Apple Music Web page fill (`body` #1F1F1F dark / white light).
-    static let background = dynamic(
-        rgb(AppleMusicTokens.darkPageRGB.r,
-            AppleMusicTokens.darkPageRGB.g,
-            AppleMusicTokens.darkPageRGB.b),
-        rgb(AppleMusicTokens.lightPageRGB.r,
-            AppleMusicTokens.lightPageRGB.g,
-            AppleMusicTokens.lightPageRGB.b)
-    )
-    /// Card/surface color: slightly elevated above the page background.
-    static let surface = dynamic(
-        rgb(0.15, 0.15, 0.17),
-        rgb(0.92, 0.92, 0.94)
-    )
-    /// Adaptive monochrome selection accent. YouTube and destructive colors stay semantic.
-    static let accent = dynamic(rgb(0.98, 0.98, 0.99), rgb(0.06, 0.06, 0.07))
+    static let background = MusesThemePalette.color(.page)
+    static let surface = MusesThemePalette.color(.surface)
+    static let sidebar = MusesThemePalette.color(.sidebar)
+    static let accent = MusesThemePalette.color(.accent)
+    static let heading = MusesThemePalette.color(.heading)
+    static let selectionText = MusesThemePalette.color(.selectionText)
+    static let selectionFill = MusesThemePalette.color(.selectionFill)
+    static let playback = MusesThemePalette.color(.playback)
+    static let onPlayback = MusesThemePalette.color(.onPlayback)
     static let textPrimary = dynamic(
         rgb(0.94, 0.94, 0.94),
         rgb(0.09, 0.09, 0.10)

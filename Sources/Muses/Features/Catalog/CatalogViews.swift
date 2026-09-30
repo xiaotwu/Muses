@@ -158,8 +158,8 @@ struct CatalogReleasesView: View {
     private var pageHeader: some View {
         HStack(alignment: .center) {
             Text(tr("Albums", "专辑"))
-                .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
-                .foregroundStyle(BrandColors.textPrimary)
+                .font(MusesTypography.pageTitle)
+                .foregroundStyle(BrandColors.heading)
             Spacer()
             ChromeIconButton(
                 systemName: "arrow.clockwise",
@@ -804,8 +804,8 @@ struct CatalogArtistsView: View {
     private var pageHeader: some View {
         HStack(alignment: .center) {
             Text(tr("Artists", "艺术家"))
-                .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
-                .foregroundStyle(BrandColors.textPrimary)
+                .font(MusesTypography.pageTitle)
+                .foregroundStyle(BrandColors.heading)
             Spacer()
             ChromeIconButton(
                 systemName: "arrow.clockwise",

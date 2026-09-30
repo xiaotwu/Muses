@@ -50,6 +50,36 @@ final class YouTubeImportService {
     private let session: URLSession
     private weak var catalog: YouTubeCatalogService?
     private let log = AppLog.for("YouTubeImportService")
+    @ObservationIgnored private var songMetadataCache: [String: (date: Date, entry: YTDlpBridge.YTDlpPlaylistEntry?)] = [:]
+
+    /// Presentation-only enrichment; persisted user edits and sync truth are untouched.
+    func songMetadata(videoID: String) async -> YTDlpBridge.YTDlpPlaylistEntry? {
+        if let cached = songMetadataCache[videoID], Date().timeIntervalSince(cached.date) < 300 {
+            return cached.entry
+        }
+        let entry = try? await bridge.fetchSongMetadata(videoId: videoID, timeout: 20)
+        guard !Task.isCancelled else { return nil }
+        if songMetadataCache.count >= 96 { songMetadataCache.removeAll() }
+        songMetadataCache[videoID] = (Date(), entry)
+        return entry
+    }
+
+    /// Resolve collection presentation context in a fresh context, without retaining models.
+    func songPresentationRow(for snapshot: TrackSnapshot) -> CollectionTrackRow {
+        let context = ModelContext(modelContainer)
+        let videoID = snapshot.youTubeId
+        let descriptor = FetchDescriptor<YouTubeImportItem>(
+            predicate: #Predicate { $0.youTubeId == videoID }
+        )
+        let owner = (try? context.fetch(descriptor))?.compactMap { item -> YouTubeImport? in
+            guard let imported = item.import_, imported.deletedAt == nil,
+                  imported.channel == snapshot.artist else { return nil }
+            return imported
+        }.first
+        return CollectionTrackRow(snapshot: snapshot, canonicalIndex: 0,
+            collectionOwner: owner?.channel,
+            collectionTitle: owner.flatMap { YouTubePlaylistID.isMusicAlbum($0.playlistId) ? nil : $0.title })
+    }
 
     init(bridge: any YTDlpBridgeProtocol,
          modelContainer: ModelContainer,
@@ -122,7 +152,7 @@ final class YouTubeImportService {
         var items: [YouTubeImportItem] = []
         for (index, entry) in entries.enumerated() {
             let durationMs = Int((entry.duration ?? 0) * 1000)
-            let artist = entry.uploader ?? channel
+            let artist = entry.artist ?? entry.uploader ?? tr("Unknown Artist", "未知艺人")
 
             let item = YouTubeImportItem(
                 youTubeId: entry.id,
@@ -365,6 +395,7 @@ final class YouTubeImportService {
                 existing.artworkUrl = thumbnailURL(forVideoId: entry.id)
             }
             updateCatalogIdentity(track: existing, entry: entry)
+            if existing.albumTitle == nil { existing.albumTitle = entry.album }
             upsertCatalogArtist(stableID: existing.artistCatalogID, name: artist,
                                 channelID: entry.channelID, context: ctx)
             return existing
@@ -381,6 +412,7 @@ final class YouTubeImportService {
             artistCatalogID: artistStableID
         )
         ctx.insert(track)
+        track.albumTitle = entry.album
         upsertCatalogArtist(stableID: artistStableID, name: artist,
                             channelID: entry.channelID, context: ctx)
         return track

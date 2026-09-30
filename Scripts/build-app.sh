@@ -9,8 +9,8 @@
 #
 # 参数/环境:
 #   --identity <id>   签名身份(默认 $MUSES_SIGN_IDENTITY 或 "-" = ad-hoc)
-#   MUSES_VERSION     Override CFBundleShortVersionString (default 0.5.5)
-#   MUSES_BUILD       Override CFBundleVersion (default 20260927.1)
+#   MUSES_VERSION     Override CFBundleShortVersionString (default 0.5.6)
+#   MUSES_BUILD       Override CFBundleVersion (default 20260930.1)
 #   MUSES_GOOGLE_OAUTH_CLIENT_ID       Muses 项目持有的 Desktop OAuth client ID
 #   MUSES_GOOGLE_OAUTH_CLIENT_SECRET   Matching Desktop OAuth field when required by the issuer
 #   MUSES_GOOGLE_OAUTH_REDIRECT_URI    可选；默认 http://127.0.0.1:0/（Desktop loopback 随机端口）
@@ -42,8 +42,8 @@ if [[ "$APP" != *.app || "$APP" == ".app" ]]; then
     exit 1
 fi
 
-VERSION="${MUSES_VERSION:-0.5.5}"
-BUILD="${MUSES_BUILD:-20260927.1}"
+VERSION="${MUSES_VERSION:-0.5.6}"
+BUILD="${MUSES_BUILD:-20260930.1}"
 
 CONTENTS="$APP/Contents"
 

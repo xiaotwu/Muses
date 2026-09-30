@@ -41,7 +41,7 @@ struct HeroObjectView: View {
 
                 Button(action: onOpen) {
                     Text(title)
-                        .font(.largeTitle).fontWeight(.bold)
+                        .font(MusesTypography.pageTitle)
                         .foregroundStyle(BrandColors.textPrimary)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
@@ -49,7 +49,7 @@ struct HeroObjectView: View {
                 .buttonStyle(.fullAreaPlain)
 
                 Text(subtitle)
-                    .font(.title3)
+                    .font(MusesTypography.song(size: 20))
                     .foregroundStyle(BrandColors.textSecondary)
 
                 if let metadata {

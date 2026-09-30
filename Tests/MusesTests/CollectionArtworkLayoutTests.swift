@@ -1,0 +1,107 @@
+import Foundation
+import AppKit
+import Testing
+@testable import Muses
+
+@MainActor
+@Suite("Collection artwork layouts")
+struct CollectionArtworkLayoutTests {
+    private func row(artist: String = "Publisher", album: String? = "Liked",
+                     owner: String? = "Publisher") -> CollectionTrackRow {
+        CollectionTrackRow(snapshot: TrackSnapshot(
+            id: UUID(), title: "Video title", artist: artist, albumTitle: album,
+            durationSeconds: 180, youTubeId: "abcdefghijk", artworkUrl: nil,
+            sampleRate: nil, bitDepth: nil, codec: nil, isLossless: false),
+            canonicalIndex: 4, collectionOwner: owner, collectionTitle: "Liked")
+    }
+
+    @Test("Layout switch persists without losing occurrence focus or table selection")
+    func presentationMemory() throws {
+        let name = "MusesTests.artworkLayout.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let identity = UUID()
+        let route = BrowseRoute.playlist(UUID())
+        let memory = CollectionPresentationMemory(defaults: defaults)
+        let entry = memory.entry(for: route)
+        entry.focusedID = identity
+        entry.selection = [identity]
+        entry.artworkLayout = .coverWall
+        entry.mode = .list
+        let restored = CollectionPresentationMemory(defaults: defaults).entry(for: route)
+        #expect(restored.artworkLayout == .coverWall)
+        #expect(restored.focusedID == identity)
+        #expect(restored.selection == [identity])
+        #expect(restored.mode == .list)
+        let old = Data(#"{"modeRawValue":"stage","selection":[]}"#.utf8)
+        #expect(try JSONDecoder().decode(CollectionPresentationSnapshot.self, from: old).artworkLayout == .focusStrip)
+    }
+
+    @Test("Wall columns fill their available width across compact and maximized windows")
+    func wallGeometry() {
+        for width: CGFloat in [320, 680, 980, 1_800] {
+            let wall = CollectionDeckGeometry.wall(containerWidth: width)
+            #expect(wall.columns >= 1)
+            let occupied = CGFloat(wall.columns) * wall.geometry.cardWidth + CGFloat(wall.columns - 1) * 24
+            #expect(abs(occupied - width) < 0.01)
+        }
+        #expect(CollectionDeckGeometry.wall(containerWidth: 1_800).columns
+                > CollectionDeckGeometry.wall(containerWidth: 680).columns)
+    }
+
+    @Test("Preview reveals only whole rows that fit above the player")
+    func previewGeometry() {
+        for height: CGFloat in [600, 800, 1_130, 1_600] {
+            let geometry = CollectionDeckGeometry.resolve(containerWidth: 1_400, containerHeight: height)
+            let count = CollectionStageSpacing.previewCount(height: height, geometry: geometry, itemCount: 500)
+            #expect(count >= 0 && count <= CollectionStageSpacing.maximumPreviewRows)
+            if height == 600 { #expect(count == 0) }
+            if height == 1_130 { #expect(count > 0) }
+            #expect(CollectionStageSpacing.previewCount(height: height, geometry: geometry, itemCount: 1) <= 1)
+        }
+        #expect(CollectionDeckScrubberMetrics.stageClearance >= 24)
+        #expect(AppleMusicTokens.playerBottomMargin > 20)
+    }
+
+    @Test("Playlist owner and ordinary playlist title are not song artist or album")
+    func songInformation() throws {
+        let original = row()
+        #expect(original.artist != "Publisher")
+        #expect(original.album.isEmpty)
+        let data = Data(#"{"id":"abcdefghijk","title":"Video title","uploader":"Publisher","track":"Song title","artist":"Performer","album":"Real album"}"#.utf8)
+        let entry = try JSONDecoder().decode(YTDlpBridge.YTDlpPlaylistEntry.self, from: data)
+        let information = SongDisplayInformation(row: original, metadata: entry)
+        #expect(information.title == "Song title")
+        #expect(information.artist == "Performer")
+        #expect(information.album == "Real album")
+        #expect(original.snapshot.artist == "Publisher")
+        #expect(original.canonicalIndex == 4)
+        let edited = row(artist: "My corrected performer", album: "My album")
+        let preserved = SongDisplayInformation(row: edited, metadata: entry)
+        #expect(preserved.artist == "My corrected performer")
+        #expect(preserved.album == "My album")
+        let unrelated = YTDlpBridge.YTDlpPlaylistEntry(id: "other_vid01", title: "Wrong", artist: "Wrong")
+        #expect(SongDisplayInformation(row: original, metadata: unrelated) == SongDisplayInformation(row: original))
+    }
+
+    @Test("Light glass keeps artwork hues and falls back for grayscale covers")
+    func lightArtworkPalette() {
+        let purple = NSColor(srgbRed: 0.52, green: 0.24, blue: 0.72, alpha: 1)
+        let palette = ArtworkAtmospherePalette.lightColors(from: [.white, .darkGray, purple])
+        #expect(palette.count == 1)
+        #expect(palette.first == purple)
+        #expect(!ArtworkAtmospherePalette.lightColors(from: [.white, .gray]).isEmpty)
+    }
+
+    @Test("Now Playing grows at maximized size and centers when lyrics are hidden")
+    func artworkGeometry() {
+        let window = NowPlayingLayout.resolve(width: 1_228, height: 768, isPlaying: true)
+        let maximum = NowPlayingLayout.resolve(width: 1_912, height: 1_160, isPlaying: true)
+        let centered = NowPlayingLayout.resolve(width: 1_912, height: 1_160, isPlaying: true, showsLyrics: false)
+        #expect(maximum.stageSide > window.stageSide)
+        #expect(maximum.stageSide + 270 <= 1_160)
+        #expect(centered.presentation == .centered)
+        #expect(centered.stageSide == maximum.stageSide)
+        #expect(abs(centered.renderedArtworkSide - centered.stageSide) < 0.01)
+    }
+}

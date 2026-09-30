@@ -411,11 +411,11 @@ struct LyricsView: View {
         VStack(alignment: layout == .leading ? .leading : .center,
                spacing: layout.isImmersive ? 4 : 2) {
             if isCurrent, let words = line.words, line.time != nil {
-                wordRow(words: words, position: position)
+                wordRow(words: words, position: position, text: line.text)
             } else {
                 Text(line.text)
-                    .font(lineFont(isCurrent: isCurrent))
-                    .fontWeight(isCurrent ? .bold : (layout.isImmersive ? .medium : .regular))
+                    .font(lineFont(isCurrent: isCurrent, text: line.text))
+                    .lineSpacing(layout.isImmersive ? 6 : 3)
                     .multilineTextAlignment(layout.textAlignment)
                     .frame(maxWidth: .infinity, alignment: layout.alignment)
                     .currentLyricAccentIfNeeded(isCurrent)
@@ -459,25 +459,20 @@ struct LyricsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func lineFont(isCurrent: Bool) -> Font {
-        if layout == .fullscreen { return .system(size: isCurrent ? 40 : 26, weight: isCurrent ? .bold : .regular) }
-        if layout.isImmersive {
-            return .system(size: isCurrent ? 34 : 26,
-                           weight: isCurrent ? .bold : .medium)
-        }
-        return isCurrent ? .title2 : .body
+    private func lineFont(isCurrent: Bool, text: String) -> Font {
+        let size: CGFloat = layout == .fullscreen ? (isCurrent ? 40 : 26)
+            : (layout.isImmersive ? (isCurrent ? 34 : 26) : (isCurrent ? 22 : 17))
+        return MusesTypography.lyric(size: size, current: isCurrent, text: text)
     }
 
     /// Word-level row: renders the current line's `LyricWord` sequence as one
     /// inline row of text, highlighting the word at the current position.
-    private func wordRow(words: [LyricWord], position: Double) -> some View {
+    private func wordRow(words: [LyricWord], position: Double, text: String) -> some View {
         let activeWord = Self.currentWordIndex(in: words, at: position, offset: offsetSeconds)
         return HStack(spacing: 0) {
             ForEach(Array(words.enumerated()), id: \.element.id) { wi, w in
                 Text(w.text)
-                    .font(layout.isImmersive
-                        ? .system(size: 34, weight: .bold)
-                        : .title2.bold())
+                    .font(lineFont(isCurrent: true, text: text))
                     .opacity(activeWord == nil || wi == activeWord ? 1 : 0.68)
             }
         }
@@ -488,13 +483,26 @@ struct LyricsView: View {
 
     /// Empty lyrics: quiet, Demus / Better Lyrics style. No instructional copy.
     private var placeholder: some View {
-        Text(loading ? tr("Finding lyrics…", "正在查找歌词…", zhHant: "正在尋找歌詞…")
-                     : tr("No lyrics available", "无可用歌词", zhHant: "無可用歌詞"))
-            .font(.title3)
-            .foregroundStyle(BrandColors.textSecondary.opacity(0.7))
-            .frame(maxWidth: .infinity, maxHeight: .infinity,
-                   alignment: layout.alignment)
-            .padding(.vertical, 16)
+        VStack(alignment: layout == .leading ? .leading : .center, spacing: 16) {
+            Text(loading ? tr("Finding lyrics…", "正在查找歌词…")
+                         : tr("Find lyrics for this song", "为这首歌找到歌词"))
+                .font(layout.isImmersive ? .title2.bold() : .headline)
+                .foregroundStyle(BrandColors.textPrimary)
+            if !loading, playback.transportState.track != nil {
+                Text(tr("Search by song title, then choose the matching recording.",
+                        "可仅用歌名扩大搜索，再选择对应的录音版本。"))
+                    .font(.subheadline)
+                    .foregroundStyle(BrandColors.textSecondary)
+                    .multilineTextAlignment(layout.textAlignment)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button { showMatches = true } label: {
+                    Label(tr("Match Lyrics", "匹配歌词"), systemImage: "text.magnifyingglass")
+                }
+                .musesAction()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: layout.alignment)
+        .padding(.vertical, 16)
     }
 
     /// Loads lyrics for the current track (reloading whenever the track changes).

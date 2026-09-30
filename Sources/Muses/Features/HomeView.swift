@@ -54,8 +54,8 @@ struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: AppleMusicSpacing.section) {
                 Text(tr("Home", "首页"))
-                    .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
-                    .foregroundStyle(BrandColors.textPrimary)
+                    .font(MusesTypography.pageTitle)
+                    .foregroundStyle(BrandColors.heading)
                     .padding(.horizontal, AppleMusicTokens.contentPaddingX)
 
                 homeSourceStatus

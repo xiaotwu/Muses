@@ -53,8 +53,8 @@ struct HistoryView: View {
     private var header: some View {
         HStack(alignment: .center) {
             Text(tr("History", "历史"))
-                .font(.system(size: AppleMusicTokens.pageTitleSize, weight: .heavy))
-                .foregroundStyle(BrandColors.textPrimary)
+                .font(MusesTypography.pageTitle)
+                .foregroundStyle(BrandColors.heading)
             Spacer()
             if dashboard?.totalEventCount ?? 0 > 0 {
                 ChromeIconButton(
@@ -99,7 +99,7 @@ struct HistoryView: View {
         VStack(alignment: .leading, spacing: AppleMusicSpacing.section) {
             HStack {
                 Text(tr("Listening overview", "收听概览"))
-                    .font(.system(size: AppleMusicTokens.sectionTitleSize, weight: .bold))
+                    .font(MusesTypography.sectionTitle)
                 Spacer()
                 Picker("", selection: $range) {
                     ForEach(RecapRange.allCases, id: \.self) { item in
@@ -215,7 +215,7 @@ struct HistoryView: View {
     private func recentActivity(_ events: [ListeningEventSnapshot], range: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(tr("Recent activity · \(range)", "最近活动 · \(range)", zhHant: "最近活動 · \(range)"))
-                .font(.system(size: AppleMusicTokens.sectionTitleSize, weight: .bold))
+                .font(MusesTypography.sectionTitle)
             LazyVStack(spacing: 2) {
                 ForEach(events) { event in
                     let track = library.track(by: event.trackId)

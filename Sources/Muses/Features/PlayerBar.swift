@@ -93,7 +93,7 @@ struct PlayerBar: View {
                     .fill(BrandColors.textPrimary.opacity(0.18))
                     .frame(height: trackHeight)
                 Capsule()
-                    .fill(BrandColors.accent)
+                    .fill(BrandColors.playback)
                     .frame(width: geo.size.width * fraction, height: trackHeight)
 
                 if (isTrackHovered || isDraggingScrubber) && playback.state.duration > 0 {
@@ -161,7 +161,7 @@ struct PlayerBar: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 Text(tr("Not Playing", "未在播放"))
-                    .font(.subheadline.weight(.semibold))
+                    .font(MusesTypography.song(size: 13, emphasized: true))
                     .foregroundStyle(BrandColors.textPrimary)
                 Text("Muses").font(.caption).foregroundStyle(BrandColors.textSecondary)
             }
@@ -201,12 +201,12 @@ struct PlayerBar: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(playback.state.track?.title ?? "")
-                    .font(.subheadline.weight(.semibold))
+                    .font(MusesTypography.song(size: 13, emphasized: true, text: playback.state.track?.title ?? ""))
                     .foregroundStyle(BrandColors.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Text(playback.state.track?.artist ?? "")
-                    .font(.caption)
+                    .font(MusesTypography.song(size: 12))
                     .foregroundStyle(BrandColors.textSecondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -321,14 +321,14 @@ struct PlaybackTransport: View {
                             .frame(width: playHit + 5, height: playHit + 5)
                         Circle()
                             .trim(from: 0, to: fraction)
-                            .stroke(BrandColors.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                            .stroke(BrandColors.playback, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                             .rotationEffect(.degrees(-90))
                             .frame(width: playHit + 5, height: playHit + 5)
                     }
-                    Circle().fill(BrandColors.textPrimary)
+                    Circle().fill(BrandColors.playback)
                     Image(systemName: playback.state.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(BrandColors.background)
+                        .foregroundStyle(BrandColors.onPlayback)
                         .offset(x: playback.state.isPlaying ? 0 : 1)
                 }
                 .frame(width: playHit, height: playHit)
