@@ -10,6 +10,8 @@ struct CatalogIdentityReviewView: View {
     @State private var loading = false
     @State private var query = ""
     @State private var candidateCount = 0
+    @State private var unresolvedCount = 0
+    @State private var resolvedCount = 0
     @State private var receipt: CatalogMigrationReceipt?
     @State private var migrationAvailable = false
     @State private var migrationError: String?
@@ -27,31 +29,21 @@ struct CatalogIdentityReviewView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            GroupBox {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 12) {
-                        TextField(tr("Find a track", "查找曲目", zhHant: "尋找曲目"), text: $query)
-                            .textFieldStyle(.roundedBorder)
-                        Button { Task { await refresh() } } label: {
-                            Image(systemName: "arrow.clockwise")
-                                .frame(minWidth: 28, minHeight: 28)
-                                .contentShape(Rectangle())
-                        }
-                        .musesAction()
-                        .help(tr("Refresh preview", "刷新预览", zhHant: "重新整理預覽"))
-                        .accessibilityLabel(tr("Refresh preview", "刷新预览", zhHant: "重新整理預覽"))
-                        .disabled(loading)
-                    }
-                    migrationControls
-                    if let preview {
-                        Text(tr("Tracks: \(preview.rows.count) · New release relationships: \(candidateCount)",
-                                "\(preview.rows.count) 首曲目 · \(candidateCount) 条新发行关系",
-                                zhHant: "\(preview.rows.count) 首曲目 · \(candidateCount) 條新發行關係"))
-                            .font(MusesTypography.caption).foregroundStyle(.secondary)
-                    }
+            if preview != nil {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) { summaryTiles }
+                    VStack(spacing: 8) { summaryTiles }
                 }
-                .padding(8)
             }
+            HStack(spacing: 8) {
+                TextField(tr("Find a track", "查找曲目", zhHant: "尋找曲目"), text: $query)
+                    .textFieldStyle(.roundedBorder)
+                SettingsIconButton(title: tr("Refresh preview", "刷新预览", zhHant: "重新整理預覽"), symbol: "arrow.clockwise") {
+                    Task { await refresh() }
+                }.disabled(loading)
+                applyButton
+            }
+            migrationControls
             if loading {
                 ProgressView(tr("Reading library…", "正在读取资料库…", zhHant: "正在讀取資料庫…"))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -61,7 +53,7 @@ struct CatalogIdentityReviewView: View {
                 } description: {
                     Text(tr("No changes were made. Refresh to try again.", "未做任何修改。请刷新重试。", zhHant: "未做任何修改。請重新整理再試。"))
                 }
-            } else if let preview {
+            } else if preview != nil {
                 if visibleRows.isEmpty {
                     ContentUnavailableView(tr("No tracks to review", "没有可核对的曲目", zhHant: "沒有可核對的曲目"), systemImage: "music.note.list")
                 } else {
@@ -94,9 +86,11 @@ struct CatalogIdentityReviewView: View {
                             }
                             .font(MusesTypography.callout).padding(.vertical, 8)
                         } label: {
-                            VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 12) {
                                 Text(row.title).lineLimit(2)
-                                Text(row.resolution.reviewLabel).font(MusesTypography.caption).foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                SettingsStatus(title: row.resolution.reviewLabel,
+                                               symbol: row.resolution.reviewSymbol)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.vertical, 4)
@@ -130,28 +124,58 @@ struct CatalogIdentityReviewView: View {
         }
     }
 
+    @ViewBuilder private var summaryTiles: some View {
+        reviewStat(tr("Relationships to apply", "可应用关系"), value: candidateCount)
+        reviewStat(tr("Tracks to review", "待核对曲目"), value: unresolvedCount)
+        reviewStat(tr("Linked tracks", "已关联曲目"), value: resolvedCount)
+    }
+
+    private func reviewStat(_ title: String, value: Int) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(value.formatted())
+                .font(MusesTypography.heading(value.formatted(), size: 26))
+                .foregroundStyle(BrandColors.heading)
+            Text(title).font(MusesTypography.callout).foregroundStyle(.secondary)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+        .accessibilityElement(children: .combine)
+    }
+
+    private var applyButton: some View {
+        Button(tr("Apply · \(candidateCount)", "应用 · \(candidateCount)")) {
+            undoRequested = false
+            confirmMigration = true
+        }
+        .settingsAction(prominent: true)
+        .disabled(loading || !migrationAvailable || candidateCount == 0 || receipt?.state == .prepared || receipt?.state == .rollingBack)
+        .help(tr("Applies every verified relationship, including tracks hidden by search.",
+                 "应用全部已核实关系，包括搜索隐藏的曲目。"))
+    }
+
     private var migrationControls: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Button(tr("Apply relationships (\(candidateCount))…", "应用 \(candidateCount) 个关系…", zhHant: "套用 \(candidateCount) 個關係…")) {
-                    undoRequested = false
-                    confirmMigration = true
-                }
-                .disabled(loading || !migrationAvailable || candidateCount == 0 || receipt?.state == .prepared || receipt?.state == .rollingBack)
-                if let receipt {
-                    if receipt.state != .rolledBack {
-                        Button(tr("Roll back last migration…", "回滚上次迁移…", zhHant: "回復上次移轉…")) {
-                            undoRequested = true
-                            confirmMigration = true
-                        }.disabled(loading || !migrationAvailable)
-                    }
-                    Button(tr("Show recovery snapshot", "显示恢复快照", zhHant: "顯示復原快照")) {
-                        NSWorkspace.shared.activateFileViewerSelecting([receipt.snapshot])
+            if let receipt {
+                DisclosureGroup(tr("Recovery", "恢复")) {
+                    HStack(spacing: 8) {
+                        Spacer()
+                        if receipt.state != .rolledBack {
+                            Button(tr("Roll back…", "回滚…")) {
+                                undoRequested = true
+                                confirmMigration = true
+                            }
+                            .settingsAction()
+                            .disabled(loading || !migrationAvailable)
+                        }
+                        SettingsIconButton(title: tr("Show recovery snapshot", "显示恢复快照", zhHant: "顯示復原快照"), symbol: "folder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([receipt.snapshot])
+                        }
                     }
                 }
             }
             if receipt?.state == .prepared || receipt?.state == .rollingBack {
-                Text(tr("The previous operation did not finish. Review its snapshot or roll it back before continuing.", "上次操作未完成，请先检查快照或回滚。", zhHant: "上次操作未完成，請先檢查快照或回復。"))
+                Label(tr("Operation unfinished. Review recovery before continuing.", "操作未完成，请先查看恢复记录。"), systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
             }
             if let migrationError {
@@ -196,6 +220,13 @@ struct CatalogIdentityReviewView: View {
                     count += releases.count
                 }
             }
+            unresolvedCount = result.rows.filter {
+                switch $0.resolution {
+                case .ambiguous, .unresolved: true
+                default: false
+                }
+            }.count
+            resolvedCount = result.rows.filter { $0.resolution == .alreadyResolved }.count
             migrationAvailable = (try? CatalogIdentityMigration.storeURL(modelContext.container)) != nil
             if migrationAvailable {
                 do { receipt = try CatalogIdentityMigration.latestReceipt(in: modelContext.container) }
@@ -235,16 +266,25 @@ private struct CatalogReviewDisclosureStyle: DisclosureGroupStyle {
 }
 
 extension CatalogIdentityPreview.Resolution {
+    var reviewSymbol: String {
+        switch self {
+        case .alreadyResolved: "checkmark.circle"
+        case .proposed: "arrow.down.circle"
+        case .ambiguous: "exclamationmark.triangle"
+        case .unresolved: "questionmark.circle"
+        }
+    }
+
     var reviewLabel: String {
         switch self {
         case .alreadyResolved:
-            tr("Existing source identity · retained", "已有来源身份 · 保留", zhHant: "已有來源身分 · 保留")
+            tr("Linked", "已关联", zhHant: "已關聯")
         case .proposed:
-            tr("Direct release evidence · not applied", "直接发行证据 · 未应用", zhHant: "直接發行證據 · 未套用")
+            tr("Verified · pending", "已核实 · 待应用", zhHant: "已核實 · 待套用")
         case .ambiguous:
-            tr("Unsupported relationship · unresolved", "不受支持的关系 · 未解析", zhHant: "不受支援的關係 · 未解析")
+            tr("Needs review", "待核对", zhHant: "待核對")
         case .unresolved:
-            tr("Insufficient source evidence", "来源证据不足", zhHant: "來源證據不足")
+            tr("Needs evidence", "缺少证据", zhHant: "缺少證據")
         }
     }
 }

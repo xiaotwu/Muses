@@ -8,7 +8,7 @@ struct NotificationsSettingsView: View {
 
     var body: some View {
         Section {
-            Toggle(tr("Notify on Track Change", "换歌时通知"), isOn: $trackChangeEnabled)
+            Toggle(tr("Track changes", "换歌通知"), isOn: $trackChangeEnabled)
                 .tint(BrandColors.accent)
                 .onChange(of: trackChangeEnabled) { _, on in
                     if on && !authorizationRequested {

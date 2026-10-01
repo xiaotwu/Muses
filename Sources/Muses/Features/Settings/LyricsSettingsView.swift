@@ -39,7 +39,7 @@ struct LyricsSettingsView: View {
             Toggle(tr("Intelligent matching", "智能匹配"), isOn: $intelligentMatching)
                 .disabled(availability != .available && !intelligentMatching)
             LabeledContent("Apple Intelligence", value: availability.message)
-                .font(MusesTypography.caption).italic().foregroundStyle(.secondary)
+                .font(MusesTypography.caption).foregroundStyle(.secondary)
         } header: { Text(tr("Matching", "匹配")).font(MusesTypography.headline.weight(.semibold)) }
         .onAppear { availability = LyricsIntelligence.availability }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -58,13 +58,18 @@ struct LyricsSupportView: View {
 
     var body: some View {
         Section {
-            Text(tr("Lyrics come from sources, never generated from memory.", "歌词来自检索来源，不凭记忆生成。"))
-                .font(MusesTypography.caption).foregroundStyle(.secondary)
-            Text(tr("Automatic translation and romanization may contain errors. Original lyrics remain available.",
-                    "自动翻译和音译可能有误，原文歌词始终保留。"))
-                .font(MusesTypography.caption).foregroundStyle(.secondary)
-            Link(tr("Apple Intelligence availability", "Apple Intelligence 可用性"),
-                 destination: URL(string: "https://support.apple.com/121115")!)
-        } header: { Text(tr("Availability", "可用性")) }
+            DisclosureGroup(tr("Lyrics & translation", "歌词与翻译")) {
+                Text(tr("Lyrics come from sources, never generated from memory.", "歌词来自检索来源，不凭记忆生成。"))
+                    .font(MusesTypography.caption).foregroundStyle(.secondary)
+                Text(tr("Automatic translation and romanization may contain errors. Original lyrics remain available.",
+                        "自动翻译和音译可能有误，原文歌词始终保留。"))
+                    .font(MusesTypography.caption).foregroundStyle(.secondary)
+            }
+            LabeledContent(tr("Intelligence support", "智能功能支持")) {
+                SettingsIconButton(title: tr("Apple Intelligence availability", "Apple Intelligence 可用性"), symbol: "arrow.up.right") {
+                    NSWorkspace.shared.open(URL(string: "https://support.apple.com/121115")!)
+                }
+            }
+        } header: { Text(tr("Information", "说明")) }
     }
 }

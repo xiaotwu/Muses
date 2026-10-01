@@ -29,6 +29,7 @@ struct YouTubeSettingsView: View {
     @State private var showFilePicker = false
     @State private var showWebHomeConsent = false
     @State private var webHomeConfigurationError: String?
+    @State private var pendingRemoval: ActionConfirmation?
 
     private var cookieSource: YTCookieSource {
         YTCookieSource(rawValue: cookieSourceRaw) ?? .none
@@ -62,7 +63,7 @@ struct YouTubeSettingsView: View {
             } label: {
                 Text(tr("System Settings", "系统设置"))
             }
-            .musesAction()
+            .settingsAction()
         }
         .padding(.top, 4)
     }
@@ -74,12 +75,14 @@ struct YouTubeSettingsView: View {
                 detail(destination)
             } else {
                 accountOverview
-                homeRecommendationSource
-                Section { accountDetails } header: { Text(tr("Account permissions & sync", "账号权限与同步")).font(MusesTypography.headline.weight(.semibold)) }
-                Section { webHomeDetails } header: { Text(tr("Personalized Home", "个性化首页")).font(MusesTypography.headline.weight(.semibold)) }
-                Section { playbackCookieDetails } header: { Text(tr("Playback access", "播放访问")).font(MusesTypography.headline.weight(.semibold)) }
+                Section {
+                    DisclosureGroup(tr("Permissions & sync", "权限与同步")) { accountDetails }
+                    DisclosureGroup(tr("Personalized Home", "个性化首页管理")) { webHomeDetails }
+                    DisclosureGroup(tr("Playback access", "播放访问")) { playbackCookieDetails }
+                } header: { Text(tr("Permissions & access", "权限与访问")) }
             }
         }
+        .actionConfirmation($pendingRemoval)
         .task {
             if let bridge { binaryPath = await bridge.locateBinary() }
             webHome.refreshDefaultBrowserSource()
@@ -127,33 +130,35 @@ struct YouTubeSettingsView: View {
     var destination: SettingsDestination? = nil
 
     private var homeRecommendationSource: some View {
-        Section {
-            Picker(tr("Home source", "首页来源", zhHant: "首頁來源"), selection: $homeModeRaw) {
-                Text("Muses").tag(HomeRecommendationMode.muses.rawValue)
-                Text("YouTube Music").tag(HomeRecommendationMode.youtubeMusic.rawValue)
-            }
-            .pickerStyle(.menu)
-
-            Text(homeModeRaw == HomeRecommendationMode.muses.rawValue
-                 ? tr("Recommendations stay on this Mac.", "推荐档案保留在本机。")
-                 : tr("YouTube Music uses your account. Local listening history is not uploaded.",
-                      "YouTube Music 使用你的账号，不上传本地收听历史。"))
-                .font(MusesTypography.caption)
-                .foregroundStyle(BrandColors.textSecondary)
-        } header: {
-            Text(tr("Home & Recommendations", "首页与推荐", zhHant: "首頁與推薦"))
-                .font(MusesTypography.headline.weight(.semibold))
+        LabeledContent(tr("Home source", "首页来源", zhHant: "首頁來源")) {
+            SettingsGlassChoice(title: tr("Home source", "首页来源", zhHant: "首頁來源"), selection: $homeModeRaw, options: [
+                .init(id: HomeRecommendationMode.muses.rawValue, title: "Muses", symbol: "music.note"),
+                .init(id: HomeRecommendationMode.youtubeMusic.rawValue, title: "YouTube Music", symbol: "play.circle", isYouTube: true)
+            ])
         }
+        .help(tr("Recommendations stay on this Mac. YouTube Music uses your account without uploading local listening history.",
+                 "推荐档案保留在本机。YouTube Music 使用你的账号，不上传本地收听历史。"))
     }
 
     @ViewBuilder private func detail(_ destination: SettingsDestination) -> some View {
         if destination == .diagnostics {
-            Section { ytDlpDetails } header: { Text(tr("yt-dlp", "yt-dlp")).font(MusesTypography.headline.weight(.semibold)) }
+            Section {
+                LabeledContent(tr("Playback resolver", "播放解析器")) {
+                    HStack(spacing: 8) {
+                        Text(versionString ?? "yt-dlp").font(MusesTypography.caption)
+                        if checkingVersion { ProgressView().controlSize(.small) }
+                        SettingsIconButton(title: tr("Check yt-dlp version", "检查 yt-dlp 版本"), symbol: "arrow.clockwise") {
+                            Task { await checkVersion() }
+                        }.disabled(bridge == nil || checkingVersion)
+                    }
+                }
+                DisclosureGroup(tr("Resolver details", "解析器详情")) { ytDlpDetails }
+            } header: { Text(tr("Resolver", "解析器")) }
             YTDlpConfigWizard()
         }
     }
 
-    private var accountOverview: some View {
+    @ViewBuilder private var accountOverview: some View {
         Section {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
@@ -192,13 +197,8 @@ struct YouTubeSettingsView: View {
                     }
                     Spacer()
                     if account.isConnected {
-                        Button(tr("Sign Out", "退出登录")) {
-                            Task {
-                                await webHome.accountDidChange()
-                                account.disconnect()
-                            }
-                        }
-                        .musesAction()
+                        Button(tr("Sign Out", "退出登录"), role: .destructive, action: requestDisconnect)
+                        .settingsAction()
                     }
                 }
 
@@ -211,10 +211,6 @@ struct YouTubeSettingsView: View {
                             ProgressView().controlSize(.small)
                             Text("\(playlistSync.accountImportCompleted)/\(playlistSync.accountImportTotal)")
                                 .font(MusesTypography.caption.monospacedDigit())
-                        } else {
-                            Text(tr("Auto-import on sign-in", "登录时自动导入", zhHant: "登入時自動匯入"))
-                                .font(MusesTypography.caption)
-                                .foregroundStyle(BrandColors.textSecondary)
                         }
                         Button {
                             Task {
@@ -223,9 +219,9 @@ struct YouTubeSettingsView: View {
                             }
                         } label: {
                             Image(systemName: "arrow.down.to.line")
-                                .frame(minWidth: 28, minHeight: 28)
+                                .frame(width: 18, height: 18)
                         }
-                        .musesAction().controlSize(.small)
+                        .settingsAction().controlSize(.small)
                         .disabled(account.isConnecting || playlistSync.isImportingAccountPlaylists)
                         .help(tr("Import account playlists", "导入账号歌单", zhHant: "匯入帳號歌單"))
                         .accessibilityLabel(tr("Import account playlists", "导入账号歌单", zhHant: "匯入帳號歌單"))
@@ -270,11 +266,13 @@ struct YouTubeSettingsView: View {
 
             if !account.isConnected {
                 primaryAction
-                    .fixedSize(horizontal: true, vertical: false)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 4)
             }
 
-            Group {
+            homeRecommendationSource
+        } header: { Text("YouTube").font(MusesTypography.headline.weight(.semibold)) }
+        Section {
                 officialPageLink(
                     tr("Watch Later", "稍后观看", zhHant: "稍後觀看"),
                     url: URL(string: "https://www.youtube.com/playlist?list=WL")!
@@ -283,61 +281,50 @@ struct YouTubeSettingsView: View {
                     tr("YouTube watch history", "YouTube 观看历史", zhHant: "YouTube 觀看記錄"),
                     url: URL(string: "https://www.youtube.com/feed/history")!
                 )
-            }
-        } header: { Text(tr("YouTube", "YouTube")).font(MusesTypography.headline.weight(.semibold)) }
+        } header: { Text(tr("YouTube on the web", "YouTube 网页")) }
     }
 
     private func officialPageLink(_ title: String, url: URL) -> some View {
-        Link(destination: url) {
+        LabeledContent {
+            SettingsIconButton(title: title, symbol: "arrow.up.right") {
+                NSWorkspace.shared.open(url)
+            }
+            .help(tr("Open in your browser's YouTube account", "使用浏览器已登录的 YouTube 账号打开"))
+        } label: {
             HStack(spacing: 8) {
                 YouTubeMark(size: 14).accessibilityHidden(true)
                 Text(title)
-                Spacer()
-                Image(systemName: "arrow.up.right")
-                    .font(MusesTypography.caption.weight(.semibold))
             }
-            .foregroundStyle(BrandColors.textPrimary)
-            .frame(minHeight: 28)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.fullAreaPlain)
-        .help(tr("Open in your browser's YouTube account", "使用浏览器已登录的 YouTube 账号打开"))
     }
 
     private var webHomeStatusAction: some View {
-        Button {
-            if webHome.isEnabled {
-                checkSession()
-            } else {
-                enableWebHomeFlow()
+        HStack(spacing: 8) {
+            SettingsStatus(title: webHome.isEnabled
+                           ? "\(webHomeStatusText) · \(webHomeBrowserDescription)" : webHomeStatusText,
+                           symbol: webHome.isEnabled ? "checkmark.shield" : "shield")
+            SettingsIconButton(title: webHome.isEnabled
+                               ? tr("Check Session", "检查会话")
+                               : tr("Turn On Personalized Home", "开启个性化首页"),
+                               symbol: webHome.isEnabled ? "arrow.clockwise" : "plus") {
+                if webHome.isEnabled { checkSession() }
+                else { enableWebHomeFlow() }
             }
-        } label: {
-            Text(webHome.isEnabled
-                 ? "\(webHomeStatusText) · \(webHomeBrowserDescription)"
-                 : webHomeStatusText)
+            .disabled(!webHome.isBuildEnabled || isWebHomeBusy)
+            .accessibilityValue(webHomeStatusText)
         }
-        .musesAction()
-        .controlSize(.small)
-        .disabled(!webHome.isBuildEnabled || isWebHomeBusy)
-        .help(webHome.isEnabled
-              ? tr("Check Session", "检查会话")
-              : tr("Turn On Personalized Home", "开启个性化首页"))
-        .accessibilityLabel(webHome.isEnabled
-                            ? tr("Check Session", "检查会话")
-                            : tr("Turn On Personalized Home", "开启个性化首页"))
-        .accessibilityValue(webHomeStatusText)
     }
 
     /// Connecting continues to the separate, explicit Home consent dialog.
     @ViewBuilder
     private var primaryAction: some View {
         if !account.isOAuthConfigured {
-            Label(
-                tr("YouTube sign-in is unavailable in this build. Guest browsing and playback still work.",
-                   "此构建未配置 YouTube 登录；访客浏览与播放仍可正常使用。"),
-                systemImage: "exclamationmark.triangle")
-                .font(MusesTypography.caption)
-                .foregroundStyle(BrandColors.textSecondary)
+            HStack(spacing: 6) {
+                SettingsStatus(title: tr("Sign-in unavailable", "登录不可用"), symbol: "exclamationmark.triangle")
+                SettingsInfoButton(title: tr("YouTube sign-in", "YouTube 登录"),
+                    message: tr("YouTube sign-in is unavailable in this build. Guest browsing and playback still work.",
+                                "此构建未配置 YouTube 登录；访客浏览与播放仍可正常使用。"))
+            }
         } else if !account.isConnected {
             Button {
                 connectAndPersonalize()
@@ -347,7 +334,7 @@ struct YouTubeSettingsView: View {
                       : tr("Connect YouTube", "连接 YouTube", zhHant: "連接 YouTube"),
                       systemImage: "safari")
             }
-            .musesAction(prominent: true)
+            .settingsAction(prominent: true)
             .tint(BrandColors.accent)
             .disabled(account.isConnecting)
         }
@@ -405,37 +392,28 @@ struct YouTubeSettingsView: View {
         accountFailure(
             tr("Liked videos", "点赞视频"), state: account.likedVideosState)
 
-        HStack {
+        VStack(alignment: .trailing, spacing: 8) {
             if account.isConnected {
                 if !account.canManagePlaylists {
                     Button {
                         Task { await account.requestPlaylistManagementAccess() }
                     } label: {
-                        Label(tr("Allow Playlist Updates…", "允许更新歌单…"),
+                        Label(tr("Allow playlist updates…", "授权更新歌单…"),
                               systemImage: "checkmark.shield")
                     }
-                    .musesAction()
+                    .settingsAction()
                 }
-                Button(role: .destructive) {
-                    Task {
-                        await webHome.accountDidChange()
-                        account.disconnect()
-                    }
-                } label: {
-                    Label(tr("Disconnect", "断开连接"), systemImage: "person.badge.minus")
-                }
-                .musesAction()
             }
 
             Link(destination: URL(string: "https://myaccount.google.com/permissions")!) {
-                Label(tr("Manage Google Access", "管理 Google 授权"), systemImage: "arrow.up.right.square")
+                Label(tr("Google access", "Google 授权"), systemImage: "arrow.up.right.square")
             }
-            .musesAction()
+            .settingsAction()
         }
 
-        Text(oAuthHelpText)
-            .font(MusesTypography.caption)
-            .foregroundStyle(BrandColors.textSecondary)
+        DisclosureGroup(tr("Permission details", "授权说明")) {
+            Text(oAuthHelpText).font(MusesTypography.caption).foregroundStyle(BrandColors.textSecondary)
+        }
     }
 
     private var oAuthHelpText: String {
@@ -443,30 +421,10 @@ struct YouTubeSettingsView: View {
            "读取频道、点赞、订阅和歌单；写入歌单须经确认。令牌保存在钥匙串，同步历史保存在本机。可随时撤销授权。")
     }
 
-    @ViewBuilder
     private var ytDlpDetails: some View {
-        row(tr("yt-dlp Path", "yt-dlp 路径"), value: binaryPath ?? tr("Not found (will use yt-dlp from PATH or bundled binary)", "未找到(将用 PATH 中的 yt-dlp 或随包二进制)"))
-
-        HStack {
-            Text(tr("yt-dlp Version", "yt-dlp 版本")).foregroundStyle(BrandColors.textSecondary)
-            Spacer()
-            if let versionString {
-                Text(versionString).foregroundStyle(BrandColors.textPrimary)
-            } else if checkingVersion {
-                ProgressView().controlSize(.small)
-            } else {
-                Text("—").foregroundStyle(BrandColors.textSecondary)
-            }
-        }
-
-        Button {
-            Task { await checkVersion() }
-        } label: {
-            Label(tr("Check yt-dlp Version", "检查 yt-dlp 版本"), systemImage: "arrow.clockwise")
-        }
-        .musesAction()
-        .tint(BrandColors.accent)
-        .disabled(bridge == nil || checkingVersion)
+        row(tr("yt-dlp Path", "yt-dlp 路径"),
+            value: binaryPath ?? tr("Not found; uses PATH or the bundled resolver", "未找到；使用 PATH 或内置解析器"))
+            .textSelection(.enabled)
     }
 
     /// Home management actions and the full privacy disclosure — normal users do not need them expanded.
@@ -478,38 +436,49 @@ struct YouTubeSettingsView: View {
                 : tr("Default browser", "默认浏览器"),
             value: webHomeBrowserDescription)
 
-        HStack {
+        VStack(alignment: .trailing, spacing: 8) {
             if webHome.isEnabled {
                 Button(role: .destructive) {
-                    Task {
-                        await webHome.disableAndClearTemporarySession()
-                        homeDiscovery.webConfigurationDidChange()
-                    }
+                    pendingRemoval = ActionConfirmation(
+                        title: tr("Turn off Personalized Home?", "关闭个性化首页？"),
+                        message: tr("Clears its temporary session. Playback access and your library are retained.",
+                                    "清除首页临时会话，保留播放访问设置和资料库。"),
+                        actionTitle: tr("Turn off", "关闭"), action: {
+                            Task {
+                                await webHome.disableAndClearTemporarySession()
+                                homeDiscovery.webConfigurationDidChange()
+                            }
+                        })
                 } label: {
-                    Label(tr("Disable & Clear Temporary Session", "关闭并清除临时会话"),
+                    Label(tr("Turn off Home", "关闭首页"),
                           systemImage: "xmark.shield")
                 }
-                .musesAction()
+                .settingsAction()
+                .help(tr("Disable & Clear Temporary Session", "关闭并清除临时会话"))
             }
             Link(destination: URL(string: "https://music.youtube.com/")!) {
                 Label(tr("Open YouTube Music", "打开 YouTube Music"),
                       systemImage: "arrow.up.right.square")
             }
-            .musesAction()
+            .settingsAction()
 
-            Button {
-                homeDiscovery.clearSavedWebHomeForCurrentAccount()
+            Button(role: .destructive) {
+                pendingRemoval = ActionConfirmation(
+                    title: tr("Clear saved Home?", "清除首页快照？"),
+                    message: tr("Removes the saved Home for this account. Playlists and listening history are retained.",
+                                "移除当前账号的首页快照，保留歌单和收听历史。"),
+                    actionTitle: tr("Clear", "清除"),
+                    action: { homeDiscovery.clearSavedWebHomeForCurrentAccount() })
             } label: {
-                Label(tr("Clear Saved Web Home", "清除已保存的 Web 首页"),
-                      systemImage: "trash")
+                Label(tr("Clear Home snapshot", "清除首页快照"), systemImage: "trash")
             }
-            .musesAction()
+            .settingsAction()
             .disabled(account.activeChannelID == nil)
         }
 
-        Text(webHomeDisclosureSummary)
-            .font(MusesTypography.caption)
-            .foregroundStyle(BrandColors.textSecondary)
+        DisclosureGroup(tr("Browser access details", "浏览器访问说明")) {
+            Text(webHomeDisclosureSummary).font(MusesTypography.caption).foregroundStyle(BrandColors.textSecondary)
+        }
     }
 
     @ViewBuilder
@@ -534,19 +503,16 @@ struct YouTubeSettingsView: View {
             } label: {
                 Label(tr("Choose Cookie File…", "选择 Cookie 文件…"), systemImage: "doc")
             }
-            .musesAction()
+            .settingsAction()
             .tint(BrandColors.accent)
         }
 
-        Text(cookieHelpText)
-            .font(MusesTypography.caption)
-            .foregroundStyle(BrandColors.textSecondary)
-
-        Text(tr(
-            "Only used for playback and import. Personalized Home uses separate browser consent and never changes this selection.",
-            "仅用于播放与导入；个性化首页会单独请求浏览器授权，不会改变此选项。"))
-            .font(MusesTypography.caption)
-            .foregroundStyle(BrandColors.textSecondary)
+        DisclosureGroup(tr("Playback access details", "播放访问说明")) {
+            Text(cookieHelpText).font(MusesTypography.caption).foregroundStyle(BrandColors.textSecondary)
+            Text(tr("Only used for playback and import. Personalized Home uses separate browser consent and never changes this selection.",
+                    "仅用于播放与导入；个性化首页会单独请求浏览器授权，不会改变此选项。"))
+                .font(MusesTypography.caption).foregroundStyle(BrandColors.textSecondary)
+        }
     }
 
     private var webHomeStatusText: String {
@@ -719,6 +685,16 @@ struct YouTubeSettingsView: View {
             }
             .foregroundStyle(BrandColors.textSecondary)
         }
+    }
+
+    private func requestDisconnect() {
+        pendingRemoval = ActionConfirmation(
+            title: tr("Sign out of YouTube?", "退出 YouTube 登录？"),
+            message: tr("Disconnects this account and clears its Home session. Your local library is retained.",
+                        "断开当前账号并清除对应首页会话，保留本机资料库。"),
+            actionTitle: tr("Sign out", "退出登录"), action: {
+                Task { await webHome.accountDidChange(); account.disconnect() }
+            })
     }
 
     private func checkVersion() async {

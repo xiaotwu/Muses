@@ -87,7 +87,10 @@ final class UpdateTransactionStore {
             .appending(path: "updates/\(component)", directoryHint: .isDirectory)
         if let attributes = try? fm.attributesOfItem(atPath: source.path) {
             if attributes[.type] as? FileAttributeType == .typeSymbolicLink {
-                guard source.resolvingSymlinksInPath().standardizedFileURL == target.resolvingSymlinksInPath().standardizedFileURL else {
+                // URL equality includes the directory hint's trailing slash.
+                // Compare resolved filesystem paths so an existing valid link
+                // is accepted regardless of how its destination was encoded.
+                guard source.resolvingSymlinksInPath().standardizedFileURL.path == target.resolvingSymlinksInPath().standardizedFileURL.path else {
                     throw UpdateFailure.unsafeCleanupPath
                 }
                 return

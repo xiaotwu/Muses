@@ -237,10 +237,12 @@ struct AutomaticUpdateTests {
     @Test("Updater storage relocation preserves archives and rejects foreign links or active installers")
     func updaterStorageRelocation() throws {
         let fm = FileManager.default
-        let root = fm.temporaryDirectory.appending(path: UUID().uuidString)
+        let root = fm.temporaryDirectory.resolvingSymlinksInPath().appending(path: UUID().uuidString)
         defer { try? fm.removeItem(at: root) }
         let system = root.appending(path: "system")
-        let managed = root.appending(path: "managed")
+        // Production MusesDataPaths marks the cache URL as a directory. A
+        // trailing slash must not make an existing valid redirect look foreign.
+        let managed = root.appending(path: "managed", directoryHint: .isDirectory)
         let source = system.appending(path: "com.muses.app.sparkle")
         let archive = source.appending(path: "org.sparkle-project.Sparkle/PersistentDownloads/update.zip")
         try fm.createDirectory(at: archive.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -250,6 +252,12 @@ struct AutomaticUpdateTests {
         #expect(source.resolvingSymlinksInPath() == target.resolvingSymlinksInPath())
         #expect(try Data(contentsOf: archive) == Data("archive".utf8))
         try UpdateTransactionStore.prepareDownloadDirectory(bundleID: "com.muses.app", systemCaches: system, managedCaches: managed)
+        // Existing redirects may store the same destination without a slash.
+        // Match the link left on disk after the production upgrade.
+        try fm.removeItem(at: source)
+        try fm.createSymbolicLink(atPath: source.path, withDestinationPath: target.path)
+        try UpdateTransactionStore.prepareDownloadDirectory(bundleID: "com.muses.app", systemCaches: system, managedCaches: managed)
+        #expect(try Data(contentsOf: archive) == Data("archive".utf8))
         try fm.removeItem(at: source)
         try fm.createSymbolicLink(at: source, withDestinationURL: root)
         #expect(throws: UpdateFailure.self) {

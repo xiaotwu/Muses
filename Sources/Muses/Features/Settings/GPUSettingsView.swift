@@ -6,12 +6,9 @@ struct GPUSettingsView: View {
 
     var body: some View {
         Section {
-            Toggle(tr("Metal Spectrum Rendering", "Metal 频谱渲染", zhHant: "Metal 頻譜算繪"), isOn: $gpuAcceleration)
-                .tint(BrandColors.accent)
-            Text(tr("Applies to the spectrum display in Audio Info.",
-                    "仅作用于音频信息中的频谱显示。"))
-                .font(MusesTypography.caption)
-                .foregroundStyle(BrandColors.textSecondary)
+            SettingsExplainedToggle(title: tr("Metal spectrum", "Metal 频谱"), isOn: $gpuAcceleration,
+                information: tr("Applies to the spectrum display in Audio Info.",
+                                "用于音频信息中的频谱显示。"))
         } header: { Text(tr("Performance", "性能")).font(MusesTypography.headline.weight(.semibold)) }
     }
 }

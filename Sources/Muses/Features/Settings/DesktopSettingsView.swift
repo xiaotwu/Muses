@@ -14,19 +14,19 @@ struct DesktopSettingsView: View {
 
     var body: some View {
         Section {
-            Toggle(tr("Menu Bar Tray", "菜单栏托盘"), isOn: $tray)
+            Toggle(tr("Menu bar", "菜单栏"), isOn: $tray)
                 .tint(BrandColors.accent)
                 .onChange(of: tray) { _, _ in notify() }
 
-            Toggle(tr("Mini Player Window", "迷你播放器窗口"), isOn: $miniPlayer)
+            Toggle(tr("Mini player", "迷你播放器"), isOn: $miniPlayer)
                 .tint(BrandColors.accent)
                 .onChange(of: miniPlayer) { _, _ in notify() }
 
-            Toggle(tr("Desktop Lyrics Overlay", "桌面歌词悬浮层"), isOn: $desktopLyrics)
+            Toggle(tr("Desktop lyrics", "桌面歌词"), isOn: $desktopLyrics)
                 .tint(BrandColors.accent)
                 .onChange(of: desktopLyrics) { _, _ in notify() }
 
-        } header: { Text(tr("Desktop Integration", "桌面集成")).font(MusesTypography.headline.weight(.semibold)) }
+        } header: { Text(tr("Desktop", "桌面")).font(MusesTypography.headline.weight(.semibold)) }
     }
 
     private func notify() {
@@ -39,11 +39,10 @@ struct CollectionAccessibilitySettingsView: View {
 
     var body: some View {
         Section {
-            Toggle(tr("Paged song tables", "分页歌曲表格"), isOn: $pagedTables)
+            SettingsExplainedToggle(title: tr("Paged song tables", "歌曲表格分页"), isOn: $pagedTables,
+                information: tr("25 songs per page. Enabled automatically with VoiceOver.",
+                                "每页 25 首，VoiceOver 开启时自动启用。"))
         } header: { Text(tr("Accessibility", "辅助功能")) }
-        footer: {
-            Text(tr("25 songs per page. Enabled automatically with VoiceOver.",
-                    "每页 25 首，VoiceOver 开启时自动启用。"))
-        }
+
     }
 }

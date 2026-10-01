@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-VER="${MUSES_VERSION:-0.5.10}"
+VER="${MUSES_VERSION:-0.5.11}"
 APP="build/Muses.app"
 ZIP="build/Muses-${VER}.zip"
 

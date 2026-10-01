@@ -19,6 +19,6 @@ struct LanguageSettingsView: View {
                 }
             }
             .pickerStyle(.menu)
-        } header: { Text(tr("Language", "语言")).font(MusesTypography.headline.weight(.semibold)) }
+        } header: { Text(tr("Preferences", "偏好")).font(MusesTypography.headline.weight(.semibold)) }
     }
 }

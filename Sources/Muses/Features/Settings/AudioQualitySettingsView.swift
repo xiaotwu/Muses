@@ -31,13 +31,8 @@ struct AudioQualitySettingsView: View {
 
     var body: some View {
         Section {
-            if let q = playback.state.quality, playback.state.track != nil {
-                LabeledContent(tr("Now playing", "正在播放")) {
-                    Text(playingLabel(q))
-                        .foregroundStyle(BrandColors.textPrimary)
-                }
-            }
-            Picker(tr("Preferred quality", "首选音质"), selection: $ytQuality) {
+
+            Picker(tr("Download quality", "下载音质"), selection: $ytQuality) {
                 ForEach(YTAudioQualityOption.allCases, id: \.rawValue) { opt in
                     Text(opt.label).tag(opt.rawValue)
                 }
@@ -48,11 +43,11 @@ struct AudioQualitySettingsView: View {
                 playback.reloadCurrent()
                 cacheBytes = MediaFileCache.totalBytes()
             }
-        } header: { Text(tr("Download Quality", "下载音质")).font(MusesTypography.headline.weight(.semibold)) }
+        } header: { Text(tr("Quality", "音质")).font(MusesTypography.headline.weight(.semibold)) }
 
         Section {
             LabeledContent {
-                Button(tr("Clear cache", "清除缓存"), role: .destructive) {
+                Button(role: .destructive) {
                     pendingRemoval = ActionConfirmation(
                         title: tr("Clear media cache?", "清除媒体缓存？"),
                         message: tr("Downloaded media will be removed and can be downloaded again. Playlists are unchanged.", "移除已下载媒体，可再次下载。歌单不受影响。"),
@@ -63,15 +58,24 @@ struct AudioQualitySettingsView: View {
                             playback.reloadCurrent()
                         }
                     )
+                } label: {
+                    Image(systemName: "trash").frame(width: 18, height: 18)
                 }
-                .musesAction()
+                .settingsAction()
+                .accessibilityLabel(tr("Clear media cache", "清除媒体缓存"))
+                .help(tr("Clear media cache", "清除媒体缓存"))
             } label: {
                 Text(tr("Downloaded media", "已下载媒体"))
                 Text(ByteCountFormatter.string(fromByteCount: cacheBytes, countStyle: .file))
                     .font(MusesTypography.caption)
                     .foregroundStyle(.secondary)
             }
-        } header: { Text(tr("Media cache", "媒体缓存")).font(MusesTypography.headline.weight(.semibold)) }
+            if let q = playback.state.quality, playback.state.track != nil {
+                DisclosureGroup(tr("Current audio", "当前音频")) {
+                    Text(playingLabel(q)).font(MusesTypography.caption).textSelection(.enabled)
+                }
+            }
+        } header: { Text(tr("Cache", "缓存")).font(MusesTypography.headline.weight(.semibold)) }
         .actionConfirmation($pendingRemoval)
         .onAppear { cacheBytes = MediaFileCache.totalBytes() }
     }

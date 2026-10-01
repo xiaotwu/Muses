@@ -139,6 +139,7 @@ struct SettingsGlassChoice: View {
         let id: String
         let title: String
         let symbol: String
+        var isYouTube = false
     }
     let title: String
     @Binding var selection: String
@@ -165,16 +166,21 @@ struct SettingsGlassChoice: View {
             }
         }
         .padding(6)
-        .musesGlass(in: Capsule(), role: .compactControl)
+        .modifier(SettingsClearGlassSurface())
         .accessibilityElement(children: .contain)
         .accessibilityLabel(title)
     }
 
     @ViewBuilder private func choiceLabel(_ option: Option) -> some View {
-        let label = Label(option.title, systemImage: option.symbol)
+        let label = Label {
+            Text(option.title)
+        } icon: {
+            if option.isYouTube { YouTubeMark(size: 14) }
+            else { Image(systemName: option.symbol) }
+        }
             .font(MusesTypography.body.weight(selection == option.id ? .semibold : .regular))
             .foregroundStyle(selection == option.id ? BrandColors.heading : BrandColors.heading.opacity(0.85))
-            .frame(maxWidth: .infinity, minHeight: 42)
+            .frame(maxWidth: .infinity, minHeight: 32)
             .padding(.horizontal, 12)
             .contentShape(Capsule())
         label
@@ -205,5 +211,20 @@ private struct SettingsSelection: ViewModifier {
 extension View {
     func settingsSelection(_ selected: Bool) -> some View {
         modifier(SettingsSelection(selected: selected))
+    }
+}
+
+/// Transparent glass for settings controls, with native accessibility fallbacks.
+struct SettingsClearGlassSurface: ViewModifier {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(macOS 26.0, *), !reduceTransparency, contrast != .increased {
+            content.glassEffect(.clear.interactive(!reduceMotion), in: Capsule())
+        } else {
+            content.musesGlass(in: Capsule(), role: .compactControl)
+        }
     }
 }

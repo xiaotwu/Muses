@@ -21,18 +21,22 @@ struct YTDlpConfigWizard: View {
 
     var body: some View {
         Section {
-            Picker(tr("Cookies", "Cookies"), selection: $browser) {
-                ForEach(Browser.allCases, id: \.self) { Text($0.label).tag($0) }
+            DisclosureGroup(tr("Advanced configuration", "高级配置")) {
+                Picker(tr("Browser", "浏览器"), selection: $browser) {
+                    ForEach(Browser.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.menu)
+                HStack {
+                    Spacer()
+                    Button(tr("Write configuration…", "写入配置…")) { status = writeConfig() }
+                        .settingsAction()
+                }
+                if let status {
+                    Text(status).font(MusesTypography.caption).foregroundStyle(BrandColors.textSecondary)
+                        .textSelection(.enabled)
+                }
             }
-            Button(tr("Write yt-dlp config…", "写入 yt-dlp 配置…")) {
-                status = writeConfig()
-            }
-            .musesAction()
-            .tint(BrandColors.accent)
-            if let status {
-                Text(status).font(MusesTypography.caption).foregroundStyle(BrandColors.textSecondary)
-            }
-        } header: { Text(tr("yt-dlp setup", "yt-dlp 配置")).font(MusesTypography.headline.weight(.semibold)) }
+        } header: { Text(tr("Configuration", "配置")) }
     }
 
     private func writeConfig() -> String {

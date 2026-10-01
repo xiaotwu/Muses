@@ -102,8 +102,8 @@ struct SettingsPage: View {
                         case .shortcuts:
                             ShortcutsSettingsView()
                         case .playback, .audioQuality:
-                            PlaybackSettingsView()
                             AudioQualitySettingsView()
+                            PlaybackSettingsView()
                         case .appearance, .desktop:
                             ThemeSettingsView()
                             CollectionAccessibilitySettingsView()
@@ -138,13 +138,13 @@ struct SettingsPage: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(BrandColors.background)
         .tint(BrandColors.accent)
-        .musesAction()
     }
 }
 
-/// About settings page: brand, short introduction, version, and project link.
-/// Update checking lives in the dedicated Updates pane.
+/// One brand/version row; update controls share this category below it.
 struct AboutSettingsView: View {
+    @Environment(UpdateService.self) private var updater
+
     private var appVersion: String {
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -165,20 +165,18 @@ struct AboutSettingsView: View {
                     Text("\(tr("Version", "版本")) \(appVersion)")
                         .font(MusesTypography.caption).foregroundStyle(BrandColors.textSecondary)
                 }
-                Spacer()
-            }
-
-            Button {
-                if let url = URL(string: "https://github.com/xiaotwu/Muses-Polyhymnia") {
-                    NSWorkspace.shared.open(url)
+                Spacer(minLength: 12)
+                HStack(spacing: 8) {
+                    SettingsIconButton(title: tr("Project website", "项目网站", zhHant: "專案網站"), symbol: "link") {
+                        NSWorkspace.shared.open(URL(string: "https://github.com/xiaotwu/Muses-Polyhymnia")!)
+                    }
+                    SettingsIconButton(title: tr("Release notes", "版本说明"), symbol: "info.circle") {
+                        updater.openReleasePage()
+                    }
                 }
-            } label: {
-                Label(tr("Project website", "项目网站", zhHant: "專案網站"), systemImage: "link")
             }
-            .musesAction()
-            .help(tr("Project website", "项目网站", zhHant: "專案網站"))
+        }
 
-        } header: { Text(tr("About", "关于")).font(MusesTypography.headline.weight(.semibold)) }
     }
 }
 
