@@ -8,7 +8,7 @@ private struct UnresolvedCatalogNotice: View {
                  "\(count) 首歌曲尚无可确认的艺人或专辑页面，仍可在「歌曲」中播放。",
                  zhHant: "\(count) 首歌曲尚無可確認的藝人或專輯頁面，仍可在「歌曲」中播放。"),
               systemImage: "info.circle")
-            .font(.callout)
+            .font(MusesTypography.callout)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -127,10 +127,10 @@ struct CatalogReleasesView: View {
                 } else if filteredReleases.isEmpty {
                     VStack(spacing: 10) {
                         Image(systemName: "magnifyingglass")
-                            .font(.system(size: 32))
+                            .font(MusesTypography.system(size: 32))
                             .foregroundStyle(BrandColors.textSecondary)
                         Text(tr("No matching albums", "没有找到匹配的专辑"))
-                            .font(.headline)
+                            .font(MusesTypography.headline)
                             .foregroundStyle(BrandColors.textPrimary)
                     }
                     .frame(maxWidth: .infinity, minHeight: 200)
@@ -167,6 +167,8 @@ struct CatalogReleasesView: View {
         }
         .background(BrowseBackground())
         .task(id: catalog.revision) { load() }
+        .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave)) { _ in load() }
+        .onReceive(NotificationCenter.default.publisher(for: .musesPlaylistsChanged)) { _ in load() }
     }
 
     private var pageHeader: some View {
@@ -190,17 +192,17 @@ struct CatalogReleasesView: View {
             // Search field
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12))
+                    .font(MusesTypography.system(size: 12))
                     .foregroundStyle(BrandColors.textSecondary)
                 TextField(tr("Filter albums…", "过滤专辑…"), text: $searchQuery)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13))
+                    .font(MusesTypography.system(size: 13))
                 if !searchQuery.isEmpty {
                     Button {
                         searchQuery = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 12))
+                            .font(MusesTypography.system(size: 12))
                             .foregroundStyle(BrandColors.textSecondary)
                     }
                     .buttonStyle(.fullAreaPlain)
@@ -215,25 +217,16 @@ struct CatalogReleasesView: View {
                     .stroke(BrandColors.hairline, lineWidth: 1)
             )
 
-            // Category filter chips
             HStack(spacing: 6) {
                 ForEach(ReleaseFilter.allCases) { item in
-                    Button {
-                        filter = item
-                    } label: {
+                    Button { filter = item } label: {
                         Text(item.localizedTitle)
-                            .font(.system(size: 12, weight: filter == item ? .semibold : .regular))
+                            .font(MusesTypography.caption)
                             .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(
-                                filter == item
-                                ? BrandColors.accent
-                                : BrandColors.surface,
-                                in: Capsule()
-                            )
-                            .foregroundStyle(filter == item ? .white : BrandColors.textPrimary)
+                            .frame(minHeight: 32)
                     }
-                    .buttonStyle(.fullAreaPlain)
+                    .buttonStyle(.musesCompact(selected: filter == item))
+                    .accessibilityAddTraits(filter == item ? .isSelected : [])
                 }
             }
 
@@ -353,7 +346,7 @@ struct CatalogReleaseDetailView: View {
     private var topNavigationBar: some View {
         HStack(spacing: 8) {
             Text(tr("Albums", "专辑"))
-                .font(.system(size: 13, weight: .medium))
+                .font(MusesTypography.system(size: 13, weight: .medium))
                 .foregroundStyle(BrandColors.textSecondary)
             Spacer()
         }
@@ -378,14 +371,14 @@ struct CatalogReleaseDetailView: View {
             // Metadata & Controls
             VStack(alignment: .leading, spacing: 10) {
                 Text(currentRelease.kind == .single ? tr("SINGLE", "单曲") : (currentRelease.kind == .ep ? tr("EP", "EP") : tr("ALBUM", "专辑")))
-                    .font(.system(size: 10, weight: .bold))
+                    .font(MusesTypography.system(size: 10, weight: .bold))
                     .foregroundStyle(BrandColors.accent)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(BrandColors.accent.opacity(0.12), in: Capsule())
 
                 Text(currentRelease.title)
-                    .font(.system(size: 26, weight: .bold))
+                    .font(MusesTypography.system(size: 26, weight: .bold))
                     .foregroundStyle(BrandColors.textPrimary)
                     .lineLimit(2)
 
@@ -397,14 +390,15 @@ struct CatalogReleaseDetailView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Text(currentRelease.artistName)
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(MusesTypography.system(size: 16, weight: .semibold))
                             .foregroundStyle(BrandColors.accent)
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 11, weight: .bold))
+                            .font(MusesTypography.system(size: 11, weight: .bold))
                             .foregroundStyle(BrandColors.accent.opacity(0.8))
                     }
                 }
                 .buttonStyle(.fullAreaPlain)
+                .disabled(currentRelease.artistStableID == nil)
 
                 HStack(spacing: 6) {
                     if let year = currentRelease.year {
@@ -417,61 +411,23 @@ struct CatalogReleaseDetailView: View {
                         Text(formattedDuration)
                     }
                 }
-                .font(.system(size: 12))
+                .font(MusesTypography.system(size: 12))
                 .foregroundStyle(BrandColors.textSecondary)
 
                 Spacer()
 
                 // Actions row
                 HStack(spacing: 12) {
-                    Button(action: playAll) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 13, weight: .bold))
-                            Text(tr("Play", "播放"))
-                                .font(.system(size: 13, weight: .semibold))
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 8)
-                        .background(BrandColors.accent, in: Capsule())
-                    }
-                    .buttonStyle(.fullAreaPlain)
-
-                    Button(action: shuffle) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "shuffle")
-                                .font(.system(size: 13, weight: .semibold))
-                            Text(tr("Shuffle", "随机播放"))
-                                .font(.system(size: 13, weight: .medium))
-                        }
-                        .foregroundStyle(BrandColors.textPrimary)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(BrandColors.surface, in: Capsule())
-                        .overlay(Capsule().stroke(BrandColors.hairline, lineWidth: 1))
-                    }
-                    .buttonStyle(.fullAreaPlain)
-
-                    Button(action: checkOnlineTracklist) {
-                        HStack(spacing: 6) {
-                            if isLoadingOnlineTracks {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                Image(systemName: "cloud.fill")
-                                    .font(.system(size: 12))
-                            }
-                            Text(tr("Online Tracklist", "在线曲目单"))
-                                .font(.system(size: 12, weight: .medium))
-                        }
-                        .foregroundStyle(BrandColors.textPrimary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(BrandColors.surface, in: Capsule())
-                        .overlay(Capsule().stroke(BrandColors.hairline, lineWidth: 1))
-                    }
-                    .buttonStyle(.fullAreaPlain)
+                    ChromeIconButton(systemName: "play.fill", help: tr("Play All", "播放全部"),
+                                     accessibility: tr("Play All", "播放全部"), action: playAll)
+                        .disabled(currentRelease.tracks.isEmpty)
+                    ChromeIconButton(systemName: "shuffle", help: tr("Shuffle", "随机播放"),
+                                     accessibility: tr("Shuffle", "随机播放"), action: shuffle)
+                        .disabled(currentRelease.tracks.isEmpty)
+                    ChromeIconButton(systemName: "cloud", help: tr("Online Tracklist", "在线曲目"),
+                                     accessibility: tr("Online Tracklist", "在线曲目"), action: checkOnlineTracklist)
+                        .disabled(isLoadingOnlineTracks)
+                    if isLoadingOnlineTracks { ProgressView().controlSize(.small) }
 
                     if let url = YouTubeCatalogLink.releaseURL(stableID: currentRelease.stableID) {
                         Button {
@@ -496,7 +452,7 @@ struct CatalogReleaseDetailView: View {
     private var tracklistSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(tr("Tracks in Library", "资料库中的曲目"))
-                .font(.system(size: 16, weight: .bold))
+                .font(MusesTypography.system(size: 16, weight: .bold))
                 .foregroundStyle(BrandColors.textPrimary)
 
             if currentRelease.tracks.isEmpty {
@@ -517,17 +473,17 @@ struct CatalogReleaseDetailView: View {
         let isCurrent = playback.state.track?.id == snapshot.id
         return HStack(spacing: 12) {
             Text("\(index)")
-                .font(.system(size: 12, weight: .medium))
+                .font(MusesTypography.system(size: 12, weight: .medium))
                 .foregroundStyle(BrandColors.textSecondary)
                 .frame(width: 24, alignment: .trailing)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(snapshot.title)
-                    .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
+                    .font(MusesTypography.system(size: 13, weight: isCurrent ? .semibold : .regular))
                     .foregroundStyle(isCurrent ? BrandColors.accent : BrandColors.textPrimary)
                     .lineLimit(1)
-                Text(snapshot.artist)
-                    .font(.system(size: 11))
+                Text(SongCreditCache.shared.artist(snapshot: snapshot))
+                    .font(MusesTypography.system(size: 11))
                     .foregroundStyle(BrandColors.textSecondary)
                     .lineLimit(1)
             }
@@ -535,7 +491,7 @@ struct CatalogReleaseDetailView: View {
             Spacer()
 
             Text(formatDuration(snapshot.durationSeconds))
-                .font(.system(size: 12))
+                .font(MusesTypography.system(size: 12))
                 .foregroundStyle(BrandColors.textSecondary)
 
             Button {
@@ -543,7 +499,7 @@ struct CatalogReleaseDetailView: View {
             } label: {
                 let playing = isCurrent && playback.state.isPlaying
                 Image(systemName: playing ? "pause.fill" : "play.fill")
-                    .font(.system(size: 12))
+                    .font(MusesTypography.system(size: 12))
                     .foregroundStyle(BrandColors.textPrimary)
                     .frame(width: 28, height: 28)
             }
@@ -566,7 +522,7 @@ struct CatalogReleaseDetailView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text(tr("Official Tracklist", "官方曲目单"))
-                    .font(.system(size: 16, weight: .bold))
+                    .font(MusesTypography.system(size: 16, weight: .bold))
                     .foregroundStyle(BrandColors.textPrimary)
 
                 Spacer()
@@ -580,7 +536,7 @@ struct CatalogReleaseDetailView: View {
                             Image(systemName: "plus.circle.fill")
                             Text(tr("Import \(missing.count) Missing Tracks", "导入 \(missing.count) 首缺失曲目", zhHant: "導入 \(missing.count) 首缺失曲目"))
                         }
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(MusesTypography.system(size: 12, weight: .semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
@@ -601,7 +557,7 @@ struct CatalogReleaseDetailView: View {
                 Text(tr("The online tracklist could not be refreshed. Your library tracks remain available.",
                         "在线曲目单暂时无法刷新，资料库中的曲目仍然可用。", zhHant: "線上曲目單暫時無法重新整理，資料庫中的曲目仍然可用。"))
                     .foregroundStyle(.secondary)
-                Text(onlineTracksError).font(.caption).foregroundStyle(.secondary)
+                Text(onlineTracksError).font(MusesTypography.caption).foregroundStyle(.secondary)
                 Button(tr("Retry", "重试", zhHant: "重試"), systemImage: "arrow.clockwise", action: checkOnlineTracklist)
                     .labelStyle(ActionIconLabelStyle())
                     .help(tr("Retry", "重试", zhHant: "重試"))
@@ -615,17 +571,17 @@ struct CatalogReleaseDetailView: View {
                     let inLibrary = localVideoIDs.contains(entry.id)
                     HStack(spacing: 12) {
                         Text("\(idx + 1)")
-                            .font(.system(size: 12))
+                            .font(MusesTypography.system(size: 12))
                             .foregroundStyle(BrandColors.textSecondary)
                             .frame(width: 24, alignment: .trailing)
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(entry.title)
-                                .font(.system(size: 13))
+                                .font(MusesTypography.system(size: 13))
                                 .foregroundStyle(BrandColors.textPrimary)
                                 .lineLimit(1)
                             Text(entry.uploader ?? currentRelease.artistName)
-                                .font(.system(size: 11))
+                                .font(MusesTypography.system(size: 11))
                                 .foregroundStyle(BrandColors.textSecondary)
                                 .lineLimit(1)
                         }
@@ -637,7 +593,7 @@ struct CatalogReleaseDetailView: View {
                                 Image(systemName: "checkmark")
                                 Text(tr("In Library", "已在库中"))
                             }
-                            .font(.system(size: 11))
+                            .font(MusesTypography.system(size: 11))
                             .foregroundStyle(BrandColors.textSecondary)
                         } else {
                             Button {
@@ -647,7 +603,7 @@ struct CatalogReleaseDetailView: View {
                                     Image(systemName: "plus")
                                     Text(tr("Add", "添加"))
                                 }
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(MusesTypography.system(size: 11, weight: .semibold))
                                 .foregroundStyle(BrandColors.accent)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 3)
@@ -660,7 +616,7 @@ struct CatalogReleaseDetailView: View {
                             playOnlineTrack(entry)
                         } label: {
                             Image(systemName: "play.circle.fill")
-                                .font(.system(size: 16))
+                                .font(MusesTypography.system(size: 16))
                                 .foregroundStyle(BrandColors.accent)
                         }
                         .buttonStyle(.fullAreaPlain)
@@ -846,10 +802,10 @@ struct CatalogArtistsView: View {
                 } else if filteredArtists.isEmpty {
                     VStack(spacing: 10) {
                         Image(systemName: "magnifyingglass")
-                            .font(.system(size: 32))
+                            .font(MusesTypography.system(size: 32))
                             .foregroundStyle(BrandColors.textSecondary)
                         Text(tr("No matching artists", "没有找到匹配的艺术家"))
-                            .font(.headline)
+                            .font(MusesTypography.headline)
                             .foregroundStyle(BrandColors.textPrimary)
                     }
                     .frame(maxWidth: .infinity, minHeight: 200)
@@ -885,6 +841,8 @@ struct CatalogArtistsView: View {
         }
         .background(BrowseBackground())
         .task(id: catalog.revision) { load() }
+        .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave)) { _ in load() }
+        .onReceive(NotificationCenter.default.publisher(for: .musesPlaylistsChanged)) { _ in load() }
     }
 
     private var pageHeader: some View {
@@ -907,17 +865,17 @@ struct CatalogArtistsView: View {
         HStack(spacing: 12) {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12))
+                    .font(MusesTypography.system(size: 12))
                     .foregroundStyle(BrandColors.textSecondary)
                 TextField(tr("Filter artists…", "过滤艺术家…"), text: $searchQuery)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13))
+                    .font(MusesTypography.system(size: 13))
                 if !searchQuery.isEmpty {
                     Button {
                         searchQuery = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 12))
+                            .font(MusesTypography.system(size: 12))
                             .foregroundStyle(BrandColors.textSecondary)
                     }
                     .buttonStyle(.fullAreaPlain)
@@ -1039,7 +997,7 @@ struct CatalogArtistDetailView: View {
     private var topNavigationBar: some View {
         HStack(spacing: 8) {
             Text(tr("Artists", "艺术家"))
-                .font(.system(size: 13, weight: .medium))
+                .font(MusesTypography.system(size: 13, weight: .medium))
                 .foregroundStyle(BrandColors.textSecondary)
             Spacer()
         }
@@ -1064,7 +1022,7 @@ struct CatalogArtistDetailView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Text(currentArtist.name)
-                    .font(.system(size: 30, weight: .bold))
+                    .font(MusesTypography.system(size: 30, weight: .bold))
                     .foregroundStyle(BrandColors.textPrimary)
 
                 HStack(spacing: 8) {
@@ -1074,57 +1032,20 @@ struct CatalogArtistDetailView: View {
                         Text(tr("\(currentArtist.releases.count) albums", "\(currentArtist.releases.count) 张专辑", zhHant: "\(currentArtist.releases.count) 張專輯"))
                     }
                 }
-                .font(.system(size: 13))
+                .font(MusesTypography.system(size: 13))
                 .foregroundStyle(BrandColors.textSecondary)
 
                 HStack(spacing: 12) {
-                    Button(action: playAll) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 13, weight: .bold))
-                            Text(tr("Play", "播放"))
-                                .font(.system(size: 13, weight: .semibold))
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 8)
-                        .background(BrandColors.accent, in: Capsule())
-                    }
-                    .buttonStyle(.fullAreaPlain)
-
-                    Button(action: shuffle) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "shuffle")
-                                .font(.system(size: 13, weight: .semibold))
-                            Text(tr("Shuffle", "随机播放"))
-                                .font(.system(size: 13, weight: .medium))
-                        }
-                        .foregroundStyle(BrandColors.textPrimary)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(BrandColors.surface, in: Capsule())
-                        .overlay(Capsule().stroke(BrandColors.hairline, lineWidth: 1))
-                    }
-                    .buttonStyle(.fullAreaPlain)
-
-                    Button(action: toggleOnlineDiscovery) {
-                        HStack(spacing: 6) {
-                            if isLoadingOnline {
-                                ProgressView().controlSize(.small)
-                            } else {
-                                Image(systemName: "sparkles")
-                                    .font(.system(size: 12))
-                            }
-                            Text(hasExpandedOnline ? tr("Refresh Online", "刷新在线") : tr("Explore Online", "在线探索"))
-                                .font(.system(size: 12, weight: .medium))
-                        }
-                        .foregroundStyle(BrandColors.textPrimary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(BrandColors.surface, in: Capsule())
-                        .overlay(Capsule().stroke(BrandColors.hairline, lineWidth: 1))
-                    }
-                    .buttonStyle(.fullAreaPlain)
+                    ChromeIconButton(systemName: "play.fill", help: tr("Play All", "播放全部"),
+                                     accessibility: tr("Play All", "播放全部"), action: playAll)
+                        .disabled(currentArtist.tracks.isEmpty)
+                    ChromeIconButton(systemName: "shuffle", help: tr("Shuffle", "随机播放"),
+                                     accessibility: tr("Shuffle", "随机播放"), action: shuffle)
+                        .disabled(currentArtist.tracks.isEmpty)
+                    ChromeIconButton(systemName: "cloud", help: tr("Explore Online", "在线曲目"),
+                                     accessibility: tr("Explore Online", "在线曲目"), action: toggleOnlineDiscovery)
+                        .disabled(isLoadingOnline)
+                    if isLoadingOnline { ProgressView().controlSize(.small) }
 
                     if let url = YouTubeCatalogLink.artistURL(stableID: currentArtist.stableID) {
                         Button {
@@ -1149,7 +1070,7 @@ struct CatalogArtistDetailView: View {
     private var libraryTracksSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(tr("Songs in Library", "资料库中的歌曲"))
-                .font(.system(size: 17, weight: .bold))
+                .font(MusesTypography.system(size: 17, weight: .bold))
                 .foregroundStyle(BrandColors.textPrimary)
 
             if orderedTracks.isEmpty {
@@ -1162,18 +1083,18 @@ struct CatalogArtistDetailView: View {
                     let isCurrent = playback.state.track?.id == track.id
                     HStack(spacing: 12) {
                         Text("\(index + 1)")
-                            .font(.system(size: 12))
+                            .font(MusesTypography.system(size: 12))
                             .foregroundStyle(BrandColors.textSecondary)
                             .frame(width: 24, alignment: .trailing)
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(track.title)
-                                .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
+                                .font(MusesTypography.system(size: 13, weight: isCurrent ? .semibold : .regular))
                                 .foregroundStyle(isCurrent ? BrandColors.accent : BrandColors.textPrimary)
                                 .lineLimit(1)
                             if let album = track.albumTitle {
                                 Text(album)
-                                    .font(.system(size: 11))
+                                    .font(MusesTypography.system(size: 11))
                                     .foregroundStyle(BrandColors.textSecondary)
                                     .lineLimit(1)
                             }
@@ -1186,7 +1107,7 @@ struct CatalogArtistDetailView: View {
                         } label: {
                             let playing = isCurrent && playback.state.isPlaying
                             Image(systemName: playing ? "pause.fill" : "play.fill")
-                                .font(.system(size: 12))
+                                .font(MusesTypography.system(size: 12))
                                 .foregroundStyle(BrandColors.textPrimary)
                                 .frame(width: 28, height: 28)
                         }
@@ -1212,7 +1133,7 @@ struct CatalogArtistDetailView: View {
     private var libraryAlbumsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(tr("Albums in Library", "资料库中的专辑"))
-                .font(.system(size: 17, weight: .bold))
+                .font(MusesTypography.system(size: 17, weight: .bold))
                 .foregroundStyle(BrandColors.textPrimary)
 
             ScrollView(.horizontal, showsIndicators: false) {
@@ -1245,14 +1166,14 @@ struct CatalogArtistDetailView: View {
         VStack(alignment: .leading, spacing: 16) {
             if hasExpandedOnline {
                 Text(tr("Online Discovery", "在线探索"))
-                    .font(.system(size: 17, weight: .bold))
+                    .font(MusesTypography.system(size: 17, weight: .bold))
                     .foregroundStyle(BrandColors.textPrimary)
 
                 if isLoadingOnline {
                     HStack(spacing: 10) {
                         ProgressView().controlSize(.small)
                         Text(tr("Loading artist discography…", "正在载入艺术家作品…"))
-                            .font(.subheadline)
+                            .font(MusesTypography.subheadline)
                             .foregroundStyle(BrandColors.textSecondary)
                     }
                     .padding(.vertical, 20)
@@ -1273,7 +1194,7 @@ struct CatalogArtistDetailView: View {
                     if !disco.topTracks.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(tr("From this YouTube channel", "来自此 YouTube 频道", zhHant: "來自此 YouTube 頻道"))
-                                .font(.system(size: 15, weight: .semibold))
+                                .font(MusesTypography.system(size: 15, weight: .semibold))
                                 .foregroundStyle(BrandColors.textPrimary)
 
                             LazyVStack(spacing: 1) {
@@ -1289,7 +1210,7 @@ struct CatalogArtistDetailView: View {
                     if !disco.albums.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(tr("Official Albums", "官方专辑"))
-                                .font(.system(size: 15, weight: .semibold))
+                                .font(MusesTypography.system(size: 15, weight: .semibold))
                                 .foregroundStyle(BrandColors.textPrimary)
 
                             ScrollView(.horizontal, showsIndicators: false) {
@@ -1306,7 +1227,7 @@ struct CatalogArtistDetailView: View {
                     if !disco.singlesAndEPs.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(tr("Singles & EPs", "单曲与 EP"))
-                                .font(.system(size: 15, weight: .semibold))
+                                .font(MusesTypography.system(size: 15, weight: .semibold))
                                 .foregroundStyle(BrandColors.textPrimary)
 
                             ScrollView(.horizontal, showsIndicators: false) {
@@ -1326,17 +1247,17 @@ struct CatalogArtistDetailView: View {
     private func onlineTrackRow(index: Int, entry: YTDlpBridge.YTDlpPlaylistEntry) -> some View {
         HStack(spacing: 12) {
             Text("\(index)")
-                .font(.system(size: 12))
+                .font(MusesTypography.system(size: 12))
                 .foregroundStyle(BrandColors.textSecondary)
                 .frame(width: 24, alignment: .trailing)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.title)
-                    .font(.system(size: 13))
+                    .font(MusesTypography.system(size: 13))
                     .foregroundStyle(BrandColors.textPrimary)
                     .lineLimit(1)
                 Text(entry.uploader ?? currentArtist.name)
-                    .font(.system(size: 11))
+                    .font(MusesTypography.system(size: 11))
                     .foregroundStyle(BrandColors.textSecondary)
                     .lineLimit(1)
             }
@@ -1350,7 +1271,7 @@ struct CatalogArtistDetailView: View {
                     Image(systemName: "plus")
                     Text(tr("Add", "添加"))
                 }
-                .font(.system(size: 11, weight: .semibold))
+                .font(MusesTypography.system(size: 11, weight: .semibold))
                 .foregroundStyle(BrandColors.accent)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
@@ -1362,7 +1283,7 @@ struct CatalogArtistDetailView: View {
                 playOnlineTrack(entry)
             } label: {
                 Image(systemName: "play.circle.fill")
-                    .font(.system(size: 16))
+                    .font(MusesTypography.system(size: 16))
                     .foregroundStyle(BrandColors.accent)
             }
             .buttonStyle(.fullAreaPlain)
@@ -1385,13 +1306,13 @@ struct CatalogArtistDetailView: View {
             .shadow(color: Color.black.opacity(0.2), radius: 6, y: 3)
 
             Text(release.title)
-                .font(.system(size: 12, weight: .semibold))
+                .font(MusesTypography.system(size: 12, weight: .semibold))
                 .foregroundStyle(BrandColors.textPrimary)
                 .lineLimit(1)
 
             if let year = release.year {
                 Text("\(year)")
-                    .font(.system(size: 11))
+                    .font(MusesTypography.system(size: 11))
                     .foregroundStyle(BrandColors.textSecondary)
             }
 
@@ -1402,7 +1323,7 @@ struct CatalogArtistDetailView: View {
                     Image(systemName: "plus")
                     Text(tr("Import", "导入"))
                 }
-                .font(.system(size: 10, weight: .bold))
+                .font(MusesTypography.system(size: 10, weight: .bold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
@@ -1527,11 +1448,11 @@ struct CatalogEmptyState: View {
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: icon)
-                .font(.system(size: 38, weight: .semibold))
+                .font(MusesTypography.system(size: 38, weight: .semibold))
                 .foregroundStyle(BrandColors.textSecondary)
-            Text(title).font(.headline).foregroundStyle(BrandColors.textPrimary)
+            Text(title).font(MusesTypography.headline).foregroundStyle(BrandColors.textPrimary)
             Text(subtitle)
-                .font(.subheadline)
+                .font(MusesTypography.subheadline)
                 .foregroundStyle(BrandColors.textSecondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 520)
@@ -1556,14 +1477,14 @@ struct CatalogStateBadge: View {
             EmptyView()
         case .stale:
             Image(systemName: "clock.badge.exclamationmark")
-                .font(.caption.weight(.semibold))
+                .font(MusesTypography.caption.weight(.semibold))
                 .padding(6)
                 .background(BrandColors.surface, in: Circle())
                 .overlay(Circle().stroke(BrandColors.textPrimary.opacity(0.28), lineWidth: 1))
                 .help(tr("Cached metadata is stale", "缓存元数据已过期"))
         case .unavailable:
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.caption.weight(.semibold))
+                .font(MusesTypography.caption.weight(.semibold))
                 .foregroundStyle(BrandColors.accent)
                 .padding(6)
                 .background(BrandColors.surface, in: Circle())

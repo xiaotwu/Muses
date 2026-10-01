@@ -162,6 +162,7 @@ struct NowPlayingView: View {
     @Binding var isPresented: Bool
     @Binding var showLyrics: Bool
     var coverHostedExternally: Bool = false
+    var onReturn: () -> Void
 
     @Environment(PlaybackService.self) private var playback
     @Environment(LibraryService.self) private var library
@@ -177,6 +178,9 @@ struct NowPlayingView: View {
     @State private var seekValue: Double = 0
     @State private var volumePresented = false
     @State private var lastVolumeEscapeTimestamp: TimeInterval?
+    @AppStorage(PrefKey.gestureClosePlayer) private var swipeClose = true
+    @AppStorage(PrefKey.gestureChangeTrack) private var swipeTracks = false
+    @AppStorage(PrefKey.gestureShowLyrics) private var swipeLyrics = false
     @State private var volumeEscapeHandled = false
     @State private var volumeEscapePending = false
     @State private var rememberedAudibleVolume = NowPlayingVolumePolicy.fallbackAudibleVolume
@@ -232,6 +236,18 @@ struct NowPlayingView: View {
                     playbackDock(width: min(668, max(280, proxy.size.width - 48)))
                         .frame(maxWidth: .infinity)
                         .padding(.bottom, NowPlayingLayout.dockBottomInset)
+                }
+            }
+        }
+        .background {
+            PlayerGestureInput(enabled: acceptsGlobalKeyEvents && !volumePresented && !chaptersPresented,
+                close: swipeClose, tracks: swipeTracks, lyrics: swipeLyrics,
+                hasLyricsColumn: showLyrics || lyricsFullscreen) { action in
+                switch action {
+                case .close: onReturn()
+                case .next: playback.next()
+                case .previous: playback.previous()
+                case .lyrics: showLyrics = true
                 }
             }
         }
@@ -414,29 +430,26 @@ struct NowPlayingView: View {
             volumePresented.toggle()
         } label: {
             Image(systemName: playback.volume <= 0.001 ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                .font(.system(size: 14, weight: .semibold))
+                .font(MusesTypography.system(size: 14, weight: .semibold))
                 .frame(width: 34, height: 34)
         }
         .buttonStyle(.musesTransport)
         .help(tr("Volume", "音量"))
         .accessibilityLabel(tr("Volume", "音量"))
         .accessibilityValue("\(Int((playback.volume * 100).rounded()))%")
-        .popover(isPresented: $volumePresented, arrowEdge: .top) {
-            LiquidGlassVolumeBar(width: 330, height: 60, scaleStyle: .dots)
-                .padding(12)
-                .preferredColorScheme(.dark)
-                .onExitCommand { dismissVolumeForEscape() }
-                .onKeyPress(.escape) {
-                    dismissVolumeForEscape()
-                    return .handled
-                }
+        .overlay(alignment: .bottomTrailing) {
+            if volumePresented {
+                FloatingVolumePanel(width: 330, height: 60, style: .dots) { dismissVolumeForEscape() }
+                    .preferredColorScheme(.dark)
+                    .offset(y: -44)
+            }
         }
     }
 
     private var lyricsToggle: some View {
         Button { showLyrics.toggle() } label: {
             Image(systemName: "quote.bubble")
-                .font(.system(size: 15, weight: .semibold))
+                .font(MusesTypography.system(size: 15, weight: .semibold))
                 .frame(width: 34, height: 34)
                 .overlay(alignment: .bottom) {
                     if showLyrics { Circle().fill(BrandColors.accent).frame(width: 4, height: 4) }
@@ -528,7 +541,7 @@ struct NowPlayingView: View {
             if let id = playback.state.track?.id { library.toggleLike(id: id) }
         } label: {
             Image(systemName: liked ? "star.fill" : "star")
-                .font(.system(size: 13, weight: .semibold))
+                .font(MusesTypography.system(size: 13, weight: .semibold))
                 .foregroundStyle(liked ? BrandColors.accent : BrandColors.textPrimary.opacity(0.85))
                 .frame(width: 28, height: 28)
                 .contentShape(Circle())
@@ -576,11 +589,11 @@ struct NowPlayingView: View {
             .overlay {
                 if let qualityLabel {
                     Label(qualityLabel, systemImage: "waveform")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(MusesTypography.system(size: 10, weight: .medium))
                         .foregroundStyle(BrandColors.textPrimary.opacity(0.42))
                 }
             }
-            .font(.system(size: 11, weight: .regular).monospacedDigit())
+            .font(MusesTypography.system(size: 11, weight: .regular).monospacedDigit())
             .foregroundStyle(BrandColors.textPrimary.opacity(0.6))
         }
     }
@@ -607,7 +620,7 @@ struct NowPlayingView: View {
 
                 Button { playback.toggle() } label: {
                     Image(systemName: playback.state.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 22, weight: .semibold))
+                        .font(MusesTypography.system(size: 22, weight: .semibold))
                         .foregroundStyle(BrandColors.playback)
                         .offset(x: playback.state.isPlaying ? 0 : 1)
                         .frame(width: 44, height: 44)
@@ -677,7 +690,7 @@ struct NowPlayingView: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 14, weight: .semibold))
+                .font(MusesTypography.system(size: 14, weight: .semibold))
                 .foregroundStyle(selected ? BrandColors.accent : BrandColors.textPrimary.opacity(0.85))
                 .selectionHalo(selected)
                 .frame(width: 34, height: 34)
@@ -692,11 +705,11 @@ struct NowPlayingView: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "music.note")
-                .font(.system(size: 34, weight: .regular))
+                .font(MusesTypography.system(size: 34, weight: .regular))
                 .foregroundStyle(BrandColors.textSecondary)
                 .accessibilityHidden(true)
             Text(tr("Nothing Playing", "暂无播放"))
-                .font(.title3.weight(.semibold))
+                .font(MusesTypography.title3.weight(.semibold))
                 .foregroundStyle(BrandColors.textPrimary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -52,7 +52,7 @@ struct SongObjectView: View {
                         .lineLimit(1)
                     if isLossless {
                         Text(tr("Hi-Res", "Hi-Res"))
-                            .font(.caption2)
+                            .font(MusesTypography.caption2)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 2)
                             .background(BrandColors.textSecondary.opacity(0.12))
@@ -61,7 +61,7 @@ struct SongObjectView: View {
                     }
                     if showLocalBadge {
                         Text(tr("Local", "本地"))
-                            .font(.caption2)
+                            .font(MusesTypography.caption2)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(BrandColors.textSecondary.opacity(0.12))
@@ -70,14 +70,14 @@ struct SongObjectView: View {
                     }
                 }
                 Text(artist)
-                    .font(.caption)
+                    .font(MusesTypography.caption)
                     .foregroundStyle(BrandColors.textSecondary)
                     .lineLimit(1)
             }
 
             if let albumTitle {
                 Text(albumTitle)
-                    .font(.caption)
+                    .font(MusesTypography.caption)
                     .foregroundStyle(BrandColors.textSecondary)
                     .lineLimit(1)
                     .frame(width: 160, alignment: .leading)
@@ -88,7 +88,7 @@ struct SongObjectView: View {
             if let isLiked {
                 Button(action: { onToggleLike?() }) {
                     Image(systemName: isLiked ? "heart.fill" : "heart")
-                        .font(.caption)
+                        .font(MusesTypography.caption)
                 }
                 .foregroundStyle(isLiked ? BrandColors.accent : BrandColors.textSecondary)
                 .buttonStyle(.musesCompact)
@@ -170,10 +170,10 @@ struct SongObjectView: View {
     private var nowPlayingBadge: some View {
         if let nowPlayingID {
             NowPlayingMark(itemID: nowPlayingID)
-                .font(.caption)
+                .font(MusesTypography.caption)
         } else if isNowPlaying {
             Image(systemName: "speaker.wave.2")
-                .font(.caption)
+                .font(MusesTypography.caption)
                 .foregroundStyle(BrandColors.textPrimary)
                 .accessibilityHidden(true)
         }

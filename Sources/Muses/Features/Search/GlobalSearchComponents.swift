@@ -79,15 +79,15 @@ struct SearchCategoryButton: View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Image(systemName: systemName)
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(MusesTypography.system(size: 18, weight: .semibold))
                     .foregroundStyle(BrandColors.accent)
                     .frame(width: 28, height: 28)
                 Text(title)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(MusesTypography.system(size: 15, weight: .semibold))
                     .foregroundStyle(BrandColors.textPrimary)
                 Spacer()
                 Image(systemName: "chevron.forward")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(MusesTypography.system(size: 11, weight: .semibold))
                     .foregroundStyle(BrandColors.textSecondary)
             }
             .padding(.horizontal, 14)
@@ -118,18 +118,18 @@ struct GlobalSearchTrackRow: View {
                     .frame(width: 42, height: 42)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(snapshot.title)
-                        .font(.system(size: 14, weight: .medium))
+                        .font(MusesTypography.system(size: 14, weight: .medium))
                         .foregroundStyle(isCurrent ? BrandColors.accent : BrandColors.textPrimary)
                         .lineLimit(1)
                     Text([snapshot.artist, snapshot.albumTitle]
                         .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " — "))
-                        .font(.caption)
+                        .font(MusesTypography.caption)
                         .foregroundStyle(BrandColors.textSecondary)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 12)
                 Text(formatDuration(snapshot.durationSeconds))
-                    .font(.caption.monospacedDigit())
+                    .font(MusesTypography.caption.monospacedDigit())
                     .foregroundStyle(BrandColors.textSecondary)
                 YouTubeMark(size: 13)
                     .accessibilityHidden(true)
@@ -165,11 +165,11 @@ struct GlobalSearchYouTubeRow: View {
                     .clipped()
                     VStack(alignment: .leading, spacing: 2) {
                         Text(entry.title)
-                            .font(.system(size: 14, weight: .medium))
+                            .font(MusesTypography.system(size: 14, weight: .medium))
                             .foregroundStyle(BrandColors.textPrimary)
                             .lineLimit(1)
                         Text(entry.uploader ?? "YouTube Music")
-                            .font(.caption)
+                            .font(MusesTypography.caption)
                             .foregroundStyle(BrandColors.textSecondary)
                             .lineLimit(1)
                     }
@@ -191,7 +191,7 @@ struct GlobalSearchYouTubeRow: View {
                 NSWorkspace.shared.open(url)
             } label: {
                 Image(systemName: "arrow.up.right")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(MusesTypography.system(size: 12, weight: .semibold))
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(.fullAreaPlain)
@@ -218,15 +218,15 @@ struct SearchStatusView: View {
                 ProgressView().controlSize(.regular)
             } else {
                 Image(systemName: systemName)
-                    .font(.system(size: 28, weight: .semibold))
+                    .font(MusesTypography.system(size: 28, weight: .semibold))
                     .foregroundStyle(BrandColors.textSecondary)
             }
             Text(title)
-                .font(.headline)
+                .font(MusesTypography.headline)
                 .foregroundStyle(BrandColors.textPrimary)
             if let subtitle {
                 Text(subtitle)
-                    .font(.subheadline)
+                    .font(MusesTypography.subheadline)
                     .foregroundStyle(BrandColors.textSecondary)
             }
         }
@@ -244,18 +244,18 @@ struct GlobalSearchNoteRow: View {
         Button(action: onTap) {
             HStack(alignment: .top, spacing: 11) {
                 Image(systemName: "note.text")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(MusesTypography.system(size: 15, weight: .semibold))
                     .foregroundStyle(BrandColors.accent)
                     .frame(width: 42, height: 42)
                     .background(BrandColors.surface,
                                 in: Capsule())
                 VStack(alignment: .leading, spacing: 2) {
                     Text(hit.ownerTitle)
-                        .font(.system(size: 14, weight: .medium))
+                        .font(MusesTypography.system(size: 14, weight: .medium))
                         .foregroundStyle(BrandColors.textPrimary)
                         .lineLimit(1)
                     Text(hit.snippet)
-                        .font(.caption)
+                        .font(MusesTypography.caption)
                         .foregroundStyle(BrandColors.textSecondary)
                         .lineLimit(2)
                 }

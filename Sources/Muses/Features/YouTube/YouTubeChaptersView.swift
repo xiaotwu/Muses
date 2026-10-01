@@ -14,7 +14,7 @@ struct YouTubeChaptersView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text(tr("Chapters", "章节", zhHant: "章節")).font(.headline)
+                Text(tr("Chapters", "章节", zhHant: "章節")).font(MusesTypography.headline)
                 Spacer()
                 Button(tr("Close", "关闭", zhHant: "關閉"), systemImage: "xmark") { dismiss() }
                     .labelStyle(.iconOnly)

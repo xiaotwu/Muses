@@ -34,6 +34,7 @@ struct HistoryView: View {
         }
         .background(BrowseBackground())
         .task { reload() }
+        .onChange(of: enabled) { _, _ in reload() }
         .onChange(of: range) { _, _ in reload() }
         .onChange(of: history.historyRevision) { _, _ in reload() }
         .alert(
@@ -77,6 +78,9 @@ struct HistoryView: View {
             if dashboard.recap.eventCount > 0 {
                 dashboardContent(dashboard)
             } else {
+                Picker(tr("History range", "历史时间范围"), selection: $range) {
+                    ForEach(RecapRange.allCases, id: \.self) { Text($0.label).tag($0) }
+                }.pickerStyle(.segmented).frame(maxWidth: 330)
                 rangeEmptyState
             }
         } else {
@@ -176,27 +180,27 @@ struct HistoryView: View {
     private func rankingCard(title: String, rows: [(String, String, String)]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title)
-                .font(.headline)
+                .font(MusesTypography.headline)
                 .padding(.bottom, 14)
             if rows.isEmpty {
                 Text(tr("Not enough listening activity yet", "收听活动还不够多"))
-                    .font(.callout)
+                    .font(MusesTypography.callout)
                     .foregroundStyle(BrandColors.textSecondary)
                     .padding(.vertical, 18)
             } else {
                 ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                     HStack(spacing: 12) {
                         Text("\(index + 1)")
-                            .font(.title3.weight(.heavy))
+                            .font(MusesTypography.title3.weight(.heavy))
                             .foregroundStyle(index == 0 ? BrandColors.accent : BrandColors.textSecondary)
                             .frame(width: 24, alignment: .trailing)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(row.0).font(.callout.weight(.semibold)).lineLimit(1)
-                            Text(row.1).font(.caption).foregroundStyle(BrandColors.textSecondary).lineLimit(1)
+                            Text(row.0).font(MusesTypography.callout.weight(.semibold)).lineLimit(1)
+                            Text(row.1).font(MusesTypography.caption).foregroundStyle(BrandColors.textSecondary).lineLimit(1)
                         }
                         Spacer(minLength: 10)
                         Text(row.2)
-                            .font(.caption.monospacedDigit())
+                            .font(MusesTypography.caption.monospacedDigit())
                             .foregroundStyle(BrandColors.textSecondary)
                     }
                     .padding(.vertical, 9)
@@ -227,15 +231,15 @@ struct HistoryView: View {
                             targetSize: 44
                         )
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(event.title).font(.callout.weight(.semibold)).lineLimit(1)
-                            Text(event.artist).font(.caption).foregroundStyle(BrandColors.textSecondary).lineLimit(1)
+                            Text(event.title).font(MusesTypography.callout.weight(.semibold)).lineLimit(1)
+                            Text(event.artist).font(MusesTypography.caption).foregroundStyle(BrandColors.textSecondary).lineLimit(1)
                         }
                         Spacer(minLength: 12)
                         Text(event.startedAt, style: .relative)
-                            .font(.caption)
+                            .font(MusesTypography.caption)
                             .foregroundStyle(BrandColors.textSecondary)
                         Text(ListeningFormat.duration(event.listenedMs))
-                            .font(.caption.monospacedDigit())
+                            .font(MusesTypography.caption.monospacedDigit())
                             .foregroundStyle(BrandColors.textSecondary)
                             .frame(width: 60, alignment: .trailing)
                         Button { play(event, within: events) } label: {
@@ -265,11 +269,11 @@ struct HistoryView: View {
     private func errorState(_ message: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(tr("History could not be loaded", "无法载入历史记录"))
-                .font(.headline)
+                .font(MusesTypography.headline)
             Text(message)
-                .font(.callout)
+                .font(MusesTypography.callout)
                 .foregroundStyle(BrandColors.textSecondary)
-            Button(tr("Try Again", "重试")) { reload() }
+            Button(tr("Try Again", "重试")) { reload() }.musesAction()
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -293,13 +297,13 @@ struct HistoryView: View {
     private var disabledState: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(tr("Listening history is off", "收听历史已关闭"))
-                .font(.headline)
+                .font(MusesTypography.headline)
                 .foregroundStyle(BrandColors.textPrimary)
             Text(tr(
                 "Turn it on in Settings to keep play, skip, and stop activity on this Mac.",
                 "在设置中开启后，播放、跳过和停止活动会保存在此 Mac。"
             ))
-            .font(.callout)
+            .font(MusesTypography.callout)
             .foregroundStyle(BrandColors.textSecondary)
         }
         .padding(20)
@@ -361,11 +365,11 @@ private struct HistoryMetricCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(value)
-                .font(.system(size: 26, weight: .bold, design: .rounded))
+                .font(MusesTypography.system(size: 26, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(BrandColors.textPrimary)
             Text(label)
-                .font(.caption)
+                .font(MusesTypography.caption)
                 .foregroundStyle(BrandColors.textSecondary)
         }
         .padding(16)

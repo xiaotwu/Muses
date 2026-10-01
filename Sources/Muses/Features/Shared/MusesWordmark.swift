@@ -13,7 +13,7 @@ struct MusesMark: View {
                 .frame(width: size, height: size)
         } else {
             Image(systemName: "music.note")
-                .font(.system(size: size * 0.75, weight: .bold))
+                .font(MusesTypography.system(size: size * 0.75, weight: .bold))
                 .foregroundStyle(BrandColors.textPrimary)
                 .frame(width: size, height: size)
         }

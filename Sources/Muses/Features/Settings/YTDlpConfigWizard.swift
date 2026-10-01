@@ -30,9 +30,9 @@ struct YTDlpConfigWizard: View {
             .musesAction()
             .tint(BrandColors.accent)
             if let status {
-                Text(status).font(.caption).foregroundStyle(BrandColors.textSecondary)
+                Text(status).font(MusesTypography.caption).foregroundStyle(BrandColors.textSecondary)
             }
-        } header: { Text(tr("yt-dlp setup", "yt-dlp 配置")).font(.headline.weight(.semibold)) }
+        } header: { Text(tr("yt-dlp setup", "yt-dlp 配置")).font(MusesTypography.headline.weight(.semibold)) }
     }
 
     private func writeConfig() -> String {

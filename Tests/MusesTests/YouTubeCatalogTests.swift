@@ -464,7 +464,7 @@ struct YouTubeCatalogTests {
         service.rebuildFromTrackMetadata()
 
         let releases = service.releases()
-        #expect(releases.isEmpty)
+        #expect(releases.map(\.title) == ["Rock Hits Album"])
         #expect(try ModelContext(container).fetchCount(FetchDescriptor<Track>()) == 0)
         // Regular playlist does NOT appear as a release
         #expect(!releases.contains(where: { $0.title == "My Liked Playlist" }))

@@ -63,7 +63,7 @@ struct MenuBarPlayerView: View {
                     Spacer()
                     Text("−" + formatTime(max(0, duration - position)))
                 }
-                .font(.system(size: 10, weight: .medium).monospacedDigit())
+                .font(MusesTypography.system(size: 10, weight: .medium).monospacedDigit())
                 .foregroundStyle(.secondary)
             }
 
@@ -76,7 +76,7 @@ struct MenuBarPlayerView: View {
                     .disabled(track == nil)
                 Button { playback.toggle() } label: {
                     Image(systemName: playback.primaryAction.symbol)
-                        .font(.system(size: 24, weight: .semibold))
+                        .font(MusesTypography.system(size: 24, weight: .semibold))
                         .frame(width: 40, height: 40)
                 }
                 .buttonStyle(.fullAreaPlain)
@@ -106,7 +106,7 @@ struct MenuBarPlayerView: View {
 
             if let audioDevices, audioDevices.lastError != nil {
                 Text(tr("Unable to switch audio output. Try again.", "无法切换音频输出，请重试。", zhHant: "無法切換音訊輸出，請重試。"))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(MusesTypography.caption).foregroundStyle(.secondary)
             }
         }
         .padding(18)

@@ -17,6 +17,6 @@ struct NotificationsSettingsView: View {
                         authorizationRequested = true
                     }
                 }
-        } header: { Text(tr("Notifications", "通知")).font(.headline.weight(.semibold)) }
+        } header: { Text(tr("Notifications", "通知")).font(MusesTypography.headline.weight(.semibold)) }
     }
 }

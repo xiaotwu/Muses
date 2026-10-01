@@ -55,12 +55,22 @@ enum MusesTypography {
     }()
 
     static func native(_ face: Face, size: CGFloat, japanese: Bool = false) -> NSFont {
-        fonts[Key(face: face, size: size, japanese: japanese)] ?? NSFont.systemFont(ofSize: size)
+        let scaled = size * TypographyPreferences.shared.size.scale
+        if let custom = preferredNative(size: scaled, emphasized: face == .heading || face == .strongSong || face == .activeLyric) {
+            return custom
+        }
+        if let font = fonts[Key(face: face, size: size, japanese: japanese)] {
+            return scaled == size ? font : NSFont(descriptor: font.fontDescriptor, size: scaled) ?? font
+        }
+        let names = japanese ? [face.cascadeNames.last!] + face.cascadeNames.dropLast() : face.cascadeNames
+        return NSFont(descriptor: NSFontDescriptor(fontAttributes: [
+            .name: face.rawValue, .cascadeList: names.map { NSFontDescriptor(name: $0, size: scaled) }
+        ]), size: scaled) ?? NSFont.systemFont(ofSize: scaled)
     }
 
-    static let pageTitle = Font(native(.heading, size: 34))
-    static let sectionTitle = Font(native(.heading, size: 22))
-    static let settingsTitle = sectionTitle
+    static var pageTitle: Font { Font(native(.heading, size: 34)) }
+    static var sectionTitle: Font { Font(native(.heading, size: 22)) }
+    static var settingsTitle: Font { sectionTitle }
 
     static func song(size: CGFloat = 14, emphasized: Bool = false, text: String = "") -> Font {
         Font(native(emphasized ? .strongSong : .song, size: size, japanese: hasKana(text)))

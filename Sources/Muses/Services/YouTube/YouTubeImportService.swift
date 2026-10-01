@@ -61,14 +61,48 @@ final class YouTubeImportService {
             return cached.entry
         }
         if let request = songMetadataRequests[videoID] { return await request.value }
+        guard songMetadataRequests.count < 8 else { return nil }
+        let presentationContext = ModelContext(modelContainer)
+        let items = (try? presentationContext.fetch(FetchDescriptor<YouTubeImportItem>(
+            predicate: #Predicate { $0.youTubeId == videoID }
+        ))) ?? []
+        for item in items {
+            if let owner = item.import_, owner.deletedAt == nil {
+                SongCreditCache.shared.recordOwner(owner.channel, videoID: videoID)
+            }
+        }
         let bridge = self.bridge
-        let request = Task { try? await bridge.fetchSongMetadata(videoId: videoID, timeout: 20) }
+        let session = self.session
+        let request = Task {
+            // oEmbed provides the actual video publisher quickly when detailed
+            // music extraction is unavailable; it never uses the playlist owner.
+            let fallback = await Self.videoPresentation(videoID: videoID, session: session)
+            if let fallback { SongCreditCache.shared.store(fallback) }
+            let detailed = try? await bridge.fetchSongMetadata(videoId: videoID, timeout: 20)
+            if let detailed { SongCreditCache.shared.store(detailed) }
+            return detailed ?? fallback
+        }
         songMetadataRequests[videoID] = request
         let entry = await request.value
         songMetadataRequests[videoID] = nil
         if songMetadataCache.count >= 96 { songMetadataCache.removeAll() }
         songMetadataCache[videoID] = (Date(), entry)
         return entry
+    }
+
+    private static func videoPresentation(videoID: String, session: URLSession) async -> YTDlpBridge.YTDlpPlaylistEntry? {
+        guard YTDlpBridge.YTDlpPlaylistEntry(id: videoID, title: "").resourceKind == .video else { return nil }
+        var components = URLComponents(string: "https://www.youtube.com/oembed")!
+        components.queryItems = [.init(name: "url", value: "https://www.youtube.com/watch?v=" + videoID),
+                                 .init(name: "format", value: "json")]
+        guard let url = components.url else { return nil }
+        struct Presentation: Decodable { let title: String; let author_name: String }
+        do {
+            let (data, response) = try await session.data(for: URLRequest(url: url, timeoutInterval: 6))
+            guard !Task.isCancelled, (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            let value = try JSONDecoder().decode(Presentation.self, from: data)
+            return .init(id: videoID, title: value.title, uploader: value.author_name)
+        } catch { return nil }
     }
 
     /// Resolve collection presentation context in a fresh context, without retaining models.

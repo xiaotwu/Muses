@@ -151,7 +151,7 @@ struct SongStationCard: View {
     private var nowPlayingBadge: some View {
         if let nowPlayingID {
             NowPlayingMark(itemID: nowPlayingID)
-                .font(.caption)
+                .font(MusesTypography.caption)
                 .padding(7)
         }
     }

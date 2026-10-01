@@ -100,7 +100,7 @@ struct ArtworkView: View {
             .fill(BrandColors.surface)
             .overlay(
                 Image(systemName: "music.note")
-                    .font(.system(size: glyphSize))
+                    .font(MusesTypography.system(size: glyphSize))
                     .foregroundStyle(BrandColors.textSecondary.opacity(0.5))
             )
     }

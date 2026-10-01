@@ -39,7 +39,7 @@ struct EQEditorView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(tr("Equalizer", "均衡器")).font(.title2).fontWeight(.bold)
+                Text(tr("Equalizer", "均衡器")).font(MusesTypography.title2).fontWeight(.bold)
                     .foregroundStyle(BrandColors.textPrimary)
                 Spacer()
                 Button { playback.setEQBypassed(!playback.eqBypassed) } label: {
@@ -131,7 +131,7 @@ struct EQEditorView: View {
             ForEach(Array(bands.enumerated()), id: \.offset) { idx, _ in
                 VStack(spacing: 4) {
                     Text(String(format: "%.0f", bands[idx].gain))
-                        .font(.caption2)
+                        .font(MusesTypography.caption2)
                         .foregroundStyle(BrandColors.textSecondary)
                     Slider(value: Binding(
                         get: { Double(bands[idx].gain) },
@@ -148,7 +148,7 @@ struct EQEditorView: View {
                     .rotationEffect(.degrees(-90))
                     .frame(width: 30, height: 80)
                     Text(formatFreq(bands[idx].frequency))
-                        .font(.system(size: 9))
+                        .font(MusesTypography.system(size: 9))
                         .foregroundStyle(BrandColors.textSecondary)
                 }
                 .frame(maxWidth: .infinity)
@@ -161,7 +161,7 @@ struct EQEditorView: View {
     private var presetSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(tr("Presets", "预设")).font(.headline).foregroundStyle(BrandColors.textPrimary)
+                Text(tr("Presets", "预设")).font(MusesTypography.headline).foregroundStyle(BrandColors.textPrimary)
                 Spacer()
                 Button {
                     showSaveDialog = true
@@ -210,7 +210,7 @@ struct EQEditorView: View {
 
     private func presetChip(name: String, isActive: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(name).font(.callout)
+            Text(name).font(MusesTypography.callout)
                 .padding(.horizontal, 12).padding(.vertical, 6)
                 .background(isActive ? BrandColors.accent.opacity(0.3) : BrandColors.surface)
                 .foregroundStyle(isActive ? BrandColors.accent : BrandColors.textPrimary)
@@ -271,7 +271,7 @@ struct StreamingEQAvailabilityNote: View {
 
     var body: some View {
         Text(message)
-            .font(.callout)
+            .font(MusesTypography.callout)
             .foregroundStyle(BrandColors.textPrimary)
             .fixedSize(horizontal: false, vertical: true)
     }

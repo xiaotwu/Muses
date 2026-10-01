@@ -16,7 +16,7 @@ struct AudioInfoPanel: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text(tr("Audio Info", "音频信息"))
-                    .font(.title2).fontWeight(.bold)
+                    .font(MusesTypography.title2).fontWeight(.bold)
                     .foregroundStyle(BrandColors.textPrimary)
                 Spacer()
                 Button(tr("Close", "关闭"), systemImage: "xmark") { dismiss() }
@@ -36,7 +36,7 @@ struct AudioInfoPanel: View {
                             Text(row.label).foregroundStyle(BrandColors.textSecondary)
                             Spacer()
                             Text(row.value).foregroundStyle(BrandColors.textPrimary)
-                                .font(.system(.body, design: .monospaced))
+                                .font(MusesTypography.system(size: 13, design: .monospaced))
                         }
                     }
                 }
@@ -48,10 +48,10 @@ struct AudioInfoPanel: View {
                 VStack(alignment: .leading, spacing: 8) {
                     devicePicker
                     Text(tr("Changes the macOS default output for all apps.", "更改所有应用使用的 macOS 默认输出。", zhHant: "更改所有 App 使用的 macOS 預設輸出。"))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(MusesTypography.caption).foregroundStyle(.secondary)
                     if let status = deviceService.lastError {
                         Text(tr("Output device unavailable", "输出设备不可用", zhHant: "輸出裝置無法使用") + " (\(status))")
-                            .font(.caption).foregroundStyle(BrandColors.textPrimary)
+                            .font(MusesTypography.caption).foregroundStyle(BrandColors.textPrimary)
                     }
                 }.padding(8)
             }

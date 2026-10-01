@@ -32,7 +32,7 @@ struct AddYouTubeLinkSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(tr("Paste YouTube Link", "粘贴 YouTube 链接"))
-                .font(.title2).fontWeight(.bold)
+                .font(MusesTypography.title2).fontWeight(.bold)
                 .foregroundStyle(BrandColors.textPrimary)
 
             TextField("https://www.youtube.com/watch?v=…  /  …/playlist?list=…",
@@ -41,14 +41,14 @@ struct AddYouTubeLinkSheet: View {
                 .disabled(importing)
 
             Text(detectedHint)
-                .font(.caption).foregroundStyle(BrandColors.textSecondary)
+                .font(MusesTypography.caption).foregroundStyle(BrandColors.textSecondary)
 
             Text(tr("Auto-detected: single video or playlist. Importing is for personal use only, comply with YouTube's Terms of Service and local laws.",
                     "自动识别:单曲或歌单。导入仅个人使用,遵守 YouTube 服务条款与当地法律。"))
-                .font(.caption).foregroundStyle(BrandColors.textSecondary)
+                .font(MusesTypography.caption).foregroundStyle(BrandColors.textSecondary)
 
             if let err = error {
-                Text(err).font(.callout).foregroundStyle(.red)
+                Text(err).font(MusesTypography.callout).foregroundStyle(.red)
             }
 
             HStack {

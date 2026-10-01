@@ -41,7 +41,7 @@ struct YouTubeSubscriptionsView: View {
                             } actions: {
                                 Button(tr("Account Settings", "账号设置")) {
                                     NotificationCenter.default.post(name: .musesOpenSettings, object: SettingsCategory.youtube)
-                                }
+                                }.musesAction()
                             }.frame(maxWidth: .infinity)
                         } else {
                             HStack {
@@ -51,7 +51,7 @@ struct YouTubeSubscriptionsView: View {
                                     .accessibilityLabel(tr("YouTube channel URL or ID", "YouTube 频道链接或 ID", zhHant: "YouTube 頻道連結或 ID"))
                                 Button(tr("Find Channel", "查找频道", zhHant: "尋找頻道")) {
                                     Task { await resolveChannel() }
-                                }
+                                }.musesAction()
                                 .disabled(channelInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolvingChannel)
                             }
                             if resolvingChannel { ProgressView() }
@@ -59,7 +59,7 @@ struct YouTubeSubscriptionsView: View {
                             if !account.canManagePlaylists {
                                 Button(tr("Allow Subscription Changes…", "允许修改订阅…", zhHant: "允許修改訂閱…")) {
                                     Task { await account.requestPlaylistManagementAccess() }
-                                }
+                                }.musesAction()
                             }
                             if account.subscriptionsState.isLoading { ProgressView() }
                             if let message = account.subscriptionsState.errorMessage {
@@ -199,7 +199,7 @@ private struct YouTubeChannelUploadsView: View {
                         Button(tr("Unsubscribe", "取消订阅")) {
                             showingUnsubscribe = true
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.musesCompact)
                         .help(tr("Unsubscribe from this channel", "取消订阅此频道"))
                     }
                     if let target = YouTubeShareTarget(kind: .channel, id: channel.channelId) {
@@ -209,7 +209,7 @@ private struct YouTubeChannelUploadsView: View {
                     ChromeIconButton(systemName: "arrow.clockwise", help: tr("Refresh", "刷新"), accessibility: tr("Refresh", "刷新")) {
                         appendPage = false
                         refreshID = UUID()
-                    }.disabled(state.isLoading)
+                    }.musesAction().disabled(state.isLoading)
                 }
                 Text(tr("Channel uploads", "频道上传内容")).foregroundStyle(.secondary)
                 if let message = state.errorMessage { MetadataProjectionErrorBanner(message: message) }
@@ -232,7 +232,7 @@ private struct YouTubeChannelUploadsView: View {
                     Button(tr("Load More", "加载更多")) {
                         appendPage = true
                         refreshID = UUID()
-                    }.disabled(state.isLoading)
+                    }.musesAction().disabled(state.isLoading)
                 }
             }.padding(28).padding(.bottom, 100)
         }

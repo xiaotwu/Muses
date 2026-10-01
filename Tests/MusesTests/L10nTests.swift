@@ -46,7 +46,7 @@ struct L10nThemeTests {
 
     @Test("Saved settings destinations redirect to flat visible categories")
     func settingsDestinations() {
-        #expect(SettingsCategory.allCases.count == 9)
+        #expect(SettingsCategory.allCases.count == 10)
         #expect(SettingsCategory.audioQuality.destination == .playback)
         #expect(SettingsCategory.desktop.destination == .appearance)
         #expect(SettingsCategory.updates.destination == .about)

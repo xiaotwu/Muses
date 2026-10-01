@@ -23,6 +23,9 @@ struct CollectionTrackRow: Identifiable, Equatable, Sendable {
         SongDisplayInformation.isMissingCredit(snapshot.artist) || snapshot.artist == collectionOwner
             ? tr("Artist unavailable", "艺人信息暂缺") : snapshot.artist
     }
+    @MainActor var displayArtist: String {
+        SongCreditCache.shared.artist(snapshot: snapshot, owner: collectionOwner)
+    }
     var album: String {
         snapshot.albumTitle == collectionTitle ? "" : (snapshot.albumTitle ?? "")
     }
@@ -110,6 +113,7 @@ struct CollectionTrackRow: Identifiable, Equatable, Sendable {
         for imported in imports.filter({ $0.deletedAt == nil })
             .sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
             for item in (imported.items ?? []).sorted(by: { $0.order < $1.order }) {
+                SongCreditCache.shared.recordOwner(imported.channel, videoID: item.youTubeId)
                 guard !item.youTubeId.isEmpty, unique[item.youTubeId] == nil else { continue }
                 let snapshot = item.track.map { TrackSnapshot(from: $0) } ?? TrackSnapshot(
                     id: item.id, title: item.title, artist: item.artist,

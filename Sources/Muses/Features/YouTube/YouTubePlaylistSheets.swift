@@ -15,7 +15,7 @@ struct AddToYouTubePlaylistSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text(tr("Add to playlist", "添加到歌单"))
-                    .font(.headline)
+                    .font(MusesTypography.headline)
                 Spacer()
                 Button(tr("Close", "关闭"), systemImage: "xmark") { dismiss() }
                     .labelStyle(ActionIconLabelStyle())
@@ -25,7 +25,7 @@ struct AddToYouTubePlaylistSheet: View {
                 .textFieldStyle(.roundedBorder)
                 .onSubmit { Task { await runSearch() } }
             if searching { ProgressView().controlSize(.small) }
-            if let error { Text(error).font(.caption).foregroundStyle(.red) }
+            if let error { Text(error).font(MusesTypography.caption).foregroundStyle(.red) }
             List(results, id: \.id) { entry in
                 Button {
                     Task { await add(entry) }
@@ -33,7 +33,7 @@ struct AddToYouTubePlaylistSheet: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(entry.title).foregroundStyle(BrandColors.textPrimary)
                         Text(entry.uploader ?? "")
-                            .font(.caption)
+                            .font(MusesTypography.caption)
                             .foregroundStyle(BrandColors.textSecondary)
                     }
                 }
@@ -98,9 +98,9 @@ struct PlaylistPullPreviewSheet: View {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(tr("Pull Preview", "拉取预览"))
-                        .font(.title2.weight(.semibold))
+                        .font(MusesTypography.title2.weight(.semibold))
                     Text(summary)
-                        .font(.caption)
+                        .font(MusesTypography.caption)
                         .foregroundStyle(BrandColors.textSecondary)
                 }
                 Spacer()
@@ -109,7 +109,7 @@ struct PlaylistPullPreviewSheet: View {
 
             if !preview.mergePlan.conflicts.isEmpty {
                 Text(tr("Resolve each conflict", "逐项解决冲突"))
-                    .font(.headline)
+                    .font(MusesTypography.headline)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
                         ForEach(preview.mergePlan.conflicts) { conflict in
@@ -121,10 +121,10 @@ struct PlaylistPullPreviewSheet: View {
 
             HStack {
                 Text(tr("Final local order", "最终本地顺序"))
-                    .font(.headline)
+                    .font(MusesTypography.headline)
                 Spacer()
                 Text(tr("Drag rows to resolve ordering", "拖动行来确定顺序"))
-                    .font(.caption)
+                    .font(MusesTypography.caption)
                     .foregroundStyle(BrandColors.textSecondary)
             }
 
@@ -137,13 +137,13 @@ struct PlaylistPullPreviewSheet: View {
                             Text(item.knownTitle ?? tr("Unknown Title", "未知标题"))
                                 .lineLimit(1)
                             Text(item.knownArtist ?? tr("Unknown Artist", "未知艺人"))
-                                .font(.caption)
+                                .font(MusesTypography.caption)
                                 .foregroundStyle(BrandColors.textSecondary)
                         }
                         Spacer()
                         if item.availability != .available {
                             Text(tr("Unavailable", "不可用"))
-                                .font(.caption2)
+                                .font(MusesTypography.caption2)
                                 .foregroundStyle(BrandColors.textSecondary)
                         }
                     }
@@ -155,7 +155,7 @@ struct PlaylistPullPreviewSheet: View {
             HStack {
                 Text(tr("Pull changes only Muses. YouTube is not modified.",
                         "拉取只会修改 Muses，不会修改 YouTube。"))
-                    .font(.caption)
+                    .font(MusesTypography.caption)
                     .foregroundStyle(BrandColors.textSecondary)
                 Spacer()
                 Button(tr("Apply Pull", "应用拉取")) {
@@ -188,10 +188,10 @@ struct PlaylistPullPreviewSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(conflict.local?.knownTitle ?? conflict.remote?.knownTitle
                  ?? conflict.base?.knownTitle ?? tr("Unknown item", "未知条目"))
-                .font(.subheadline.weight(.semibold))
+                .font(MusesTypography.subheadline.weight(.semibold))
                 .lineLimit(2)
             Text(conflictLabel(conflict.kind))
-                .font(.caption)
+                .font(MusesTypography.caption)
                 .foregroundStyle(BrandColors.textSecondary)
             HStack(spacing: 6) {
                 Button(tr("Keep Local", "保留本地")) {
@@ -204,7 +204,7 @@ struct PlaylistPullPreviewSheet: View {
             .musesAction()
             if resolvedConflictIDs.contains(conflict.id) {
                 Label(tr("Resolved", "已解决"), systemImage: "checkmark.circle.fill")
-                    .font(.caption2)
+                    .font(MusesTypography.caption2)
                     .foregroundStyle(BrandColors.accent)
             }
         }
@@ -252,19 +252,19 @@ struct PlaylistPushPreviewSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(tr("Push Preview", "推送预览"))
-                .font(.title2.weight(.semibold))
+                .font(MusesTypography.title2.weight(.semibold))
             Text(tr("This updates the YTM cloud playlist. Completed changes are saved if interrupted.",
                     "将更新 YTM 云端歌单；中断后可继续已完成的变更。"))
-                .font(.caption)
+                .font(MusesTypography.caption)
                 .foregroundStyle(BrandColors.textSecondary)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(preview.playlistTitle)
-                    .font(.headline)
+                    .font(MusesTypography.headline)
                 Text("Playlist: \(preview.playlistID)")
                 Text("Account: \(preview.accountChannelID)")
             }
-            .font(.caption.monospaced())
+            .font(MusesTypography.caption.monospaced())
             .textSelection(.enabled)
             .accessibilityElement(children: .combine)
 
@@ -294,7 +294,7 @@ struct PlaylistPushPreviewSheet: View {
             }
 
             if let errorMessage {
-                Text(errorMessage).font(.caption).foregroundStyle(.red)
+                Text(errorMessage).font(MusesTypography.caption).foregroundStyle(.red)
             }
             HStack {
                 Spacer()
@@ -376,11 +376,11 @@ struct NewYouTubePlaylistSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(tr("New YouTube Playlist", "新建 YouTube 歌单"))
-                .font(.title2.weight(.semibold))
+                .font(MusesTypography.title2.weight(.semibold))
             Text(tr(
                 "Nothing is created until the next exact-target confirmation.",
                 "完成下一步精确目标确认前，不会创建任何远端资源。"))
-                .font(.caption)
+                .font(MusesTypography.caption)
                 .foregroundStyle(BrandColors.textSecondary)
             TextField(tr("Playlist title", "歌单标题"), text: $title)
                 .textFieldStyle(.roundedBorder)
@@ -395,7 +395,7 @@ struct NewYouTubePlaylistSheet: View {
             }
             .pickerStyle(.segmented)
             if let errorMessage {
-                Text(errorMessage).font(.caption).foregroundStyle(.red)
+                Text(errorMessage).font(MusesTypography.caption).foregroundStyle(.red)
             }
             HStack {
                 Spacer()
@@ -456,18 +456,18 @@ struct YouTubePlaylistCreatePreviewSheet: View {
         action: @escaping () async throws -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(title).font(.title2.weight(.semibold))
-            Text(warning).font(.caption).foregroundStyle(BrandColors.textSecondary)
+            Text(title).font(MusesTypography.title2.weight(.semibold))
+            Text(warning).font(MusesTypography.caption).foregroundStyle(BrandColors.textSecondary)
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                     LabeledContent(row.0, value: row.1)
                 }
             }
-            .font(.caption.monospaced())
+            .font(MusesTypography.caption.monospaced())
             .textSelection(.enabled)
             Toggle(confirmation, isOn: $confirmed).toggleStyle(.checkbox)
             if let errorMessage {
-                Text(errorMessage).font(.caption).foregroundStyle(.red)
+                Text(errorMessage).font(MusesTypography.caption).foregroundStyle(.red)
             }
             HStack {
                 Spacer()
@@ -527,11 +527,11 @@ struct YouTubePlaylistDeletePreviewSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(tr("Delete Playlist from YouTube", "从 YouTube 删除歌单"))
-                .font(.title2.weight(.semibold))
+                .font(MusesTypography.title2.weight(.semibold))
             Text(tr(
                 "This permanently deletes the YTM cloud playlist. The same cloud playlist cannot be restored.",
                 "将永久删除 YTM 云端歌单，无法恢复原云端歌单。"))
-                .font(.caption)
+                .font(MusesTypography.caption)
                 .foregroundStyle(.red)
             VStack(alignment: .leading, spacing: 6) {
                 LabeledContent(tr("Account", "账号"), value: preview.accountChannelID)
@@ -539,7 +539,7 @@ struct YouTubePlaylistDeletePreviewSheet: View {
                 LabeledContent("ID", value: preview.playlistID)
                 LabeledContent(tr("Items", "条目"), value: String(preview.itemCount))
             }
-            .font(.caption.monospaced())
+            .font(MusesTypography.caption.monospaced())
             .textSelection(.enabled)
             Toggle(isOn: $confirmed) {
                 Text(tr(
@@ -548,7 +548,7 @@ struct YouTubePlaylistDeletePreviewSheet: View {
             }
             .toggleStyle(.checkbox)
             if let errorMessage {
-                Text(errorMessage).font(.caption).foregroundStyle(.red)
+                Text(errorMessage).font(MusesTypography.caption).foregroundStyle(.red)
             }
             HStack {
                 Spacer()

@@ -51,7 +51,7 @@ struct SidebarView: View {
                                 if !isCollapsed { Text(category.sidebarLabel) }
                                 Spacer(minLength: 0)
                             }
-                            .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                            .font(MusesTypography.system(size: 13, weight: selected ? .semibold : .regular))
                             .padding(.horizontal, 10)
                             .frame(maxWidth: .infinity, minHeight: AppleMusicTokens.navItemHeight, alignment: .leading)
                             .settingsSelection(selected)
@@ -176,11 +176,14 @@ struct SidebarView: View {
                     selectedYouTubeImport = nil
                     NotificationCenter.default.post(name: .musesShowPlaylistsOverview, object: nil)
                 }
-                ChromeIconButton(
-                    systemName: "plus",
-                    help: tr("Add Playlist", "添加歌单"),
-                    accessibility: tr("Add Playlist", "添加歌单")
-                ) { showPlaylistChoice = true }
+                Button { showPlaylistChoice = true } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .help(tr("Add Playlist", "添加歌单"))
+                .accessibilityLabel(tr("Add Playlist", "添加歌单"))
             }
             VStack(spacing: 1) {
                     ForEach(orderedItems) { item in
@@ -267,7 +270,7 @@ struct SidebarView: View {
             extra?()
         } label: {
             Image(systemName: icon)
-                .font(.system(size: 15, weight: .semibold))
+                .font(MusesTypography.system(size: 15, weight: .semibold))
                 .foregroundStyle(on && AppleMusicChrome.selectedNavUsesAccent
                                  ? BrandColors.selectionText : BrandColors.textPrimary.opacity(on ? 1 : 0.85))
                 .frame(width: 36, height: 36)
@@ -289,7 +292,7 @@ struct SidebarView: View {
             NotificationCenter.default.post(name: .musesOpenSettings, object: nil)
         } label: {
             Image(systemName: "gearshape")
-                .font(.system(size: 16, weight: .semibold))
+                .font(MusesTypography.system(size: 16, weight: .semibold))
                 .foregroundStyle(selection == .settings ? BrandColors.accent : BrandColors.textSecondary)
                 .frame(width: 72, height: 48)
                 .contentShape(Rectangle())
@@ -302,7 +305,7 @@ struct SidebarView: View {
 
     private func sectionLabel(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 11, weight: .semibold))
+            .font(MusesTypography.system(size: 11, weight: .semibold))
             .foregroundStyle(BrandColors.textSecondary)
             .padding(.horizontal, 12)
             .padding(.top, 14)
@@ -333,10 +336,10 @@ struct SidebarView: View {
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: icon)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(MusesTypography.system(size: 13, weight: .semibold))
                     .frame(width: 18)
                 Text(title)
-                    .font(.system(size: 13, weight: on ? .semibold : .regular))
+                    .font(MusesTypography.system(size: 13, weight: on ? .semibold : .regular))
                 Spacer(minLength: 0)
             }
             .foregroundStyle(on && AppleMusicChrome.selectedNavUsesAccent

@@ -19,7 +19,7 @@ struct StructuredCatalogSearchView: View {
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text(browser.detail?.title ?? "YouTube Music").font(.title3.weight(.semibold))
+                Text(browser.detail?.title ?? "YouTube Music").font(MusesTypography.title3.weight(.semibold))
                 Spacer()
                 if let detail = browser.detail, detail.kind == .podcast {
                     Button(followingPodcast
@@ -46,10 +46,10 @@ struct StructuredCatalogSearchView: View {
             }
             if browser.detail?.kind == .album, let metadata = browser.metadata {
                 if !metadata.subtitle.isEmpty {
-                    Text(metadata.subtitle).font(.subheadline).foregroundStyle(.secondary)
+                    Text(metadata.subtitle).font(MusesTypography.subheadline).foregroundStyle(.secondary)
                 }
                 if !metadata.artists.isEmpty {
-                    Text(tr("Album artists", "专辑艺人", zhHant: "專輯藝人")).font(.caption).foregroundStyle(.secondary)
+                    Text(tr("Album artists", "专辑艺人", zhHant: "專輯藝人")).font(MusesTypography.caption).foregroundStyle(.secondary)
                     ForEach(metadata.artists, id: \.id) { artist in
                         Button(artist.title) {
                             browser.open(.init(id: artist.id, kind: .artist, title: artist.title,
@@ -74,11 +74,11 @@ struct StructuredCatalogSearchView: View {
                          ? tr("Refresh failed. Showing saved results.", "刷新失败，正在显示缓存结果。", zhHant: "重新整理失敗，正在顯示快取結果。")
                          : tr("YouTube Music could not load these results.", "无法加载这些 YouTube Music 结果。", zhHant: "無法載入這些 YouTube Music 結果。"))
                     Button(tr("Retry", "重试", zhHant: "重試")) { browser.retry() }.disabled(browser.loading)
-                }.font(.callout)
+                }.font(MusesTypography.callout)
             }
             if playbackError {
                 Text(tr("Playback could not start. Please try again.", "无法开始播放，请重试。", zhHant: "無法開始播放，請再試一次。"))
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(MusesTypography.callout).foregroundStyle(.secondary)
             }
             if podcastError || podcasts.persistenceFailed {
                 Text(tr("Podcast changes could not be saved. Please retry.",
@@ -86,14 +86,14 @@ struct StructuredCatalogSearchView: View {
                     .foregroundStyle(.secondary)
             }
             if let accountActionError {
-                Text(accountActionError).font(.callout).foregroundStyle(.secondary)
+                Text(accountActionError).font(MusesTypography.callout).foregroundStyle(.secondary)
             }
             if browser.detail == nil && browser.kind == nil {
                 ForEach(MusicCatalogKind.searchableCases, id: \.self) { kind in
                     let items = browser.items.filter { $0.kind == kind }
                     if !items.isEmpty {
                         HStack {
-                            Text(kind.title).font(.headline)
+                            Text(kind.title).font(MusesTypography.headline)
                             Spacer()
                             Button(tr("See all", "查看全部", zhHant: "查看全部")) { browser.search(search.query, kind: kind) }
                                 .accessibilityLabel(tr("See all", "查看全部", zhHant: "查看全部") + " " + kind.title)
@@ -106,7 +106,7 @@ struct StructuredCatalogSearchView: View {
                 ForEach(Array(browser.items.enumerated()), id: \.offset) { index, item in row(item, index: index) }
             }
             if !browser.relatedItems.isEmpty {
-                Text(tr("Related on YouTube Music", "YouTube Music 关联内容", zhHant: "YouTube Music 關聯內容")).font(.headline)
+                Text(tr("Related on YouTube Music", "YouTube Music 关联内容", zhHant: "YouTube Music 關聯內容")).font(MusesTypography.headline)
                 ForEach(browser.relatedItems) { item in row(item, related: true) }
             }
             if browser.items.isEmpty && browser.relatedItems.isEmpty && !browser.loading && !browser.failed && browser.fetchedAt != nil {
@@ -121,7 +121,7 @@ struct StructuredCatalogSearchView: View {
                     Text("YouTube Music · \(browser.language) · \(browser.region)")
                     Text(fetched, style: .date)
                     Text(fetched, style: .time)
-                }.font(.caption).foregroundStyle(.secondary)
+                }.font(MusesTypography.caption).foregroundStyle(.secondary)
             }
             Divider().padding(.vertical, 8)
         }
@@ -181,7 +181,7 @@ struct StructuredCatalogSearchView: View {
             Button { activate(item, index: index, related: related) } label: {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.title).lineLimit(1)
-                    Text(item.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(item.subtitle).font(MusesTypography.caption).foregroundStyle(.secondary).lineLimit(1)
                     if let state = podcastState(item) {
                         Text(state.availability == .unavailable
                              ? tr("Unavailable", "不可用", zhHant: "無法使用")
@@ -190,7 +190,7 @@ struct StructuredCatalogSearchView: View {
                              : state.lastPositionMs > 0
                                 ? tr("Resume", "继续播放", zhHant: "繼續播放") + " · " + formatPosition(state.lastPositionMs)
                                 : tr("Unplayed", "未听", zhHant: "未聽"))
-                            .font(.caption2).foregroundStyle(.secondary)
+                            .font(MusesTypography.caption2).foregroundStyle(.secondary)
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.fullAreaPlain)

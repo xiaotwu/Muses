@@ -46,7 +46,7 @@ struct AudioQualitySettingsView: View {
                 playback.reloadCurrent()
                 cacheBytes = MediaFileCache.totalBytes()
             }
-        } header: { Text(tr("Download Quality", "下载音质")).font(.headline.weight(.semibold)) }
+        } header: { Text(tr("Download Quality", "下载音质")).font(MusesTypography.headline.weight(.semibold)) }
 
         Section {
             LabeledContent {
@@ -66,10 +66,10 @@ struct AudioQualitySettingsView: View {
             } label: {
                 Text(tr("Downloaded media", "已下载媒体"))
                 Text(ByteCountFormatter.string(fromByteCount: cacheBytes, countStyle: .file))
-                    .font(.caption)
+                    .font(MusesTypography.caption)
                     .foregroundStyle(.secondary)
             }
-        } header: { Text(tr("Media cache", "媒体缓存")).font(.headline.weight(.semibold)) }
+        } header: { Text(tr("Media cache", "媒体缓存")).font(MusesTypography.headline.weight(.semibold)) }
         .actionConfirmation($pendingRemoval)
         .onAppear { cacheBytes = MediaFileCache.totalBytes() }
     }

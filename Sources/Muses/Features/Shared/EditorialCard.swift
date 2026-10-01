@@ -17,7 +17,7 @@ struct EditorialCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(eyebrow.uppercased())
-                .font(.system(size: 10, weight: .semibold))
+                .font(MusesTypography.system(size: 10, weight: .semibold))
                 .tracking(0.6)
                 .foregroundStyle(BrandColors.textSecondary)
             Text(title)

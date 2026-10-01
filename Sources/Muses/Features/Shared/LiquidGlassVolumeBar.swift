@@ -14,9 +14,11 @@ struct LiquidGlassVolumeBar: View {
     var width: CGFloat = 220
     var height: CGFloat = 36
     var drawsGlass = true
+    var focusesScaleOnAppear = false
     var scaleStyle: ScaleStyle = .graduated
     var onDeviceSelected: (() -> Void)? = nil
 
+    @FocusState private var scaleFocused: Bool
     @State private var isDragging = false
     @State private var dragVolume: Float = 0
 
@@ -46,11 +48,11 @@ struct LiquidGlassVolumeBar: View {
         HStack(spacing: 10) {
             if scaleStyle == .dots {
                 speakerButton
-                Text(tr("Volume", "音量")).font(.system(size: 12)).foregroundStyle(BrandColors.heading)
+                Text(tr("Volume", "音量")).font(MusesTypography.system(size: 12)).foregroundStyle(BrandColors.heading)
             } else { speakerButton }
             sliderTrack.frame(maxWidth: .infinity)
             Text("\(Int((currentVolume * 100).rounded()))%")
-                .font(.caption.monospacedDigit()).frame(width: 34)
+                .font(MusesTypography.caption.monospacedDigit()).frame(width: 34)
                 .accessibilityHidden(true)
             outputMenu
         }
@@ -89,7 +91,7 @@ struct LiquidGlassVolumeBar: View {
             }
         } label: {
             Image(systemName: "hifispeaker.and.homepod")
-                .font(.system(size: 13, weight: .semibold))
+                .font(MusesTypography.system(size: 13, weight: .semibold))
                 .foregroundStyle(BrandColors.heading)
                 .frame(width: 26, height: 26)
                 .contentShape(Rectangle())
@@ -150,6 +152,8 @@ struct LiquidGlassVolumeBar: View {
         .frame(height: height)
         .focusable()
         .focusEffectDisabled()
+        .focused($scaleFocused)
+        .onAppear { if focusesScaleOnAppear { scaleFocused = true } }
         .onKeyPress(.leftArrow) { playback.setVolume(max(0, playback.volume - 0.05)); return .handled }
         .onKeyPress(.rightArrow) { playback.setVolume(min(1, playback.volume + 0.05)); return .handled }
         .accessibilityElement(children: .ignore)
@@ -174,7 +178,7 @@ struct LiquidGlassVolumeBar: View {
     private var speakerButton: some View {
         Button(action: toggleMute) {
             Image(systemName: volumeIcon)
-                .font(.system(size: 13, weight: .semibold))
+                .font(MusesTypography.system(size: 13, weight: .semibold))
                 .foregroundStyle(BrandColors.heading.opacity(0.85))
                 .frame(width: 26, height: 26)
                 .contentShape(Rectangle())

@@ -433,7 +433,7 @@ private struct CollectionTrackTable: View {
                     .disabled(accessiblePage + 1 >= accessiblePageCount)
                 }
             }
-            .font(.callout)
+            .font(MusesTypography.callout)
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
@@ -450,7 +450,7 @@ private struct CollectionTrackTable: View {
                                         .frame(width: 40, alignment: .trailing)
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(row.title).font(MusesTypography.song(size: 14, emphasized: true, text: row.title)).lineLimit(1)
-                                        Text(row.artist).font(MusesTypography.song(size: 12, text: row.artist))
+                                        Text(row.displayArtist).font(MusesTypography.song(size: 12, text: row.displayArtist))
                                             .foregroundStyle(BrandColors.textSecondary)
                                             .lineLimit(1)
                                     }
@@ -463,9 +463,9 @@ private struct CollectionTrackTable: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.fullAreaPlain)
-                            .accessibilityLabel(tr("Play \(row.title) by \(row.artist)",
-                                                   "播放 \(row.artist) 的 \(row.title)",
-                                                   zhHant: "播放 \(row.artist) 的 \(row.title)"))
+                            .accessibilityLabel(tr("Play \(row.title) by \(row.displayArtist)",
+                                                   "播放 \(row.displayArtist) 的 \(row.title)",
+                                                   zhHant: "播放 \(row.displayArtist) 的 \(row.title)"))
                             Button { library.toggleLike(snapshot: row.snapshot) } label: {
                                 Image(systemName: likedIDs.contains(row.snapshot.id) ? "heart.fill" : "heart")
                                     .frame(width: 28, height: 28)
@@ -523,7 +523,7 @@ private struct CollectionTrackTable: View {
                     value: \.artist,
                     comparator: .localizedStandard
                 ) { row in
-                    secondaryText(row.artist)
+                    secondaryText(row.displayArtist)
                 }
                 .width(min: 120, ideal: 170)
                 .customizationID("collection-artist")
@@ -728,7 +728,7 @@ private struct CollectionTrackTitleCell: View {
                         RoundedRectangle(cornerRadius: 5, style: .continuous)
                             .fill(.black.opacity(0.38))
                         Image(systemName: isPlaying ? "speaker.wave.2.fill" : "play.fill")
-                            .font(.system(size: 10, weight: .bold))
+                            .font(MusesTypography.system(size: 10, weight: .bold))
                             .foregroundStyle(.white)
                     }
                 }
@@ -747,7 +747,7 @@ private struct CollectionTrackTitleCell: View {
 
             Button(action: onToggleLike) {
                 Image(systemName: liked ? "heart.fill" : "heart")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(MusesTypography.system(size: 12, weight: .semibold))
                     .foregroundStyle(liked ? BrandColors.accent : BrandColors.textSecondary)
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
@@ -760,7 +760,7 @@ private struct CollectionTrackTitleCell: View {
             if let onRemove {
                 Button(role: .destructive, action: onRemove) {
                     Image(systemName: "minus.circle")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(MusesTypography.system(size: 12, weight: .semibold))
                         .foregroundStyle(BrandColors.textSecondary)
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())

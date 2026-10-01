@@ -6,6 +6,45 @@ import Foundation
 @Suite("YouTubeStreamEngine", .serialized)
 struct YouTubeStreamEngineTests {
 
+    @Test("Settled-focus warmup reuses resolution without changing transport")
+    func selectionWarmupReuse() async throws {
+        let wav = try makeWAVFile()
+        let bridge = MockYTDlpBridge()
+        bridge.streamURL = wav
+        let cache = StreamURLCache()
+        let engine = YouTubeStreamEngine(bridge: bridge, cache: cache)
+        let track = TrackSnapshot(id: UUID(), title: "Focused", artist: "Artist", albumTitle: nil,
+            durationSeconds: 1, youTubeId: "warm_" + UUID().uuidString, artworkUrl: nil,
+            sampleRate: 44100, bitDepth: 16, codec: "wav", isLossless: true)
+        await engine.prewarmSelection(track)
+        #expect(engine.state.track == nil)
+        #expect(!engine.state.isPlaying)
+        #expect(bridge.callCount == 1)
+        try await engine.load(track)
+        #expect(bridge.callCount == 1)
+        #expect(engine.state.track?.id == track.id)
+        #expect(engine.state.duration > 0)
+    }
+
+    @Test("Cancelled focus warmup cannot cache a stale dependency result")
+    func cancelledSelectionWarmup() async {
+        let bridge = MockYTDlpBridge()
+        bridge.streamURL = URL(string: "https://example.test/audio.m4a")!
+        let cache = StreamURLCache()
+        let engine = YouTubeStreamEngine(bridge: bridge, cache: cache)
+        let track = TrackSnapshot(id: UUID(), title: "Focused", artist: "Artist", albumTitle: nil,
+            durationSeconds: 1, youTubeId: "cancel_" + UUID().uuidString, artworkUrl: nil,
+            sampleRate: 44100, bitDepth: 16, codec: "aac", isLossless: false)
+        bridge.resolveDelaysByVideoId[track.youTubeId] = 100_000_000
+        let task = Task { await engine.prewarmSelection(track) }
+        while bridge.callCount == 0 { await Task.yield() }
+        task.cancel()
+        await task.value
+        let quality = UserDefaults.standard.string(forKey: PrefKey.ytAudioQuality) ?? "bestaudio"
+        #expect(cache.get(videoId: track.youTubeId, quality: quality) == nil)
+        #expect(engine.state.track == nil)
+    }
+
     // MARK: - 1. A successful load sets state.source = .youtube
 
     @Test("load successfully sets state.source to .youtube and duration > 0")

@@ -165,11 +165,11 @@ struct HomeDiscoveryEmptyState: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(tr("Start your next listen", "开始下一次聆听"))
-                .font(.headline)
+                .font(MusesTypography.headline)
                 .foregroundStyle(BrandColors.textPrimary)
             Text(tr("Search YouTube Music or retry discovery to fill this page.",
                     "搜索 YouTube Music，或重试发现内容来丰富此页面。"))
-                .font(.subheadline)
+                .font(MusesTypography.subheadline)
                 .foregroundStyle(BrandColors.textSecondary)
             HStack(spacing: 10) {
                 Button(tr("Search", "搜索"), systemImage: "magnifyingglass", action: onSearch)
@@ -199,7 +199,7 @@ struct DiscoveryFailureStrip: View {
             Image(systemName: "exclamationmark.triangle")
                 .foregroundStyle(BrandColors.textSecondary)
             Text(message)
-                .font(.subheadline)
+                .font(MusesTypography.subheadline)
                 .foregroundStyle(BrandColors.textSecondary)
             Spacer()
             Button(tr("Retry", "重试"), systemImage: "arrow.clockwise", action: onRetry)
@@ -228,12 +228,12 @@ struct DiscoveryUnavailableShelf: View {
                 .foregroundStyle(BrandColors.textSecondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(MusesTypography.subheadline.weight(.semibold))
                     .foregroundStyle(BrandColors.textPrimary)
                 Text(tr(
                     "No reliable YouTube Music results are available right now.",
                     "暂时没有可靠的 YouTube Music 结果。"))
-                    .font(.caption)
+                    .font(MusesTypography.caption)
                     .foregroundStyle(BrandColors.textSecondary)
             }
             Spacer()

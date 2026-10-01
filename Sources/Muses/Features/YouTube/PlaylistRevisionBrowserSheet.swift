@@ -52,14 +52,14 @@ struct PlaylistRevisionBrowserSheet: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(tr("Version History", "版本历史"))
-                    .font(.title2.weight(.semibold))
+                    .font(MusesTypography.title2.weight(.semibold))
                 Text(playlistTitle)
-                    .font(.callout)
+                    .font(MusesTypography.callout)
                     .foregroundStyle(BrandColors.textSecondary)
             }
             Spacer()
             Label(tr("Local only", "仅限本地"), systemImage: "externaldrive.badge.checkmark")
-                .font(.caption.weight(.semibold))
+                .font(MusesTypography.caption.weight(.semibold))
                 .foregroundStyle(BrandColors.textSecondary)
                 .help(tr("Restore actions never push changes to YouTube",
                          "恢复操作绝不会将更改推送到 YouTube"))
@@ -74,7 +74,7 @@ struct PlaylistRevisionBrowserSheet: View {
     private var revisionList: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(tr("Recovery Points", "恢复点"))
-                .font(.headline)
+                .font(MusesTypography.headline)
                 .padding(.horizontal, 14)
                 .padding(.top, 14)
             if revisions.isEmpty {
@@ -107,19 +107,19 @@ struct PlaylistRevisionBrowserSheet: View {
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: revisionSymbol(revision.kind))
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(MusesTypography.system(size: 15, weight: .semibold))
                         .frame(width: 22)
                         .foregroundStyle(selected ? BrandColors.accent : BrandColors.textSecondary)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(revisionLabel(revision.kind))
-                            .font(.callout.weight(.semibold))
+                            .font(MusesTypography.callout.weight(.semibold))
                         Text(revision.createdAt.formatted(date: .abbreviated, time: .shortened))
-                            .font(.caption)
+                            .font(MusesTypography.caption)
                             .foregroundStyle(BrandColors.textSecondary)
                     }
                     Spacer()
                     Text(tr("\(revision.itemCount) songs", "\(revision.itemCount) 首", zhHant: "\(revision.itemCount) 首"))
-                        .font(.caption.monospacedDigit())
+                        .font(MusesTypography.caption.monospacedDigit())
                         .foregroundStyle(BrandColors.textSecondary)
                 }
                 .contentShape(Rectangle())
@@ -158,9 +158,9 @@ struct PlaylistRevisionBrowserSheet: View {
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(revisionLabel(selectedRevision.kind))
-                            .font(.title3.weight(.semibold))
+                            .font(MusesTypography.title3.weight(.semibold))
                         Text(selectedRevision.createdAt.formatted(date: .long, time: .standard))
-                            .font(.caption)
+                            .font(MusesTypography.caption)
                             .foregroundStyle(BrandColors.textSecondary)
                     }
                     Spacer()
@@ -215,7 +215,7 @@ struct PlaylistRevisionBrowserSheet: View {
             Label("↕︎\(comparison.movedCount)", systemImage: "arrow.up.arrow.down.circle")
             Spacer()
         }
-        .font(.callout.weight(.semibold))
+        .font(MusesTypography.callout.weight(.semibold))
         .foregroundStyle(BrandColors.textSecondary)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(tr(
@@ -226,13 +226,13 @@ struct PlaylistRevisionBrowserSheet: View {
     private func changeRow(_ change: YouTubePlaylistRevisionChange) -> some View {
         HStack(spacing: 10) {
             Image(systemName: changeSymbol(change.kind))
-                .font(.system(size: 15, weight: .semibold))
+                .font(MusesTypography.system(size: 15, weight: .semibold))
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
                 Text(change.item.knownTitle ?? tr("Unknown Title", "未知标题"))
-                    .font(.callout.weight(.medium))
+                    .font(MusesTypography.callout.weight(.medium))
                 Text(changeDescription(change))
-                    .font(.caption.monospacedDigit())
+                    .font(MusesTypography.caption.monospacedDigit())
                     .foregroundStyle(BrandColors.textSecondary)
             }
             Spacer()
@@ -247,17 +247,17 @@ struct PlaylistRevisionBrowserSheet: View {
         HStack(spacing: 10) {
             if let message = errorMessage {
                 Label(message, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
+                    .font(MusesTypography.caption)
                     .foregroundStyle(BrandColors.textSecondary)
                     .lineLimit(2)
             } else if let notice {
                 Label(notice, systemImage: "checkmark.circle")
-                    .font(.caption)
+                    .font(MusesTypography.caption)
                     .foregroundStyle(BrandColors.textSecondary)
             } else {
                 Text(tr("Restores are local and never push to YouTube.",
                         "恢复仅在本地进行，绝不会推送到 YouTube。"))
-                    .font(.caption)
+                    .font(MusesTypography.caption)
                     .foregroundStyle(BrandColors.textSecondary)
             }
             Spacer()

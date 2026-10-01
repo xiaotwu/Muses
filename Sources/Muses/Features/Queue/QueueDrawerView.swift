@@ -75,7 +75,7 @@ struct QueueDrawerView: View {
                         playback.queue.persist()
                     }
                 }
-                .font(.caption)
+                .font(MusesTypography.caption)
                 .foregroundStyle(.orange)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 10)
@@ -99,7 +99,7 @@ struct QueueDrawerView: View {
     private var header: some View {
         HStack {
             Text(tr("Playing Next", "接下来播放"))
-                .font(.system(size: 17, weight: .semibold))
+                .font(MusesTypography.system(size: 17, weight: .semibold))
                 .foregroundStyle(BrandColors.textPrimary)
             Spacer()
             // Repeat mode cycle
@@ -107,7 +107,7 @@ struct QueueDrawerView: View {
                 playback.queue.setRepeat(playback.queue.repeatMode.next)
             } label: {
                 Image(systemName: playback.queue.repeatMode == .one ? "repeat.1" : "repeat")
-                    .font(.body.weight(.semibold))
+                    .font(MusesTypography.body.weight(.semibold))
                     .chromeActionCircle()
                     .background(playback.queue.repeatMode == .off ? Color.clear : BrandColors.accent.opacity(0.12), in: Circle())
                     .overlay(Circle().stroke(playback.queue.repeatMode == .off ? Color.clear : BrandColors.accent.opacity(0.25), lineWidth: 1).allowsHitTesting(false))
@@ -124,7 +124,7 @@ struct QueueDrawerView: View {
                 playback.queue.toggleShuffle()
             } label: {
                 Image(systemName: "shuffle")
-                    .font(.body.weight(.semibold))
+                    .font(MusesTypography.body.weight(.semibold))
                     .chromeActionCircle()
                     .background(playback.queue.shuffle ? BrandColors.accent.opacity(0.12) : Color.clear, in: Circle())
                     .overlay(Circle().stroke(playback.queue.shuffle ? BrandColors.accent.opacity(0.25) : Color.clear, lineWidth: 1).allowsHitTesting(false))
@@ -144,7 +144,7 @@ struct QueueDrawerView: View {
                     playback.queue.addGroup(tr("Group \(n)", "分组 \(n)", zhHant: "分組 \(n)"))
                 } label: {
                     Image(systemName: "plus")
-                        .font(.body.weight(.semibold))
+                        .font(MusesTypography.body.weight(.semibold))
                         .chromeActionCircle()
                 }
                 .foregroundStyle(BrandColors.textSecondary)
@@ -181,7 +181,7 @@ struct QueueDrawerView: View {
                                 playback.queue.toggleCollapsed(groupId: group.id)
                             } label: {
                                 Image(systemName: group.collapsed ? "chevron.right" : "chevron.down")
-                                    .font(.caption2)
+                                    .font(MusesTypography.caption2)
                                     .foregroundStyle(BrandColors.textSecondary)
                                     .frame(width: 14)
                             }
@@ -194,7 +194,7 @@ struct QueueDrawerView: View {
                             Text(group.name).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
                             Spacer()
                             Text("\(itemsInGroup(group.id))")
-                                .font(.caption2).foregroundStyle(BrandColors.textSecondary)
+                                .font(MusesTypography.caption2).foregroundStyle(BrandColors.textSecondary)
                         }
                         .contextMenu {
                             Button(tr("Rename", "重命名")) {
@@ -408,6 +408,7 @@ struct QueueDrawerView: View {
 }
 
 private struct QueueRow: View {
+    @Environment(YouTubeImportService.self) private var importService
     let item: QueueItem
     let isCurrent: Bool
     var showHistoryBadge: Bool = false
@@ -419,7 +420,7 @@ private struct QueueRow: View {
                 .overlay(alignment: .bottomTrailing) {
                     if isCurrent || (showHistoryBadge && item.historyState != nil) {
                         Image(systemName: leadingIcon)
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(MusesTypography.system(size: 9, weight: .semibold))
                             .foregroundStyle(leadingTint)
                             .padding(3)
                             .background(BrandColors.surface, in: Circle())
@@ -428,18 +429,18 @@ private struct QueueRow: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.track.title)
-                    .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
+                    .font(MusesTypography.system(size: 13, weight: isCurrent ? .semibold : .regular))
                     .foregroundStyle(isCurrent ? BrandColors.accent : BrandColors.textPrimary)
                     .lineLimit(1)
-                Text(item.track.artist)
-                    .font(.caption)
+                Text(SongCreditCache.shared.artist(snapshot: item.track))
+                    .font(MusesTypography.caption)
                     .foregroundStyle(BrandColors.textSecondary)
                     .lineLimit(1)
             }
             Spacer()
             if item.locked {
                 Image(systemName: "lock.fill")
-                    .font(.caption2)
+                    .font(MusesTypography.caption2)
                     .foregroundStyle(BrandColors.textSecondary)
             }
             Color.clear.frame(width: 24, height: 28)
@@ -454,6 +455,7 @@ private struct QueueRow: View {
             }
         }
         .accessibilityAddTraits(isCurrent ? .isSelected : [])
+        .task(id: item.track.youTubeId) { _ = await importService.songMetadata(videoID: item.track.youTubeId) }
     }
 
     /// Current playback uses play.fill; history entries get an icon from their state label; otherwise music.note.
@@ -490,7 +492,7 @@ private extension View {
             .overlay(alignment: .trailing) {
                 Menu(content: actions) {
                     Image(systemName: "ellipsis")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(MusesTypography.system(size: 13, weight: .semibold))
                         .foregroundStyle(BrandColors.textSecondary)
                         .chromeActionCircle()
                 }

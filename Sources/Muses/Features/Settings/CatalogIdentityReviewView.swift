@@ -47,7 +47,7 @@ struct CatalogIdentityReviewView: View {
                         Text(tr("Tracks: \(preview.rows.count) · New release relationships: \(candidateCount)",
                                 "\(preview.rows.count) 首曲目 · \(candidateCount) 条新发行关系",
                                 zhHant: "\(preview.rows.count) 首曲目 · \(candidateCount) 條新發行關係"))
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(MusesTypography.caption).foregroundStyle(.secondary)
                     }
                 }
                 .padding(8)
@@ -68,7 +68,7 @@ struct CatalogIdentityReviewView: View {
                     List(visibleRows) { row in
                         DisclosureGroup {
                             VStack(alignment: .leading, spacing: 8) {
-                                Text(row.id.uuidString).font(.caption.monospaced()).textSelection(.enabled)
+                                Text(row.id.uuidString).font(MusesTypography.caption.monospaced()).textSelection(.enabled)
                                 ForEach(row.currentReleaseIDs, id: \.self) { current in
                                     LabeledContent(
                                         tr("Current release", "现有发行", zhHant: "現有發行"),
@@ -88,15 +88,15 @@ struct CatalogIdentityReviewView: View {
                                             Text(evidence.releaseID)
                                         }
                                         Text(tr("Playlist position: \(evidence.order + 1)", "歌单位置：\(evidence.order + 1)", zhHant: "歌單位置：\(evidence.order + 1)"))
-                                        Text(evidence.itemID.uuidString).font(.caption.monospaced()).foregroundStyle(.secondary)
+                                        Text(evidence.itemID.uuidString).font(MusesTypography.caption.monospaced()).foregroundStyle(.secondary)
                                     }
                                 }
                             }
-                            .font(.callout).padding(.vertical, 8)
+                            .font(MusesTypography.callout).padding(.vertical, 8)
                         } label: {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(row.title).lineLimit(2)
-                                Text(row.resolution.reviewLabel).font(.caption).foregroundStyle(.secondary)
+                                Text(row.resolution.reviewLabel).font(MusesTypography.caption).foregroundStyle(.secondary)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.vertical, 4)
@@ -159,7 +159,7 @@ struct CatalogIdentityReviewView: View {
             }
             if let migrationNotice { Text(migrationNotice).foregroundStyle(.secondary) }
         }
-        .font(.callout)
+        .font(MusesTypography.callout)
     }
 
     private func performMigration() async {
@@ -216,7 +216,7 @@ private struct CatalogReviewDisclosureStyle: DisclosureGroupStyle {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: configuration.isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.caption.weight(.semibold))
+                        .font(MusesTypography.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .frame(width: 12)
                     configuration.label

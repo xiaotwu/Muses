@@ -51,6 +51,9 @@ final class GlobalHotkeyService {
         actionShowLyrics: "Show Desktop Lyrics"
     ]
 
+    private let mediaKeys: MediaKeyMonitor
+    var mediaKeysActive: Bool { mediaKeys.isActive }
+    var mediaKeyPressCount: Int { mediaKeys.handledPressCount }
     private let enabledProvider: () -> Bool
     private let shortcutProvider: () -> [String: HotkeyShortcut]
     private let dispatcher: (String) -> Void
@@ -68,7 +71,9 @@ final class GlobalHotkeyService {
          shortcutProvider: @escaping () -> [String: HotkeyShortcut] = {
         GlobalHotkeyService.loadShortcuts()
     },
+         canHandleMediaKeys: @escaping () -> Bool = { false },
          dispatcher: @escaping (String) -> Void = { _ in }) {
+        mediaKeys = MediaKeyMonitor(canHandle: canHandleMediaKeys, dispatch: dispatcher)
         self.enabledProvider = enabledProvider
         self.shortcutProvider = shortcutProvider
         self.dispatcher = dispatcher
@@ -80,7 +85,8 @@ final class GlobalHotkeyService {
     func sync() {
         unregisterAll()
         failedActions = []
-        guard isEnabled else { revision &+= 1; return }
+        guard isEnabled else { mediaKeys.stop(); revision &+= 1; return }
+        mediaKeys.start()
         let map = shortcutProvider()
         installEventHandlerIfNeeded()
         guard eventHandler != nil else {
@@ -103,6 +109,13 @@ final class GlobalHotkeyService {
                 failedActions.append(action)
             }
         }
+        revision &+= 1
+    }
+
+    /// Returning from the system permission pane retries only the event tap.
+    /// Carbon shortcuts keep their registered identities.
+    func refreshMediaKeys() {
+        if isEnabled { mediaKeys.start() } else { mediaKeys.stop() }
         revision &+= 1
     }
 

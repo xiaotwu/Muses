@@ -20,7 +20,7 @@ struct EditTrackSheet: View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Text(tr("Edit Info", "编辑信息")).font(.headline).foregroundStyle(BrandColors.textPrimary)
+                Text(tr("Edit Info", "编辑信息")).font(MusesTypography.headline).foregroundStyle(BrandColors.textPrimary)
                 Spacer()
                 Button(tr("Cancel", "取消")) { dismiss() }
                     .foregroundStyle(BrandColors.textSecondary)
@@ -47,7 +47,7 @@ struct EditTrackSheet: View {
                 }
                 Section(tr("Lyrics", "歌词")) {
                     TextEditor(text: $lyrics)
-                        .font(.caption)
+                        .font(MusesTypography.caption)
                         .frame(minHeight: 80)
                 }
             }

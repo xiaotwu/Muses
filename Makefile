@@ -19,8 +19,8 @@ BUILD_DIR := build
 
 # 默认 ad-hoc;正式发布用 `make release MUSES_SIGN_IDENTITY="Developer ID Application: ..."`
 MUSES_SIGN_IDENTITY ?= -
-MUSES_VERSION ?= 0.5.6
-MUSES_BUILD ?= 20260930.1
+MUSES_VERSION ?= 0.5.8
+MUSES_BUILD ?= 20261001.2
 
 .PHONY: all test build app release icon dmg ytdlp clean
 

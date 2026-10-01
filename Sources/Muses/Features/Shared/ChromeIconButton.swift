@@ -51,7 +51,7 @@ private struct ChromeActionCircle: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
     func body(content: Content) -> some View {
         content
-            .font(.system(size: ChromeActionMetrics.glyphSize, weight: .semibold))
+            .font(MusesTypography.system(size: ChromeActionMetrics.glyphSize, weight: .semibold))
             .foregroundStyle(prominent ? (colorScheme == .dark ? Color.black.opacity(0.88) : Color.white) : BrandColors.textPrimary)
             .frame(width: diameter, height: diameter, alignment: .center)
             .contentShape(Circle())
@@ -82,7 +82,7 @@ struct ChromeIconMenu<Items: View>: View {
         .frame(width: diameter, height: diameter)
         .overlay {
             Image(systemName: systemName)
-                .font(.system(size: ChromeActionMetrics.glyphSize, weight: .semibold))
+                .font(MusesTypography.system(size: ChromeActionMetrics.glyphSize, weight: .semibold))
                 .foregroundStyle(foreground)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)

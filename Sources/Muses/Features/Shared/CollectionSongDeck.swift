@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import QuartzCore
 
 enum CollectionPageMode: Equatable, Sendable {
     case stage
@@ -236,7 +237,7 @@ struct CollectionDeckStage<Controls: View>: View {
 
                 HStack {
                     Text(subtitle)
-                        .font(.subheadline)
+                        .font(MusesTypography.subheadline)
                         .foregroundStyle(BrandColors.textSecondary)
                         .lineLimit(1)
                     Spacer(minLength: 12)
@@ -325,8 +326,10 @@ struct CollectionDeckStage<Controls: View>: View {
             do { try await Task.sleep(for: .milliseconds(350)) }
             catch { return }
             presentation?.focusedID = focusedID
+            guard isInteractionEnabled, environmentIsEnabled, rows.indices.contains(focusedIndex) else { return }
+            await playback.prewarmSelection(rows[focusedIndex].snapshot)
         }
-        .onChange(of: rows.map(\.id)) { _, _ in reconcileFocus() }
+        .onChange(of: rows) { _, _ in reconcileFocus() }
         .onDisappear {
             presentation?.focusedID = focusedID
             cancelActivation()
@@ -350,7 +353,7 @@ struct CollectionDeckStage<Controls: View>: View {
                         artworkLayout = layout
                     } label: {
                         Image(systemName: layout.symbol)
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(MusesTypography.system(size: 14, weight: .semibold))
                             .foregroundStyle(BrandColors.heading)
                             .frame(width: 36, height: 30)
 
@@ -364,7 +367,7 @@ struct CollectionDeckStage<Controls: View>: View {
                 Divider().frame(height: 16).padding(.horizontal, 2)
                 Button(action: onExpand) {
                     Image(systemName: "list.bullet")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(MusesTypography.system(size: 14, weight: .semibold))
                         .frame(width: 36, height: 30)
                 }
                 .buttonStyle(.musesSegment(selected: false))
@@ -423,20 +426,20 @@ struct CollectionDeckStage<Controls: View>: View {
                                     targetHeight: 30, presentation: .fill)
                             .frame(width: 30, height: 30)
                         Text(row.title).font(MusesTypography.song(size: 14, emphasized: true, text: row.title)).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                        Text(row.artist).font(MusesTypography.song(size: 13, text: row.artist)).foregroundStyle(BrandColors.textSecondary)
+                        Text(row.displayArtist).font(MusesTypography.song(size: 13, text: row.displayArtist)).foregroundStyle(BrandColors.textSecondary)
                             .lineLimit(1).frame(width: 180, alignment: .leading)
                         Text(row.duration.isFinite && row.duration > 0
                             ? Duration.seconds(row.duration).formatted(.time(pattern: .minuteSecond)) : "—").monospacedDigit()
                             .foregroundStyle(BrandColors.textSecondary)
                     }
-                    .font(.callout)
+                    .font(MusesTypography.callout)
                     .padding(.horizontal, 12)
                     .frame(height: CollectionStageSpacing.previewRowHeight)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.fullAreaPlain)
                 .disabled(!isInteractionEnabled)
-                .accessibilityLabel(tr("Play \(row.title), \(row.artist)", "播放 \(row.title)，\(row.artist)"))
+                .accessibilityLabel(tr("Play \(row.title), \(row.displayArtist)", "播放 \(row.title)，\(row.displayArtist)"))
                 .contextMenu {
                     TrackContextMenuItems(snapshot: row.snapshot, playlists: playlists,
                         onPlay: { onPlay(row) },
@@ -486,9 +489,14 @@ struct CollectionDeckStage<Controls: View>: View {
                 DeckScrollEventBridge(isEnabled: CollectionDeckInputPolicy.acceptsEvents(
                     stageEnabled: isInteractionEnabled,
                     environmentEnabled: environmentIsEnabled
-                )) { delta in
-                    moveFocus(by: delta)
-                }
+                ), onScroll: { delta, animated in
+                    guard isInteractionEnabled, environmentIsEnabled else { return }
+                    deckFocused = true
+                    setPosition(position + delta, animated: animated)
+                }, onSettle: {
+                    guard isInteractionEnabled, environmentIsEnabled else { return }
+                    setPosition(CGFloat(focusedIndex), animated: true)
+                })
                 .allowsHitTesting(false)
             }
             .focusable()
@@ -671,7 +679,7 @@ struct CollectionDeckStage<Controls: View>: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 14, weight: .semibold))
+                .font(MusesTypography.system(size: 14, weight: .semibold))
                 .foregroundStyle(BrandColors.heading)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
@@ -798,7 +806,11 @@ struct CollectionDeckStage<Controls: View>: View {
     }
 
     private func establishInitialFocus() {
-        if let savedID = presentation?.focusedID,
+        // Overlay dismissal can repeat onAppear. Preserve the live browsing
+        // anchor before consulting persisted state or the playing-song fallback.
+        if let focusedID, let index = rows.firstIndex(where: { $0.id == focusedID }) {
+            position = CGFloat(index)
+        } else if let savedID = presentation?.focusedID,
            let index = rows.firstIndex(where: { $0.id == savedID }) {
             position = CGFloat(index)
             focusedID = savedID
@@ -957,7 +969,7 @@ struct CollectionDeckCardSurface: View, Equatable {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: isPlaying ? "waveform" : (isFocused ? primaryAction.symbol : "viewfinder"))
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(MusesTypography.system(size: 12, weight: .semibold))
                     .foregroundStyle(BrandColors.heading)
                     .frame(width: 28, height: 28)
                     .modifier(CompactChromeSurface(selected: isFocused))
@@ -1085,7 +1097,7 @@ struct CollectionExpansionHandle: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: direction.systemName)
-                .font(.system(size: 12, weight: .semibold))
+                .font(MusesTypography.system(size: 12, weight: .semibold))
                 .foregroundStyle(BrandColors.heading)
                 .frame(width: 48, height: AppleMusicTokens.collectionDeckHandleHeight)
                 .contentShape(Rectangle())
@@ -1189,7 +1201,7 @@ private struct CollectionDeckScrubber: View {
                 .frame(height: CollectionDeckScrubberMetrics.controlHeight)
 
                 Text(valueText)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(MusesTypography.system(size: 11, weight: .semibold))
                     .foregroundStyle(BrandColors.textSecondary)
                     .lineLimit(1)
                     .frame(
@@ -1289,6 +1301,12 @@ struct CollectionDeckScrollInput {
         -(abs(horizontal) > abs(vertical) ? horizontal : vertical)
     }
 
+    /// Precise input follows finger motion immediately rather than repeatedly
+    /// retargeting a discrete snap animation. Keep the existing per-event bound.
+    static func preciseMovement(delta: CGFloat) -> CGFloat {
+        min(3, max(-3, delta / 34))
+    }
+
     mutating func consume(delta: CGFloat, timestamp: TimeInterval) -> Int {
         if let lastTimestamp, timestamp - lastTimestamp > 0.1 {
             remainder = 0
@@ -1301,12 +1319,24 @@ struct CollectionDeckScrollInput {
     }
 }
 
+/// Input arrives independently of display cadence. Preserve all movement while
+/// publishing only once per window display tick, including direction reversals.
+struct CollectionDeckFrameInput {
+    private var pending: CGFloat = 0
+    mutating func append(_ movement: CGFloat) { pending += movement }
+    mutating func take() -> CGFloat {
+        defer { pending = 0 }
+        return pending
+    }
+}
+
 private struct DeckScrollEventBridge: NSViewRepresentable {
     let isEnabled: Bool
-    let onScroll: (Int) -> Void
+    let onScroll: (CGFloat, Bool) -> Void
+    let onSettle: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onScroll: onScroll)
+        Coordinator(onScroll: onScroll, onSettle: onSettle)
     }
 
     func makeNSView(context: Context) -> MonitorView {
@@ -1318,6 +1348,7 @@ private struct DeckScrollEventBridge: NSViewRepresentable {
 
     func updateNSView(_ nsView: MonitorView, context: Context) {
         context.coordinator.onScroll = onScroll
+        context.coordinator.onSettle = onSettle
         context.coordinator.isEnabled = isEnabled
     }
 
@@ -1338,13 +1369,20 @@ private struct DeckScrollEventBridge: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject {
         weak var view: MonitorView?
-        var isEnabled = true
-        var onScroll: (Int) -> Void
+        var isEnabled = true {
+            didSet { if !isEnabled { stopDisplayLink() } }
+        }
+        var onScroll: (CGFloat, Bool) -> Void
+        var onSettle: () -> Void
         private var monitor: Any?
         private var scrollInput = CollectionDeckScrollInput()
+        private var frameInput = CollectionDeckFrameInput()
+        private var lastPreciseInput: TimeInterval = 0
+        private var displayLink: CADisplayLink?
 
-        init(onScroll: @escaping (Int) -> Void) {
+        init(onScroll: @escaping (CGFloat, Bool) -> Void, onSettle: @escaping () -> Void) {
             self.onScroll = onScroll
+            self.onSettle = onSettle
         }
 
         func attach(to view: MonitorView) {
@@ -1353,10 +1391,12 @@ private struct DeckScrollEventBridge: NSViewRepresentable {
         }
 
         func viewWindowDidChange() {
+            stopDisplayLink()
             startMonitoringIfNeeded()
         }
 
         func stopMonitoring() {
+            stopDisplayLink()
             if let monitor {
                 NSEvent.removeMonitor(monitor)
                 self.monitor = nil
@@ -1366,6 +1406,7 @@ private struct DeckScrollEventBridge: NSViewRepresentable {
         private func startMonitoringIfNeeded() {
             guard monitor == nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                if PlayerGestureTail.shared.consume(event) { return nil }
                 guard let self,
                       self.isEnabled,
                       let view = self.view,
@@ -1378,10 +1419,39 @@ private struct DeckScrollEventBridge: NSViewRepresentable {
                     vertical: event.scrollingDeltaY
                 )
                 guard abs(delta) > 0.01 else { return event }
-                let steps = self.scrollInput.consume(delta: delta, timestamp: event.timestamp)
-                if steps != 0 { self.onScroll(steps) }
+                if event.hasPreciseScrollingDeltas {
+                    self.frameInput.append(CollectionDeckScrollInput.preciseMovement(delta: delta))
+                    self.lastPreciseInput = ProcessInfo.processInfo.systemUptime
+                    self.startDisplayLinkIfNeeded()
+                } else {
+                    let steps = self.scrollInput.consume(delta: delta, timestamp: event.timestamp)
+                    if steps != 0 { self.onScroll(CGFloat(steps), true) }
+                }
                 return nil
             }
+        }
+
+        private func startDisplayLinkIfNeeded() {
+            guard displayLink == nil, let view, view.window != nil else { return }
+            let link = view.displayLink(target: self, selector: #selector(displayFrame(_:)))
+            link.add(to: .main, forMode: .common)
+            displayLink = link
+        }
+
+        @objc private func displayFrame(_ link: CADisplayLink) {
+            guard isEnabled, view?.window != nil else { stopDisplayLink(); return }
+            let movement = frameInput.take()
+            if movement != 0 { onScroll(movement, false) }
+            if ProcessInfo.processInfo.systemUptime - lastPreciseInput >= 0.12 {
+                stopDisplayLink()
+                onSettle()
+            }
+        }
+
+        private func stopDisplayLink() {
+            displayLink?.invalidate()
+            displayLink = nil
+            frameInput = CollectionDeckFrameInput()
         }
     }
 }

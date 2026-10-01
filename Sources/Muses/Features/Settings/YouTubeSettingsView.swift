@@ -53,7 +53,7 @@ struct YouTubeSettingsView: View {
                 tr("Grant Full Disk Access to Muses in System Settings → Privacy & Security → Full Disk Access.",
                    "请在 系统设置 → 隐私与安全性 → 完全磁盘访问 中授权 Muses。"),
                 systemImage: "lock.shield")
-                .font(.caption)
+                .font(MusesTypography.caption)
                 .foregroundStyle(BrandColors.textSecondary)
             Spacer()
             Button {
@@ -75,9 +75,9 @@ struct YouTubeSettingsView: View {
             } else {
                 accountOverview
                 homeRecommendationSource
-                Section { accountDetails } header: { Text(tr("Account permissions & sync", "账号权限与同步")).font(.headline.weight(.semibold)) }
-                Section { webHomeDetails } header: { Text(tr("Personalized Home", "个性化首页")).font(.headline.weight(.semibold)) }
-                Section { playbackCookieDetails } header: { Text(tr("Playback access", "播放访问")).font(.headline.weight(.semibold)) }
+                Section { accountDetails } header: { Text(tr("Account permissions & sync", "账号权限与同步")).font(MusesTypography.headline.weight(.semibold)) }
+                Section { webHomeDetails } header: { Text(tr("Personalized Home", "个性化首页")).font(MusesTypography.headline.weight(.semibold)) }
+                Section { playbackCookieDetails } header: { Text(tr("Playback access", "播放访问")).font(MusesTypography.headline.weight(.semibold)) }
             }
         }
         .task {
@@ -138,17 +138,17 @@ struct YouTubeSettingsView: View {
                  ? tr("Recommendations stay on this Mac.", "推荐档案保留在本机。")
                  : tr("YouTube Music uses your account. Local listening history is not uploaded.",
                       "YouTube Music 使用你的账号，不上传本地收听历史。"))
-                .font(.caption)
+                .font(MusesTypography.caption)
                 .foregroundStyle(BrandColors.textSecondary)
         } header: {
             Text(tr("Home & Recommendations", "首页与推荐", zhHant: "首頁與推薦"))
-                .font(.headline.weight(.semibold))
+                .font(MusesTypography.headline.weight(.semibold))
         }
     }
 
     @ViewBuilder private func detail(_ destination: SettingsDestination) -> some View {
         if destination == .diagnostics {
-            Section { ytDlpDetails } header: { Text(tr("yt-dlp", "yt-dlp")).font(.headline.weight(.semibold)) }
+            Section { ytDlpDetails } header: { Text(tr("yt-dlp", "yt-dlp")).font(MusesTypography.headline.weight(.semibold)) }
             YTDlpConfigWizard()
         }
     }
@@ -165,10 +165,10 @@ struct YouTubeSettingsView: View {
                             Label(
                                 account.account?.channel?.title ?? tr("Connected", "已连接", zhHant: "已連接"),
                                 systemImage: "checkmark.circle.fill")
-                                .font(.body.weight(.semibold))
+                                .font(MusesTypography.body.weight(.semibold))
                                 .foregroundStyle(BrandColors.textPrimary)
                             Text(tr("YouTube connected", "已连接 YouTube", zhHant: "已連接 YouTube"))
-                                .font(.caption)
+                                .font(MusesTypography.caption)
                                 .foregroundStyle(BrandColors.textSecondary)
                         }
                     } else {
@@ -177,7 +177,7 @@ struct YouTubeSettingsView: View {
                                   ? tr("Session expired", "登录已过期", zhHant: "登入已過期")
                                   : tr("Not connected", "未连接", zhHant: "未連接"),
                                   systemImage: "person.crop.circle.badge.questionmark")
-                                .font(.body.weight(.semibold))
+                                .font(MusesTypography.body.weight(.semibold))
                                 .foregroundStyle(BrandColors.textSecondary)
                             Text(account.connectionState == .expired
                                  ? tr("Your YouTube session expired. Sign in again to restore account access.",
@@ -186,7 +186,7 @@ struct YouTubeSettingsView: View {
                                  : tr("Sign in to import playlists and personalize Home.",
                                       "登录即可导入歌单并个性化首页。",
                                       zhHant: "登入即可匯入歌單並個人化首頁。"))
-                                .font(.caption)
+                                .font(MusesTypography.caption)
                                 .foregroundStyle(BrandColors.textSecondary)
                         }
                     }
@@ -210,10 +210,10 @@ struct YouTubeSettingsView: View {
                         if playlistSync.isImportingAccountPlaylists {
                             ProgressView().controlSize(.small)
                             Text("\(playlistSync.accountImportCompleted)/\(playlistSync.accountImportTotal)")
-                                .font(.caption.monospacedDigit())
+                                .font(MusesTypography.caption.monospacedDigit())
                         } else {
                             Text(tr("Auto-import on sign-in", "登录时自动导入", zhHant: "登入時自動匯入"))
-                                .font(.caption)
+                                .font(MusesTypography.caption)
                                 .foregroundStyle(BrandColors.textSecondary)
                         }
                         Button {
@@ -231,7 +231,7 @@ struct YouTubeSettingsView: View {
                         .accessibilityLabel(tr("Import account playlists", "导入账号歌单", zhHant: "匯入帳號歌單"))
                     }
                     if let error = playlistSync.accountImportError {
-                        Text(error).font(.caption).foregroundStyle(.red)
+                        Text(error).font(MusesTypography.caption).foregroundStyle(.red)
                     }
                     HStack {
                         Text(tr("Personalized Home", "个性化首页"))
@@ -244,12 +244,12 @@ struct YouTubeSettingsView: View {
 
                 if let error = webHomeConfigurationError {
                     Label(error, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
+                        .font(MusesTypography.caption)
                         .foregroundStyle(.red)
                         .padding(.top, 4)
                 }
                 if let err = account.lastError {
-                    Text(err).font(.caption).foregroundStyle(.red)
+                    Text(err).font(MusesTypography.caption).foregroundStyle(.red)
                         .padding(.top, 4)
                 }
                 if account.connectionState == .expired {
@@ -258,7 +258,7 @@ struct YouTubeSettingsView: View {
                            "请使用下方按钮重新授权此 Mac。浏览器 Cookie 与 Web 首页权限彼此独立。",
                            zhHant: "請使用下方按鈕重新授權此 Mac。瀏覽器 Cookie 與 Web 首頁權限彼此獨立。"),
                         systemImage: "arrow.clockwise.circle")
-                        .font(.caption)
+                        .font(MusesTypography.caption)
                         .foregroundStyle(.red)
                         .padding(.top, 2)
                 }
@@ -284,7 +284,7 @@ struct YouTubeSettingsView: View {
                     url: URL(string: "https://www.youtube.com/feed/history")!
                 )
             }
-        } header: { Text(tr("YouTube", "YouTube")).font(.headline.weight(.semibold)) }
+        } header: { Text(tr("YouTube", "YouTube")).font(MusesTypography.headline.weight(.semibold)) }
     }
 
     private func officialPageLink(_ title: String, url: URL) -> some View {
@@ -294,7 +294,7 @@ struct YouTubeSettingsView: View {
                 Text(title)
                 Spacer()
                 Image(systemName: "arrow.up.right")
-                    .font(.caption.weight(.semibold))
+                    .font(MusesTypography.caption.weight(.semibold))
             }
             .foregroundStyle(BrandColors.textPrimary)
             .frame(minHeight: 28)
@@ -336,7 +336,7 @@ struct YouTubeSettingsView: View {
                 tr("YouTube sign-in is unavailable in this build. Guest browsing and playback still work.",
                    "此构建未配置 YouTube 登录；访客浏览与播放仍可正常使用。"),
                 systemImage: "exclamationmark.triangle")
-                .font(.caption)
+                .font(MusesTypography.caption)
                 .foregroundStyle(BrandColors.textSecondary)
         } else if !account.isConnected {
             Button {
@@ -434,7 +434,7 @@ struct YouTubeSettingsView: View {
         }
 
         Text(oAuthHelpText)
-            .font(.caption)
+            .font(MusesTypography.caption)
             .foregroundStyle(BrandColors.textSecondary)
     }
 
@@ -508,7 +508,7 @@ struct YouTubeSettingsView: View {
         }
 
         Text(webHomeDisclosureSummary)
-            .font(.caption)
+            .font(MusesTypography.caption)
             .foregroundStyle(BrandColors.textSecondary)
     }
 
@@ -539,13 +539,13 @@ struct YouTubeSettingsView: View {
         }
 
         Text(cookieHelpText)
-            .font(.caption)
+            .font(MusesTypography.caption)
             .foregroundStyle(BrandColors.textSecondary)
 
         Text(tr(
             "Only used for playback and import. Personalized Home uses separate browser consent and never changes this selection.",
             "仅用于播放与导入；个性化首页会单独请求浏览器授权，不会改变此选项。"))
-            .font(.caption)
+            .font(MusesTypography.caption)
             .foregroundStyle(BrandColors.textSecondary)
     }
 
@@ -698,7 +698,7 @@ struct YouTubeSettingsView: View {
                 granted ? tr("Allowed", "已允许") : tr("Not allowed", "未允许"),
                 systemImage: granted ? "checkmark.circle.fill" : "minus.circle")
                 .foregroundStyle(granted ? BrandColors.textPrimary : BrandColors.textSecondary)
-                .font(.callout)
+                .font(MusesTypography.callout)
         }
     }
 
@@ -713,8 +713,8 @@ struct YouTubeSettingsView: View {
                          ? tr("\(label): showing saved data",
                               "\(label)：正在显示已保存数据", zhHant: "\(label)：正在顯示已保存數據")
                          : tr("\(label): unavailable", "\(label)：暂不可用", zhHant: "\(label)：暫不可用"))
-                        .font(.caption.weight(.semibold))
-                    Text(message).font(.caption2).lineLimit(2)
+                        .font(MusesTypography.caption.weight(.semibold))
+                    Text(message).font(MusesTypography.caption2).lineLimit(2)
                 }
             }
             .foregroundStyle(BrandColors.textSecondary)

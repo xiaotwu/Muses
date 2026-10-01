@@ -11,21 +11,22 @@ struct EmptyStateView: View {
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: icon)
-                .font(.system(size: 48))
+                .font(MusesTypography.system(size: 48))
                 .foregroundStyle(BrandColors.textSecondary)
             Text(title)
-                .font(.title3)
+                .font(MusesTypography.title3)
                 .foregroundStyle(BrandColors.textPrimary)
             if let subtitle {
                 Text(subtitle)
-                    .font(.subheadline)
+                    .font(MusesTypography.subheadline)
                     .foregroundStyle(BrandColors.textSecondary)
                     .multilineTextAlignment(.center)
             }
             if let actionTitle, let action {
-                Button(actionTitle, action: action)
-                    .musesAction(prominent: true)
-                    .tint(BrandColors.accent)
+                Button(action: action) {
+                    Text(actionTitle).padding(.horizontal, 14).frame(minHeight: 32)
+                }
+                    .buttonStyle(.musesCompact)
                     .padding(.top, 4)
             }
         }

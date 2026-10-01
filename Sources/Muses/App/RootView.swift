@@ -156,7 +156,7 @@ struct RootView: View {
             .buttonStyle(.automatic)
             .help(tr("Toggle Sidebar", "切换边栏", zhHant: "切換側邊欄"))
             Button {
-                if showNowPlaying { showNowPlaying = false }
+                if showNowPlaying { returnFromNowPlaying() }
                 else { navigateHistory(back: true) }
             } label: {
                 Label(tr("Back", "后退", zhHant: "返回"), systemImage: "arrow.left")
@@ -172,6 +172,20 @@ struct RootView: View {
             .help(tr("Forward", "前进", zhHant: "前進"))
             .keyboardShortcut("]", modifiers: .command)
             .disabled(!navigationHistory.canGoForward || showNowPlaying || showYouTubeVideo)
+        }
+        if showNowPlaying {
+            if #available(macOS 26.0, *) {
+                ToolbarSpacer(.flexible, placement: .automatic)
+            } else {
+                ToolbarItem(placement: .automatic) { Spacer() }
+            }
+            ToolbarItem(placement: .automatic) {
+                Button { returnFromNowPlaying() } label: {
+                    Label(tr("Close Now Playing", "关闭正在播放"), systemImage: "chevron.down")
+                }
+                .buttonStyle(.automatic)
+                .help(tr("Close Now Playing", "关闭正在播放"))
+            }
         }
     }
 
@@ -225,10 +239,10 @@ struct RootView: View {
     private var notificationWired: some View {
         navigationWired
             .onReceive(NotificationCenter.default.publisher(for: .musesOpenSettings)) { note in
-                if let category = note.object as? SettingsCategory {
-                    UserDefaults.standard.set(category.destination.rawValue, forKey: PrefKey.settingsLastPane)
-                }
                 openIntegratedSettings()
+                if let category = note.object as? SettingsCategory {
+                    settingsPane = category.destination.rawValue
+                }
             }
             .dropDestination(for: URL.self) { urls, _ in
                 guard urls.count == 1, let url = urls.first,
@@ -369,6 +383,8 @@ struct RootView: View {
     }
 
     private func openIntegratedSettings() {
+        settingsPane = SettingsCategory.general.rawValue
+        settingsPath = []
         MusesSingleInstance.pendingSettings = false
         settingsPath = []
         showNowPlaying = false
@@ -385,16 +401,8 @@ struct RootView: View {
     private func handleAppear() {
         if !restoredBrowseRoute {
             restoredBrowseRoute = true
-            if !libraryStoreFallback, !MusesSingleInstance.pendingSettings,
-               MusesSingleInstance.pendingSearchRoute == nil,
-               let snapshot = BrowseRouteSnapshot.read() {
-                if snapshot.requiresAccount && account.isConnected && account.activeChannelID == nil {
-                    pendingAccountRestoration = snapshot
-                } else if let route = snapshot.route(activeChannelID: account.activeChannelID) {
-                    applyBrowseRoute(route)
-                    navigationHistory = BrowseNavigationHistory(initial: browseRoute)
-                }
-            }
+            applyBrowseRoute(.section(.home))
+            navigationHistory = BrowseNavigationHistory(initial: .section(.home))
         }
         if MusesSingleInstance.pendingSettings { openIntegratedSettings() }
         if let route = MusesSingleInstance.pendingSearchRoute { applySearchRoute(route) }
@@ -474,7 +482,7 @@ struct RootView: View {
         .ignoresSafeArea(edges: [.bottom, .leading])
         .tint(BrandColors.accent)
         .accessibilityHidden(showNowPlaying || showYouTubeVideo)
-        .disabled(showYouTubeVideo)
+        .disabled(showYouTubeVideo || showNowPlaying)
     }
 
     private func openNowPlaying() {
@@ -603,24 +611,33 @@ struct RootView: View {
                     showQueue = false
                     showLyricsDrawer = false
                 } else {
-                    nowPlayingShowLyrics = false
                     restorePlayerArtworkFocus()
                     nowPlayingDismissTask?.cancel()
                     if reduceMotion {
                         nowPlayingOverlayOpacity = 0
                         nowPlayingOverlayMounted = false
+                        nowPlayingShowLyrics = false
                     } else {
-                        withAnimation(.easeOut(
-                            duration: NowPlayingPresentationPolicy.dismissDuration
-                        )) {
-                            nowPlayingOverlayOpacity = 0
-                        }
                         nowPlayingDismissTask = Task { @MainActor in
-                            try? await Task.sleep(for: .seconds(
-                                NowPlayingPresentationPolicy.dismissDuration
-                            ))
                             guard !Task.isCancelled, !showNowPlaying else { return }
-                            nowPlayingOverlayMounted = false
+                            await withCheckedContinuation { (completion: CheckedContinuation<Void, Never>) in
+                                withAnimation(.easeOut(
+                                    duration: NowPlayingPresentationPolicy.dismissDuration
+                                ), completionCriteria: .removed) {
+                                    nowPlayingOverlayOpacity = 0
+                                } completion: {
+                                    completion.resume()
+                                }
+                            }
+                            guard !Task.isCancelled, !showNowPlaying else { return }
+                            // The fading surface keeps the same artwork owner and
+                            // lyrics layout until it is completely invisible.
+                            var transaction = Transaction(animation: nil)
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) {
+                                nowPlayingOverlayMounted = false
+                                nowPlayingShowLyrics = false
+                            }
                         }
                     }
                 }
@@ -636,7 +653,8 @@ struct RootView: View {
                         .zIndex(0)
                     NowPlayingView(isPresented: $showNowPlaying,
                                    showLyrics: $nowPlayingShowLyrics,
-                                   coverHostedExternally: showNowPlaying && !skipArtworkMorph)
+                                   coverHostedExternally: nowPlayingOverlayMounted && !skipArtworkMorph,
+                                   onReturn: returnFromNowPlaying)
                         .zIndex(1)
                 }
             }
@@ -659,7 +677,7 @@ struct RootView: View {
 
     @ViewBuilder
     private func liveCoverHost(proxy: GeometryProxy, anchor: Anchor<CGRect>?) -> some View {
-        if showNowPlaying, !skipArtworkMorph,
+        if nowPlayingOverlayMounted, !skipArtworkMorph,
            let trackID = playback.state.track?.id {
             let resolvedSize = anchor.map { anchor in
                 let rect = proxy[anchor]
@@ -670,8 +688,8 @@ struct RootView: View {
                 trackID: trackID,
                 namespace: artworkWorld,
                 size: resolvedSize,
-                isSource: showNowPlaying,
-                isPresented: showNowPlaying
+                isSource: true,
+                isPresented: nowPlayingOverlayMounted
             )
             if let anchor {
                 let rect = proxy[anchor]
@@ -683,6 +701,12 @@ struct RootView: View {
                     .offset(x: rect.minX, y: rect.minY)
             }
         }
+    }
+
+    /// Returning reveals the existing browsing surface without selecting a song
+    /// or moving its collection focus to the currently playing item.
+    private func returnFromNowPlaying() {
+        showNowPlaying = false
     }
 
     private func restorePlayerArtworkFocus() {
@@ -851,6 +875,7 @@ struct ThemeApplier<Content: View>: View {
         let scheme = AppTheme(rawValue: themeRaw)?.effectiveColorScheme
         content()
             .musesControls()
+            .font(MusesTypography.body)
             .preferredColorScheme(scheme)
             .environment(\.locale, Locale(identifier: L10n.resolvedLanguage(preference: languageRaw)))
             .onChange(of: languageRaw, initial: true) { _, value in

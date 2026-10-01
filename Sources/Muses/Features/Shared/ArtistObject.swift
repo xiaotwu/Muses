@@ -37,7 +37,7 @@ struct ArtistObjectView: View {
                         Spacer()
                         ContentScrimCircle {
                             Image(systemName: "ellipsis")
-                                .font(.system(size: 10, weight: .bold))
+                                .font(MusesTypography.system(size: 10, weight: .bold))
                                 .foregroundStyle(.white)
                         }
                     }
@@ -63,14 +63,14 @@ struct ArtistObjectView: View {
                 // Bottom content: Artist name, detail, and action row
                 VStack(alignment: .leading, spacing: 3) {
                     Text(name)
-                        .font(.system(size: 14.5, weight: .bold))
+                        .font(MusesTypography.system(size: 14.5, weight: .bold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .shadow(color: .black.opacity(0.7), radius: 3, y: 1)
 
                     Text(detail)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(MusesTypography.system(size: 11, weight: .medium))
                         .foregroundStyle(.white.opacity(0.82))
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -80,10 +80,10 @@ struct ArtistObjectView: View {
                         // Tag on left
                         HStack(spacing: 3) {
                             Image(systemName: isNowPlaying ? "waveform" : "person.fill")
-                                .font(.system(size: 8, weight: .bold))
+                                .font(MusesTypography.system(size: 8, weight: .bold))
                                 .foregroundStyle(isNowPlaying ? BrandColors.accent : Color.white.opacity(0.8))
                             Text(tr("ARTIST", "艺术家"))
-                                .font(.system(size: 8.5, weight: .bold))
+                                .font(MusesTypography.system(size: 8.5, weight: .bold))
                                 .foregroundStyle(Color.white.opacity(0.9))
                         }
                         .padding(.horizontal, 6)
@@ -96,9 +96,9 @@ struct ArtistObjectView: View {
                         Button(action: onPlay) {
                             HStack(spacing: 3) {
                                 Image(systemName: isNowPlaying ? "speaker.wave.2.fill" : "play.fill")
-                                    .font(.system(size: 8, weight: .bold))
+                                    .font(MusesTypography.system(size: 8, weight: .bold))
                                 Text(isNowPlaying ? tr("Playing", "播放中") : tr("Play", "播放"))
-                                    .font(.system(size: 9, weight: .semibold))
+                                    .font(MusesTypography.system(size: 9, weight: .semibold))
                             }
                             .foregroundStyle(.white)
                             .padding(.horizontal, 7)

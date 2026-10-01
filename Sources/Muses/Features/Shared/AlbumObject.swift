@@ -166,7 +166,7 @@ struct AlbumObjectView: View {
                         }
                         ContentScrimCircle {
                             Image(systemName: "ellipsis")
-                                .font(.system(size: 10, weight: .bold))
+                                .font(MusesTypography.system(size: 10, weight: .bold))
                                 .foregroundStyle(.white)
                         }
                     }
@@ -192,14 +192,14 @@ struct AlbumObjectView: View {
                 // Bottom content: Title, Subtitle, Tag & Play Action Pill
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
-                        .font(.system(size: size >= 160 ? 14 : 12.5, weight: .bold))
+                        .font(MusesTypography.system(size: size >= 160 ? 14 : 12.5, weight: .bold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .shadow(color: .black.opacity(0.7), radius: 3, y: 1)
 
                     Text(subtitle)
-                        .font(.system(size: size >= 160 ? 11 : 10, weight: .medium))
+                        .font(MusesTypography.system(size: size >= 160 ? 11 : 10, weight: .medium))
                         .foregroundStyle(.white.opacity(0.82))
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -208,13 +208,13 @@ struct AlbumObjectView: View {
                     HStack {
                         if let tag = customTag {
                             Image(systemName: isNowPlaying ? "waveform" : "square.stack")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(MusesTypography.system(size: 11, weight: .semibold))
                                 .foregroundStyle(.white.opacity(0.8))
                                 .accessibilityLabel(tag)
                         }
                         Spacer(minLength: 0)
                         Image(systemName: isNowPlaying ? "speaker.wave.2.fill" : "play.fill")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(MusesTypography.system(size: 11, weight: .semibold))
                             .foregroundStyle(.white)
                             .frame(width: 28, height: 28)
                             .background(Color.black.opacity(0.6), in: Circle())
@@ -265,11 +265,11 @@ struct AlbumObjectView: View {
     private var nowPlayingBadge: some View {
         if let nowPlayingID {
             NowPlayingMark(itemID: nowPlayingID)
-                .font(.caption)
+                .font(MusesTypography.caption)
                 .padding(6)
         } else if isNowPlaying {
             Image(systemName: "speaker.wave.2")
-                .font(.caption)
+                .font(MusesTypography.caption)
                 .padding(6)
                 .foregroundStyle(BrandColors.textPrimary)
         }

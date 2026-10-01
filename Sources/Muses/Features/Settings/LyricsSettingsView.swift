@@ -26,7 +26,7 @@ struct LyricsSettingsView: View {
                 .disabled(!supportsTranslation)
             Toggle(tr("Romanization", "音译"), isOn: $romanization)
                 .disabled(availability != .available && !romanization)
-        } header: { Text(tr("Display", "显示")).font(.headline.weight(.semibold)) }
+        } header: { Text(tr("Display", "显示")).font(MusesTypography.headline.weight(.semibold)) }
         Section {
             Picker(tr("Preferred source", "优先来源", zhHant: "優先來源"), selection: $lyricsSource) {
                 Text(tr("Automatic", "自动", zhHant: "自動")).tag("auto")
@@ -39,8 +39,8 @@ struct LyricsSettingsView: View {
             Toggle(tr("Intelligent matching", "智能匹配"), isOn: $intelligentMatching)
                 .disabled(availability != .available && !intelligentMatching)
             LabeledContent("Apple Intelligence", value: availability.message)
-                .font(.caption).italic().foregroundStyle(.secondary)
-        } header: { Text(tr("Matching", "匹配")).font(.headline.weight(.semibold)) }
+                .font(MusesTypography.caption).italic().foregroundStyle(.secondary)
+        } header: { Text(tr("Matching", "匹配")).font(MusesTypography.headline.weight(.semibold)) }
         .onAppear { availability = LyricsIntelligence.availability }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             availability = LyricsIntelligence.availability
@@ -59,10 +59,10 @@ struct LyricsSupportView: View {
     var body: some View {
         Section {
             Text(tr("Lyrics come from sources, never generated from memory.", "歌词来自检索来源，不凭记忆生成。"))
-                .font(.caption).foregroundStyle(.secondary)
+                .font(MusesTypography.caption).foregroundStyle(.secondary)
             Text(tr("Automatic translation and romanization may contain errors. Original lyrics remain available.",
                     "自动翻译和音译可能有误，原文歌词始终保留。"))
-                .font(.caption).foregroundStyle(.secondary)
+                .font(MusesTypography.caption).foregroundStyle(.secondary)
             Link(tr("Apple Intelligence availability", "Apple Intelligence 可用性"),
                  destination: URL(string: "https://support.apple.com/121115")!)
         } header: { Text(tr("Availability", "可用性")) }

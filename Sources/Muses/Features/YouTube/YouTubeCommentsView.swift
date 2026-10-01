@@ -19,11 +19,11 @@ struct YouTubeCommentsView: View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 Text(tr("Comments", "评论", zhHant: "留言"))
-                    .font(.title2.weight(.semibold))
+                    .font(MusesTypography.title2.weight(.semibold))
                 Spacer()
                 Button(action: onClose) {
                     Image(systemName: "xmark")
-                        .font(.body.weight(.semibold))
+                        .font(MusesTypography.body.weight(.semibold))
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.fullAreaPlain)
@@ -45,7 +45,7 @@ struct YouTubeCommentsView: View {
                     } else {
                         if let errorMessage {
                             HStack {
-                                Text(errorMessage).font(.callout)
+                                Text(errorMessage).font(MusesTypography.callout)
                                 Button(tr("Retry", "重试", zhHant: "重試")) {
                                     if selectedThread == nil { loadThreads(reset: threads.isEmpty) }
                                     else { loadReplies(reset: replies.isEmpty) }
@@ -62,7 +62,7 @@ struct YouTubeCommentsView: View {
                                 nextReplyToken = nil
                                 errorMessage = nil
                             }
-                            Text(selectedThread.topLevelComment.text).font(.body)
+                            Text(selectedThread.topLevelComment.text).font(MusesTypography.body)
                             Divider()
                             ForEach(replies) { reply in commentRow(reply) }
                             if nextReplyToken != nil {
@@ -81,7 +81,7 @@ struct YouTubeCommentsView: View {
                                             replies = []
                                             nextReplyToken = nil
                                             loadReplies(reset: true)
-                                        }.font(.caption)
+                                        }.font(MusesTypography.caption)
                                     }
                                 }
                                 Divider()
@@ -118,11 +118,11 @@ struct YouTubeCommentsView: View {
 
     private func commentRow(_ comment: YouTubeComment) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(comment.author).font(.subheadline.weight(.semibold))
-            Text(comment.text).font(.body).textSelection(.enabled)
+            Text(comment.author).font(MusesTypography.subheadline.weight(.semibold))
+            Text(comment.text).font(MusesTypography.body).textSelection(.enabled)
             if let publishedAt = comment.publishedAt {
                 Text(publishedAt, format: .dateTime.year().month().day())
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(MusesTypography.caption2).foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

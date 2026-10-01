@@ -72,7 +72,7 @@ struct GlobalSearchView: View {
                 searchChrome
                 if search.musicCatalog.detail == nil, let error = search.additionalResultsStatus {
                     HStack {
-                        Text(error).font(.callout)
+                        Text(error).font(MusesTypography.callout)
                         Spacer()
                         Button(tr("Retry", "重试", zhHant: "重試"), systemImage: "arrow.clockwise") {
                             search.retrySearch()
@@ -130,7 +130,7 @@ struct GlobalSearchView: View {
     private var windowHeader: some View {
         ZStack {
             Text(tr("Search Muses", "搜索 Muses"))
-                .font(.system(size: 12, weight: .semibold))
+                .font(MusesTypography.system(size: 12, weight: .semibold))
                 .foregroundStyle(BrandColors.textPrimary.opacity(0.82))
             HStack {
                 Color.clear
@@ -152,13 +152,13 @@ struct GlobalSearchView: View {
             HStack(spacing: 10) {
                 HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(MusesTypography.system(size: 15, weight: .semibold))
                         .foregroundStyle(BrandColors.textSecondary)
                         .accessibilityHidden(true)
                     TextField(tr("Artists, songs, albums, and videos", "艺术家、歌曲、专辑和视频"),
                               text: Binding(get: { search.query }, set: { search.query = $0 }))
                         .textFieldStyle(.plain)
-                        .font(.system(size: 15))
+                        .font(MusesTypography.system(size: 15))
                         .focused($searchFieldFocused)
                         .onSubmit(activateTopResult)
                     if search.isSearchingYouTube {
@@ -193,7 +193,7 @@ struct GlobalSearchView: View {
 
                 Button { showYouTubeLink = true } label: {
                     Image(systemName: SearchChromePolicy.addMusicSystemImage)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(MusesTypography.system(size: 14, weight: .semibold))
                         .foregroundStyle(BrandColors.textPrimary)
                         .frame(
                             width: SearchWindowPolicy.controlHeight,

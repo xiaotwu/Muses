@@ -15,7 +15,7 @@ struct UpNextPreview: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text(tr("Up Next", "即将播放"))
-                        .font(.headline)
+                        .font(MusesTypography.headline)
                         .foregroundStyle(BrandColors.textPrimary)
                     Spacer()
                     Button { onShowQueue() } label: {
@@ -36,9 +36,9 @@ struct UpNextPreview: View {
                                 .frame(width: 36, height: 36)
                                 .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(item.track.title).font(.callout).lineLimit(1)
+                                Text(item.track.title).font(MusesTypography.callout).lineLimit(1)
                                     .foregroundStyle(BrandColors.textPrimary)
-                                Text(item.track.artist).font(.caption).lineLimit(1)
+                                Text(item.track.artist).font(MusesTypography.caption).lineLimit(1)
                                     .foregroundStyle(BrandColors.textSecondary)
                             }
                             Spacer()

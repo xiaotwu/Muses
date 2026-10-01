@@ -152,7 +152,6 @@ final class YTDlpBridge {
         }
 
         var inferredMediaKind: TrackMediaKind {
-            if track != nil || album != nil { return .song }
             let normalized = title.lowercased()
             let videoMarkers = [
                 "official music video", "official video", "music video", "m/v", " mv",

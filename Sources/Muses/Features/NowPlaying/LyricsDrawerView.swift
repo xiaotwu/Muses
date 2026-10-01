@@ -26,10 +26,10 @@ struct LyricsDrawerView: View {
     private var header: some View {
         HStack(spacing: 8) {
             Image(systemName: "quote.bubble")
-                .font(.system(size: 16, weight: .semibold))
+                .font(MusesTypography.system(size: 16, weight: .semibold))
                 .foregroundStyle(BrandColors.accent)
             Text(tr("Lyrics", "歌词"))
-                .font(.system(size: 20, weight: .bold))
+                .font(MusesTypography.system(size: 20, weight: .bold))
                 .foregroundStyle(BrandColors.textPrimary)
             Spacer()
             ChromeIconButton(

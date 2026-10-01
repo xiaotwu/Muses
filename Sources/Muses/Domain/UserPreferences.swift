@@ -90,6 +90,11 @@ enum PrefKey {
     static let nowPlayingMode = "muses.nowPlayingMode"
     /// Now Playing lyrics presentation: inline/lyricsOnly/minimal.
     static let nowPlayingLyricsMode = "muses.nowPlaying.lyricsMode"
+    static let gestureClosePlayer = "muses.gestures.closePlayer"
+    static let gestureChangeTrack = "muses.gestures.changeTrack"
+    static let gestureShowLyrics = "muses.gestures.showLyrics"
+    static let interfaceTextSize = "muses.appearance.textSize"
+    static let interfaceFontFamily = "muses.appearance.fontFamily"
     static let theme = "muses.theme"
     /// Last selected Settings pane (`SettingsCategory.rawValue`).
     static let settingsLastPane = "muses.settings.lastPane"

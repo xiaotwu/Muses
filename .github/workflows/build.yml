@@ -28,7 +28,7 @@ jobs:
             build
       - name: Package preview
         env:
-          MUSES_VERSION: 0.5.6
+          MUSES_VERSION: 0.5.8
         run: |
           ./Scripts/build-app.sh --identity -
           ./Scripts/sign-update.sh

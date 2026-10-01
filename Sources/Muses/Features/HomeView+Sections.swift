@@ -66,7 +66,7 @@ extension HomeView {
         case .track(let snapshot):
             SongStationCard(
                 title: snapshot.title,
-                subtitle: snapshot.artist,
+                subtitle: SongCreditCache.shared.artist(snapshot: snapshot),
                 artwork: ArtworkSource.resolve(for: snapshot),
                 isYouTube: true,
                 nowPlayingID: snapshot.id,
@@ -136,7 +136,7 @@ extension HomeView {
             }
             if let error = discovery.globalContinuationError {
                 Text(error)
-                    .font(.caption)
+                    .font(MusesTypography.caption)
                     .foregroundStyle(BrandColors.textSecondary)
                     .padding(.horizontal, AppleMusicTokens.contentPaddingX)
             }
@@ -172,7 +172,7 @@ extension HomeView {
                     "Play something and it will show up here.",
                     "播放内容后会出现在这里。"
                 ))
-                .font(.subheadline)
+                .font(MusesTypography.subheadline)
                 .foregroundStyle(BrandColors.textSecondary)
                 .padding(.horizontal, AppleMusicTokens.contentPaddingX)
             }
@@ -260,17 +260,17 @@ extension HomeView {
                     .frame(width: 48, height: 48)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(card.title)
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(MusesTypography.system(size: 13, weight: .semibold))
                             .foregroundStyle(BrandColors.textPrimary)
                             .lineLimit(1)
                         Text(card.uploader ?? "YouTube Music")
-                            .font(.caption)
+                            .font(MusesTypography.caption)
                             .foregroundStyle(BrandColors.textSecondary)
                             .lineLimit(1)
                     }
                     Spacer(minLength: 4)
                     Image(systemName: "play.fill")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(MusesTypography.system(size: 11, weight: .semibold))
                         .foregroundStyle(BrandColors.textSecondary)
                 }
                 .contentShape(Rectangle())
@@ -286,8 +286,8 @@ extension HomeView {
                                 cornerRadius: 5, glyphSize: 18, targetSize: 48)
                         .frame(width: 48, height: 48)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(snapshot.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                        Text(snapshot.artist).font(.caption)
+                        Text(snapshot.title).font(MusesTypography.system(size: 13, weight: .semibold)).lineLimit(1)
+                        Text(SongCreditCache.shared.artist(snapshot: snapshot)).font(MusesTypography.caption)
                             .foregroundStyle(BrandColors.textSecondary).lineLimit(1)
                     }
                     Spacer()
@@ -345,7 +345,7 @@ extension HomeView {
             }
             AlbumObjectView(
                 title: snapshot.title,
-                subtitle: snapshot.artist,
+                subtitle: SongCreditCache.shared.artist(snapshot: snapshot),
                 artwork: ArtworkSource.resolve(for: snapshot),
                 size: MusicObjectMetrics.albumRail,
                 role: .play,
@@ -456,13 +456,13 @@ extension HomeView {
     var homeSourceStatus: some View {
         HStack(spacing: 7) {
             Image(systemName: homeSourceStatusIcon)
-                .font(.caption.weight(.semibold))
+                .font(MusesTypography.caption.weight(.semibold))
             Text(homeSourceStatusText)
-                .font(.caption.weight(.medium))
+                .font(MusesTypography.caption.weight(.medium))
                 .lineLimit(1)
             if discovery.isShowingStale {
                 Text(tr("Saved", "已保存"))
-                    .font(.caption2.weight(.semibold))
+                    .font(MusesTypography.caption2.weight(.semibold))
                     .padding(.horizontal, 7)
                     .frame(height: 20)
                     .background(BrandColors.textPrimary.opacity(0.08),
@@ -531,9 +531,9 @@ extension HomeView {
                           "正在显示已保存的 YouTube Music 个性化内容。")
                      : tr("Showing saved Home recommendations.",
                           "正在显示已保存的首页推荐。"))
-                    .font(.caption.weight(.semibold))
+                    .font(MusesTypography.caption.weight(.semibold))
                 Text(staleBannerDetail)
-                    .font(.caption2)
+                    .font(MusesTypography.caption2)
                     .lineLimit(2)
             }
             Spacer()
@@ -582,16 +582,16 @@ extension HomeView {
     var webRecoveryBanner: some View {
         HStack(spacing: 12) {
             Image(systemName: "exclamationmark.shield")
-                .font(.system(size: 17, weight: .semibold))
+                .font(MusesTypography.system(size: 17, weight: .semibold))
             VStack(alignment: .leading, spacing: 2) {
                 Text(tr("Personalized Web Home is unavailable",
                         "个性化 Web 首页暂不可用"))
-                    .font(.subheadline.weight(.semibold))
+                    .font(MusesTypography.subheadline.weight(.semibold))
                 Text(discovery.lastRefreshError
                      ?? tr("Anonymous YouTube Music discovery remains available; retry the signed-in enhancement.",
                            "匿名 YouTube Music 公共发现仍可使用；请重试登录增强。",
                            zhHant: "匿名 YouTube Music 公開探索仍可使用；請重試登入增強。"))
-                    .font(.caption)
+                    .font(MusesTypography.caption)
                     .foregroundStyle(BrandColors.textSecondary)
                     .lineLimit(2)
             }
@@ -620,15 +620,15 @@ extension HomeView {
     var accountRefreshFailureBanner: some View {
         HStack(spacing: 12) {
             Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")
-                .font(.system(size: 18, weight: .semibold))
+                .font(MusesTypography.system(size: 18, weight: .semibold))
             VStack(alignment: .leading, spacing: 2) {
                 Text(tr("Some YouTube account data is unavailable",
                         "部分 YouTube 账号数据暂不可用"))
-                    .font(.subheadline.weight(.semibold))
+                    .font(MusesTypography.subheadline.weight(.semibold))
                 Text(tr(
                     "Saved recommendations remain visible. Retry without signing out.",
                     "已保存的推荐仍会显示；可直接重试，无需退出登录。"))
-                    .font(.caption)
+                    .font(MusesTypography.caption)
                     .foregroundStyle(BrandColors.textSecondary)
             }
             Spacer()
@@ -838,7 +838,7 @@ extension HomeView {
         }
         if let error = discovery.continuationErrors[section.id] {
             Text(error)
-                .font(.caption)
+                .font(MusesTypography.caption)
                 .foregroundStyle(BrandColors.textSecondary)
                 .accessibilityLabel(error)
         }
@@ -922,7 +922,7 @@ private struct MoodChipButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 13, weight: .medium))
+                .font(MusesTypography.system(size: 13, weight: .medium))
                 .foregroundStyle(BrandColors.textPrimary)
                 .padding(.horizontal, 16)
                 .frame(height: 34)

@@ -1,5 +1,6 @@
 import Foundation
 import os
+import Darwin
 
 /// Bridges `Process.terminationHandler` to async code with a Dispatch deadline.
 /// Dispatch owns the deadline, so timeout delivery does not depend on Swift's
@@ -70,55 +71,64 @@ private final class ProcessDeadline: @unchecked Sendable {
 /// each pinning the main thread with polling. This runner moves every blocking
 /// subprocess operation (`run()` / `waitUntilExit()` / pipe reads) into
 /// `Task.detached`, so the main thread just suspends at the `await` instead of
-/// polling; a semaphore inside the actor caps the number of concurrent processes.
+/// polling; cancellable background slots and one foreground slot bound concurrency.
 actor YTDlpRunner {
 
     /// Production default 2, so a cold start does not launch ~6 yt-dlp processes
     /// at once and bog the system down; injectable for tests.
     private let maxConcurrent: Int
     private var inFlight = 0
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var interactiveInFlight = 0
+    private struct Waiter {
+        let id: UUID
+        let interactive: Bool
+        let continuation: CheckedContinuation<Void, Error>
+    }
+    private var waiters: [Waiter] = []
 
     init(maxConcurrent: Int = 2) {
         self.maxConcurrent = max(1, maxConcurrent)
     }
 
-    /// Runs a subprocess after throttling, returning (stdout, stderr).
-    /// Throws `.timeout` on expiry, `.exitCode` on non-zero exit, and
-    /// `.notFound` when the process fails to launch.
-    func run(executablePath: String,
-             args: [String],
-             timeout: TimeInterval) async throws -> (stdout: String, stderr: String) {
-        await acquire()
-        defer { release() }
-        return try await Self.executeDetached(
-            executablePath: executablePath, args: args, timeout: timeout)
+    /// Reserve a separate single slot for the user's current selection so
+    /// discovery and prefetch cannot queue ahead of first sound.
+    func run(executablePath: String, args: [String], timeout: TimeInterval) async throws -> (stdout: String, stderr: String) {
+        let interactive = YTDlpRequestPriority.interactive
+        try await acquire(interactive: interactive)
+        defer { release(interactive: interactive) }
+        try Task.checkCancellation()
+        return try await Self.executeDetached(executablePath: executablePath, args: args, timeout: timeout)
     }
 
-    /// Number of processes currently in flight (for tests/diagnostics).
-    var inFlightCount: Int { inFlight }
+    var inFlightCount: Int { inFlight + interactiveInFlight }
+    var waitingCount: Int { waiters.count }
 
-    // MARK: - Throttle
-
-    private func acquire() async {
-        if inFlight < maxConcurrent {
-            inFlight += 1
+    private func acquire(interactive: Bool) async throws {
+        try Task.checkCancellation()
+        if interactive ? interactiveInFlight < 1 : inFlight < maxConcurrent {
+            if interactive { interactiveInFlight += 1 } else { inFlight += 1 }
             return
         }
-        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
-            waiters.append(c)
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                waiters.append(Waiter(id: id, interactive: interactive, continuation: continuation))
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id) }
         }
-        // After the releaser yields the slot and wakes us, ownership has been
-        // handed over already; no need to increment inFlight again.
     }
 
-    private func release() {
-        if let w = waiters.first {
-            waiters.removeFirst()
-            w.resume() // Slot ownership transfers to the waiter; inFlight stays unchanged.
-        } else {
-            inFlight -= 1
-        }
+    private func cancelWaiter(_ id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
+        waiters.remove(at: index).continuation.resume(throwing: CancellationError())
+    }
+
+    private func release(interactive: Bool) {
+        if let index = waiters.firstIndex(where: { $0.interactive == interactive }) {
+            waiters.remove(at: index).continuation.resume()
+        } else if interactive { interactiveInFlight -= 1 }
+        else { inFlight -= 1 }
     }
 
     // MARK: - Detached execution
@@ -129,7 +139,8 @@ actor YTDlpRunner {
                                         args: [String],
                                         timeout: TimeInterval) async throws
         -> (stdout: String, stderr: String) {
-        try await Task.detached(priority: .utility) {
+        let processControl = CancellableYTDlpProcess()
+        let worker = Task.detached(priority: .utility) {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: executablePath)
             process.arguments = args
@@ -154,19 +165,22 @@ actor YTDlpRunner {
             process.terminationHandler = { _ in deadline.processDidExit() }
 
             do {
+                try Task.checkCancellation()
                 try process.run()
+                processControl.started(process)
             } catch {
+                stdoutPipe.fileHandleForWriting.closeFile()
+                stderrPipe.fileHandleForWriting.closeFile()
                 _ = await outRead.value
                 _ = await errRead.value
+                if error is CancellationError { throw error }
                 throw YTDlpBridge.YTDlpError.notFound
             }
 
             // A detached Swift watchdog can begin late on a saturated executor.
             // The Dispatch-backed deadline starts from launch deterministically.
             let timedOut = await deadline.wait(timeout: timeout)
-            if timedOut, process.isRunning {
-                process.terminate()
-            }
+            if timedOut { processControl.cancel() }
             // Reap the process before consuming the pipes. Real yt-dlp is one
             // executable; this also keeps the runner's Process lifetime clear.
             process.waitUntilExit()
@@ -178,6 +192,7 @@ actor YTDlpRunner {
             let stderr = String(data: errData, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
+            try Task.checkCancellation()
             if timedOut {
                 throw YTDlpBridge.YTDlpError.timeout
             }
@@ -186,6 +201,47 @@ actor YTDlpRunner {
                 throw YTDlpBridge.YTDlpError.exitCode(Int(status), stderr)
             }
             return (stdout, stderr)
-        }.value
+        }
+        return try await withTaskCancellationHandler {
+            try await worker.value
+        } onCancel: {
+            worker.cancel()
+            processControl.cancel()
+        }
+    }
+}
+
+/// Task-local intent follows protocol-based engine calls without changing the
+/// playback engine or yt-dlp test doubles' public interfaces.
+enum YTDlpRequestPriority {
+    @TaskLocal static var interactive = false
+}
+
+private final class CancellableYTDlpProcess: @unchecked Sendable {
+    private struct State { var process: Process?; var cancelled = false }
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    func started(_ process: Process) {
+        let cancelled = state.withLock { state in
+            state.process = process
+            return state.cancelled
+        }
+        if cancelled { terminate(process) }
+    }
+
+    func cancel() {
+        let process = state.withLock { state in
+            state.cancelled = true
+            return state.process
+        }
+        if let process { terminate(process) }
+    }
+
+    private func terminate(_ process: Process) {
+        guard process.isRunning else { return }
+        process.terminate()
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) {
+            if process.isRunning { _ = kill(process.processIdentifier, SIGKILL) }
+        }
     }
 }

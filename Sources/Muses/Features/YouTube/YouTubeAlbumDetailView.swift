@@ -167,7 +167,7 @@ struct YouTubeAlbumDetailView: View {
                     .accessibilityLabel(tr("Syncing playlist", "正在同步歌单"))
             }
             if let writeError {
-                Text(writeError).font(.caption).foregroundStyle(.red).lineLimit(2)
+                Text(writeError).font(MusesTypography.caption).foregroundStyle(.red).lineLimit(2)
             }
         }
     }

@@ -16,7 +16,11 @@ final class RuntimeCapabilities {
         return hotkeys.registeredCount > 0 && hotkeys.failedActions.isEmpty ? .supported : .limited
     }
     var hotkeyFailures: [String] { hotkeys?.failedActions ?? [] }
-    let mediaKeys: Status
+    var mediaKeys: Status {
+        _ = hotkeys?.revision
+        return hotkeys?.mediaKeysActive == true ? .supported : .limited
+    }
+    var mediaKeyPressCount: Int { hotkeys?.mediaKeyPressCount ?? 0 }
     let tray: Status
     let miniWindow: Status
     let desktopLyrics: Status
@@ -43,7 +47,6 @@ final class RuntimeCapabilities {
         self.devices = devices
         // Native capabilities on macOS 14+. Carbon RegisterEventHotKey still works;
         // NSStatusItem / NSPanel / NSWorkspace.frontmostApplication / Core Audio are all system APIs.
-        mediaKeys = .limited
         tray = .supported
         miniWindow = .supported
         desktopLyrics = .supported

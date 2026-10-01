@@ -35,7 +35,7 @@ struct HeroObjectView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Text(tr("FEATURED", "推荐"))
-                    .font(.caption).fontWeight(.bold)
+                    .font(MusesTypography.caption).fontWeight(.bold)
                     .foregroundStyle(BrandColors.textSecondary)
                     .tracking(1.5)
 
@@ -54,7 +54,7 @@ struct HeroObjectView: View {
 
                 if let metadata {
                     Text(metadata)
-                        .font(.subheadline)
+                        .font(MusesTypography.subheadline)
                         .foregroundStyle(BrandColors.textSecondary)
                 }
 
@@ -84,7 +84,7 @@ struct HeroObjectView: View {
     private var nowPlayingBadge: some View {
         if isNowPlaying {
             Image(systemName: "speaker.wave.2")
-                .font(.caption)
+                .font(MusesTypography.caption)
                 .padding(12)
                 .foregroundStyle(BrandColors.textPrimary)
         }

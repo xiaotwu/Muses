@@ -178,11 +178,11 @@ struct PlayerBar: View {
                 Text(tr("Not Playing", "未在播放"))
                     .font(MusesTypography.song(size: 13, emphasized: true))
                     .foregroundStyle(.primary)
-                Text("Muses").font(.caption).foregroundStyle(.primary).opacity(0.78)
+                Text("Muses").font(MusesTypography.caption).foregroundStyle(.primary).opacity(0.78)
             }
             .lineLimit(1)
             Spacer(minLength: 8)
-            Text("— / —").font(.caption2.monospacedDigit())
+            Text("— / —").font(MusesTypography.caption2.monospacedDigit())
                 .foregroundStyle(.primary).opacity(0.78)
                 .accessibilityHidden(true)
         }
@@ -231,7 +231,7 @@ struct PlayerBar: View {
             Spacer(minLength: 8)
             let currentPos = isDraggingScrubber ? scrubFraction * playback.state.duration : playback.state.position
             Text("\(format(currentPos))  /  \(format(playback.state.duration))")
-                .font(.caption2.monospacedDigit())
+                .font(MusesTypography.caption2.monospacedDigit())
                 .foregroundStyle(isDraggingScrubber ? AnyShapeStyle(BrandColors.accent) : AnyShapeStyle(.primary))
                 .opacity(isDraggingScrubber ? 1 : 0.78)
                 .fixedSize()
@@ -259,9 +259,11 @@ struct PlayerBar: View {
                 .help(tr("Volume", "音量"))
                 .accessibilityLabel(tr("Volume", "音量"))
                 .accessibilityValue("\(Int((playback.volume * 100).rounded()))%")
-                .popover(isPresented: $showVolume, arrowEdge: .top) {
-                    LiquidGlassVolumeBar(width: 210, height: 34)
-                        .padding(6)
+                .overlay(alignment: .bottomTrailing) {
+                    if showVolume {
+                        FloatingVolumePanel(width: 230, height: 44) { showVolume = false }
+                            .offset(y: -44)
+                    }
                 }
             }
             if PlayerIdlePolicy.showsYouTube(hasTrack: hasTrack) {
@@ -343,7 +345,7 @@ struct PlaybackTransport: View {
                     }
                     Circle().fill(Color.clear)
                     Image(systemName: playback.state.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(MusesTypography.system(size: 13, weight: .semibold))
                         .foregroundStyle(BrandColors.playback)
                         .offset(x: playback.state.isPlaying ? 0 : 1)
                 }
@@ -395,7 +397,7 @@ struct RepeatPlaybackButton: View {
     var body: some View {
         Button { playback.queue.setRepeat(playback.queue.repeatMode.next) } label: {
             Image(systemName: playback.queue.repeatMode == .one ? "repeat.1" : "repeat")
-                .font(.system(size: iconSize, weight: .semibold))
+                .font(MusesTypography.system(size: iconSize, weight: .semibold))
                 .foregroundStyle(selected ? AnyShapeStyle(BrandColors.accent) : AnyShapeStyle(.primary))
                 .frame(width: max(28, hit), height: max(28, hit))
                 .contentShape(Rectangle())

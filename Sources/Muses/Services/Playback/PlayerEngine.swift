@@ -7,6 +7,8 @@ protocol PlayerEngine: AnyObject {
     /// (replacing the old isPlaying flip detection). Set by PlaybackService to
     /// advance the queue seamlessly and preload the next track.
     var onCompletion: (@MainActor () -> Void)? { get set }
+    /// Resolve the currently focused selection without changing transport or the next-track slot.
+    func prewarmSelection(_ track: TrackSnapshot) async
     func load(_ track: TrackSnapshot) async throws
     /// Preloads the next track onto the standby player node (no scheduling, no playback).
     func prepare(_ track: TrackSnapshot) async
@@ -27,5 +29,6 @@ protocol PlayerEngine: AnyObject {
 }
 
 extension PlayerEngine {
+    func prewarmSelection(_ track: TrackSnapshot) async {}
     func setPlaybackRate(_ rate: Float) {}
 }

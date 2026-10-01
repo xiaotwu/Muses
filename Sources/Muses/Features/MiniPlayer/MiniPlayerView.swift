@@ -30,13 +30,13 @@ struct MiniPlayerView: View {
                 // Center: Track Title & Artist
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(MusesTypography.system(size: 13, weight: .semibold))
                         .foregroundStyle(BrandColors.textPrimary)
                         .lineLimit(1)
                         .truncationMode(.tail)
 
                     Text(artist)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(MusesTypography.system(size: 11, weight: .medium))
                         .foregroundStyle(BrandColors.textSecondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -57,7 +57,7 @@ struct MiniPlayerView: View {
                         alwaysOnTop.toggle()
                     } label: {
                         Image(systemName: alwaysOnTop ? "pin.fill" : "pin")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(MusesTypography.system(size: 10, weight: .semibold))
                             .foregroundStyle(alwaysOnTop ? BrandColors.accent : BrandColors.textSecondary)
                             .frame(width: 22, height: 22)
                     }
@@ -110,7 +110,7 @@ struct MiniPlayerView: View {
                         .frame(width: 30, height: 30)
 
                     Image(systemName: playback.transportState.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(MusesTypography.system(size: 12, weight: .bold))
                         .foregroundStyle(BrandColors.background)
                         .offset(x: playback.transportState.isPlaying ? 0 : 1)
                 }
@@ -124,7 +124,7 @@ struct MiniPlayerView: View {
     private func circularButton(_ systemName: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 11, weight: .semibold))
+                .font(MusesTypography.system(size: 11, weight: .semibold))
                 .foregroundStyle(BrandColors.textPrimary)
                 .frame(width: 30, height: 30)
 

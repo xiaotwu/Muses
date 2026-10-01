@@ -162,7 +162,7 @@ struct YouTubeVideoOverlay: View {
                         if videoSession.state.error != nil {
                             Text(tr("Video unavailable. Close to return to audio.",
                                     "视频暂不可用，关闭后返回音频。", zhHant: "影片暫不可用，關閉後返回音訊。"))
-                                .font(.callout)
+                                .font(MusesTypography.callout)
                                 .foregroundStyle(.white)
                                 .padding(24)
                         }

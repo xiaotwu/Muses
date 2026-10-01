@@ -372,7 +372,7 @@ final class LyricsService {
             searchURLs += titles.prefix(3).map { LyricsEndpoint.lrclibKeywordSearch($0) }
             var seenURLs = Set<URL>()
             candidates += await searchLrclib(searchURLs.filter { seenURLs.insert($0).inserted })
-            if offsetDefaults.object(forKey: PrefKey.lyricsIntelligence) as? Bool ?? true,
+            if !refresh, offsetDefaults.object(forKey: PrefKey.lyricsIntelligence) as? Bool ?? true,
                let query = await LyricsIntelligence.searchQuery(track: track) {
                 guard !Task.isCancelled else { return [] }
                 if searchQueries.count >= 20 { searchQueries.removeAll() }

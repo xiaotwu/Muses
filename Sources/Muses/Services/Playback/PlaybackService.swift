@@ -50,6 +50,8 @@ final class PlaybackService {
     /// Incremented synchronously when a user-facing load is requested. Assigning
     /// the identity before spawning its Task prevents scheduler reordering from
     /// letting an older resume/reload request become the newest load.
+    private var activeLoadTask: Task<Void, Never>?
+    private var prepareTask: Task<Void, Never>?
     private var loadSeq: UInt64 = 0
     private struct PlaybackIdentity: Equatable {
         let loadSeq: UInt64
@@ -158,6 +160,12 @@ final class PlaybackService {
         scheduleLoad(item.track)
     }
 
+    /// A cancellable view task may warm its single settled focus. Queue truth is untouched.
+    func prewarmSelection(_ track: TrackSnapshot) async {
+        guard track.id != state.track?.id else { return }
+        await engine.prewarmSelection(track)
+    }
+
     /// Preloads the next queued track into the current engine (the precondition for local gapless playback).
     private func prepareNext() {
         guard !queue.smartShuffle.enabled else { return }
@@ -166,7 +174,8 @@ final class PlaybackService {
               let currentTrackId = state.track?.id else { return }
         let seq = loadSeq
         let engineId = ObjectIdentifier(engine)
-        Task {
+        prepareTask?.cancel()
+        prepareTask = Task {
             guard seq == loadSeq,
                   state.track?.id == currentTrackId,
                   ObjectIdentifier(engine) == engineId else { return }
@@ -507,6 +516,8 @@ final class PlaybackService {
     }
 
     private func scheduleLoad(_ track: TrackSnapshot, resumeMs: Double? = nil) {
+        activeLoadTask?.cancel()
+        prepareTask?.cancel()
         retireVideoSession()
         if let currentID = state.track?.id { pauseListening(currentID) }
         loadSeq &+= 1
@@ -514,7 +525,7 @@ final class PlaybackService {
         completionEligibleIdentity = nil
         let position = resumeMs ?? (track.mediaKind == .podcastEpisode
             ? podcastResumeProvider?(track.youTubeId) : nil)
-        Task { await load(track, seq: seq, resumeMs: position) }
+        activeLoadTask = Task { await load(track, seq: seq, resumeMs: position) }
     }
 
     private func load(_ track: TrackSnapshot, seq: UInt64,
@@ -534,7 +545,9 @@ final class PlaybackService {
         state.position = 0
         state.duration = 0
         do {
-            try await engine.load(track)
+            try await YTDlpRequestPriority.$interactive.withValue(true) {
+                try await engine.load(track)
+            }
             guard loadRequestIsCurrent(seq: seq, trackId: track.id),
                   !Task.isCancelled else { return }
             engine.setPlaybackRate(track.mediaKind == .podcastEpisode

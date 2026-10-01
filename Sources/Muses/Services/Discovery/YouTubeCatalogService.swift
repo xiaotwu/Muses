@@ -147,7 +147,7 @@ final class YouTubeCatalogService {
         var tracks = playableTracks(context: context)
         var releaseRows = (try? context.fetch(FetchDescriptor<CatalogRelease>())) ?? []
         var grouped = releaseMembershipGroups(tracks: tracks, context: context)
-        if releaseRows.isEmpty && !grouped.isEmpty {
+        if !Set(grouped.keys).isSubset(of: Set(releaseRows.map(\.stableID))) {
             rebuildFromTrackMetadata()
             context = ModelContext(modelContainer)
             tracks = playableTracks(context: context)
@@ -155,7 +155,7 @@ final class YouTubeCatalogService {
             grouped = releaseMembershipGroups(tracks: tracks, context: context)
         }
 
-        return releaseRows.filter { YouTubeCatalogIdentity.isResolvedRelease($0.stableID) }.compactMap { row in
+        let materialized: [CatalogReleaseProjection] = releaseRows.filter { YouTubeCatalogIdentity.isResolvedRelease($0.stableID) }.compactMap { row in
             let members = grouped[row.stableID] ?? []
             guard !members.isEmpty else { return nil }
             let ordered = members.sorted { lhs, rhs in
@@ -179,7 +179,30 @@ final class YouTubeCatalogService {
                 tracks: ordered.map { TrackSnapshot(from: $0.track) }
             )
         }
-        .sorted {
+
+        // Official imported albums have stable playlist identities even before
+        // their lazy items have materialized a Track. Keep their complete order.
+        var byID = Dictionary(uniqueKeysWithValues: materialized.map { ($0.stableID, $0) })
+        let imports = (try? context.fetch(FetchDescriptor<YouTubeImport>())) ?? []
+        for imported in imports where imported.deletedAt == nil && YouTubePlaylistID.isMusicAlbum(imported.playlistId) {
+            let stableID = "playlist:" + imported.playlistId
+            let rows = CollectionTrackRow.playlistUnion(playlists: [], imports: [imported])
+            let byVideo = Dictionary(uniqueKeysWithValues: rows.map { ($0.snapshot.youTubeId, $0.snapshot) })
+            var seen = Set<String>()
+            let ordered = (imported.items ?? []).sorted { $0.order < $1.order }.compactMap { item -> TrackSnapshot? in
+                guard seen.insert(item.youTubeId).inserted else { return nil }
+                return byVideo[item.youTubeId]
+            }
+            guard !ordered.isEmpty else { continue }
+            let existing = byID[stableID]
+            byID[stableID] = CatalogReleaseProjection(stableID: stableID,
+                title: existing?.title ?? imported.title, artistName: existing?.artistName ?? imported.channel,
+                artistStableID: existing?.artistStableID, artworkURL: existing?.artworkURL ?? imported.artworkUrl,
+                year: existing?.year, kind: existing?.kind ?? .unknown,
+                cacheState: existing?.cacheState ?? .resolve(refreshedAt: imported.lastSyncedAt ?? imported.importedAt,
+                                                            unavailable: false, now: now), tracks: ordered)
+        }
+        return byID.values.sorted {
             let result = $0.title.localizedStandardCompare($1.title)
             if result != .orderedSame { return result == .orderedAscending }
             return $0.stableID < $1.stableID
@@ -190,7 +213,8 @@ final class YouTubeCatalogService {
         var context = ModelContext(modelContainer)
         var tracks = playableTracks(context: context)
         var artistRows = (try? context.fetch(FetchDescriptor<CatalogArtist>())) ?? []
-        if artistRows.isEmpty && tracks.contains(where: { YouTubeCatalogIdentity.isResolvedArtist($0.artistCatalogID) }) {
+        let artistIDs = Set(tracks.compactMap(\.artistCatalogID).filter { YouTubeCatalogIdentity.isResolvedArtist($0) })
+        if !artistIDs.isSubset(of: Set(artistRows.map(\.stableID))) {
             rebuildFromTrackMetadata()
             context = ModelContext(modelContainer)
             tracks = playableTracks(context: context)

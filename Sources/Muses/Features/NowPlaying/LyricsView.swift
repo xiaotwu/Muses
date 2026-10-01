@@ -163,10 +163,10 @@ struct LyricsView: View {
                         .accessibilityLabel(tr("Unsynced lyrics", "非同步歌词", zhHant: "非同步歌詞"))
                 }
                 if translationTarget != "off", lines?.contains(where: { $0.translation != nil }) == true {
-                    Text(tr("Machine translation", "机器翻译")).font(.caption2).foregroundStyle(.secondary)
+                    Text(tr("Machine translation", "机器翻译")).font(MusesTypography.caption2).foregroundStyle(.secondary)
                 }
                 if showRomanization, lines?.contains(where: { $0.romanization != nil }) == true {
-                    Text(tr("Auto romanization", "自动音译")).font(.caption2).foregroundStyle(.secondary)
+                    Text(tr("Auto romanization", "自动音译")).font(MusesTypography.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if lines?.contains(where: { $0.time != nil }) == true {
@@ -246,7 +246,7 @@ struct LyricsView: View {
 
     private var timingControls: some View {
         VStack(spacing: 12) {
-            Text(tr("Lyric timing", "歌词时间", zhHant: "歌詞時間")).font(.headline)
+            Text(tr("Lyric timing", "歌词时间", zhHant: "歌詞時間")).font(MusesTypography.headline)
             HStack(spacing: 16) {
                 Button { adjustTiming(by: -500) } label: { Image(systemName: "minus") }
                     .help(tr("Show lyrics 0.5 seconds earlier", "歌词提前 0.5 秒", zhHant: "歌詞提前 0.5 秒"))
@@ -423,14 +423,14 @@ struct LyricsView: View {
 
             if let romanization = line.romanization, !romanization.isEmpty {
                 Text(romanization)
-                    .font(.system(size: layout.isImmersive ? 14 : 12))
+                    .font(MusesTypography.system(size: layout.isImmersive ? 14 : 12))
                     .foregroundStyle(BrandColors.textSecondary)
                     .multilineTextAlignment(layout.textAlignment)
                     .frame(maxWidth: .infinity, alignment: layout.alignment)
             }
             if let translation = line.translation, !translation.isEmpty {
                 Text(translation)
-                    .font(.system(size: layout.isImmersive ? 13 : 11,
+                    .font(MusesTypography.system(size: layout.isImmersive ? 13 : 11,
                                   weight: isCurrent ? .semibold : .regular))
                     .foregroundStyle(isCurrent
                         ? BrandColors.textPrimary.opacity(0.84)
@@ -491,7 +491,7 @@ struct LyricsView: View {
             if !loading, playback.transportState.track != nil {
                 Text(tr("Search by song title, then choose the matching recording.",
                         "可仅用歌名扩大搜索，再选择对应的录音版本。"))
-                    .font(.subheadline)
+                    .font(MusesTypography.subheadline)
                     .foregroundStyle(BrandColors.textSecondary)
                     .multilineTextAlignment(layout.textAlignment)
                     .fixedSize(horizontal: false, vertical: true)

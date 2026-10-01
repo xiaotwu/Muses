@@ -7,9 +7,9 @@ struct MetadataProjectionErrorBanner: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(tr("Some library metadata is unavailable", "部分资料库元数据不可用"))
-                .font(.callout.weight(.semibold))
+                .font(MusesTypography.callout.weight(.semibold))
             Text(message)
-                .font(.caption)
+                .font(MusesTypography.caption)
                 .foregroundStyle(BrandColors.textSecondary)
                 .lineLimit(3)
         }
@@ -67,6 +67,7 @@ struct SongsListView: View {
             emptyTitle: filter == .liked ? tr("No favorites yet", "还没有收藏") : filter == .musicVideos ? tr("No music videos yet", "还没有音乐视频") : tr("No songs in library", "资料库中没有歌曲"),
             emptySubtitle: filter == .liked
                 ? tr("Like a song to find it here. Favorites are saved in Muses.", "收藏歌曲后会显示在这里。收藏保存在 Muses 中。")
+                : filter == .musicVideos ? tr("Import a music video or a playlist containing music videos.", "导入音乐视频或包含音乐视频的歌单。")
                 : tr("Add a playlist to see its songs here.", "添加歌单后，其歌曲会显示在这里。"),
             emptyActionTitle: tr("Open Search", "打开搜索"),
             emptyAction: {
@@ -112,11 +113,20 @@ struct SongsListView: View {
     private func reloadRows() {
         do {
             let updated: [CollectionTrackRow]
-            if filter == .all {
+            if filter == .all || filter == .musicVideos {
                 let context = ModelContext(library.modelContainer)
-                updated = CollectionTrackRow.playlistUnion(
+                let union = CollectionTrackRow.playlistUnion(
                     playlists: try context.fetch(FetchDescriptor<Playlist>()),
                     imports: try context.fetch(FetchDescriptor<YouTubeImport>()))
+                if filter == .musicVideos {
+                    let videos = union.filter {
+                        $0.snapshot.mediaKind == .musicVideo || YTDlpBridge.YTDlpPlaylistEntry(
+                            id: $0.snapshot.youTubeId, title: $0.title, uploader: nil, duration: nil).inferredMediaKind == .musicVideo
+                    }
+                    let members = CollectionTrackRow.songs(from: library.allTracks().filter { filter.includes($0) })
+                    var seen = Set<String>()
+                    updated = (videos + members).filter { seen.insert($0.snapshot.youTubeId).inserted }
+                } else { updated = union }
             } else {
                 updated = CollectionTrackRow.songs(from: library.allTracks().filter { filter.includes($0) })
             }

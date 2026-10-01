@@ -14,7 +14,7 @@ struct ChromeGlyph: View {
 
     var body: some View {
         Image(systemName: systemName)
-            .font(.system(size: size, weight: .semibold))
+            .font(MusesTypography.system(size: size, weight: .semibold))
             .symbolRenderingMode(.monochrome)
             .foregroundStyle(selected && ChromeGlyphStyle.selectedUsesAccent
                              ? AnyShapeStyle(BrandColors.accent) : AnyShapeStyle(.primary))

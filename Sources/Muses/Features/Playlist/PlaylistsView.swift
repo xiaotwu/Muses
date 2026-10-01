@@ -57,7 +57,7 @@ struct PlaylistsView: View {
                         .musesAction()
                         .controlSize(.small)
                 }
-                .font(.caption)
+                .font(MusesTypography.caption)
                 .foregroundStyle(BrandColors.textSecondary)
                 .padding(.horizontal, AppleMusicTokens.contentPaddingX)
                 .padding(.bottom, 10)
@@ -76,7 +76,7 @@ struct PlaylistsView: View {
                         undoablePlaylistDeletion = nil
                     }
                 }
-                .font(.caption)
+                .font(MusesTypography.caption)
                 .foregroundStyle(BrandColors.textSecondary)
                 .padding(.horizontal, AppleMusicTokens.contentPaddingX)
                 .padding(.bottom, 10)
@@ -89,8 +89,8 @@ struct PlaylistsView: View {
                         Text(playlistService.loadState.isStale
                              ? tr("Showing saved playlists", "正在显示已保存的歌单")
                              : tr("Playlists could not be loaded", "无法载入歌单"))
-                            .font(.callout.weight(.semibold))
-                        Text(loadError).font(.caption).lineLimit(2)
+                            .font(MusesTypography.callout.weight(.semibold))
+                        Text(loadError).font(MusesTypography.caption).lineLimit(2)
                     }
                     Spacer()
                     Button(tr("Retry", "重试"), systemImage: "arrow.clockwise", action: refresh)
@@ -469,13 +469,13 @@ struct PlaylistsView: View {
     private var playlistEmptyState: some View {
         VStack(spacing: 14) {
             Image(systemName: "music.note.list")
-                .font(.system(size: 34, weight: .medium))
+                .font(MusesTypography.system(size: 34, weight: .medium))
                 .foregroundStyle(BrandColors.textSecondary)
             Text(tr("No playlists", "暂无歌单"))
-                .font(.title3.weight(.semibold))
+                .font(MusesTypography.title3.weight(.semibold))
             Text(tr("Create a Muses playlist or import one from YouTube.",
                     "创建 Muses 歌单，或从 YouTube 导入歌单。"))
-                .font(.callout)
+                .font(MusesTypography.callout)
                 .foregroundStyle(BrandColors.textSecondary)
             HStack(spacing: 10) {
                 Button(tr("New Playlist", "新建歌单"), systemImage: "plus") { showCreateSheet = true }
@@ -525,7 +525,7 @@ struct PlaylistsView: View {
     private func syncStatusBadge(_ status: YouTubePlaylistOverviewStatus) -> some View {
         let appearance = syncBadgeAppearance(status)
         return Label(appearance.text, systemImage: appearance.icon)
-            .font(.caption2.weight(.semibold))
+            .font(MusesTypography.caption2.weight(.semibold))
             .foregroundStyle(appearance.color)
             .padding(.horizontal, 8)
             .frame(height: 24)
@@ -571,7 +571,7 @@ struct PlaylistsView: View {
     private var recentlyDeletedSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(tr("Recently Deleted", "最近删除")).font(.headline)
+                Text(tr("Recently Deleted", "最近删除")).font(MusesTypography.headline)
                 Spacer()
                 Button(tr("Clear All", "清空记录"), role: .destructive) {
                     pendingPurgeIDs = Set(deletedYouTubeImports.map(\.id))
@@ -579,7 +579,7 @@ struct PlaylistsView: View {
                 .controlSize(.small)
             }
             Text(tr("Recover locally for 30 days.", "可在 30 天内恢复到本地。"))
-                .font(.caption)
+                .font(MusesTypography.caption)
                 .foregroundStyle(BrandColors.textSecondary)
             ForEach(deletedYouTubeImports, id: \.id) { imported in
                 HStack(spacing: 10) {
@@ -588,7 +588,7 @@ struct PlaylistsView: View {
                         if let deletedAt = imported.deletedAt {
                             Text(tr("Deleted \(deletedAt.formatted(date: .abbreviated, time: .omitted))",
                                     "删除于 \(deletedAt.formatted(date: .abbreviated, time: .omitted))", zhHant: "刪除於 \(deletedAt.formatted(date: .abbreviated, time: .omitted))"))
-                                .font(.caption)
+                                .font(MusesTypography.caption)
                                 .foregroundStyle(BrandColors.textSecondary)
                         }
                     }
@@ -646,7 +646,7 @@ struct PlaylistAddChoiceSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text(tr("Add Playlist", "添加歌单"))
-                    .font(.title2.weight(.semibold))
+                    .font(MusesTypography.title2.weight(.semibold))
                 Spacer()
                 ChromeIconButton(systemName: "xmark",
                                  help: tr("Close", "关闭"),
@@ -687,12 +687,12 @@ struct PlaylistAddChoiceSheet: View {
         Button(action: action) {
             HStack(spacing: 14) {
                 Image(systemName: systemName)
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(MusesTypography.system(size: 20, weight: .semibold))
                     .frame(width: 30)
                     .foregroundStyle(BrandColors.accent)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(title).font(.headline).foregroundStyle(BrandColors.textPrimary)
-                    Text(subtitle).font(.caption).foregroundStyle(BrandColors.textSecondary)
+                    Text(title).font(MusesTypography.headline).foregroundStyle(BrandColors.textPrimary)
+                    Text(subtitle).font(MusesTypography.caption).foregroundStyle(BrandColors.textSecondary)
                 }
                 Spacer()
                 Image(systemName: "chevron.right")
@@ -714,7 +714,7 @@ struct NewPlaylistSheet: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Text(tr("New Playlist", "新建歌单")).font(.headline)
+            Text(tr("New Playlist", "新建歌单")).font(MusesTypography.headline)
             TextField(tr("Playlist name", "歌单名称"), text: $name)
                 .textFieldStyle(.roundedBorder)
             HStack {

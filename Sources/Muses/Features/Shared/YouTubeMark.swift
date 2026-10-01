@@ -13,7 +13,7 @@ struct YouTubeMark: View {
             RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
                 .fill(colorScheme == .dark ? Color.white : Color.black)
             Image(systemName: "play.fill")
-                .font(.system(size: size * 0.42, weight: .bold))
+                .font(MusesTypography.system(size: size * 0.42, weight: .bold))
                 .foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
                 .offset(x: size * 0.04)
         }

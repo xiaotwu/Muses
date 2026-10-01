@@ -35,10 +35,10 @@ struct ListeningHeatmapView: View {
             HStack(alignment: .firstTextBaseline, spacing: 14) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(tr("Listening heatmap", "收听热力图"))
-                        .font(.title3.weight(.bold))
+                        .font(MusesTypography.title3.weight(.bold))
                     Text(tr("Calendar days by local hour. The scale is fixed across ranges.",
                             "按本地日期与小时显示；切换范围时使用固定色阶。"))
-                        .font(.caption)
+                        .font(MusesTypography.caption)
                         .foregroundStyle(BrandColors.textSecondary)
                 }
                 Spacer()
@@ -88,8 +88,8 @@ struct ListeningHeatmapView: View {
 
     private func summaryValue(_ value: String, label: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(value).font(.callout.weight(.semibold)).monospacedDigit()
-            Text(label).font(.caption2).foregroundStyle(BrandColors.textSecondary)
+            Text(value).font(MusesTypography.callout.weight(.semibold)).monospacedDigit()
+            Text(label).font(MusesTypography.caption2).foregroundStyle(BrandColors.textSecondary)
         }
     }
 
@@ -98,12 +98,12 @@ struct ListeningHeatmapView: View {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 5) {
                     Text(tr("Date", "日期"))
-                        .font(.caption2.weight(.semibold))
+                        .font(MusesTypography.caption2.weight(.semibold))
                         .foregroundStyle(BrandColors.textSecondary)
                         .frame(width: rowLabelWidth, alignment: .leading)
                     ForEach(0..<24, id: \.self) { hour in
                         Text(hour % 3 == 0 ? hourLabel(hour) : "")
-                            .font(.system(size: 9, weight: .medium, design: .rounded))
+                            .font(MusesTypography.system(size: 9, weight: .medium, design: .rounded))
                             .foregroundStyle(BrandColors.textSecondary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.65)
@@ -115,7 +115,7 @@ struct ListeningHeatmapView: View {
                 ForEach(heatmap.rows) { row in
                     HStack(spacing: 5) {
                         Text(rowLabel(row))
-                            .font(.caption.weight(.medium))
+                            .font(MusesTypography.caption.weight(.medium))
                             .foregroundStyle(BrandColors.textSecondary)
                             .lineLimit(1)
                             .frame(width: rowLabelWidth, alignment: .leading)
@@ -151,7 +151,7 @@ struct ListeningHeatmapView: View {
                             lineWidth: selected ? 2.5 : level.strokeWidth(contrast: contrast))
                 if cell.totalMs > 0 {
                     Text(minuteHint(cell.intensityMs))
-                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .font(MusesTypography.system(size: 9, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(level >= .high ? Color.white : BrandColors.textPrimary)
                         .minimumScaleFactor(0.6)
@@ -184,7 +184,7 @@ struct ListeningHeatmapView: View {
     private var legend: some View {
         HStack(spacing: 10) {
             Text(tr("Daily time", "每日时长"))
-                .font(.caption.weight(.semibold))
+                .font(MusesTypography.caption.weight(.semibold))
             ForEach(ListeningHeatmapLevel.allCases, id: \.self) { level in
                 HStack(spacing: 4) {
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
@@ -195,7 +195,7 @@ struct ListeningHeatmapView: View {
                         }
                         .frame(width: 18, height: 12)
                     Text(level.label)
-                        .font(.caption2.monospacedDigit())
+                        .font(MusesTypography.caption2.monospacedDigit())
                         .foregroundStyle(BrandColors.textSecondary)
                 }
             }
@@ -203,7 +203,7 @@ struct ListeningHeatmapView: View {
             if heatmap.range == .allTime {
                 Text(tr("All Time uses average time per matching weekday.",
                         "全部范围按对应星期的每日平均时长显示。"))
-                    .font(.caption2)
+                    .font(MusesTypography.caption2)
                     .foregroundStyle(BrandColors.textSecondary)
             }
         }
@@ -225,22 +225,22 @@ struct ListeningHeatmapView: View {
                         if !cells.isEmpty {
                             VStack(alignment: .leading, spacing: 5) {
                                 Text(rowLabel(row))
-                                    .font(.headline)
+                                    .font(MusesTypography.headline)
                                 ForEach(cells) { cell in
                                     Button {
                                         selectedCellID = cell.id
                                     } label: {
                                         HStack(spacing: 12) {
                                             Text(cellTimeLabel(cell))
-                                                .font(.callout.monospacedDigit().weight(.semibold))
+                                                .font(MusesTypography.callout.monospacedDigit().weight(.semibold))
                                                 .frame(width: 150, alignment: .leading)
                                             Text(ListeningFormat.duration(cell.totalMs))
-                                                .font(.callout.monospacedDigit())
+                                                .font(MusesTypography.callout.monospacedDigit())
                                             Spacer()
                                             Text(tr("\(cell.trackCount) songs", "\(cell.trackCount) 首", zhHant: "\(cell.trackCount) 首"))
                                             Text(tr("\(cell.artistCount) artists", "\(cell.artistCount) 位艺人", zhHant: "\(cell.artistCount) 位藝人"))
                                         }
-                                        .font(.caption)
+                                        .font(MusesTypography.caption)
                                         .foregroundStyle(BrandColors.textPrimary)
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 7)
@@ -271,25 +271,25 @@ struct ListeningHeatmapView: View {
             HStack(alignment: .top, spacing: 18) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("\(rowLabel(row)) · \(cellTimeLabel(cell))")
-                        .font(.headline)
+                        .font(MusesTypography.headline)
                     if heatmap.range == .allTime {
                         Text(tr("Average \(ListeningFormat.duration(cell.intensityMs)) per matching weekday; \(ListeningFormat.duration(cell.totalMs)) total across \(cell.sampleDayCount) days.",
                                 "对应星期平均 \(ListeningFormat.duration(cell.intensityMs))；\(cell.sampleDayCount) 天共 \(ListeningFormat.duration(cell.totalMs))。", zhHant: "對應星期平均 \(ListeningFormat.duration(cell.intensityMs))；\(cell.sampleDayCount) 天共 \(ListeningFormat.duration(cell.totalMs))。"))
-                            .font(.callout)
+                            .font(MusesTypography.callout)
                     } else {
                         Text(ListeningFormat.duration(cell.totalMs))
-                            .font(.callout.weight(.semibold))
+                            .font(MusesTypography.callout.weight(.semibold))
                     }
                     Text(tr("\(cell.eventCount) plays · \(cell.trackCount) songs · \(cell.artistCount) artists",
                             "\(cell.eventCount) 次播放 · \(cell.trackCount) 首歌曲 · \(cell.artistCount) 位艺人", zhHant: "\(cell.eventCount) 次播放 · \(cell.trackCount) 首歌曲 · \(cell.artistCount) 位藝人"))
-                        .font(.caption)
+                        .font(MusesTypography.caption)
                         .foregroundStyle(BrandColors.textSecondary)
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 3) {
                     ForEach(cell.slices.prefix(3)) { slice in
                         Text("\(slice.title) — \(slice.artist)")
-                            .font(.caption)
+                            .font(MusesTypography.caption)
                             .lineLimit(1)
                     }
                 }

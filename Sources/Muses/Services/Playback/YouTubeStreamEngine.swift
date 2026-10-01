@@ -99,6 +99,8 @@ final class YouTubeStreamEngine: PlayerEngine {
     private let log = AppLog.for("YouTubeStreamEngine")
     /// Prefetch task (background download + decode for the next queued track).
     private var preloadTask: Task<Void, Never>?
+    private var selectionWarmup: Task<Void, Never>?
+    private var selectionWarmupGeneration: UInt64 = 0
     private var prefetchGeneration: UInt64 = 0
 
     /// Test-visible fallback query: true only when download/decode failed irrecoverably and AVPlayer is permanent.
@@ -236,7 +238,36 @@ final class YouTubeStreamEngine: PlayerEngine {
         return true
     }
 
+    /// Warm only the signed stream URL. No download, queue mutation, player-node
+    /// scheduling, or displacement of the established gapless next-track slot.
+    func prewarmSelection(_ track: TrackSnapshot) async {
+        selectionWarmupGeneration &+= 1
+        let generation = selectionWarmupGeneration
+        selectionWarmup?.cancel()
+        selectionWarmup = nil
+        let videoID = track.youTubeId
+        let quality = currentQuality()
+        guard !videoID.isEmpty, videoID != currentTrack?.youTubeId,
+              existingTempFile(for: videoID) == nil, cache.get(videoId: videoID, quality: quality) == nil else { return }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let url = try await YTDlpRequestPriority.$interactive.withValue(false) {
+                    try await bridge.resolveStreamURL(videoId: videoID, quality: quality, timeout: 12)
+                }
+                guard !Task.isCancelled, generation == selectionWarmupGeneration,
+                      quality == currentQuality() else { return }
+                cache.set(videoId: videoID, url: url, quality: quality)
+            } catch { /* Speculation failing never changes playback state. */ }
+        }
+        selectionWarmup = task
+        await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+    }
+
     func load(_ track: TrackSnapshot) async throws {
+        selectionWarmupGeneration &+= 1
+        selectionWarmup?.cancel()
+        selectionWarmup = nil
         loadGeneration &+= 1
         let generation = loadGeneration
         currentLoadTrackId = track.id
@@ -890,14 +921,17 @@ final class YouTubeStreamEngine: PlayerEngine {
         do {
             let url = try await bridge.resolveStreamURL(
                 videoId: videoId, quality: quality, timeout: 15)
+            try Task.checkCancellation()
             cache.set(videoId: videoId, url: url, quality: quality)
             return url
         } catch {
+            try Task.checkCancellation()
             log.error("First resolution failed: \(error.localizedDescription); retrying once")
             cache.invalidate(videoId: videoId, quality: quality)
             do {
                 let url = try await bridge.resolveStreamURL(
                     videoId: videoId, quality: quality, timeout: 15)
+                try Task.checkCancellation()
                 cache.set(videoId: videoId, url: url, quality: quality)
                 return url
             } catch {

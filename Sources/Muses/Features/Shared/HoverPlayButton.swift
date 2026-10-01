@@ -7,7 +7,7 @@ struct HoverPlayButton: View {
     var body: some View {
         Button(action: onPlay) {
             Image(systemName: "play.fill")
-                .font(.system(size: 11, weight: .semibold))
+                .font(MusesTypography.system(size: 11, weight: .semibold))
                 .foregroundStyle(BrandColors.heading)
                 .frame(width: 30, height: 30)
         }

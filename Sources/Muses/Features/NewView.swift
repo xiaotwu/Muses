@@ -99,7 +99,7 @@ struct NewView: View {
                             EditorialCard(
                                 eyebrow: tr("Featured Song", "精选歌曲"),
                                 title: snapshot.title,
-                                subtitle: snapshot.artist,
+                                subtitle: SongCreditCache.shared.artist(snapshot: snapshot),
                                 artwork: ArtworkSource.resolve(for: snapshot),
                                 onOpen: { play(snapshot, context: newTracks) },
                                 onPlay: { play(snapshot, context: newTracks) }
@@ -167,7 +167,7 @@ struct NewView: View {
                 ForEach(section.items.filter { !$0.youTubeId.isEmpty }) { snapshot in
                     AlbumObjectView(
                         title: snapshot.title,
-                        subtitle: snapshot.artist,
+                        subtitle: SongCreditCache.shared.artist(snapshot: snapshot),
                         artwork: ArtworkSource.resolve(for: snapshot),
                         size: MusicObjectMetrics.albumRail,
                         role: .play,
@@ -253,16 +253,16 @@ struct NewView: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "sparkles")
-                .font(.system(size: 30, weight: .semibold))
+                .font(MusesTypography.system(size: 30, weight: .semibold))
                 .foregroundStyle(BrandColors.textSecondary)
             Text(tr("Play more to shape New", "播放更多内容来塑造“新发现”"))
-                .font(.headline)
+                .font(MusesTypography.headline)
                 .foregroundStyle(BrandColors.textPrimary)
             Text(tr(
                 "Recommendations use your YouTube library, likes, and listening history.",
                 "推荐内容基于你的 YouTube 资料库、喜欢和收听历史。"
             ))
-            .font(.subheadline)
+            .font(MusesTypography.subheadline)
             .foregroundStyle(BrandColors.textSecondary)
             Button(tr("Open Search", "打开搜索")) {
                 NotificationCenter.default.post(name: .musesFocusSearch, object: nil)
@@ -372,17 +372,17 @@ private struct CompactDiscoveryTrackRow: View {
                 .frame(width: 42, height: 42)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(snapshot.title)
-                        .font(.system(size: 14, weight: .medium))
+                        .font(MusesTypography.system(size: 14, weight: .medium))
                         .foregroundStyle(BrandColors.textPrimary)
                         .lineLimit(1)
-                    Text(snapshot.artist)
-                        .font(.caption)
+                    Text(SongCreditCache.shared.artist(snapshot: snapshot))
+                        .font(MusesTypography.caption)
                         .foregroundStyle(BrandColors.textSecondary)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 8)
                 NowPlayingMark(itemID: snapshot.id)
-                    .font(.caption)
+                    .font(MusesTypography.caption)
                 YouTubeMark(size: 13)
                     .accessibilityHidden(true)
             }

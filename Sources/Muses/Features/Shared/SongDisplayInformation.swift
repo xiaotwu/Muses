@@ -6,10 +6,11 @@ struct SongDisplayInformation: Equatable {
     let artist: String
     let album: String
 
-    init(row: CollectionTrackRow, metadata: YTDlpBridge.YTDlpPlaylistEntry? = nil) {
+    @MainActor init(row: CollectionTrackRow, metadata: YTDlpBridge.YTDlpPlaylistEntry? = nil) {
+        let metadata = metadata ?? SongCreditCache.shared.entry(videoID: row.snapshot.youTubeId)
         guard let metadata, metadata.id == row.snapshot.youTubeId else {
             title = row.title
-            artist = row.artist
+            artist = row.displayArtist
             album = row.album
             return
         }
@@ -17,6 +18,7 @@ struct SongDisplayInformation: Equatable {
         let publisherDerived = Self.isMissingCredit(row.snapshot.artist)
             || row.snapshot.artist == metadata.uploader
             || row.snapshot.artist == row.collectionOwner
+            || SongCreditCache.shared.isCollectionOwner(row.snapshot.artist, videoID: row.snapshot.youTubeId)
         artist = publisherDerived
             ? (Self.nonEmpty(metadata.artist) ?? Self.nonEmpty(metadata.uploader) ?? row.artist)
             : row.artist

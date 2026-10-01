@@ -3,7 +3,7 @@ import SwiftUI
 /// Reusable section-header semantic primitive (per AGENTS.md "reusable primitives and semantic surface roles").
 ///
 /// Large title (~18–22pt) with an optional ">" more affordance. Unifies the section-header rhythm of Home/New,
-/// instead of scattering `Text().font(.title2)` and spacing across views.
+/// instead of scattering `Text().font(MusesTypography.title2)` and spacing across views.
 struct SectionHeader: View {
     let title: String
     var subtitle: String? = nil
@@ -22,9 +22,9 @@ struct SectionHeader: View {
                     Button(action: onMore) {
                         HStack(spacing: 3) {
                             Text(moreLabel)
-                                .font(.subheadline)
+                                .font(MusesTypography.subheadline)
                             Image(systemName: "chevron.right")
-                                .font(.subheadline.bold())
+                                .font(MusesTypography.subheadline.bold())
                         }
                         .foregroundStyle(BrandColors.textSecondary)
                     }
@@ -34,7 +34,7 @@ struct SectionHeader: View {
             }
             if let subtitle, !subtitle.isEmpty {
                 Text(subtitle)
-                    .font(.caption)
+                    .font(MusesTypography.caption)
                     .foregroundStyle(BrandColors.textSecondary)
                     .lineLimit(1)
             }

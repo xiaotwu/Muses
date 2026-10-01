@@ -1,4 +1,6 @@
 import SwiftUI
+import AppKit
+import ApplicationServices
 
 /// Desktop integration settings: global hotkeys / menu bar tray / mini player / desktop lyrics.
 /// Each toggle's `.onChange` posts `.musesDesktopFlagsChanged`, which `MusesApp` uses to re-sync services.
@@ -12,15 +14,6 @@ struct DesktopSettingsView: View {
 
     var body: some View {
         Section {
-            Toggle(tr("Global Hotkeys", "全局热键"), isOn: $globalHotkeys)
-                .tint(BrandColors.accent)
-                .onChange(of: globalHotkeys) { _, _ in notify() }
-
-            if globalHotkeys && capabilities.globalHotkeys != .supported {
-                Text(tr("Some shortcuts could not be registered. Check for conflicting shortcuts in other apps.", "部分快捷键无法注册，请检查其他应用的快捷键冲突。", zhHant: "部分快捷鍵無法註冊，請檢查其他 App 的快捷鍵衝突。"))
-                    .font(.caption).foregroundStyle(BrandColors.textPrimary)
-            }
-
             Toggle(tr("Menu Bar Tray", "菜单栏托盘"), isOn: $tray)
                 .tint(BrandColors.accent)
                 .onChange(of: tray) { _, _ in notify() }
@@ -33,7 +26,7 @@ struct DesktopSettingsView: View {
                 .tint(BrandColors.accent)
                 .onChange(of: desktopLyrics) { _, _ in notify() }
 
-        } header: { Text(tr("Desktop Integration", "桌面集成")).font(.headline.weight(.semibold)) }
+        } header: { Text(tr("Desktop Integration", "桌面集成")).font(MusesTypography.headline.weight(.semibold)) }
     }
 
     private func notify() {

@@ -10,8 +10,8 @@ struct GPUSettingsView: View {
                 .tint(BrandColors.accent)
             Text(tr("Applies to the spectrum display in Audio Info.",
                     "仅作用于音频信息中的频谱显示。"))
-                .font(.caption)
+                .font(MusesTypography.caption)
                 .foregroundStyle(BrandColors.textSecondary)
-        } header: { Text(tr("Performance", "性能")).font(.headline.weight(.semibold)) }
+        } header: { Text(tr("Performance", "性能")).font(MusesTypography.headline.weight(.semibold)) }
     }
 }

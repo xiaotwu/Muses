@@ -3,9 +3,9 @@ import AppKit
 
 /// Settings categories and compatibility redirects for saved selections.
 enum SettingsCategory: String, Hashable, CaseIterable, Identifiable {
-    case general, playback, audioQuality, appearance, youtube, lyrics, desktop, updates, about, diagnostics, identity, help
+    case shortcuts, general, playback, audioQuality, appearance, youtube, lyrics, desktop, updates, about, diagnostics, identity, help
 
-    static let allCases: [SettingsCategory] = [.general, .playback, .appearance, .youtube, .lyrics, .diagnostics, .identity, .about, .help]
+    static let allCases: [SettingsCategory] = [.general, .shortcuts, .playback, .appearance, .youtube, .lyrics, .diagnostics, .identity, .about, .help]
 
     /// Preserve saved selections and existing deep links after regrouping.
     var destination: SettingsCategory {
@@ -24,6 +24,7 @@ enum SettingsCategory: String, Hashable, CaseIterable, Identifiable {
         case .diagnostics: return tr("Diagnostics", "诊断", zhHant: "診斷")
         case .identity: return tr("Library Review", "资料库核对", zhHant: "資料庫核對")
         case .help: return tr("Help & Privacy", "帮助与隐私", zhHant: "說明與隱私")
+        case .shortcuts: return tr("Shortcuts & Gestures", "快捷键与手势")
         case .general:      return tr("General", "通用")
         case .playback:     return tr("Playback", "播放")
         case .audioQuality: return tr("Quality", "清晰度")
@@ -38,6 +39,7 @@ enum SettingsCategory: String, Hashable, CaseIterable, Identifiable {
 
     var sidebarLabel: String {
         switch destination {
+        case .shortcuts: return label
         case .general: return tr("General", "通用", zhHant: "一般")
         case .playback: return tr("Playback", "播放", zhHant: "播放")
         case .appearance: return tr("Appearance", "外观", zhHant: "外觀")
@@ -53,6 +55,7 @@ enum SettingsCategory: String, Hashable, CaseIterable, Identifiable {
         case .diagnostics: return "stethoscope"
         case .identity: return "checklist"
         case .help: return "questionmark.circle"
+        case .shortcuts: return "keyboard"
         case .general:      return "gearshape"
         case .playback:     return "play.circle"
         case .audioQuality: return "sparkles.tv"
@@ -85,7 +88,7 @@ struct SettingsPage: View {
             if currentCategory == .identity {
                 CatalogIdentityReviewView()
                     .controlSize(.regular)
-                    .font(.system(size: 13))
+                    .font(MusesTypography.system(size: 13))
                     .frame(maxWidth: 760)
                     .frame(maxWidth: .infinity, alignment: .top)
                     .settingsPageTitle(currentCategory.label)
@@ -96,6 +99,8 @@ struct SettingsPage: View {
                             LanguageSettingsView()
                             NotificationsSettingsView()
                             DesktopSettingsView()
+                        case .shortcuts:
+                            ShortcutsSettingsView()
                         case .playback, .audioQuality:
                             PlaybackSettingsView()
                             AudioQualitySettingsView()
@@ -122,7 +127,7 @@ struct SettingsPage: View {
                 .formStyle(.grouped)
                 .controlSize(.regular)
                 .toggleStyle(.switch)
-                .font(.system(size: 13))
+                .font(MusesTypography.system(size: 13))
                 .frame(maxWidth: 760)
                 .frame(maxWidth: .infinity, alignment: .top)
                 .settingsPageTitle(currentCategory.label)
@@ -155,7 +160,7 @@ struct AboutSettingsView: View {
                     Text("Muses").font(BrandFont.muses(26))
                         .foregroundStyle(BrandColors.textPrimary)
                     Text("\(tr("Version", "版本")) \(appVersion)")
-                        .font(.caption).foregroundStyle(BrandColors.textSecondary)
+                        .font(MusesTypography.caption).foregroundStyle(BrandColors.textSecondary)
                 }
                 Spacer()
             }
@@ -170,7 +175,7 @@ struct AboutSettingsView: View {
             .musesAction()
             .help(tr("Project website", "项目网站", zhHant: "專案網站"))
 
-        } header: { Text(tr("About", "关于")).font(.headline.weight(.semibold)) }
+        } header: { Text(tr("About", "关于")).font(MusesTypography.headline.weight(.semibold)) }
     }
 }
 

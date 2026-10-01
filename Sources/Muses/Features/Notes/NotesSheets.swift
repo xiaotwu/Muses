@@ -36,8 +36,8 @@ struct TrackNotesSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(track.title).font(.headline)
-                    Text(track.artist).font(.caption).foregroundStyle(BrandColors.textSecondary)
+                    Text(track.title).font(MusesTypography.headline)
+                    Text(track.artist).font(MusesTypography.caption).foregroundStyle(BrandColors.textSecondary)
                 }
                 Spacer()
                 Button(tr("Cancel", "取消")) { dismiss() }
@@ -54,7 +54,7 @@ struct TrackNotesSheet: View {
             if !enabled { Text(tr("Notes are read-only.", "笔记为只读。", zhHant: "筆記為唯讀。")) .foregroundStyle(.secondary) }
 
             // Track note
-            Text(tr("Note", "笔记")).font(.subheadline).foregroundStyle(BrandColors.textSecondary)
+            Text(tr("Note", "笔记")).font(MusesTypography.subheadline).foregroundStyle(BrandColors.textSecondary)
             Group {
                 if enabled {
                     TextEditor(text: $noteText)
@@ -66,7 +66,7 @@ struct TrackNotesSheet: View {
                     }
                 }
             }
-                .font(.body)
+                .font(MusesTypography.body)
                 .frame(minHeight: 100)
                 .padding(6)
                 .background(BrandColors.surface)
@@ -75,12 +75,12 @@ struct TrackNotesSheet: View {
                 .disabled(!enabled)
 
             if let saveError {
-                Text(saveError).font(.callout).foregroundStyle(.red)
+                Text(saveError).font(MusesTypography.callout).foregroundStyle(.red)
             }
 
             // Bookmarks
             HStack {
-                Text(tr("Bookmarks", "书签")).font(.subheadline).foregroundStyle(BrandColors.textSecondary)
+                Text(tr("Bookmarks", "书签")).font(MusesTypography.subheadline).foregroundStyle(BrandColors.textSecondary)
                 Spacer()
                 Button {
                     addBookmark()
@@ -101,11 +101,11 @@ struct TrackNotesSheet: View {
                 }
             }
             Text(tr("Bookmarks save immediately.", "书签会立即保存。", zhHant: "書籤會立即儲存。"))
-                .font(.caption).foregroundStyle(.secondary)
+                .font(MusesTypography.caption).foregroundStyle(.secondary)
             ScrollView {
                 LazyVStack {
                     if bookmarks.isEmpty {
-                        Text(tr("No bookmarks", "无书签")).font(.caption)
+                        Text(tr("No bookmarks", "无书签")).font(MusesTypography.caption)
                             .foregroundStyle(BrandColors.textSecondary)
                             .padding(.vertical, 8)
                     } else {
@@ -140,9 +140,9 @@ struct TrackNotesSheet: View {
         }
         .sheet(item: $editingBookmark) { bm in
             VStack(alignment: .leading, spacing: 12) {
-                Text(tr("Edit Bookmark", "编辑书签")).font(.headline)
+                Text(tr("Edit Bookmark", "编辑书签")).font(MusesTypography.headline)
                 TextField(tr("Title", "标题"), text: $editTitle).textFieldStyle(.roundedBorder).disabled(!enabled)
-                if let saveError { Text(saveError).foregroundStyle(.red).font(.callout) }
+                if let saveError { Text(saveError).foregroundStyle(.red).font(MusesTypography.callout) }
                 TextField(tr("Note", "笔记"), text: $editNote, axis: .vertical)
                     .textFieldStyle(.roundedBorder).lineLimit(3...6).disabled(!enabled)
                 HStack {
@@ -169,9 +169,9 @@ struct TrackNotesSheet: View {
             .help(tr("Go to bookmark", "跳转到书签", zhHant: "跳至書籤"))
             .monospacedDigit().frame(width: 56, alignment: .leading)
             VStack(alignment: .leading, spacing: 1) {
-                Text(bm.title ?? "").font(.caption).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
+                Text(bm.title ?? "").font(MusesTypography.caption).foregroundStyle(BrandColors.textPrimary).lineLimit(1)
                 if let n = bm.note, !n.isEmpty {
-                    Text(n).font(.caption2).foregroundStyle(BrandColors.textSecondary).lineLimit(1)
+                    Text(n).font(MusesTypography.caption2).foregroundStyle(BrandColors.textSecondary).lineLimit(1)
                 }
             }
             Spacer()
@@ -238,7 +238,7 @@ struct BookmarksView: View {
         if !bms.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 Text(tr("Bookmarks", "书签"))
-                    .font(.caption).fontWeight(.semibold)
+                    .font(MusesTypography.caption).fontWeight(.semibold)
                     .foregroundStyle(BrandColors.textSecondary)
                 ForEach(bms, id: \.id) { bm in
                     Button {
@@ -246,11 +246,11 @@ struct BookmarksView: View {
                     } label: {
                         HStack(spacing: 8) {
                             Image(systemName: "bookmark.fill")
-                                .font(.caption2).foregroundStyle(BrandColors.accent)
-                            Text(format(bm.timestampMs)).font(.caption).monospacedDigit()
+                                .font(MusesTypography.caption2).foregroundStyle(BrandColors.accent)
+                            Text(format(bm.timestampMs)).font(MusesTypography.caption).monospacedDigit()
                                 .foregroundStyle(BrandColors.textPrimary)
                             if let t = bm.title, !t.isEmpty {
-                                Text(t).font(.caption).foregroundStyle(BrandColors.textSecondary)
+                                Text(t).font(MusesTypography.caption).foregroundStyle(BrandColors.textSecondary)
                                     .lineLimit(1)
                             }
                             Spacer()

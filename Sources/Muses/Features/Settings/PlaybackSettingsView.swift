@@ -11,6 +11,6 @@ struct PlaybackSettingsView: View {
                     .foregroundStyle(BrandColors.textPrimary)
             }
             .tint(BrandColors.accent)
-        } header: { Text(tr("Playback", "播放")).font(.headline.weight(.semibold)) }
+        } header: { Text(tr("Playback", "播放")).font(MusesTypography.headline.weight(.semibold)) }
     }
 }

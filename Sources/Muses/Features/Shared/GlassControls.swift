@@ -171,7 +171,7 @@ struct SettingsGlassChoice: View {
 
     @ViewBuilder private func choiceLabel(_ option: Option) -> some View {
         let label = Label(option.title, systemImage: option.symbol)
-            .font(.body.weight(selection == option.id ? .semibold : .regular))
+            .font(MusesTypography.body.weight(selection == option.id ? .semibold : .regular))
             .foregroundStyle(selection == option.id ? BrandColors.heading : BrandColors.heading.opacity(0.85))
             .frame(maxWidth: .infinity, minHeight: 42)
             .padding(.horizontal, 12)

@@ -320,9 +320,11 @@ struct MusesApp: App {
             default: break
             }
         }
+        let mediaKeyPlayback = playbackService
         let hotkeys = GlobalHotkeyService(
             enabledProvider: { UserDefaults.standard.bool(forKey: PrefKey.ffGlobalHotkeys) },
             shortcutProvider: { GlobalHotkeyService.loadShortcuts() },
+            canHandleMediaKeys: { mediaKeyPlayback.transportState.track != nil && mediaKeyPlayback.videoSession == nil },
             dispatcher: { GlobalHotkeyService.sharedDispatcher?($0) })
         self.globalHotkeyService = hotkeys
         self.runtimeCapabilities = RuntimeCapabilities(playback: playbackService, hotkeys: hotkeys, devices: audioDevices)
@@ -357,6 +359,10 @@ struct MusesApp: App {
         // Tray menu refreshes on track change.
         playbackService.eventBus.subscribe { [weak tray] event in
             if case .trackStarted = event { tray?.refresh() }
+        }
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
+                                                queue: .main) { [weak hotkeys] _ in
+            Task { @MainActor in hotkeys?.refreshMediaKeys() }
         }
         // Settings toggling a desktop switch → re-sync.
         NotificationCenter.default.addObserver(forName: .musesDesktopFlagsChanged, object: nil,
