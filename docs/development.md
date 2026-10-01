@@ -63,6 +63,8 @@ They are never committed, never logged, and are not present unless you inject th
 1. Apple Developer Program membership and a **Developer ID Application** certificate for public distribution (import into Keychain; note the identity name).
 2. A `notarytool` Keychain profile, for example `muses`, configured with an Apple ID app-specific password and the certificate's Team ID.
 3. A matching Google Desktop OAuth client ID and client secret available only in the local build environment.
+4. A Sparkle Ed25519 signing key provisioned in Keychain under `muses-polyhymnia`.
+   Release builds read its public key automatically; see [automatic updates](automatic-updates.md).
 
 ### Build a distributable DMG
 
@@ -73,15 +75,14 @@ MUSES_GOOGLE_OAUTH_CLIENT_ID=... MUSES_GOOGLE_OAUTH_CLIENT_SECRET=... \
     make release
 ```
 
-`make release` builds the app, signs both bundled copies of `yt-dlp` and the Web Home helper, notarizes and staples the app, then signs, notarizes, and staples the DMG. The PyInstaller-based `yt-dlp` copies receive a narrow library-validation exception and are launched with `--version` after signing; `codesign --verify` alone cannot detect a failure to load their unpacked Python library. It produces `build/Muses-<version>.zip` and `build/Muses-<version>.dmg` using `MUSES_VERSION` (or the Makefile default). Run the full tests and review the artifacts before publishing.
+`make release` builds the app, signs both bundled copies of `yt-dlp`, the Web Home helper, and Sparkle's framework and helpers, notarizes and staples the app, then signs, notarizes, and staples the DMG. The PyInstaller-based `yt-dlp` copies receive a narrow library-validation exception and are launched with `--version` after signing; `codesign --verify` alone cannot detect a failure to load their unpacked Python library. It produces the ZIP, DMG, and signed `build/update-feed-<version>/appcast.xml`. The final DMG and feed signatures are verified against the app's embedded public key. Run the full tests and review the artifacts before publishing.
 
 ### Publish a release
 
 ```bash
 release_version=x.y.z # set to the reviewed package version
 git tag -a "v${release_version}" -m "Muses ${release_version}" && git push origin "v${release_version}"
-gh release create "v${release_version}" "build/Muses-${release_version}.dmg" "build/Muses-${release_version}.zip" \
-    --title "Muses ${release_version}" --notes-file "docs/release-notes-${release_version}.md"
+MUSES_VERSION="$release_version" ./Scripts/publish-update.sh
 ```
 
 ### Pre-release checklist

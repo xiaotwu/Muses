@@ -36,6 +36,21 @@
 	<!-- Release kill switch; user consent remains a separate default-off preference. -->
 	<key>MusesWebHomeEnabled</key>
 	<true/>
+	<!-- Packaging injects public update configuration; unconfigured previews do not update. -->
+	<key>SUFeedURL</key>
+	<string></string>
+	<key>SUPublicEDKey</key>
+	<string></string>
+	<key>SURequireSignedFeed</key>
+	<true/>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
+	<key>SUEnableAutomaticChecks</key>
+	<false/>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
 	<!-- Register muses:// URL scheme for Spotlight hits and external activation. -->
 	<key>CFBundleURLTypes</key>
 	<array>

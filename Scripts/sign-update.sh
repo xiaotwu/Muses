@@ -1,45 +1,36 @@
-#!/bin/bash
-# sign-update.sh — 发布打包(Phase 14 起:仅产出 zip,供上传到 GitHub Release)
-#
-# Phase 14 移除了 Sparkle:更新检查改由 `UpdateService` 调用 GitHub Releases API
-# (`repos/xiaotwu/Muses-Polyhymnia/releases/latest`)完成。本脚本不再做 EdDSA 签名 / appcast
-# 注入,只把 build/Muses.app 打成 zip,方便 `gh release create` 上传。
-#
-# 前置:build/Muses.app 已由 build-app.sh 产出。
-# 产物:
-#   build/Muses-$VER.zip   可上传到 GitHub Release 的更新包
-#
-# 用法:
-#   MUSES_VERSION=0.5.0 ./Scripts/sign-update.sh
-
+#!/usr/bin/env bash
+# Package a preview ZIP or sign the final notarized DMG and its appcast.
+# --appcast must run AFTER notarize-dmg.sh; signed archives are immutable.
 set -euo pipefail
-
-VER="${MUSES_VERSION:-0.5.6}"
-APP="build/Muses.app"
-ZIP="build/Muses-${VER}.zip"
-
 cd "$(dirname "$0")/.."
-
-# ── 1. 前置检查 ──────────────────────────────────────────────
-if [[ ! -d "$APP" ]]; then
-  echo "✗ 找不到 ${APP};请先 ./Scripts/build-app.sh" >&2
-  exit 1
-fi
-
-# ── 2. 打 zip ────────────────────────────────────────────────
-echo "▶ 打包 ${ZIP} …"
-rm -f "$ZIP"
-ditto -c -k --keepParent "$APP" "$ZIP"
-
-echo "✓ 完成: ${ZIP}"
-echo
-echo "═══════════════════════════════════════════════════════"
-echo " 发布产物:"
-echo "   ${ZIP}   → 上传到 GitHub Release (tag v${VER})"
-echo
-echo " 上传示例:"
-echo "   gh release create v${VER} ${ZIP} \\
-        --title \"Muses ${VER}\" --notes \"...\""
-echo
-echo " 上传后 UpdateService 会自动发现新版本(检查 releases/latest)。"
-echo "═══════════════════════════════════════════════════════"
+VER="${MUSES_VERSION:-0.5.6}"
+case "${1:-}" in
+    "")
+        [[ -d build/Muses.app ]] || { echo 'Build Muses.app first.' >&2; exit 1; }
+        ditto -c -k --keepParent build/Muses.app "build/Muses-${VER}.zip"
+        ;;
+    --appcast)
+        DMG="build/Muses-${VER}.dmg"
+        [[ -f "$DMG" ]] || { echo 'Missing final update DMG.' >&2; exit 1; }
+        codesign --verify --deep --strict build/Muses.app
+        xcrun stapler validate build/Muses.app
+        xcrun stapler validate "$DMG"
+        SPARKLE_TOOLS=".build/artifacts/sparkle/Sparkle/bin"
+        FEED_DIR="build/update-feed-${VER}"
+        mkdir -p "$FEED_DIR"
+        cp "$DMG" "$FEED_DIR/"
+        SIGN_ARGS=(--account "${MUSES_UPDATE_KEY_ACCOUNT:-muses-polyhymnia}")
+        if [[ -n "${MUSES_UPDATE_PRIVATE_KEY_FILE:-}" ]]; then
+            SIGN_ARGS=(--ed-key-file "$MUSES_UPDATE_PRIVATE_KEY_FILE")
+        fi
+        "$SPARKLE_TOOLS/generate_appcast" "${SIGN_ARGS[@]}" \
+            --maximum-deltas 0 \
+            --download-url-prefix "https://github.com/xiaotwu/Muses-Polyhymnia/releases/download/v${VER}/" \
+            --link "https://github.com/xiaotwu/Muses-Polyhymnia/releases/tag/v${VER}" \
+            "$FEED_DIR"
+        swift Scripts/verify-update-signatures.swift build/Muses.app "$FEED_DIR/appcast.xml" "$DMG"
+        python3 Scripts/validate-update-feed.py "$FEED_DIR/appcast.xml" build/Muses.app "$DMG"
+        echo "Signed update feed: $FEED_DIR/appcast.xml"
+        ;;
+    *) echo 'Usage: sign-update.sh [--appcast]' >&2; exit 2 ;;
+esac

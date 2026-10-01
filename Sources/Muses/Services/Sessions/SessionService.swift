@@ -224,6 +224,31 @@ final class SessionService {
         playback.restoreCurrentPaused(atMs: position)
     }
 
+    /// Synchronous update checkpoint with errors surfaced to the termination gate.
+    func prepareForUpdate() throws {
+        let state = playback.transportState
+        if let track = state.track {
+            let positionMs = max(0, state.position) * 1000
+            guard positionMs.isFinite else { throw UpdateFailure.persistenceFailed }
+            queue.checkpointPosition(currentTrackId: track.id, lastPositionMs: positionMs)
+            podcastCheckpoint?(track, positionMs, state.duration)
+            if isEnabled, let sid = activeSessionId {
+                let ctx = ModelContext(modelContainer)
+                if let row = try ctx.fetch(FetchDescriptor<ListeningSession>())
+                    .first(where: { $0.id == sid }) {
+                    row.currentPositionMs = positionMs
+                    row.currentTrackId = track.id
+                    row.queueSnapshotJSON = snapshotQueueJSON()
+                    row.updatedAt = Date()
+                    try ctx.save()
+                }
+            }
+        } else {
+            queue.persist()
+        }
+        guard !queue.persistenceFailed else { throw UpdateFailure.persistenceFailed }
+    }
+
     // MARK: - System events (sleep / wake / terminate)
 
     private func installSystemObservers() {

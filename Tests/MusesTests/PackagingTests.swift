@@ -88,12 +88,14 @@ struct PackagingTests {
         #expect(plist["CFBundleIconFile"] as? String == "AppIcon")
         #expect(plist["MusesWebHomeEnabled"] as? Bool == true)
 
-        // Sparkle was removed in Phase 14: Info.plist must no longer contain any SU* keys.
-        #expect(plist["SUFeedURL"] == nil, "SUFeedURL should be removed")
-        #expect(plist["SUPublicEDKey"] == nil, "SUPublicEDKey should be removed")
-        #expect(plist["SUEnableAutomaticUpdates"] == nil, "SUEnableAutomaticUpdates should be removed")
-        #expect(plist["SUAutomaticallyUpdate"] == nil, "SUAutomaticallyUpdate should be removed")
-        #expect(plist["SUScheduledCheckInterval"] == nil, "SUScheduledCheckInterval should be removed")
+        // Public keys and feed URLs are injected by release packaging.
+        #expect(plist["SUFeedURL"] as? String == "")
+        #expect(plist["SUPublicEDKey"] as? String == "")
+        #expect(plist["SURequireSignedFeed"] as? Bool == true)
+        #expect(plist["SUVerifyUpdateBeforeExtraction"] as? Bool == true)
+        #expect(plist["SUEnableAutomaticChecks"] as? Bool == false)
+        #expect(plist["SUAutomaticallyUpdate"] as? Bool == false)
+        #expect(plist["SUScheduledCheckInterval"] as? Int == 86_400)
     }
 
     /// The entitlements template parses.
@@ -225,16 +227,18 @@ struct PackagingTests {
         #expect(perm & 0o100 != 0, "sign-update.sh is missing the executable bit")
     }
 
-    /// Sparkle was removed in Phase 14: updates now go through `UpdateService`, which calls the GitHub Releases API.
-    /// Smoke-test that UpdateService instantiates, reads its version from the bundle, and compares semver correctly.
-    @Test("UpdateService instantiation + semver comparison")
-    @MainActor
-    func updateServiceSemver() {
-        let svc = UpdateService()
-        #expect(!svc.currentVersion.isEmpty)
-        // hasUpdate is false without a latestVersion (no check has run yet)
-        let fresh = UpdateService()
-        #expect(!fresh.hasUpdate)
+    @Test("Sparkle packaging signs helpers before the framework and app")
+    func sparklePackaging() throws {
+        let script = try String(contentsOfFile: repositoryPath("Scripts/build-app.sh"), encoding: .utf8)
+        #expect(script.contains("$CONTENTS/Frameworks/Sparkle.framework"))
+        #expect(script.contains("$SPARKLE/XPCServices/Downloader.xpc"))
+        #expect(script.contains("$SPARKLE/XPCServices/Installer.xpc"))
+        #expect(script.contains("$SPARKLE/Autoupdate"))
+        #expect(script.contains("$SPARKLE/Updater.app"))
+        #expect(script.contains("configure-updates.py"))
+        let helper = try #require(script.range(of: "for component in"))
+        let application = try #require(script.range(of: "codesign --deep --force"))
+        #expect(helper.lowerBound < application.lowerBound)
     }
 
     @Test("notarize.sh passes bash -n and is executable")

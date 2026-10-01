@@ -238,14 +238,34 @@ struct MusesApp: App {
             historyService: historyService,
             contextService: contextService)
 
-        // GitHub Release update check (replaces the old Sparkle auto-updater).
-        // The `checkForUpdates` preference controls automatic checks; no more than one per 24h.
+        // One updater shares playback state and fresh-context persistence boundaries.
         let updater = UpdateService()
         self.updateService = updater
-        Task { @MainActor in
-            // Wait 3s after launch before checking, to avoid competing with first-screen load/indexing.
-            try? await Task.sleep(for: .milliseconds(3000))
-            await updater.checkIfDue()
+        let importer = importService
+        let updatePlaylistSync = youTubePlaylistSyncService
+        let sessions = sessionService
+        let fallbackStore = usedInMemoryFallback
+        updater.configureNativeCountdown()
+        updater.criticalOperationInProgress = { [weak importer, weak updatePlaylistSync] in
+            (importer?.activeOperations ?? 0) > 0 || (updatePlaylistSync?.activeOperations ?? 0) > 0
+        }
+        updater.automaticRestartBlocked = { [weak playbackService, weak updater] in
+            guard let playbackService else { return true }
+            return playbackService.transportState.isPlaying
+                || playbackService.transportState.buffering
+                || playbackService.videoSession != nil
+                || NSApp.modalWindow != nil
+                || (NSApp.mainWindow?.attachedSheet != nil && updater?.countdown == nil)
+        }
+        updater.prepareToInstall = { [weak playbackService, weak sessions, weak podcastLibraryService] in
+            guard !fallbackStore, let playbackService, let sessions,
+                  let podcastLibraryService else { throw UpdateFailure.stateNotReady }
+            // Pause through the facade; session recovery already restores playback paused.
+            playbackService.pause()
+            try container.mainContext.save()
+            try sessions.prepareForUpdate()
+            podcastLibraryService.retryPendingProgress()
+            guard !podcastLibraryService.persistenceFailed else { throw UpdateFailure.persistenceFailed }
         }
 
         // Command registry: centralizes existing command handling so menu shortcuts and global hotkeys share one handler.
@@ -389,9 +409,17 @@ struct MusesApp: App {
                 RootView()
                     .onAppear {
                         appDelegate.playback = playbackService
+                        appDelegate.updater = updateService
                         if #available(macOS 15.0, *) {
                             MusesAppShortcuts.updateAppShortcutParameters()
                         }
+                    }
+                    .task {
+                        // Delay network activity until first-screen composition is complete.
+                        do { try await Task.sleep(for: .seconds(3)) } catch { return }
+                        updateService.startAfterSuccessfulLaunch(
+                            build: updateService.currentBuild,
+                            persistentStoreReady: !usedInMemoryFallback)
                     }
                     .environment(libraryService)
                     .environment(playbackService)
@@ -436,7 +464,7 @@ struct MusesApp: App {
             height: WindowChromeMetrics.defaultHeight
         )
         .commands {
-            MusesAppCommands(commandRegistry: commandRegistry, sleepTimer: sleepTimer)
+            MusesAppCommands(commandRegistry: commandRegistry, sleepTimer: sleepTimer, updater: updateService)
         }
         Window(tr("Search Muses", "搜索 Muses"), id: SearchWindowPolicy.sceneID) {
             ThemeApplier {
@@ -495,6 +523,7 @@ struct MusesApp: App {
 private struct MusesAppCommands: Commands {
     let commandRegistry: CommandRegistry
     let sleepTimer: SleepTimerService
+    let updater: UpdateService
     @Environment(\.openWindow) private var openWindow
     @AppStorage(PrefKey.sidebarCollapsed) private var isSidebarCollapsed = false
     @AppStorage(PrefKey.ffMiniPlayer) private var miniEnabled = false
@@ -513,6 +542,11 @@ private struct MusesAppCommands: Commands {
             Button(tr("About Muses", "关于 Muses")) {
                 NSApp.orderFrontStandardAboutPanel(nil)
             }
+            Button(tr("Check for Updates…", "检查更新…")) {
+                MusesSingleInstance.requestSettings(.about)
+                Task { await updater.checkForUpdates() }
+            }
+            .disabled(!updater.canCheck)
         }
 
         CommandGroup(replacing: .newItem) {

@@ -8,15 +8,18 @@ let package = Package(
         .executable(name: "Muses", targets: ["Muses"]),
         .executable(name: "MusesWebHomeHelper", targets: ["MusesWebHomeHelper"]),
     ],
-    dependencies: [],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0"),
+    ],
     targets: [
         .executableTarget(
             name: "Muses",
-            dependencies: ["MusesWebHomeProtocol"],
+            dependencies: ["MusesWebHomeProtocol", .product(name: "Sparkle", package: "Sparkle")],
             path: "Sources/Muses",
             resources: [
                 .copy("Resources"),
-            ]
+            ],
+            linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
         ),
         .target(
             name: "MusesWebHomeProtocol",

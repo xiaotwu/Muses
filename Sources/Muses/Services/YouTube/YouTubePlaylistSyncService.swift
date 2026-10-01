@@ -205,6 +205,7 @@ final class YouTubePlaylistSyncService {
     private let pushReadbackRetryDelays: [Duration]
     private let log = AppLog.for("YouTubePlaylistSyncService")
 
+    private(set) var activeOperations = 0
     private(set) var activeImportID: UUID?
     private(set) var lastError: String?
     private(set) var isImportingAccountPlaylists = false
@@ -233,6 +234,8 @@ final class YouTubePlaylistSyncService {
     /// Imports only missing owned playlists. Existing local edits and Recently
     /// Deleted entries remain untouched; importing is never a Pull or Push.
     func importAccountPlaylists(onlyIfNeeded: Bool = false) async {
+        activeOperations += 1
+        defer { activeOperations -= 1 }
         if isImportingAccountPlaylists {
             pendingAccountImport = (pendingAccountImport ?? true) && onlyIfNeeded
             return
@@ -335,6 +338,8 @@ final class YouTubePlaylistSyncService {
     // MARK: - Remote Shadow / Pull
 
     func checkRemote(importID: UUID) async throws -> YouTubePullPreview {
+        activeOperations += 1
+        defer { activeOperations -= 1 }
         activeImportID = importID
         defer { activeImportID = nil }
         do {
@@ -495,6 +500,8 @@ final class YouTubePlaylistSyncService {
 
     /// Creates a durable preview journal. No YouTube mutation occurs here.
     func preparePush(importID: UUID) async throws -> YouTubePushPreview {
+        activeOperations += 1
+        defer { activeOperations -= 1 }
         guard let account else { throw YouTubePlaylistSyncError.signInRequired }
         let pull = try await checkRemote(importID: importID)
         guard !pull.mergePlan.requiresResolution else {
@@ -549,6 +556,8 @@ final class YouTubePlaylistSyncService {
     /// Runs only unfinished operations and persists after each remote result.
     /// A failed batch can call this method again without replaying completed work.
     func resumePush(batchID: UUID, userConfirmed: Bool = false) async throws {
+        activeOperations += 1
+        defer { activeOperations -= 1 }
         guard let account else {
             throw YouTubePlaylistSyncError.signInRequired
         }
@@ -802,6 +811,8 @@ final class YouTubePlaylistSyncService {
     @discardableResult
     func resumeCreatePlaylist(operationID: UUID,
                               userConfirmed: Bool = false) async throws -> UUID {
+        activeOperations += 1
+        defer { activeOperations -= 1 }
         guard let account, account.isConnected,
               let channelID = account.activeChannelID,
               let writer = account.playlistWriter(),
@@ -927,6 +938,8 @@ final class YouTubePlaylistSyncService {
     /// Captures a complete remote snapshot for an irreversible delete preview.
     func prepareDeletePlaylist(importID: UUID) async throws
         -> YouTubePlaylistDeletePreview {
+        activeOperations += 1
+        defer { activeOperations -= 1 }
         guard let account, account.isConnected,
               let channelID = account.activeChannelID,
               let client = account.dataAPIClient() else {
@@ -968,6 +981,8 @@ final class YouTubePlaylistSyncService {
 
     func resumeDeletePlaylist(operationID: UUID,
                               userConfirmed: Bool = false) async throws {
+        activeOperations += 1
+        defer { activeOperations -= 1 }
         guard let account, account.isConnected,
               let writer = account.playlistWriter(),
               let client = account.dataAPIClient() else {

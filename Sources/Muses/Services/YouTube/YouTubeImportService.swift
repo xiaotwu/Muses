@@ -44,6 +44,7 @@ enum YouTubeImportError: LocalizedError, Equatable {
 @Observable
 @MainActor
 final class YouTubeImportService {
+    private(set) var activeOperations = 0
     private let bridge: any YTDlpBridgeProtocol
     private let modelContainer: ModelContainer
     private let artworkCache: ArtworkCache
@@ -110,6 +111,8 @@ final class YouTubeImportService {
     /// 4. Creates the `YouTubeImport` plus an item and a lazy `.youtube` track per entry.
     /// 5. Sets the playlist cover URL (oEmbed or the first video's hqdefault), downloading and caching it (failure is non-blocking).
     func importPlaylist(url: String) async throws -> UUID {
+        activeOperations += 1
+        defer { activeOperations -= 1 }
         // 1. Parse playlistId. A repeated import reuses local truth without
         // reading or mutating remote state; explicit Check/Pull/Push owns sync.
         guard let playlistId = extractPlaylistId(from: url) else {
@@ -208,6 +211,8 @@ final class YouTubeImportService {
     /// - Returns: the id of the new or existing track.
     @discardableResult
     func importVideo(url: String, saveToLibrary: Bool = true) async throws -> UUID {
+        activeOperations += 1
+        defer { activeOperations -= 1 }
         guard let videoId = extractVideoId(from: url) else {
             throw YouTubeImportError.invalidURL
         }

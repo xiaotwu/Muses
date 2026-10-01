@@ -145,6 +145,29 @@ struct ListeningSessionTests {
         _ = svc
     }
 
+    @Test("Update checkpoint saves the exact current position and surfaces failed queue writes")
+    func updateCheckpoint() throws {
+        let container = try makeContainer()
+        let q = makeQueue(container: container)
+        let (playback, engine) = makePlayback(queue: q)
+        let service = SessionService(modelContainer: container, eventBus: playback.eventBus,
+                                     playback: playback, queue: q, enabledProvider: { true })
+        let track = snap("Update")
+        engine.state.track = track
+        engine.state.position = 73.25
+        engine.state.duration = 200
+        q.play(track, context: [track], from: .songs)
+        playback.eventBus.post(.trackStarted(track))
+        try service.prepareForUpdate()
+        #expect(queueStateRow(container)?.lastPositionMs == 73_250)
+        #expect(fetchSessions(container).first?.currentPositionMs == 73_250)
+        let failingQueue = QueueService(saveContext: { _ in throw UpdateFailure.persistenceFailed })
+        failingQueue.modelContext = container.mainContext
+        let failingService = SessionService(modelContainer: container, eventBus: PlaybackEventBus(),
+                                            playback: playback, queue: failingQueue, enabledProvider: { false })
+        #expect(throws: UpdateFailure.self) { try failingService.prepareForUpdate() }
+    }
+
     @Test("video pause checkpoints active video position rather than suspended native time")
     func videoPositionCheckpoint() throws {
         let container = try makeContainer()

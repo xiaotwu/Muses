@@ -3,7 +3,12 @@ import AppKit
 /// Dock actions share the same facade as windows, menus and system media keys.
 @MainActor
 final class MusesAppDelegate: NSObject, NSApplicationDelegate {
+    weak var updater: UpdateService?
     weak var playback: PlaybackService?
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        updater?.allowsTermination() == false ? .terminateCancel : .terminateNow
+    }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 

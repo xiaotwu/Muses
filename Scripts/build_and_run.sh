@@ -64,11 +64,20 @@ if [[ "$MODE" == "--isolated" ]]; then
 fi
 
 cp "$ROOT_DIR/Sources/Muses/Resources/AppIcon.icns" "$APP_CONTENTS/Resources/AppIcon.icns"
+# The newly linked executable requires the pinned framework even when reusing
+# a pre-Sparkle development bundle.
+SPARKLE_SOURCE="$ROOT_DIR/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+mkdir -p "$APP_CONTENTS/Frameworks"
+/usr/bin/ditto "$SPARKLE_SOURCE" "$APP_CONTENTS/Frameworks/Sparkle.framework"
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
+ln -sfn Muses_Muses.bundle "$APP_CONTENTS/Resources/Muses-Polyhymnia_Muses.bundle"
 # Keep SwiftPM resources in sync as well as the executable. Reusing a bundle
 # with stale localization or artwork produces a misleading development build.
-RESOURCE_BUNDLE="$(dirname "$BUILD_BINARY")/Muses_Muses.bundle"
+RESOURCE_BUNDLE="$(dirname "$BUILD_BINARY")/Muses-Polyhymnia_Muses.bundle"
+if [[ ! -d "$RESOURCE_BUNDLE" ]]; then
+    RESOURCE_BUNDLE="$(dirname "$BUILD_BINARY")/Muses_Muses.bundle"
+fi
 if [[ -d "$RESOURCE_BUNDLE" ]]; then
     /usr/bin/ditto "$RESOURCE_BUNDLE" "$APP_CONTENTS/Resources/Muses_Muses.bundle"
 fi

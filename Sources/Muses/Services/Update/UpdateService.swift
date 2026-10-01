@@ -1,140 +1,366 @@
 import Foundation
 import AppKit
+import Observation
 
-/// GitHub Release update-check service.
-///
-/// Queries the latest release via the GitHub Releases API
-/// (`api.github.com/repos/xiaotwu/Muses-Polyhymnia/releases/latest`) and compares it with the
-/// current `CFBundleShortVersionString`. When a newer version exists it exposes
-/// `hasUpdate` / `latestVersion` / `releaseURL`; the settings page shows this and offers
-/// a "Download" button that opens the GitHub Release page (personal use; no auto-install).
-///
-/// Persists "last check time" and "last known latest version" in UserDefaults so the app
-/// does not hit the network on every launch. The unauthenticated GitHub API limit is
-/// 60 req/hr/IP, far more than enough for personal use.
+enum UpdatePhase: Equatable {
+    case idle, checking, available, downloading, verifying, ready, installing, upToDate, failed
+}
+
+struct AvailableUpdate: Equatable {
+    let version: String
+    let build: String
+    let releaseURL: URL?
+    let informationOnly: Bool
+}
+
+enum UpdateEvent {
+    case checking, found(AvailableUpdate), downloading, progress(Double?), verifying, ready
+    case installing, notFound(String), failed(String), dismissed, canCheckChanged(Bool)
+}
+
+@MainActor
+protocol UpdateEngine: AnyObject {
+    var onEvent: ((UpdateEvent) -> Void)? { get set }
+    var permitsRelaunch: (() -> Bool)? { get set }
+    var canCheck: Bool { get }
+    var canInstall: Bool { get }
+    func start(automaticallyChecks: Bool) throws
+    func setAutomaticallyChecks(_ enabled: Bool)
+    func check(userInitiated: Bool)
+    func download()
+    func install()
+    func cancel()
+}
+
+/// App-lifetime facade. Sparkle owns downloads and the external installer.
+/// Muses owns user intent, the persistence gate, and successful-launch acknowledgment.
 @Observable
 @MainActor
 final class UpdateService {
-    /// GitHub repository identifier (`owner/repo`).
-    let repo: String
-    /// Current app version (`CFBundleShortVersionString`, no build number).
-    private(set) var currentVersion: String
-    /// Latest version from the most recent check (leading "v" stripped); nil means not yet checked or the check failed.
-    private(set) var latestVersion: String?
-    /// HTML page URL of the latest release (opened by the "Download" button).
-    private(set) var releaseURL: URL?
-    /// Whether a check is in progress (re-entrancy guard + UI spinner).
-    private(set) var isChecking = false
-    /// Description of the last error (nil = success or not yet checked).
+    let currentVersion: String
+    private(set) var phase: UpdatePhase = .idle
+    private(set) var update: AvailableUpdate?
+    private(set) var downloadProgress: Double?
     private(set) var lastError: String?
+    private(set) var countdown: Int?
+    private(set) var automaticallyChecks: Bool
+    private(set) var automaticallyInstalls: Bool
+    private(set) var isConfigured: Bool
 
-    private let session: URLSession
-    private let defaults: UserDefaults
-    private let log = AppLog.for("UpdateService")
+    @ObservationIgnored private let engine: any UpdateEngine
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let transactions: UpdateTransactionStore
+    @ObservationIgnored private let configurationError: String?
+    private(set) var started = false
+    private(set) var engineCanCheck = false
+    @ObservationIgnored private var scheduleTask: Task<Void, Never>?
+    @ObservationIgnored private var deferred = false
+    @ObservationIgnored private var deferredBuild: String?
+    @ObservationIgnored private let log = AppLog.for("UpdateService")
+    @ObservationIgnored private var installationRequested = false
+    @ObservationIgnored private var alert: NSAlert?
+    @ObservationIgnored private var alertWindow: NSWindow?
+    @ObservationIgnored var automaticRestartBlocked: () -> Bool = { true }
+    @ObservationIgnored var criticalOperationInProgress: () -> Bool = { true }
+    @ObservationIgnored var prepareToInstall: () throws -> Void = { throw UpdateFailure.stateNotReady }
+    @ObservationIgnored var presentCountdown: (Int) -> Bool = { _ in false }
+    @ObservationIgnored var updateCountdown: (Int) -> Void = { _ in }
+    @ObservationIgnored var dismissCountdown: () -> Void = {}
 
-    init(repo: String = "xiaotwu/Muses-Polyhymnia",
-         session: URLSession = .shared,
-         defaults: UserDefaults = .standard) {
-        self.repo = repo
-        self.session = session
+    init(engine: (any UpdateEngine)? = nil, defaults: UserDefaults = .standard,
+         transactions: UpdateTransactionStore? = nil, bundle: Bundle = .main) {
         self.defaults = defaults
-        let info = Bundle.main.infoDictionary
-        self.currentVersion = (info?["CFBundleShortVersionString"] as? String) ?? "0.0.0"
-        // Restore the previously cached latest version (keeps the UI non-empty between launch and the first check).
-        if let cached = defaults.string(forKey: PrefKey.latestKnownVersion) {
-            latestVersion = cached
-        }
+        self.transactions = transactions ?? UpdateTransactionStore(defaults: defaults)
+        currentVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
+        automaticallyChecks = defaults.object(forKey: PrefKey.checkForUpdates) as? Bool ?? true
+        automaticallyInstalls = defaults.bool(forKey: PrefKey.installUpdatesAutomatically)
+        let error = UpdateConfiguration.validationError(bundle: bundle)
+        isConfigured = engine != nil || error == nil
+        configurationError = engine == nil ? error : nil
+        self.engine = engine ?? SparkleUpdateEngine(bundle: bundle)
+        self.engine.onEvent = { [weak self] event in self?.receive(event) }
+        self.engine.permitsRelaunch = { [weak self] in self?.installationRequested == true }
     }
 
-    /// Whether a release newer than the current version exists.
-    var hasUpdate: Bool {
-        guard let latest = latestVersion else { return false }
-        return semverCompare(latest, currentVersion) > 0
-    }
+    var currentBuild: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0" }
+    var latestVersion: String? { update?.version }
+    var hasUpdate: Bool { update != nil }
+    var isChecking: Bool { phase == .checking }
+    var canCheck: Bool { isConfigured && started && engineCanCheck }
+    var canDownload: Bool { phase == .available && update?.informationOnly == false }
+    var canInstall: Bool { (phase == .ready || phase == .failed) && engine.canInstall }
+    var canCancelDownload: Bool { phase == .downloading || phase == .checking }
 
-    /// Seconds since the last check; `nil` means it has never run.
-    var secondsSinceLastCheck: Double? {
-        guard let t = defaults.object(forKey: PrefKey.lastUpdateCheckAt) as? Date else { return nil }
-        return Date().timeIntervalSince(t)
-    }
-
-    /// Queries the latest GitHub release and refreshes state. On a network error sets
-    /// `lastError` and leaves the existing `latestVersion` untouched (the last cache is kept).
-    func checkForUpdates() async {
-        guard !isChecking else { return }
-        isChecking = true
-        lastError = nil
-        defer { isChecking = false }
-
-        let urlString = "https://api.github.com/repos/\(repo)/releases/latest"
-        guard let url = URL(string: urlString) else {
-            lastError = "Invalid repository URL"
+    /// Runs before new downloads, only after the real store and main window are ready.
+    func startAfterSuccessfulLaunch(build: String, persistentStoreReady: Bool) {
+        guard !started else { return }
+        guard persistentStoreReady else {
+            receive(.failed(UpdateFailure.stateNotReady.localizedDescription))
             return
         }
-        var req = URLRequest(url: url)
-        // GitHub API requires a User-Agent; Accept asks for JSON.
-        req.setValue("Muses-UpdateChecker", forHTTPHeaderField: "User-Agent")
-        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        // Short timeout so failures return quickly.
-        req.timeoutInterval = 15
-
         do {
-            let (data, resp) = try await session.data(for: req)
-            guard let http = resp as? HTTPURLResponse else {
-                lastError = "Non-HTTP response"; return
-            }
-            guard (200..<300).contains(http.statusCode) else {
-                lastError = "GitHub API returned \(http.statusCode)"
-                log.error("Update check failed: \(self.lastError ?? "")")
-                return
-            }
-            guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                lastError = "Failed to parse response"; return
-            }
-            let tag = obj["tag_name"] as? String ?? ""
-            let clean = tag.hasPrefix("v") || tag.hasPrefix("V")
-                ? String(tag.dropFirst())
-                : tag
-            guard !clean.isEmpty else { lastError = "tag_name is empty"; return }
+            try transactions.acknowledgeSuccessfulLaunch(build: build)
+        } catch {
+            lastError = tr("Update cleanup will be retried: ", "更新清理将在下次启动重试：") + error.localizedDescription
+            phase = .failed
+            return
+        }
+        guard isConfigured else { return }
+        do {
+            try engine.start(automaticallyChecks: automaticallyChecks)
+            started = true
+            engineCanCheck = engine.canCheck
+        } catch {
+            receive(.failed(error.localizedDescription))
+        }
+    }
 
-            latestVersion = clean
-            releaseURL = (obj["html_url"] as? String).flatMap(URL.init(string:))
-            defaults.set(clean, forKey: PrefKey.latestKnownVersion)
-            defaults.set(Date(), forKey: PrefKey.lastUpdateCheckAt)
-            log.info("Update check completed: latest \(clean), current \(self.currentVersion), hasUpdate=\(self.hasUpdate)")
+    func setAutomaticallyChecks(_ enabled: Bool) {
+        automaticallyChecks = enabled
+        defaults.set(enabled, forKey: PrefKey.checkForUpdates)
+        if started { engine.setAutomaticallyChecks(enabled) }
+        if !enabled { setAutomaticallyInstalls(false) }
+    }
+
+    func setAutomaticallyInstalls(_ enabled: Bool) {
+        automaticallyInstalls = enabled
+        defaults.set(enabled, forKey: PrefKey.installUpdatesAutomatically)
+        if enabled {
+            setAutomaticallyChecks(true)
+            deferred = false
+            deferredBuild = nil
+            if canDownload { downloadUpdate() }
+            if phase == .ready { beginScheduling() }
+        } else {
+            stopScheduling()
+        }
+    }
+
+    func checkForUpdates() async {
+        guard canCheck else {
+            if !isConfigured { lastError = configurationError }
+            return
+        }
+        lastError = nil
+        engine.check(userInitiated: true)
+    }
+
+    func downloadUpdate() {
+        guard canDownload else { return }
+        lastError = nil
+        engine.download()
+    }
+
+    func cancelDownload() {
+        guard canCancelDownload else { return }
+        engine.cancel()
+    }
+
+    func deferRestart() {
+        deferred = true
+        deferredBuild = update?.build
+        log.info("Automatic update restart deferred")
+        stopScheduling()
+    }
+
+    func installNow(automatically: Bool = false) {
+        if automatically && (!automaticallyInstalls || deferred) { return }
+        guard canInstall else { return }
+        guard !criticalOperationInProgress() else {
+            lastError = tr("Wait for the current import or synchronization to finish.", "请等待当前导入或同步完成。")
+            return
+        }
+        do {
+            try prepareToInstall()
+            guard let update else { throw UpdateFailure.stateNotReady }
+            try transactions.begin(targetBuild: update.build)
         } catch {
             lastError = error.localizedDescription
-            log.error("Update check network error: \(error.localizedDescription)")
+            deferRestart()
+            return
+        }
+        stopScheduling()
+        installationRequested = true
+        log.info("Update installation requested; automatic=\(automatically)")
+        phase = .installing
+        engine.install()
+    }
+
+    /// Final gate for Sparkle's quit request and ordinary quits with a staged update.
+    func allowsTermination() -> Bool {
+        guard phase == .verifying || phase == .ready || phase == .installing || installationRequested else { return true }
+        guard !criticalOperationInProgress() else { return false }
+        do {
+            try prepareToInstall()
+            if let update { try transactions.begin(targetBuild: update.build) }
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            phase = .ready
+            deferRestart()
+            return false
         }
     }
 
-    /// Triggers a check if more than `interval` seconds have passed since the last one and the preference allows it.
-    func checkIfDue(interval: TimeInterval = 86_400) async {
-        let enabled = defaults.object(forKey: PrefKey.checkForUpdates) as? Bool ?? true
-        guard enabled else { return }
-        if let elapsed = secondsSinceLastCheck, elapsed < interval { return }
-        await checkForUpdates()
-    }
-
-    /// Opens the latest release page (if any); otherwise the repository home page.
     func openReleasePage() {
-        let target = releaseURL ?? URL(string: "https://github.com/\(repo)/releases")
-        if let target { NSWorkspace.shared.open(target) }
+        let url = update?.releaseURL ?? URL(string: "https://github.com/xiaotwu/Muses-Polyhymnia/releases")!
+        NSWorkspace.shared.open(url)
     }
 
-    // MARK: - Semver comparison
-
-    /// Compares `a` and `b` (e.g. "0.4.0"); returns -1/0/1. Non-numeric segments count as 0.
-    private func semverCompare(_ a: String, _ b: String) -> Int {
-        let pa = a.split(separator: ".").map { Int($0) ?? 0 }
-        let pb = b.split(separator: ".").map { Int($0) ?? 0 }
-        let n = max(pa.count, pb.count)
-        for i in 0..<n {
-            let x = i < pa.count ? pa[i] : 0
-            let y = i < pb.count ? pb[i] : 0
-            if x < y { return -1 }
-            if x > y { return 1 }
+    func receive(_ event: UpdateEvent) {
+        switch event {
+        case .canCheckChanged(let value):
+            engineCanCheck = value
+        case .checking:
+            phase = .checking
+            update = nil
+            lastError = nil
+        case .found(let item):
+            update = item
+            phase = .available
+            deferred = deferredBuild == item.build
+            log.info("Update found: build \(item.build), restart deferred=\(self.deferred)")
+            if automaticallyInstalls && !item.informationOnly { downloadUpdate() }
+        case .downloading:
+            phase = .downloading
+            downloadProgress = nil
+        case .progress(let value):
+            downloadProgress = value.flatMap { $0.isFinite ? min(1, max(0, $0)) : nil }
+        case .verifying: phase = .verifying
+        case .ready:
+            log.info("Update verified and ready")
+            phase = .ready
+            beginScheduling()
+        case .installing: phase = .installing
+        case .notFound(let message):
+            phase = .upToDate
+            lastError = message.isEmpty ? nil : message
+        case .failed(let message):
+            stopScheduling()
+            phase = .failed
+            lastError = message
+            installationRequested = engine.canInstall
+        case .dismissed:
+            stopScheduling()
+            installationRequested = false
+            if phase != .failed && phase != .upToDate && phase != .installing { phase = .idle }
         }
-        return 0
+    }
+
+    private func beginScheduling() {
+        guard automaticallyInstalls, !deferred, phase == .ready, scheduleTask == nil else { return }
+        scheduleTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.phase == .ready, self.automaticallyInstalls, !self.deferred else { return }
+                self.advanceAutomaticRestart()
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            }
+        }
+    }
+
+    /// One low-frequency clock only while ready; tests advance it without sleeping.
+    func advanceAutomaticRestart() {
+        guard phase == .ready, automaticallyInstalls, !deferred else { return }
+        if automaticRestartBlocked() || criticalOperationInProgress() {
+            countdown = nil
+            dismissCountdown()
+            return
+        }
+        guard let remaining = countdown else {
+            guard presentCountdown(15) else { return }
+            countdown = 15
+            return
+        }
+        if remaining > 1 {
+            countdown = remaining - 1
+            updateCountdown(remaining - 1)
+        } else {
+            installNow(automatically: true)
+        }
+    }
+
+    private func stopScheduling() {
+        scheduleTask?.cancel()
+        scheduleTask = nil
+        countdown = nil
+        dismissCountdown()
+    }
+
+    /// Native global notice: automatic relaunch is visible outside Settings.
+    func configureNativeCountdown() {
+        presentCountdown = { [weak self] seconds in
+            guard let self, let window = NSApp.keyWindow ?? NSApp.mainWindow,
+                  window.attachedSheet == nil else { return false }
+            let alert = NSAlert()
+            alert.messageText = tr("Muses is ready to update", "Muses 已准备好更新")
+            alert.informativeText = self.countdownMessage(seconds)
+            alert.addButton(withTitle: tr("Later", "稍后"))
+            alert.addButton(withTitle: tr("Update Now", "立即更新"))
+            self.alert = alert
+            self.alertWindow = window
+            alert.beginSheetModal(for: window) { [weak self, weak alert] response in
+                guard let self, self.alert === alert else { return }
+                self.alert = nil
+                self.alertWindow = nil
+                self.log.info("Update countdown response: \(response.rawValue)")
+                if response == .alertSecondButtonReturn { self.installNow() }
+                else { self.deferRestart() }
+            }
+            return true
+        }
+        updateCountdown = { [weak self] seconds in
+            guard let self else { return }
+            self.alert?.informativeText = self.countdownMessage(seconds)
+        }
+        dismissCountdown = { [weak self] in
+            guard let self, let alert = self.alert else { return }
+            self.alert = nil
+            self.alertWindow?.endSheet(alert.window)
+            self.alertWindow = nil
+        }
+    }
+
+    private func countdownMessage(_ seconds: Int) -> String {
+        tr("Muses will save your playback position and restart in \(seconds) seconds.",
+           "Muses 将保存播放位置，并在 \(seconds) 秒后重新启动。")
+    }
+}
+
+enum UpdateFailure: LocalizedError {
+    case stateNotReady, persistenceFailed, unsafeCleanupPath
+    var errorDescription: String? {
+        switch self {
+        case .stateNotReady: tr("The library is not ready for an update.", "资料库尚未准备好更新。")
+        case .persistenceFailed: tr("Could not save playback state. The update was postponed.", "无法保存播放状态，更新已推迟。")
+        case .unsafeCleanupPath: tr("The update cleanup location is invalid.", "更新清理位置无效。")
+        }
+    }
+}
+
+enum UpdateConfiguration {
+    static let productionFeed = "https://github.com/xiaotwu/Muses-Polyhymnia/releases/download/updates/appcast.xml"
+
+    static func validationError(bundle: Bundle) -> String? {
+        validationError(info: bundle.infoDictionary ?? [:], isApplication: bundle.bundleURL.pathExtension == "app",
+                        bundleID: bundle.bundleIdentifier)
+    }
+
+    static func validationError(info: [String: Any], isApplication: Bool, bundleID: String?) -> String? {
+        let acceptance = MusesDataPaths.acceptanceNamespace(bundleID: bundleID) != nil
+        let url = (info["SUFeedURL"] as? String).flatMap(URL.init(string:))
+        // Explicitly marked disposable acceptance builds may use a signed feed on
+        // loopback HTTP. Production and all other builds always require HTTPS.
+        let localAcceptance = acceptance && info["MusesUpdateAcceptanceLoopback"] as? Bool == true
+            && url?.scheme == "http" && url?.host == "127.0.0.1" && url?.port != nil
+        guard isApplication, bundleID == "com.muses.app" || acceptance,
+              let url, url.scheme == "https" || localAcceptance, url.host != nil,
+              url.user == nil, url.password == nil, url.fragment == nil,
+              !(acceptance && url.absoluteString == productionFeed),
+              let key = info["SUPublicEDKey"] as? String, Data(base64Encoded: key)?.count == 32,
+              info["SURequireSignedFeed"] as? Bool == true,
+              info["SUVerifyUpdateBeforeExtraction"] as? Bool == true else {
+            return tr("Automatic updates are not configured in this build.", "此构建尚未配置自动更新。")
+        }
+        return nil
     }
 }
