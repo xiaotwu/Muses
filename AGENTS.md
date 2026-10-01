@@ -20,7 +20,7 @@ Standard SwiftPM application layout:
 - `Sources/MusesWebHomeHelper|Core|Protocol/` — the isolated Web Session Home helper and its parser/protocol layers.
 - `Tests/MusesTests/` — Swift Testing suites; fixtures under `Tests/MusesTests/Fixtures/`.
 - `Scripts/` — packaging, DMG, icon, yt-dlp bootstrap, and a local run helper.
-- `docs/` — user-facing documentation that also powers GitHub Pages.
+- `docs/` — macOS documentation. The family website lives in `../docs/` in Project-Muses; only the parent repository deploys GitHub Pages.
 
 Build and verification entry points: `make build`, `make test` (`swift test --no-parallel`), `make app`, `make dmg`, `./Scripts/build-app.sh --identity <identity>` (OAuth client injected via `MUSES_GOOGLE_OAUTH_CLIENT_ID[/SECRET]` build environment; never committed).
 
@@ -309,3 +309,7 @@ The following findings are candidates for separately scoped investigation. They 
 ## Commit attribution
 
 Never add automated-assistant attribution, co-author trailers, or generator branding to git commits, tags, or PR bodies.
+
+## Shared product baseline
+
+[Project-Muses platform baseline](https://github.com/xiaotwu/Project-Muses/blob/main/docs/platform-baseline.md) records the family direction. Polyhymnia is the core product reference. Explicit user decisions and current source/runtime evidence take precedence over historical port documents. Windows may be rebuilt against that baseline; preserve library data and verify native Windows behavior before claiming parity.

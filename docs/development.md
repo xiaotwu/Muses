@@ -103,7 +103,7 @@ gh release create "v${release_version}" "build/Muses-${release_version}.dmg" "bu
 
 `docs/` doubles as the site source (Jekyll). Set the repository Pages source to *Deploy from branch → `main` → `/docs`* to publish it.
 
-The landing page is `docs/index.html`. It and the Markdown documentation share `docs/assets/site.css`; Jekyll renders the documentation through `docs/_layouts/default.html`. The interactive screen tour uses local screenshots in `docs/assets/` and plain JavaScript. Keep screenshots aligned with the shipped UI; retain keyboard operation and Reduce Motion support when changing the tour. Check both the standalone local home page and the published Markdown pages after style changes. Changes become public only after the Pages source branch is updated.
+The family landing page, shared styles, screenshots and Pages workflow now live in [Project-Muses](https://github.com/xiaotwu/Project-Muses). Only that repository deploys Pages. Keep the accessible screenshot tour aligned with the shipped Mac app. macOS source, tests, packaging and technical documentation remain here.
 
 ## Build and distribution
 

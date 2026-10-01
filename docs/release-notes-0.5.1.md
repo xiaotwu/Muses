@@ -11,4 +11,4 @@ The first public release of Muses is ready for macOS 14 and later. Download the 
 - Connect an account for subscriptions and an optional personal Home.
 - Keep your existing library when upgrading from an earlier preview.
 
-The remaining platform and long-running checks are recorded in [Remaining validation](https://github.com/xiaotwu/Muses/blob/main/docs/remaining-validation-0.5.1.md).
+The remaining platform and long-running checks are recorded in [Remaining validation](https://github.com/xiaotwu/Muses-Polyhymnia/blob/main/docs/remaining-validation-0.5.1.md).

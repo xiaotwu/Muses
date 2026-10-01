@@ -5,7 +5,7 @@ title: Installation
 
 # Installation
 
-1. Download the latest Muses DMG from [Releases](https://github.com/xiaotwu/Muses/releases/latest).
+1. Download the latest Muses DMG from [Releases](https://github.com/xiaotwu/Muses-Polyhymnia/releases/latest).
 2. Open the DMG and drag **Muses** into **Applications**.
 3. Open Muses from Applications. The app is signed and notarized for macOS.
 
