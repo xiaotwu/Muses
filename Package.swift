@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "Muses",
+    name: "Muses-Polyhymnia",
     platforms: [.macOS(.v14)],
     products: [
         .executable(name: "Muses", targets: ["Muses"]),

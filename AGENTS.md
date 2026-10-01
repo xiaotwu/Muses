@@ -1,8 +1,10 @@
-# Muses Project Guidance
+# Muses-Polyhymnia Project Guidance
 
 ## Purpose and Scope
 
 This file defines durable product, engineering, UX, design, performance, and verification rules for all work in this repository. It is persistent agent context, not a roadmap or task list.
+
+Muses-Polyhymnia is the standalone macOS project in the Muses family; the installed application remains Muses.
 
 Muses is a native macOS **YouTube-native music and podcast application**. The library includes imported YouTube videos and playlists, stable YouTube-backed catalog identities, and followed podcast shows. Playback, queue, artwork-led browsing, a persistent PlayerBar, immersive Now Playing (cover + vinyl), on-demand video, and native macOS integration remain the product. It is not a local-file media player or a demo.
 

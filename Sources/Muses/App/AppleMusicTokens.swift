@@ -234,7 +234,7 @@ enum MenuBarPolicy {
     /// CommandGroupPlacement. Disabling automatic tabbing removes them.
     static let viewMenuOmitsWindowTabs = true
     static let helpOpensProjectDocs = true
-    static let helpDocumentationURL = URL(string: "https://xiaotwu.github.io/Muses/")!
+    static let helpDocumentationURL = URL(string: "https://xiaotwu.github.io/Muses-Polyhymnia/")!
 }
 
 enum SettingsPanePolicy {

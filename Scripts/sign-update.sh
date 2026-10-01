@@ -2,7 +2,7 @@
 # sign-update.sh — 发布打包(Phase 14 起:仅产出 zip,供上传到 GitHub Release)
 #
 # Phase 14 移除了 Sparkle:更新检查改由 `UpdateService` 调用 GitHub Releases API
-# (`repos/xiaotwu/Muses/releases/latest`)完成。本脚本不再做 EdDSA 签名 / appcast
+# (`repos/xiaotwu/Muses-Polyhymnia/releases/latest`)完成。本脚本不再做 EdDSA 签名 / appcast
 # 注入,只把 build/Muses.app 打成 zip,方便 `gh release create` 上传。
 #
 # 前置:build/Muses.app 已由 build-app.sh 产出。

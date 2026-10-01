@@ -161,7 +161,7 @@ struct AboutSettingsView: View {
             }
 
             Button {
-                if let url = URL(string: "https://github.com/xiaotwu/Muses") {
+                if let url = URL(string: "https://github.com/xiaotwu/Muses-Polyhymnia") {
                     NSWorkspace.shared.open(url)
                 }
             } label: {

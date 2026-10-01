@@ -12,7 +12,7 @@ enum MusesResources {
 
 /// Update settings: GitHub Release auto-check switch + check now + version status.
 ///
-/// `UpdateService` queries the GitHub Releases API (repos/xiaotwu/Muses/releases/latest)
+/// `UpdateService` queries the GitHub Releases API (repos/xiaotwu/Muses-Polyhymnia/releases/latest)
 /// and compares it with `CFBundleShortVersionString`. Personal use only — nothing auto-installs:
 /// when a new version exists, "Download" opens the GitHub Release page.
 struct UpdatesSettingsView: View {
