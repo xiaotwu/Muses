@@ -2,7 +2,7 @@
 # Build the approved installer artwork and a fixed native Finder layout.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-VER="${MUSES_VERSION:-0.5.9}"
+VER="${MUSES_VERSION:-0.5.10}"
 APP="${MUSES_DMG_APP:-build/Muses.app}"
 DMG="${MUSES_DMG_OUTPUT:-build/Muses-${VER}.dmg}"
 IDENTITY="${MUSES_SIGN_IDENTITY:--}"
