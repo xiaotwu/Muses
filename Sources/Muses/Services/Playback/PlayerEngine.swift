@@ -9,6 +9,7 @@ protocol PlayerEngine: AnyObject {
     var onCompletion: (@MainActor () -> Void)? { get set }
     /// Resolve the currently focused selection without changing transport or the next-track slot.
     func prewarmSelection(_ track: TrackSnapshot) async
+    func prewarmSelections(_ tracks: [TrackSnapshot]) async
     func load(_ track: TrackSnapshot) async throws
     /// Preloads the next track onto the standby player node (no scheduling, no playback).
     func prepare(_ track: TrackSnapshot) async
@@ -30,5 +31,8 @@ protocol PlayerEngine: AnyObject {
 
 extension PlayerEngine {
     func prewarmSelection(_ track: TrackSnapshot) async {}
+    func prewarmSelections(_ tracks: [TrackSnapshot]) async {
+        if let track = tracks.first { await prewarmSelection(track) }
+    }
     func setPlaybackRate(_ rate: Float) {}
 }

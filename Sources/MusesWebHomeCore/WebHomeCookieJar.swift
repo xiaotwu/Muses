@@ -122,8 +122,8 @@ final class WebHomeCookieJarManager: @unchecked Sendable {
     private let fileManager: FileManager
 
     init(
-        rootDirectory: URL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("com.muses.web-home-helper", isDirectory: true),
+        rootDirectory: URL = URL.homeDirectory
+            .appendingPathComponent(".muses/tmp/web-home-helper", isDirectory: true),
         exporter: any YTDlpCookieExporting,
         fileManager: FileManager = .default
     ) throws {

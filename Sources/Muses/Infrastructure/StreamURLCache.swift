@@ -79,7 +79,11 @@ final class StreamURLCache {
         ensureLoadedFromDisk()
         let effective = ttl ?? defaultTTL
         let key = Self.cacheKey(videoId: videoId, quality: quality)
-        entries[key] = Entry(url: url, expiresAt: Date().addingTimeInterval(effective))
+        let requestedExpiry = Date().addingTimeInterval(effective)
+        let signedExpiry = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+            .first(where: { $0.name == "expire" })?.value.flatMap(Double.init)
+            .map { Date(timeIntervalSince1970: $0 - 30) }
+        entries[key] = Entry(url: url, expiresAt: min(requestedExpiry, signedExpiry ?? requestedExpiry))
         persistToDisk()
     }
 

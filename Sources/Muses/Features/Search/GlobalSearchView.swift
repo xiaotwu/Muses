@@ -7,44 +7,7 @@ enum GlobalSearchRoute {
     case artist(CatalogArtistProjection)
 }
 
-/// Owns the presentation boundary of the single auxiliary Search window.
-struct SearchWindowRoot: View {
-    @Environment(GlobalSearchService.self) private var search
-    @Environment(\.dismissWindow) private var dismissWindow
-    @State private var showYouTubeLink = false
-
-    var body: some View {
-        GlobalSearchView(
-            showYouTubeLink: $showYouTubeLink,
-            onDismiss: close,
-            onRoute: navigate
-        )
-        .toolbar {
-            ToolbarItemGroup(placement: .navigation) {
-                Button(tr("Back", "后退", zhHant: "返回"), systemImage: "arrow.left") { search.musicCatalog.back() }
-                    .disabled(!search.musicCatalog.canGoBack)
-                    .keyboardShortcut("[", modifiers: .command)
-                Button(tr("Forward", "前进", zhHant: "前進"), systemImage: "arrow.right") { search.musicCatalog.forward() }
-                    .disabled(!search.musicCatalog.canGoForward)
-                    .keyboardShortcut("]", modifiers: .command)
-            }
-        }
-        .sheet(isPresented: $showYouTubeLink) {
-            AddYouTubeLinkSheet(isPresented: $showYouTubeLink)
-        }
-    }
-
-    private func close() {
-        dismissWindow(id: SearchWindowPolicy.sceneID)
-    }
-
-    private func navigate(_ route: GlobalSearchRoute) {
-        MusesSingleInstance.requestSearchNavigation(route)
-        close()
-    }
-}
-
-/// Compact Apple Music-style Search surface hosted in its own native window.
+/// Integrated search content sharing the main window and service graph.
 struct GlobalSearchView: View {
     @Binding var showYouTubeLink: Bool
     var onDismiss: () -> Void
@@ -53,7 +16,6 @@ struct GlobalSearchView: View {
     @Environment(GlobalSearchService.self) private var search
     @Environment(PlaybackService.self) private var playback
     @Environment(LibraryService.self) private var library
-    @Environment(\.colorScheme) private var colorScheme
     @FocusState private var searchFieldFocused: Bool
     @State private var savedYouTubeIDs = Set<String>()
 
@@ -62,12 +24,12 @@ struct GlobalSearchView: View {
     }
 
     var body: some View {
-        let shape = RoundedRectangle(
-            cornerRadius: SearchChromePolicy.panelCorner,
-            style: .continuous
-        )
         VStack(alignment: .leading, spacing: 0) {
-            windowHeader
+            Text(tr("Search", "搜索"))
+                .font(MusesTypography.pageTitle)
+                .foregroundStyle(BrandColors.accent)
+                .padding(.top, AppleMusicSpacing.pageTop)
+                .padding(.horizontal, AppleMusicSpacing.pageHorizontal)
             VStack(alignment: .leading, spacing: 0) {
                 searchChrome
                 if search.musicCatalog.detail == nil, let error = search.additionalResultsStatus {
@@ -103,48 +65,26 @@ struct GlobalSearchView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.top, AppleMusicSpacing.related)
-                    .padding(.bottom, SearchWindowPolicy.contentInset)
+                    .padding(.bottom, OverlayChromeMetrics.scrollBottomInset)
                 }
             }
-            .padding(.horizontal, SearchWindowPolicy.contentInset)
+            .padding(.horizontal, AppleMusicSpacing.pageHorizontal)
         }
-        .frame(
-            minWidth: SearchWindowPolicy.minimumWidth,
-            minHeight: SearchWindowPolicy.minimumHeight
-        )
-        // Reading content uses the native adaptive background; glass belongs to controls.
-        .background(.background, in: shape)
-        .clipShape(shape)
-        .overlay(shape.stroke(BrandColors.textPrimary.opacity(0.14), lineWidth: 1))
-        .background(SearchWindowConfigurator(colorScheme: colorScheme, title: tr("Search Muses", "搜索 Muses")).frame(width: 0, height: 0))
-        .ignoresSafeArea(edges: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(BrandColors.background)
         .onExitCommand(perform: handleEscape)
+        .onReceive(NotificationCenter.default.publisher(for: .musesFocusSearch)) { _ in
+            searchFieldFocused = true
+        }
         .onDisappear { if search.isSearchingYouTube { search.cancelSearch() } }
         .onAppear {
             if search.wasCancelled { search.retrySearch() }
             refreshSavedYouTubeIDs()
+        }
+        .task {
+            await Task.yield()
             searchFieldFocused = true
         }
-    }
-
-    private var windowHeader: some View {
-        ZStack {
-            Text(tr("Search Muses", "搜索 Muses"))
-                .font(MusesTypography.system(size: 12, weight: .semibold))
-                .foregroundStyle(BrandColors.textPrimary.opacity(0.82))
-            HStack {
-                Color.clear
-                    .frame(width: WindowChromeMetrics.trafficLightClearanceWidth)
-                    .allowsHitTesting(false)
-                Spacer()
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: SearchWindowPolicy.draggableHeaderHeight)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(BrandColors.hairline).frame(height: 1)
-        }
-        .accessibilityElement(children: .combine)
     }
 
     private var searchChrome: some View {
@@ -187,7 +127,7 @@ struct GlobalSearchView: View {
                 }
                 .padding(.horizontal, 14)
                 .frame(maxWidth: .infinity)
-                .frame(height: SearchWindowPolicy.controlHeight)
+                .frame(height: SearchPagePolicy.controlHeight)
                 .background(BrandColors.textPrimary.opacity(0.06),
                             in: Capsule())
 
@@ -196,38 +136,40 @@ struct GlobalSearchView: View {
                         .font(MusesTypography.system(size: 14, weight: .semibold))
                         .foregroundStyle(BrandColors.textPrimary)
                         .frame(
-                            width: SearchWindowPolicy.controlHeight,
-                            height: SearchWindowPolicy.controlHeight
+                            width: SearchPagePolicy.controlHeight,
+                            height: SearchPagePolicy.controlHeight
                         )
                         .contentShape(Capsule())
                 }
-                .buttonStyle(.fullAreaPlain)
-                .musesGlass(
-                    in: Capsule(),
-                    role: .compactControl
-                )
-                .overlay {
-                    Capsule()
-                        .stroke(BrandColors.textPrimary.opacity(0.18), lineWidth: 1)
-                }
+                .musesAction()
                 .help(tr("Paste YouTube Link", "粘贴 YouTube 链接"))
                 .accessibilityLabel(tr("Add YouTube music", "添加 YouTube 音乐"))
             }
 
-            Picker(tr("Search Source", "搜索来源"), selection: Binding(
-                get: { search.scope }, set: { search.scope = $0 }
-            )) {
-                Text(tr("All", "全部")).tag(GlobalSearchScope.all)
-                Text(tr("Library", "资料库")).tag(GlobalSearchScope.library)
-                Text("YouTube").tag(GlobalSearchScope.youtube)
+            HStack(spacing: 6) {
+                sourceButton(.all, title: tr("All", "全部"))
+                sourceButton(.library, title: tr("Library", "资料库"))
+                sourceButton(.youtube, title: "YouTube")
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 430, minHeight: SearchWindowPolicy.sourceSegmentHeight,
-                   maxHeight: SearchWindowPolicy.sourceSegmentHeight)
+            .padding(5)
+            .musesGlass(in: Capsule(), role: .compactControl)
+            .accessibilityElement(children: .contain)
             .accessibilityLabel(tr("Search Source", "搜索来源"))
         }
-        .padding(.top, SearchWindowPolicy.contentInset)
+        .padding(.top, SearchPagePolicy.contentInset)
+    }
+
+    private func sourceButton(_ scope: GlobalSearchScope, title: String) -> some View {
+        Button { search.scope = scope } label: {
+            Text(title)
+                .font(MusesTypography.subheadline.weight(search.scope == scope ? .semibold : .regular))
+                .foregroundStyle(search.scope == scope ? BrandColors.accent : BrandColors.textPrimary)
+                .padding(.horizontal, 18)
+                .frame(minHeight: SearchPagePolicy.sourceSegmentHeight)
+        }
+        .buttonStyle(.musesSegment(selected: search.scope == scope))
+        .accessibilityAddTraits(search.scope == scope ? .isSelected : [])
+        .help(title)
     }
 
     private var searchLanding: some View {
@@ -481,6 +423,3 @@ struct GlobalSearchView: View {
         }
     }
 }
-
-/// Configures only the auxiliary Search window. AppKit continues to own and
-/// position the standard traffic-light buttons in its native titlebar.

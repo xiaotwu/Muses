@@ -3,7 +3,7 @@
 # --appcast must run AFTER notarize-dmg.sh; signed archives are immutable.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-VER="${MUSES_VERSION:-0.5.8}"
+VER="${MUSES_VERSION:-0.5.9}"
 case "${1:-}" in
     "")
         [[ -d build/Muses.app ]] || { echo 'Build Muses.app first.' >&2; exit 1; }

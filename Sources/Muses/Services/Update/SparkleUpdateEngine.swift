@@ -16,8 +16,10 @@ final class SparkleUpdateEngine: NSObject, UpdateEngine, SPUUserDriver, SPUUpdat
     private var expected: UInt64 = 0
     private var automaticChecks = false
     private var checkObservation: NSKeyValueObservation?
+    private let hostBundle: Bundle
 
     init(bundle: Bundle) {
+        hostBundle = bundle
         super.init()
         updater = SPUUpdater(hostBundle: bundle, applicationBundle: bundle, userDriver: self, delegate: self)
     }
@@ -26,6 +28,9 @@ final class SparkleUpdateEngine: NSObject, UpdateEngine, SPUUserDriver, SPUUpdat
     var canInstall: Bool { readyChoice != nil || retryTermination != nil }
 
     func start(automaticallyChecks: Bool) throws {
+        if let id = hostBundle.bundleIdentifier {
+            try UpdateTransactionStore.prepareDownloadDirectory(bundleID: id)
+        }
         automaticChecks = automaticallyChecks
         updater.automaticallyChecksForUpdates = automaticallyChecks
         // Use this user driver for background downloads as well, so the same

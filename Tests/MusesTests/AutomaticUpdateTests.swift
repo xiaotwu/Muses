@@ -234,6 +234,37 @@ struct AutomaticUpdateTests {
         #expect(fm.fileExists(atPath: media.path))
     }
 
+    @Test("Updater storage relocation preserves archives and rejects foreign links or active installers")
+    func updaterStorageRelocation() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? fm.removeItem(at: root) }
+        let system = root.appending(path: "system")
+        let managed = root.appending(path: "managed")
+        let source = system.appending(path: "com.muses.app.sparkle")
+        let archive = source.appending(path: "org.sparkle-project.Sparkle/PersistentDownloads/update.zip")
+        try fm.createDirectory(at: archive.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("archive".utf8).write(to: archive)
+        try UpdateTransactionStore.prepareDownloadDirectory(bundleID: "com.muses.app", systemCaches: system, managedCaches: managed)
+        let target = managed.appending(path: "updates/com.muses.app.sparkle")
+        #expect(source.resolvingSymlinksInPath() == target.resolvingSymlinksInPath())
+        #expect(try Data(contentsOf: archive) == Data("archive".utf8))
+        try UpdateTransactionStore.prepareDownloadDirectory(bundleID: "com.muses.app", systemCaches: system, managedCaches: managed)
+        try fm.removeItem(at: source)
+        try fm.createSymbolicLink(at: source, withDestinationURL: root)
+        #expect(throws: UpdateFailure.self) {
+            try UpdateTransactionStore.prepareDownloadDirectory(bundleID: "com.muses.app", systemCaches: system, managedCaches: managed)
+        }
+        try fm.removeItem(at: source)
+        let active = source.appending(path: "org.sparkle-project.Sparkle/Installation/active")
+        try fm.createDirectory(at: active.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("installer".utf8).write(to: active)
+        #expect(throws: UpdateFailure.self) {
+            try UpdateTransactionStore.prepareDownloadDirectory(bundleID: "com.muses.app", systemCaches: system, managedCaches: managed)
+        }
+        #expect(fm.fileExists(atPath: active.path))
+    }
+
     @Test("Unconfigured builds cannot start the production updater")
     func missingConfiguration() {
         let service = UpdateService(defaults: defaults())

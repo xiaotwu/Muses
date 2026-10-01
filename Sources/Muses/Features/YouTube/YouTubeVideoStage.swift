@@ -409,6 +409,7 @@ struct YouTubeWKEmbed: NSViewRepresentable {
                            onStopped: @escaping () -> Void) -> (WKWebView, PlayerCoordinator) {
         let coordinator = PlayerCoordinator()
         let config = WKWebViewConfiguration()
+        config.websiteDataStore = .nonPersistent()
         config.mediaTypesRequiringUserActionForPlayback = []
         config.userContentController.add(coordinator, name: "musesVideo")
         let view = WKWebView(frame: .zero, configuration: config)

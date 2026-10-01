@@ -5,7 +5,7 @@ import AppKit
 enum SettingsCategory: String, Hashable, CaseIterable, Identifiable {
     case shortcuts, general, playback, audioQuality, appearance, youtube, lyrics, desktop, updates, about, diagnostics, identity, help
 
-    static let allCases: [SettingsCategory] = [.general, .shortcuts, .playback, .appearance, .youtube, .lyrics, .diagnostics, .identity, .about, .help]
+    static let allCases: [SettingsCategory] = [.general, .shortcuts, .playback, .appearance, .youtube, .lyrics, .diagnostics, .identity, .help, .about]
 
     /// Preserve saved selections and existing deep links after regrouping.
     var destination: SettingsCategory {
@@ -138,6 +138,7 @@ struct SettingsPage: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(BrandColors.background)
         .tint(BrandColors.accent)
+        .musesAction()
     }
 }
 

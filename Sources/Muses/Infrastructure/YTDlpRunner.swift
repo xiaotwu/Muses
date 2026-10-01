@@ -94,16 +94,19 @@ actor YTDlpRunner {
     /// discovery and prefetch cannot queue ahead of first sound.
     func run(executablePath: String, args: [String], timeout: TimeInterval) async throws -> (stdout: String, stderr: String) {
         let interactive = YTDlpRequestPriority.interactive
-        try await acquire(interactive: interactive)
+        let started = Date()
+        try await acquire(interactive: interactive, timeout: timeout)
         defer { release(interactive: interactive) }
         try Task.checkCancellation()
-        return try await Self.executeDetached(executablePath: executablePath, args: args, timeout: timeout)
+        let remaining = timeout - Date().timeIntervalSince(started)
+        guard remaining > 0 else { throw YTDlpBridge.YTDlpError.timeout }
+        return try await Self.executeDetached(executablePath: executablePath, args: args, timeout: remaining)
     }
 
     var inFlightCount: Int { inFlight + interactiveInFlight }
     var waitingCount: Int { waiters.count }
 
-    private func acquire(interactive: Bool) async throws {
+    private func acquire(interactive: Bool, timeout: TimeInterval) async throws {
         try Task.checkCancellation()
         if interactive ? interactiveInFlight < 1 : inFlight < maxConcurrent {
             if interactive { interactiveInFlight += 1 } else { inFlight += 1 }
@@ -113,10 +116,19 @@ actor YTDlpRunner {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 waiters.append(Waiter(id: id, interactive: interactive, continuation: continuation))
+                Task {
+                    try? await Task.sleep(for: .seconds(max(0, timeout)))
+                    self.timeoutWaiter(id)
+                }
             }
         } onCancel: {
             Task { await self.cancelWaiter(id) }
         }
+    }
+
+    private func timeoutWaiter(_ id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
+        waiters.remove(at: index).continuation.resume(throwing: YTDlpBridge.YTDlpError.timeout)
     }
 
     private func cancelWaiter(_ id: UUID) {

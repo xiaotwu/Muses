@@ -52,7 +52,7 @@ final class UpdateTransactionStore {
             throw UpdateFailure.unsafeCleanupPath
         }
         let fm = FileManager.default
-        let base = caches ?? fm.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let base = caches ?? MusesDataPaths.cacheDirectory(bundleID: bundleID).appending(path: "updates")
         let component = bundleID.lowercased().hasSuffix(".app") ? bundleID + ".sparkle" : bundleID
         var path = base
         for name in [component, "org.sparkle-project.Sparkle", "PersistentDownloads"] {
@@ -71,5 +71,44 @@ final class UpdateTransactionStore {
             // removeItem removes a child symlink itself, without following it.
             try fm.removeItem(at: item)
         }
+    }
+
+    /// Sparkle's public API fixes this entry under Library/Caches. Redirect only
+    /// our bundle's directory; archives, extraction and installer files then
+    /// physically live in the app-owned cache without changing Sparkle itself.
+    static func prepareDownloadDirectory(bundleID: String, systemCaches: URL? = nil, managedCaches: URL? = nil) throws {
+        guard bundleID == "com.muses.app" || MusesDataPaths.acceptanceNamespace(bundleID: bundleID) != nil else {
+            throw UpdateFailure.unsafeCleanupPath
+        }
+        let fm = FileManager.default
+        let component = bundleID.hasSuffix(".app") ? bundleID + ".sparkle" : bundleID
+        let source = (systemCaches ?? fm.urls(for: .cachesDirectory, in: .userDomainMask)[0]).appending(path: component)
+        let target = (managedCaches ?? MusesDataPaths.cacheDirectory(bundleID: bundleID))
+            .appending(path: "updates/\(component)", directoryHint: .isDirectory)
+        if let attributes = try? fm.attributesOfItem(atPath: source.path) {
+            if attributes[.type] as? FileAttributeType == .typeSymbolicLink {
+                guard source.resolvingSymlinksInPath().standardizedFileURL == target.resolvingSymlinksInPath().standardizedFileURL else {
+                    throw UpdateFailure.unsafeCleanupPath
+                }
+                return
+            }
+            guard attributes[.type] as? FileAttributeType == .typeDirectory else { throw UpdateFailure.unsafeCleanupPath }
+            let installation = source.appending(path: "org.sparkle-project.Sparkle/Installation")
+            if let items = try? fm.contentsOfDirectory(atPath: installation.path), !items.isEmpty {
+                throw UpdateFailure.stateNotReady
+            }
+        }
+        try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true,
+                               attributes: [.posixPermissions: 0o700])
+        // Move the complete old tree only when the destination is absent. Never
+        // merge or delete colliding updater transactions.
+        if fm.fileExists(atPath: source.path) {
+            guard !fm.fileExists(atPath: target.path) else { throw UpdateFailure.unsafeCleanupPath }
+            try fm.moveItem(at: source, to: target)
+        } else {
+            try fm.createDirectory(at: target, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        }
+        try fm.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: source, withDestinationURL: target)
     }
 }

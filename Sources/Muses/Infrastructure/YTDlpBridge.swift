@@ -180,9 +180,9 @@ final class YTDlpBridge {
     /// Quality name -> yt-dlp `-f` format selector.
     private static let qualityMap: [String: String] = [
         "bestaudio": "bestaudio[ext*=m4a]/bestaudio/best",
-        "256k": "ba[abr<=256]/bestaudio[abr<=256]",
-        "128k": "ba[abr<=128]",
-        "64k": "ba[abr<=64]",
+        "256k": "ba[ext=m4a][abr<=256]/ba[abr<=256]/bestaudio[abr<=256]",
+        "128k": "ba[ext=m4a][abr<=128]/ba[abr<=128]",
+        "64k": "ba[ext=m4a][abr<=64]/ba[abr<=64]",
         "best": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "1080p": "best[height<=1080][ext=mp4]/best[height<=1080]",
         "720p": "best[height<=720][ext=mp4]/best[height<=720]"
@@ -317,7 +317,8 @@ final class YTDlpBridge {
         let bin = try await resolveBinary()
         let format = Self.qualityMap[quality] ?? quality
         var args = cookieArgs()
-        args += ["-f", format, "--no-playlist", "-g",
+        args += ["--socket-timeout", "5", "--extractor-retries", "1", "--retries", "1",
+                 "--no-warnings", "-f", format, "--no-playlist", "-g",
                  "https://youtu.be/\(videoId)"]
         let (stdout, _) = try await runInternal(
             executablePath: bin,
@@ -328,8 +329,8 @@ final class YTDlpBridge {
             .first
             .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
         guard let line = firstLine, !line.isEmpty,
-              let url = URL(string: line) else {
-            throw YTDlpError.parseFailed("Unable to parse URL from stdout: \(stdout)")
+              let url = URL(string: line), ["https", "http", "file"].contains(url.scheme ?? "") else {
+            throw YTDlpError.parseFailed("Unable to parse a stream URL")
         }
         return url
     }
@@ -558,7 +559,8 @@ final class YTDlpBridge {
         // bundles. Explicit cookie consent remains governed by cookieArgs().
         let args = MusesDataPaths.isAcceptance
             ? ["--ignore-config", "--cache-dir", MusesDataPaths.caches.appending(path: "yt-dlp").path] + args
-            : args
+            : ["--cache-dir", MusesDataPaths.caches.appending(path: "yt-dlp").path] + args
+        let started = Date()
         do {
             return try await runner.run(
                 executablePath: executablePath, args: args, timeout: timeout)
@@ -593,7 +595,8 @@ final class YTDlpBridge {
                     }
                     do {
                         return try await runner.run(
-                            executablePath: executablePath, args: fallbackArgs, timeout: timeout)
+                            executablePath: executablePath, args: fallbackArgs,
+                            timeout: max(0.05, timeout - Date().timeIntervalSince(started)))
                     } catch {
                         throw e
                     }

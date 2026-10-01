@@ -13,15 +13,15 @@ enum MediaFileCache {
             .replacingOccurrences(of: " ", with: "_")
     }
 
-    static func file(videoId: String, quality: String, ext: String) -> URL {
-        directory.appendingPathComponent("\(videoId)__\(sanitizedQuality(quality)).\(ext)")
+    static func file(videoId: String, quality: String, ext: String, in root: URL? = nil) -> URL {
+        (root ?? directory).appendingPathComponent("\(videoId)__\(sanitizedQuality(quality)).\(ext)")
     }
 
     /// First existing file for this video+quality larger than 4 KB.
-    static func existing(videoId: String, quality: String) -> URL? {
+    static func existing(videoId: String, quality: String, in root: URL? = nil) -> URL? {
         let prefix = "\(videoId)__\(sanitizedQuality(quality))."
         guard let items = try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: [.fileSizeKey]) else { return nil }
+            at: root ?? directory, includingPropertiesForKeys: [.fileSizeKey]) else { return nil }
         let match = items.first { url in
             let name = url.lastPathComponent
             let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
@@ -39,9 +39,9 @@ enum MediaFileCache {
         }
     }
 
-    static func totalBytes() -> Int64 {
+    static func totalBytes(in root: URL? = nil) -> Int64 {
         guard let items = try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
+            at: root ?? directory, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
         return items.reduce(Int64(0)) { sum, url in
             let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             return sum + Int64(size)

@@ -65,6 +65,8 @@ final class YouTubeStreamEngine: PlayerEngine {
     /// the newest requested track before touching a backend or observable state.
     private var loadGeneration: UInt64 = 0
     private var currentLoadTrackId: UUID?
+    private var loadStartedAt = ProcessInfo.processInfo.systemUptime
+    private var firstClockRecorded = false
     /// File-seconds at the start of the currently scheduled segment.
     private var segmentStartSec: Double = 0
 
@@ -75,6 +77,9 @@ final class YouTubeStreamEngine: PlayerEngine {
 
     // AVPlayer path (shared by streaming start and fallback)
     private var avPlayer: AVPlayer?
+    private var streamLoader: SharedStreamLoader?
+    private var streamResource: SharedStreamResource?
+    private var warmResources: [String: (url: URL, resource: SharedStreamResource)] = [:]
     private var timeObserver: Any?
     private var endTimeObserver: NSObjectProtocol?
     /// Set when download/decode failed irrecoverably and playback stays on AVPlayer. `isInFallbackMode` reports this only.
@@ -94,6 +99,7 @@ final class YouTubeStreamEngine: PlayerEngine {
 
     private let bridge: any YTDlpBridgeProtocol
     private let cache: StreamURLCache
+    private let resolution: StreamResolutionCoordinator
     private let session: URLSession
     private let downloadOverride: ((URL, URL) async -> Bool)?
     private let log = AppLog.for("YouTubeStreamEngine")
@@ -124,6 +130,8 @@ final class YouTubeStreamEngine: PlayerEngine {
         (activePlayer.volume, inactivePlayer.volume, avPlayer?.volume)
     }
 
+    var streamResolution: StreamResolutionCoordinator { resolution }
+
     var onCompletion: (@MainActor () -> Void)?
 
     init(bridge: any YTDlpBridgeProtocol,
@@ -132,6 +140,7 @@ final class YouTubeStreamEngine: PlayerEngine {
          downloadOverride: ((URL, URL) async -> Bool)? = nil) {
         self.bridge = bridge
         self.cache = cache
+        self.resolution = StreamResolutionCoordinator(bridge: bridge, cache: cache)
         self.session = session
         self.downloadOverride = downloadOverride
         activePlayer = playerA
@@ -238,39 +247,78 @@ final class YouTubeStreamEngine: PlayerEngine {
         return true
     }
 
-    /// Warm only the signed stream URL. No download, queue mutation, player-node
-    /// scheduling, or displacement of the established gapless next-track slot.
     func prewarmSelection(_ track: TrackSnapshot) async {
+        await prewarmSelections([track])
+    }
+
+    /// A settled focus warms at most three identities, never the intermediate
+    /// cards during a fast gesture. Playback attaches to the same resolution.
+    func prewarmSelections(_ tracks: [TrackSnapshot]) async {
         selectionWarmupGeneration &+= 1
         let generation = selectionWarmupGeneration
         selectionWarmup?.cancel()
-        selectionWarmup = nil
-        let videoID = track.youTubeId
         let quality = currentQuality()
-        guard !videoID.isEmpty, videoID != currentTrack?.youTubeId,
-              existingTempFile(for: videoID) == nil, cache.get(videoId: videoID, quality: quality) == nil else { return }
+        let candidates = Array(tracks.prefix(3)).filter {
+            !$0.youTubeId.isEmpty && $0.id != currentTrack?.id
+                && existingTempFile(for: $0.youTubeId) == nil
+        }
+        let keep = Set(candidates.map { StreamURLCache.cacheKey(videoId: $0.youTubeId, quality: quality) })
+        for key in Array(warmResources.keys) where !keep.contains(key) {
+            if let removed = warmResources.removeValue(forKey: key), removed.resource !== streamResource {
+                Task { await removed.resource.cancel() }
+            }
+        }
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            do {
-                let url = try await YTDlpRequestPriority.$interactive.withValue(false) {
-                    try await bridge.resolveStreamURL(videoId: videoID, quality: quality, timeout: 12)
-                }
-                guard !Task.isCancelled, generation == selectionWarmupGeneration,
-                      quality == currentQuality() else { return }
-                cache.set(videoId: videoID, url: url, quality: quality)
-            } catch { /* Speculation failing never changes playback state. */ }
+            for track in candidates {
+                guard !Task.isCancelled, generation == selectionWarmupGeneration else { return }
+                do {
+                    let url = try await YTDlpRequestPriority.$interactive.withValue(false) {
+                        try await resolution.resolve(videoID: track.youTubeId, quality: quality)
+                    }
+                    guard !Task.isCancelled, generation == selectionWarmupGeneration,
+                          quality == currentQuality() else { return }
+                    if let resource = sharedResource(videoID: track.youTubeId, quality: quality, url: url) {
+                        try? await resource.warm()
+                    }
+                } catch { /* A failed prediction never changes transport. */ }
+            }
         }
         selectionWarmup = task
         await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
     }
 
+    private func sharedResource(videoID: String, quality: String, url: URL) -> SharedStreamResource? {
+        guard downloadOverride == nil, url.host?.hasSuffix(".googlevideo.com") == true else { return nil }
+        let mime = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "mime" }?.value
+        if let mime, mime.contains("webm") || mime.contains("ogg") { return nil }
+        let key = StreamURLCache.cacheKey(videoId: videoID, quality: quality)
+        if let existing = warmResources[key], existing.url == url { return existing.resource }
+        if let old = warmResources.removeValue(forKey: key), old.resource !== streamResource {
+            Task { await old.resource.cancel() }
+        }
+        let resource = SharedStreamResource(source: url,
+            destination: MediaFileCache.file(videoId: videoID, quality: quality, ext: guessExt(from: url)), session: session,
+            renew: { @MainActor [resolution, cache] in
+                cache.invalidate(videoId: videoID, quality: quality)
+                return try await resolution.resolve(videoID: videoID, quality: quality)
+            })
+        warmResources[key] = (url, resource)
+        if warmResources.count > 5,
+           let obsolete = warmResources.first(where: { $0.key != key && $0.value.resource !== streamResource }) {
+            warmResources.removeValue(forKey: obsolete.key)
+            Task { await obsolete.value.resource.cancel() }
+        }
+        return resource
+    }
+
     func load(_ track: TrackSnapshot) async throws {
-        selectionWarmupGeneration &+= 1
-        selectionWarmup?.cancel()
-        selectionWarmup = nil
+        // Keep focus resolution alive until the foreground consumer attaches.
         loadGeneration &+= 1
         let generation = loadGeneration
         currentLoadTrackId = track.id
+        loadStartedAt = ProcessInfo.processInfo.systemUptime
+        firstClockRecorded = false
 
         // 1. Cancel any in-flight download / prefetch / hybrid hand-off
         downloadTask?.cancel()
@@ -327,6 +375,8 @@ final class YouTubeStreamEngine: PlayerEngine {
         }
 
         // 7b. Remote URL (uncached): hybrid streaming — start instantly with AVPlayer, switch after the background download.
+        let shared = sharedResource(videoID: videoId, quality: currentQuality(), url: resolvedURL)
+        streamResource = shared
         startAVPlayer(url: resolvedURL, fallback: false,
                       loadGeneration: generation, trackId: track.id)
         isStreamingMode = true
@@ -345,9 +395,21 @@ final class YouTubeStreamEngine: PlayerEngine {
                                         loadGeneration: generation)
             } else {
                 // Download failed: degrade permanently to AVPlayer
+                let position = self.state.position
+                let requested = self.playbackRequested
+                // A CDN that does not support verified ranges retains the
+                // established direct AVPlayer path instead of a failed loader.
+                if self.streamResource != nil {
+                    self.tearDownAVPlayer()
+                    self.startAVPlayer(url: resolvedURL, fallback: true,
+                        loadGeneration: generation, trackId: track.id)
+                    if position > 0 { await self.avPlayer?.seek(to: CMTime(seconds: position, preferredTimescale: 600)) }
+                    guard self.loadIsCurrent(generation: generation, trackId: track.id), !Task.isCancelled else { return }
+                    if requested { self.avPlayer?.playImmediately(atRate: self.requestedPlaybackRate) }
+                }
                 self.isStreamingMode = false
                 self.useAVPlayerFallback = true
-                self.log.error("Stream download failed; degrading permanently to AVPlayer")
+                self.log.error("Shared cache unavailable; using direct AVPlayer")
             }
         }
         downloadTask = downloadTaskRef
@@ -747,7 +809,12 @@ final class YouTubeStreamEngine: PlayerEngine {
         useAVPlayerFallback = fallback
         let sourceDuration = StreamDurationPolicy.sourceDuration(url)
         if let sourceDuration { state.duration = sourceDuration }
-        let item = AVPlayerItem(url: url)
+        let item: AVPlayerItem
+        if let resource = streamResource {
+            let loader = SharedStreamLoader(resource: resource)
+            streamLoader = loader
+            item = AVPlayerItem(asset: loader.asset())
+        } else { item = AVPlayerItem(url: url) }
         avPlayer = AVPlayer(playerItem: item)
         avPlayer?.defaultRate = requestedPlaybackRate
         applyDesiredVolume()
@@ -759,6 +826,11 @@ final class YouTubeStreamEngine: PlayerEngine {
                 guard let self,
                       self.loadIsCurrent(generation: loadGeneration, trackId: trackId),
                       let p = self.avPlayer else { return }
+                if !self.firstClockRecorded, p.rate > 0, cmTime.seconds > 0 {
+                    self.firstClockRecorded = true
+                    let elapsed = ProcessInfo.processInfo.systemUptime - self.loadStartedAt
+                    self.log.info("Playback clock started after \(elapsed, privacy: .public)s")
+                }
                 self.state.position = cmTime.seconds
                 if let sourceDuration {
                     self.state.duration = sourceDuration
@@ -788,6 +860,13 @@ final class YouTubeStreamEngine: PlayerEngine {
         }
         avPlayer?.pause()
         avPlayer = nil
+        streamLoader?.stop()
+        streamLoader = nil
+        if let resource = streamResource {
+            warmResources = warmResources.filter { $0.value.resource !== resource }
+            Task { await resource.cancel() }
+        }
+        streamResource = nil
         useAVPlayerFallback = false
     }
 
@@ -811,7 +890,7 @@ final class YouTubeStreamEngine: PlayerEngine {
             if url.host?.hasSuffix(".googlevideo.com") == true {
                 return try await downloadInRanges(from: url, to: tempURL)
             }
-            let (tmp, resp) = try await session.download(from: url)
+            let (bytes, resp) = try await session.bytes(from: url)
             if let http = resp as? HTTPURLResponse,
                http.statusCode == 403 {
                 // Some direct media endpoints reject an unbounded request but
@@ -823,10 +902,28 @@ final class YouTubeStreamEngine: PlayerEngine {
                !(200..<300).contains(http.statusCode) {
                 throw PlayerError.networkError("Non-2xx response")
             }
-            if FileManager.default.fileExists(atPath: tempURL.path) {
-                try FileManager.default.removeItem(at: tempURL)
+            let staging = tempURL.deletingLastPathComponent().appending(path: ".\(UUID()).download")
+            try FileManager.default.createDirectory(at: staging.deletingLastPathComponent(), withIntermediateDirectories: true)
+            guard FileManager.default.createFile(atPath: staging.path, contents: nil) else { return false }
+            let handle = try FileHandle(forWritingTo: staging)
+            defer { try? handle.close(); try? FileManager.default.removeItem(at: staging) }
+            var buffer = Data()
+            var received: Int64 = 0
+            for try await byte in bytes {
+                try Task.checkCancellation()
+                buffer.append(byte)
+                received += 1
+                guard received <= SharedStreamResource.maximumSize else { throw URLError(.dataLengthExceedsMaximum) }
+                if buffer.count >= 262_144 { try handle.write(contentsOf: buffer); buffer.removeAll(keepingCapacity: true) }
             }
-            try FileManager.default.moveItem(at: tmp, to: tempURL)
+            if !buffer.isEmpty { try handle.write(contentsOf: buffer) }
+            guard received > 0, resp.expectedContentLength < 0 || received == resp.expectedContentLength else {
+                throw URLError(.cannotDecodeContentData)
+            }
+            try handle.synchronize()
+            if !FileManager.default.fileExists(atPath: tempURL.path) {
+                try FileManager.default.moveItem(at: staging, to: tempURL)
+            }
             return true
         } catch {
             log.error("Download failed: \(error.localizedDescription)")
@@ -835,6 +932,14 @@ final class YouTubeStreamEngine: PlayerEngine {
     }
 
     private func downloadWithRefresh(videoId: String, initialURL: URL) async -> URL? {
+        if let resource = sharedResource(videoID: videoId, quality: currentQuality(), url: initialURL) {
+            do { return try await resource.finish() }
+            catch {
+                // Avoid a second downloader competing with a still-active loader.
+                if resource === streamResource { return nil }
+                await resource.cancel()
+            }
+        }
         let firstDestination = cacheFileURL(videoId: videoId, from: initialURL)
         if await downloadTo(url: initialURL, tempURL: firstDestination) {
             return firstDestination
@@ -912,33 +1017,8 @@ final class YouTubeStreamEngine: PlayerEngine {
     private var preparedVideoId: String?
     private var preparedTempURL: URL?
 
-    /// Resolves the stream URL: cache first; on first failure, invalidate the cache and retry once (15s timeout).
     private func resolveStreamURL(for videoId: String) async throws -> URL {
-        let quality = currentQuality()
-        if let cached = cache.get(videoId: videoId, quality: quality) {
-            return cached
-        }
-        do {
-            let url = try await bridge.resolveStreamURL(
-                videoId: videoId, quality: quality, timeout: 15)
-            try Task.checkCancellation()
-            cache.set(videoId: videoId, url: url, quality: quality)
-            return url
-        } catch {
-            try Task.checkCancellation()
-            log.error("First resolution failed: \(error.localizedDescription); retrying once")
-            cache.invalidate(videoId: videoId, quality: quality)
-            do {
-                let url = try await bridge.resolveStreamURL(
-                    videoId: videoId, quality: quality, timeout: 15)
-                try Task.checkCancellation()
-                cache.set(videoId: videoId, url: url, quality: quality)
-                return url
-            } catch {
-                log.error("Retry also failed: \(error.localizedDescription)")
-                throw PlayerError.sourceUnavailable
-            }
-        }
+        try await resolution.resolve(videoID: videoId, quality: currentQuality())
     }
 
     // MARK: - Position ticking / completion
@@ -958,6 +1038,11 @@ final class YouTubeStreamEngine: PlayerEngine {
                     player: self.activePlayer,
                     segmentStart: self.segmentStartSec,
                     fileSampleRate: sr)
+                if !self.firstClockRecorded, self.activePlayer.isPlaying, self.state.position > 0 {
+                    self.firstClockRecorded = true
+                    let elapsed = ProcessInfo.processInfo.systemUptime - self.loadStartedAt
+                    self.log.info("Decoded playback clock started after \(elapsed, privacy: .public)s")
+                }
                 if self.state.duration > 0, self.state.position >= self.state.duration {
                     self.handleCompletion()
                 }

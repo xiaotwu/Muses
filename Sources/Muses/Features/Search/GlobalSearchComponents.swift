@@ -1,72 +1,6 @@
 import AppKit
 import SwiftUI
 
-struct SearchWindowConfigurator: NSViewRepresentable {
-    let colorScheme: ColorScheme
-    let title: String
-
-    func makeNSView(context: Context) -> SearchWindowConfigurationView {
-        let view = SearchWindowConfigurationView()
-        view.localizedTitle = title
-        return view
-    }
-
-    func updateNSView(_ nsView: SearchWindowConfigurationView, context: Context) {
-        nsView.localizedTitle = title
-        guard let window = nsView.window else { return }
-        SearchWindowConfigurationView.configure(window, colorScheme: colorScheme, title: title)
-    }
-}
-
-final class SearchWindowConfigurationView: NSView {
-    var localizedTitle = tr("Search Muses", "搜索 Muses")
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        guard let window else { return }
-        Self.configure(window, colorScheme: effectiveColorScheme, title: localizedTitle)
-    }
-
-    @MainActor
-    static func configure(_ window: NSWindow, colorScheme: ColorScheme, title: String) {
-        window.identifier = NSUserInterfaceItemIdentifier("Muses.search-window")
-        window.setFrameAutosaveName("MusesSearchWindow")
-        window.title = title
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.titlebarSeparatorStyle = .none
-        window.styleMask.insert(.fullSizeContentView)
-        window.isMovableByWindowBackground = true
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.level = .normal
-        let highContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
-        let appearanceName: NSAppearance.Name = switch (colorScheme, highContrast) {
-        case (.dark, true): .accessibilityHighContrastDarkAqua
-        case (.light, true): .accessibilityHighContrastAqua
-        case (.dark, false): .darkAqua
-        case (.light, false): .aqua
-        @unknown default: .aqua
-        }
-        window.appearance = NSAppearance(named: appearanceName)
-        window.contentMinSize = NSSize(
-            width: SearchWindowPolicy.minimumWidth,
-            height: SearchWindowPolicy.minimumHeight
-        )
-        for type in [
-            NSWindow.ButtonType.closeButton,
-            .miniaturizeButton,
-            .zoomButton
-        ] {
-            window.standardWindowButton(type)?.isHidden = false
-        }
-    }
-
-    private var effectiveColorScheme: ColorScheme {
-        window?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? .dark : .light
-    }
-}
-
 struct SearchCategoryButton: View {
     let title: String
     let systemName: String
@@ -134,7 +68,7 @@ struct GlobalSearchTrackRow: View {
                 YouTubeMark(size: 13)
                     .accessibilityHidden(true)
             }
-            .frame(minHeight: SearchWindowPolicy.resultRowHeight)
+            .frame(minHeight: SearchPagePolicy.resultRowHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(.fullAreaPlain)
@@ -198,7 +132,7 @@ struct GlobalSearchYouTubeRow: View {
             .help(tr("Open in Browser", "在浏览器中打开"))
             .accessibilityLabel(tr("Open in Browser", "在浏览器中打开"))
         }
-        .frame(minHeight: SearchWindowPolicy.resultRowHeight)
+        .frame(minHeight: SearchPagePolicy.resultRowHeight)
         .overlay(alignment: .bottom) {
             Rectangle().fill(BrandColors.hairline).frame(height: 1)
         }
@@ -261,7 +195,7 @@ struct GlobalSearchNoteRow: View {
                 }
                 Spacer()
             }
-            .frame(minHeight: SearchWindowPolicy.resultRowHeight)
+            .frame(minHeight: SearchPagePolicy.resultRowHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(.fullAreaPlain)

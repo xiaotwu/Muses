@@ -18,6 +18,7 @@ struct MusesApp: App {
     let globalSearchService: GlobalSearchService
     let lyricsService: LyricsService
     let ytDlpBridge: YTDlpBridge
+    let streamPrecacheService: StreamPrecacheService
     let updateService: UpdateService
     let commandRegistry: CommandRegistry
     let runtimeCapabilities: RuntimeCapabilities
@@ -54,11 +55,13 @@ struct MusesApp: App {
         // caches; the old directory remains available for manual recovery.
         do { try MusesDataPaths.prepareCacheDirectory() }
         catch { AppLog.for("MusesDataPaths").error("Cache relocation failed: \(error.localizedDescription)") }
+        URLCache.shared = URLCache(memoryCapacity: 16 * 1_048_576, diskCapacity: 64 * 1_048_576,
+            directory: MusesDataPaths.caches.appending(path: "http", directoryHint: .isDirectory))
         _ = L10n.traditionalStrings
         // Music windows are not document-tabbed; this also removes Show Tab Bar /
         // Show All Tabs from View (no CommandGroupPlacement exists for those items).
         NSWindow.allowsAutomaticWindowTabbing = false
-        // Brand wordmark font: register early so the first screen's "Muses" wordmark already uses MonteCarlo.
+        // Register the bundled wordmark font before the first screen is presented.
         FontLoader.registerMonteCarlo()
         YTCookieSource.migrateChromeIfNeeded()
         // In-app feature flags enabled by default (the user opted into "enable all").
@@ -116,6 +119,22 @@ struct MusesApp: App {
             queue: queue,
             library: library
         )
+        let playbackForCache = self.playbackService
+        let precache = StreamPrecacheService(resolution: youtubeEngine.streamResolution,
+            candidates: { StreamPrecacheService.snapshots(container: container, scope: $0) },
+            isBusy: { [weak playbackForCache] in
+                playbackForCache?.state.isPlaying == true || playbackForCache?.state.buffering == true
+            })
+        self.streamPrecacheService = precache
+        playbackForCache.onForegroundLoad = { [weak precache] in precache?.pauseForPlayback() }
+        playbackForCache.eventBus.subscribe { [weak precache] event in
+            switch event {
+            case .trackPaused, .trackCompleted: precache?.configure()
+            case .trackStarted, .trackResumed: precache?.pauseForPlayback()
+            default: break
+            }
+        }
+        precache.configure()
         self.podcastLibraryService = PodcastLibraryService(
             modelContainer: container, eventBus: playbackService.eventBus)
         playbackService.podcastResumeProvider = { [weak podcastLibraryService] videoID in
@@ -429,6 +448,7 @@ struct MusesApp: App {
                     }
                     .environment(libraryService)
                     .environment(playbackService)
+                    .environment(streamPrecacheService)
                     .environment(externalPlaybackRouter)
                     .environment(importService)
                     .environment(searchService)
@@ -472,48 +492,13 @@ struct MusesApp: App {
         .commands {
             MusesAppCommands(commandRegistry: commandRegistry, sleepTimer: sleepTimer, updater: updateService)
         }
-        Window(tr("Search Muses", "搜索 Muses"), id: SearchWindowPolicy.sceneID) {
-            ThemeApplier {
-                SearchWindowRoot()
-                    .environment(libraryService)
-                    .environment(playbackService)
-                    .environment(importService)
-                    .environment(searchService)
-                    .environment(playlistService)
-                    .environment(sleepTimer)
-                    .environment(globalSearchService)
-                    .environment(lyricsService)
-                    .environment(\.ytDlpBridge, ytDlpBridge)
-                    .environment(updateService)
-                    .environment(commandRegistry)
-                    .environment(runtimeCapabilities)
-                    .environment(historyService)
-                    .environment(contextService)
-                    .environment(sessionService)
-                    .environment(notesService)
-                    .environment(audioDeviceService)
-                    .environment(homeDiscoveryService)
-                    .environment(webHomeSessionController)
-                    .environment(situationalRecommendationService)
-                    .environment(youTubeAccountService)
-                    .environment(youTubePlaylistSyncService)
-                    .environment(youTubeCatalogService)
-                    .environment(podcastLibraryService)
-                    .modelContainer(modelContainer)
-            }
-        }
-        .windowStyle(.hiddenTitleBar)
-        .defaultPosition(.center)
-        .defaultSize(
-            width: SearchWindowPolicy.defaultWidth,
-            height: SearchWindowPolicy.defaultHeight
-        )
         // Mini player scene (its own WindowGroup, opened on demand via openWindow(id:)). Shares the same PlaybackService — no second engine.
         WindowGroup("MiniPlayer", id: "mini-player") {
             ThemeApplier {
                 MiniPlayerView()
                     .environment(libraryService)
                     .environment(playbackService)
+                    .environment(streamPrecacheService)
                     .environment(audioDeviceService)
                     .modelContainer(modelContainer)
             }

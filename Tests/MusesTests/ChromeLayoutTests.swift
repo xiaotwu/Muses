@@ -68,26 +68,17 @@ struct ChromeLayoutTests {
         #expect(ChromeGlyphStyle.selectedUsesAccent)
     }
 
-    @Test("search is one independent floating glass window")
+    @Test("search is an integrated browsing page")
     func searchWindowContract() {
         #expect(SearchChromePolicy.topResult(from: ["Alpha", "Alpine", "Beta"], query: "alp") == "Alpha")
-        #expect(SearchChromePolicy.presentsAsFloatingGlass)
+        #expect(!SearchChromePolicy.presentsAsFloatingGlass)
         #expect(SearchChromePolicy.panelMaxWidth == 680)
         #expect(SearchChromePolicy.panelCorner == 18)
         #expect(SearchChromePolicy.addMusicSystemImage == "plus")
-        #expect(SearchWindowPolicy.sceneID == "search")
-        #expect(SearchWindowPolicy.isSingleInstance)
-        #expect(SearchWindowPolicy.closesOnEscape)
-        #expect(SearchWindowPolicy.defaultWidth == 680)
-        #expect(SearchWindowPolicy.defaultHeight == 620)
-        #expect(SearchWindowPolicy.minimumWidth == 600)
-        #expect(SearchWindowPolicy.minimumHeight == 520)
-        #expect(SearchWindowPolicy.screenEdgeInset == 32)
-        #expect(SearchWindowPolicy.draggableHeaderHeight == 52)
-        #expect(SearchWindowPolicy.contentInset == 24)
-        #expect(SearchWindowPolicy.controlHeight == 44)
-        #expect(SearchWindowPolicy.sourceSegmentHeight == 34)
-        #expect(SearchWindowPolicy.resultRowHeight == 68)
+        #expect(SearchPagePolicy.contentInset == 24)
+        #expect(SearchPagePolicy.controlHeight == 44)
+        #expect(SearchPagePolicy.sourceSegmentHeight == 34)
+        #expect(SearchPagePolicy.resultRowHeight == 68)
     }
 
     @Test("dock lyrics stays in the dock while artwork owns Now Playing entry")
@@ -632,7 +623,7 @@ struct ChromeLayoutTests {
     func searchReadingSurfaceAvoidsFullWindowGlass() throws {
         let source = try readSource("Sources/Muses/Features/Search/GlobalSearchView.swift")
         #expect(!source.contains(".musesGlass(in: shape, role: .floatingPanel)"))
-        #expect(source.contains(".background(.background, in: shape)"))
+        #expect(source.contains(".background(BrandColors.background)"))
     }
 
     @Test("idle player bar preserves transport layout with a template mark")
@@ -720,8 +711,6 @@ struct ChromeLayoutTests {
         #expect(WindowChromeMetrics.defaultHeight == 800)
         #expect(WindowChromeMetrics.minimumWidth == 840)
         #expect(WindowChromeMetrics.minimumHeight == 600)
-        #expect(SearchWindowPolicy.defaultWidth == 680)
-        #expect(SearchWindowPolicy.defaultHeight == 620)
     }
 
     @Test("dead runtime capabilities and orphan lyrics flag stay gone")
@@ -844,7 +833,6 @@ struct ChromeLayoutTests {
         #expect(PlayerDockMetrics.height == AppleMusicTokens.capsuleHeight)
         #expect(AppleMusicTokens.sidebarWidth == 244)
         #expect(LibraryChromePolicy.sidebarIsPermanent)
-        #expect(SearchWindowPolicy.isSingleInstance)
         #expect(DockLyricsPolicy.action(nowPlayingOpen: false) == .toggleDrawer)
         #expect(ChromeGlyphStyle.selectedGlowRadius == 5)
         #expect(AppleMusicChrome.playerIsFloatingCapsule)

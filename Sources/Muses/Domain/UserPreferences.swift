@@ -134,6 +134,9 @@ enum PrefKey {
     static let lastAudibleVolume = "muses.playback.lastAudibleVolume"
     static let gpuAcceleration = "muses.gpuAcceleration"
     static let language = "muses.language"
+    static let streamPrecacheEnabled = "muses.stream.precacheEnabled"
+    static let streamPrecacheScope = "muses.stream.precacheScope"
+    static let streamPrecacheLimitGB = "muses.stream.precacheLimitGB"
     static let ytAudioQuality = "muses.yt.quality"
     /// IFrame suggested video quality: auto / hd1080 / hd720 / large / medium.
     static let ytVideoQuality = "muses.yt.videoQuality"

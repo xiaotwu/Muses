@@ -19,7 +19,6 @@ struct RootView: View {
     @Environment(PlaybackService.self) private var playback
     @Environment(PodcastLibraryService.self) private var podcasts
     @Environment(YouTubeCatalogService.self) private var catalog
-    @Environment(\.openWindow) private var openWindow
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var artworkWorld
     @State private var coverSlot: Anchor<CGRect>?
@@ -164,14 +163,14 @@ struct RootView: View {
             .buttonStyle(.automatic)
             .help(tr("Back", "后退", zhHant: "返回"))
             .keyboardShortcut("[", modifiers: .command)
-            .disabled((!showNowPlaying && !navigationHistory.canGoBack) || showYouTubeVideo)
+            .disabled((!showNowPlaying && !canNavigateBack) || showYouTubeVideo)
             Button { navigateHistory(back: false) } label: {
                 Label(tr("Forward", "前进", zhHant: "前進"), systemImage: "arrow.right")
             }
             .buttonStyle(.automatic)
             .help(tr("Forward", "前进", zhHant: "前進"))
             .keyboardShortcut("]", modifiers: .command)
-            .disabled(!navigationHistory.canGoForward || showNowPlaying || showYouTubeVideo)
+            .disabled(!canNavigateForward || showNowPlaying || showYouTubeVideo)
         }
         if showNowPlaying {
             if #available(macOS 26.0, *) {
@@ -189,7 +188,18 @@ struct RootView: View {
         }
     }
 
+    private var canNavigateBack: Bool {
+        navigationHistory.canGoBack || (section == .search && globalSearch.scope.searchesYouTube && globalSearch.musicCatalog.canGoBack)
+    }
+    private var canNavigateForward: Bool {
+        navigationHistory.canGoForward || (section == .search && globalSearch.scope.searchesYouTube && globalSearch.musicCatalog.canGoForward)
+    }
+
     private func navigateHistory(back: Bool) {
+        if section == .search && globalSearch.scope.searchesYouTube {
+            if back && globalSearch.musicCatalog.canGoBack { globalSearch.musicCatalog.back(); return }
+            if !back && globalSearch.musicCatalog.canGoForward { globalSearch.musicCatalog.forward(); return }
+        }
         guard let route = back ? navigationHistory.back() : navigationHistory.forward() else { return }
         applyBrowseRoute(route)
         navigationHistory.replaceCurrent(browseRoute)
@@ -273,7 +283,11 @@ struct RootView: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .musesFocusSearch)) { _ in
-                openWindow(id: SearchWindowPolicy.sceneID)
+                showNowPlaying = false
+                showYouTubeVideo = false
+                selectedPlaylist = nil
+                selectedYouTubeImport = nil
+                section = .search
             }
             .onChange(of: section) { _, new in
                 applySidebarSectionChange(new)
@@ -370,7 +384,7 @@ struct RootView: View {
         case .section(let destination):
             selectedCatalogRelease = nil
             selectedCatalogArtist = nil
-            section = destination == .search ? .home : destination
+            section = destination
         case .release(let release):
             selectedCatalogArtist = nil
             selectedCatalogRelease = release
@@ -527,7 +541,8 @@ struct RootView: View {
             case .new:
                 NewView()
             case .search:
-                HomeView()
+                GlobalSearchView(showYouTubeLink: $showYouTubeLink,
+                    onDismiss: { navigateHistory(back: true) }, onRoute: applySearchRoute)
             case .albums:
                 CatalogReleasesView(selection: $selectedCatalogRelease)
             case .artists:

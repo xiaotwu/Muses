@@ -166,6 +166,10 @@ final class PlaybackService {
         await engine.prewarmSelection(track)
     }
 
+    func prewarmSelections(_ tracks: [TrackSnapshot]) async {
+        await engine.prewarmSelections(tracks.filter { $0.id != state.track?.id })
+    }
+
     /// Preloads the next queued track into the current engine (the precondition for local gapless playback).
     private func prepareNext() {
         guard !queue.smartShuffle.enabled else { return }
@@ -515,7 +519,10 @@ final class PlaybackService {
         scheduleLoad(track, resumeMs: ms)
     }
 
+    var onForegroundLoad: (() -> Void)?
+
     private func scheduleLoad(_ track: TrackSnapshot, resumeMs: Double? = nil) {
+        onForegroundLoad?()
         activeLoadTask?.cancel()
         prepareTask?.cancel()
         retireVideoSession()

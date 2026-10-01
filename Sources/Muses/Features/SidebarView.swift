@@ -259,11 +259,6 @@ struct SidebarView: View {
     ) -> some View {
         let on = isNavSelected(tag)
         return Button {
-            if tag == .search {
-                NotificationCenter.default.post(name: .musesFocusSearch, object: nil)
-                extra?()
-                return
-            }
             selectedPlaylist = nil
             selectedYouTubeImport = nil
             selection = tag
@@ -313,7 +308,6 @@ struct SidebarView: View {
     }
 
     private func isNavSelected(_ tag: SidebarSection) -> Bool {
-        if tag == .search { return false }
         if tag == .playlists {
             return selection == .playlists && selectedPlaylist == nil && selectedYouTubeImport == nil
         }
@@ -324,11 +318,6 @@ struct SidebarView: View {
                         extra: (() -> Void)? = nil) -> some View {
         let on = isNavSelected(tag)
         return Button {
-            if tag == .search {
-                NotificationCenter.default.post(name: .musesFocusSearch, object: nil)
-                extra?()
-                return
-            }
             selectedPlaylist = nil
             selectedYouTubeImport = nil
             selection = tag

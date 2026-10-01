@@ -24,6 +24,7 @@ enum YTAudioQualityOption: String, CaseIterable {
 /// yt-dlp download quality + cache status. Changing quality reloads the current track.
 struct AudioQualitySettingsView: View {
     @Environment(PlaybackService.self) private var playback
+    @Environment(StreamPrecacheService.self) private var precache
     @AppStorage(PrefKey.ytAudioQuality) private var ytQuality: String = "bestaudio"
     @State private var cacheBytes: Int64 = 0
     @State private var pendingRemoval: ActionConfirmation?
@@ -43,6 +44,7 @@ struct AudioQualitySettingsView: View {
             }
             .pickerStyle(.menu)
             .onChange(of: ytQuality) { _, _ in
+                precache.configure()
                 playback.reloadCurrent()
                 cacheBytes = MediaFileCache.totalBytes()
             }

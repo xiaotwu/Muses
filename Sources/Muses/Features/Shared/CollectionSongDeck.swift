@@ -327,7 +327,8 @@ struct CollectionDeckStage<Controls: View>: View {
             catch { return }
             presentation?.focusedID = focusedID
             guard isInteractionEnabled, environmentIsEnabled, rows.indices.contains(focusedIndex) else { return }
-            await playback.prewarmSelection(rows[focusedIndex].snapshot)
+            let indices = [focusedIndex, focusedIndex + 1, focusedIndex - 1].filter { rows.indices.contains($0) }
+            await playback.prewarmSelections(indices.map { rows[$0].snapshot })
         }
         .onChange(of: rows) { _, _ in reconcileFocus() }
         .onDisappear {

@@ -25,14 +25,15 @@ extension EnvironmentValues {
 /// Neutral P2 action chrome; grouped actions share their parent's glass.
 struct CompactChromeSurface: ViewModifier {
     var selected = false
+    var destructive = false
     @Environment(\.groupedChromeActions) private var grouped
 
     @ViewBuilder func body(content: Content) -> some View {
         if grouped {
-            content.foregroundStyle(BrandColors.textPrimary)
+            content.foregroundStyle(destructive ? Color.red : BrandColors.textPrimary)
                 .background(selected ? BrandColors.accent.opacity(0.14) : .clear, in: Capsule())
         } else {
-            content.foregroundStyle(selected ? BrandColors.accent : BrandColors.textPrimary)
+            content.foregroundStyle(destructive ? Color.red : (selected ? BrandColors.accent : BrandColors.textPrimary))
                 .musesGlass(in: Capsule(), tint: selected ? BrandColors.accent.opacity(0.12) : nil, role: .compactControl)
         }
     }
@@ -94,7 +95,7 @@ struct MusesCompactButtonStyle: ButtonStyle {
             .frame(minWidth: 28, minHeight: 28)
             .padding(.horizontal, padded ? 12 : 0)
             .padding(.vertical, padded ? 8 : 0)
-            .modifier(CompactChromeSurface(selected: selected))
+            .modifier(CompactChromeSurface(selected: selected, destructive: configuration.role == .destructive))
             .contentShape(Capsule())
             .opacity(enabled ? 1 : 0.45)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
@@ -116,11 +117,11 @@ private struct MusesAction: ViewModifier {
     var prominent: Bool
     @ViewBuilder func body(content: Content) -> some View {
         if #available(macOS 26.0, *) {
-            if prominent { content.buttonStyle(.glassProminent).tint(BrandColors.accent) }
-            else { content.buttonStyle(.glass) }
+            if prominent { content.buttonStyle(.glassProminent).buttonBorderShape(.capsule).tint(BrandColors.accent) }
+            else { content.buttonStyle(.glass).buttonBorderShape(.capsule).tint(nil) }
         } else {
-            if prominent { content.buttonStyle(.borderedProminent).tint(BrandColors.accent) }
-            else { content.buttonStyle(.bordered) }
+            if prominent { content.buttonStyle(.borderedProminent).buttonBorderShape(.capsule).tint(BrandColors.accent) }
+            else { content.buttonStyle(.bordered).buttonBorderShape(.capsule).tint(nil) }
         }
     }
 }

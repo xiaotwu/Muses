@@ -84,7 +84,7 @@ enum ChromeGlyphStyle {
 }
 
 enum SearchChromePolicy {
-    static let presentsAsFloatingGlass = true
+    static let presentsAsFloatingGlass = false
     static let panelMaxWidth: CGFloat = 680
     static let panelCorner: CGFloat = 18
     static let addMusicSystemImage = "plus"
@@ -99,22 +99,12 @@ enum SearchChromePolicy {
     }
 }
 
-/// The Search destination is one auxiliary SwiftUI window sharing the app's
-/// service graph. It never replaces or renames the main browsing window.
-enum SearchWindowPolicy {
-    static let sceneID = "search"
-    static let defaultWidth: CGFloat = 680
-    static let defaultHeight: CGFloat = 620
-    static let minimumWidth: CGFloat = 600
-    static let minimumHeight: CGFloat = 520
-    static let screenEdgeInset: CGFloat = 32
-    static let draggableHeaderHeight: CGFloat = 52
+/// Search follows the main browsing page layout and native window history.
+enum SearchPagePolicy {
     static let contentInset: CGFloat = 24
     static let controlHeight: CGFloat = 44
     static let sourceSegmentHeight: CGFloat = 34
     static let resultRowHeight: CGFloat = 68
-    static let isSingleInstance = true
-    static let closesOnEscape = true
 }
 
 /// Open Design measurements for the All Playlists hero-card overview.
