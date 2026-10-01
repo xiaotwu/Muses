@@ -11,32 +11,115 @@ extension ButtonStyle where Self == FullAreaPlainButtonStyle {
     static var fullAreaPlain: Self { .init() }
 }
 
-/// Use the platform's interaction, focus, menu, and accessibility implementations.
-private struct MusesControls: ViewModifier {
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+private struct GroupedChromeActionsKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var groupedChromeActions: Bool {
+        get { self[GroupedChromeActionsKey.self] }
+        set { self[GroupedChromeActionsKey.self] = newValue }
+    }
+}
+
+/// Neutral P2 action chrome; grouped actions share their parent's glass.
+struct CompactChromeSurface: ViewModifier {
+    var selected = false
+    @Environment(\.groupedChromeActions) private var grouped
 
     @ViewBuilder func body(content: Content) -> some View {
-        if #available(macOS 26.0, *), !reduceTransparency {
-            content.buttonStyle(.glass)
-                .buttonBorderShape(.capsule)
-            .transaction { if reduceMotion { $0.animation = nil } }
+        if grouped {
+            content.foregroundStyle(BrandColors.textPrimary)
+                .background(selected ? BrandColors.accent.opacity(0.14) : .clear, in: Capsule())
         } else {
-            content.buttonStyle(.bordered)
+            content.foregroundStyle(selected ? BrandColors.accent : BrandColors.textPrimary)
+                .musesGlass(in: Capsule(), tint: selected ? BrandColors.accent.opacity(0.12) : nil, role: .compactControl)
         }
+    }
+}
+
+/// T3 auxiliary transport: the dock supplies glass; glyphs remain lightweight.
+struct MusesTransportButtonStyle: ButtonStyle {
+    var selected = false
+    @State private var hovered = false
+    @Environment(\.isEnabled) private var enabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(minWidth: 28, minHeight: 28)
+            .background(BrandColors.accent.opacity(selected ? 0.14 : (hovered || configuration.isPressed ? 0.08 : 0)), in: Capsule())
+            .contentShape(Capsule())
+            .opacity(enabled ? 1 : 0.45)
+            .onHover { hovered = $0 }
+    }
+}
+
+/// S2 single-selection item inside one neutral glass container.
+struct MusesSegmentButtonStyle: ButtonStyle {
+    var selected = false
+    @Environment(\.isEnabled) private var enabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(BrandColors.accent.opacity(selected ? 0.15 : (configuration.isPressed ? 0.06 : 0)), in: Capsule())
+            .contentShape(Capsule())
+            .opacity(enabled ? 1 : 0.45)
+    }
+}
+
+/// T3 clear playback core, with a restrained champagne-gold tint and a luminous rim.
+struct PlaybackCoreSurface: ViewModifier {
+    func body(content: Content) -> some View {
+        content.foregroundStyle(BrandColors.playback)
+            .musesGlass(in: Circle(), tint: BrandColors.accent.opacity(0.14), role: .artworkControl)
+    }
+}
+
+extension ButtonStyle where Self == MusesTransportButtonStyle {
+    static var musesTransport: Self { .init() }
+    static func musesTransport(selected: Bool) -> Self { .init(selected: selected) }
+}
+
+extension ButtonStyle where Self == MusesSegmentButtonStyle {
+    static func musesSegment(selected: Bool) -> Self { .init(selected: selected) }
+}
+
+struct MusesCompactButtonStyle: ButtonStyle {
+    var padded = false
+    var selected = false
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(minWidth: 28, minHeight: 28)
+            .padding(.horizontal, padded ? 12 : 0)
+            .padding(.vertical, padded ? 8 : 0)
+            .modifier(CompactChromeSurface(selected: selected))
+            .contentShape(Capsule())
+            .opacity(enabled ? 1 : 0.45)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+    }
+}
+
+extension ButtonStyle where Self == MusesCompactButtonStyle {
+    static var musesCompact: Self { .init() }
+    static func musesCompact(selected: Bool) -> Self { .init(selected: selected) }
+}
+
+private struct MusesControls: ViewModifier {
+    func body(content: Content) -> some View {
+        content.buttonStyle(.automatic)
     }
 }
 
 private struct MusesAction: ViewModifier {
     var prominent: Bool
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-
     @ViewBuilder func body(content: Content) -> some View {
-        if #available(macOS 26.0, *), !reduceTransparency {
-            if prominent { content.buttonStyle(.glassProminent).buttonBorderShape(.capsule) }
-            else { content.buttonStyle(.glass).buttonBorderShape(.capsule) }
+        if #available(macOS 26.0, *) {
+            if prominent { content.buttonStyle(.glassProminent).tint(BrandColors.accent) }
+            else { content.buttonStyle(.glass) }
         } else {
-            if prominent { content.buttonStyle(.borderedProminent) }
+            if prominent { content.buttonStyle(.borderedProminent).tint(BrandColors.accent) }
             else { content.buttonStyle(.bordered) }
         }
     }
@@ -49,7 +132,7 @@ extension View {
     }
 }
 
-/// A compact, keyboard-accessible choice group with one moving glass selection.
+/// A compact, keyboard-accessible choice group with a pale champagne-gold selection.
 struct SettingsGlassChoice: View {
     struct Option: Identifiable {
         let id: String
@@ -59,10 +142,7 @@ struct SettingsGlassChoice: View {
     let title: String
     @Binding var selection: String
     let options: [Option]
-    @Namespace private var glassSelection
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         MusesGlassGroup(spacing: 8) { choices }
@@ -78,13 +158,13 @@ struct SettingsGlassChoice: View {
                 } label: {
                     choiceLabel(option)
                 }
-                .buttonStyle(.fullAreaPlain)
+                .buttonStyle(.musesSegment(selected: selection == option.id))
                 .accessibilityAddTraits(selection == option.id ? .isSelected : [])
                 .help(option.title)
             }
         }
         .padding(6)
-        .background(.primary.opacity(0.045), in: Capsule())
+        .musesGlass(in: Capsule(), role: .compactControl)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(title)
     }
@@ -92,21 +172,11 @@ struct SettingsGlassChoice: View {
     @ViewBuilder private func choiceLabel(_ option: Option) -> some View {
         let label = Label(option.title, systemImage: option.symbol)
             .font(.body.weight(selection == option.id ? .semibold : .regular))
-            .foregroundStyle(selection == option.id ? BrandColors.selectionText : BrandColors.textPrimary)
+            .foregroundStyle(selection == option.id ? BrandColors.heading : BrandColors.heading.opacity(0.85))
             .frame(maxWidth: .infinity, minHeight: 42)
             .padding(.horizontal, 12)
             .contentShape(Capsule())
-        if selection == option.id {
-            if #available(macOS 26.0, *), !reduceTransparency, contrast != .increased {
-                label.glassEffect(.regular.tint(BrandColors.selectionFill).interactive(!reduceMotion), in: Capsule())
-                    .glassEffectID("selection", in: glassSelection)
-            } else {
-                label.background(BrandColors.selectionFill, in: Capsule())
-                    .overlay(Capsule().strokeBorder(.primary.opacity(0.5), lineWidth: 1))
-            }
-        } else {
-            label
-        }
+        label
     }
 }
 

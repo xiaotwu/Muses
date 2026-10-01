@@ -112,9 +112,9 @@ struct TrackSnapshot: Identifiable, Equatable, Sendable, Codable {
             if index == selected { return playing }
             return TrackSnapshot(
                 id: UUID(),
-                title: entry.title,
-                artist: entry.uploader ?? "",
-                albumTitle: nil,
+                title: entry.track ?? entry.title,
+                artist: entry.artist ?? entry.uploader ?? "",
+                albumTitle: entry.album,
                 durationSeconds: entry.duration ?? 0,
                 youTubeId: entry.id,
                 artworkUrl: YouTubeThumbnail.urlString(videoId: entry.id),

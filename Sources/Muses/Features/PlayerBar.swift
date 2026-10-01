@@ -14,6 +14,9 @@ enum PlayerDockMetrics {
 }
 
 struct PlayerBar: View {
+    @Environment(YouTubeImportService.self) private var importService: YouTubeImportService?
+    @State private var presentationRow: CollectionTrackRow?
+    @State private var songMetadata: YTDlpBridge.YTDlpPlaylistEntry?
     @Environment(PlaybackService.self) private var playback
     var lyricsActive: Bool = false
     var queueActive: Bool = false
@@ -30,40 +33,52 @@ struct PlayerBar: View {
     @FocusState private var artworkFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private var songInformation: SongDisplayInformation? {
+        guard let current = playback.state.track else { return nil }
+        let row = presentationRow.flatMap { $0.snapshot.id == current.id ? $0 : nil }
+            ?? CollectionTrackRow(snapshot: current, canonicalIndex: 0)
+        return SongDisplayInformation(row: row, metadata: songMetadata)
+    }
+
     var body: some View {
         let shape = RoundedRectangle(
             cornerRadius: AppleMusicTokens.capsuleCorner,
             style: .continuous
         )
-        HStack(spacing: 12) {
-            PlaybackTransport()
-                .disabled(!hasTrack)
-                .opacity(hasTrack ? 1 : 0.45)
-            Group {
-                if hasTrack { playingIdentity } else { idleIdentity }
-            }
-            .frame(maxWidth: .infinity)
-            trailing
-
-        }
-        .padding(.horizontal, 14)
-        .frame(maxWidth: AppleMusicTokens.capsuleWidth)
-        .frame(height: PlayerDockMetrics.height)
-        .musesGlass(in: shape, role: .player)
-        .overlay(alignment: .top) {
-            if PlayerIdlePolicy.showsProgress(hasTrack: hasTrack) {
-                progressTrack
+        MusesGlassGroup {
+            HStack(spacing: 12) {
+                PlaybackTransport()
                     .disabled(!hasTrack)
-                    .padding(.horizontal, PlayerDockMetrics.progressHorizontalInset)
-                    .padding(.top, PlayerDockMetrics.progressTopInset)
+                    .opacity(hasTrack ? 1 : 0.45)
+                Group {
+                    if hasTrack { playingIdentity } else { idleIdentity }
+                }
+                .frame(maxWidth: .infinity)
+                trailing
+
+            }
+            .padding(.horizontal, 14)
+            .frame(maxWidth: AppleMusicTokens.capsuleWidth)
+            .frame(height: PlayerDockMetrics.height)
+            .musesGlass(in: shape, role: .browsingPlayer)
+            .overlay(alignment: .top) {
+                if PlayerIdlePolicy.showsProgress(hasTrack: hasTrack) {
+                    progressTrack
+                        .disabled(!hasTrack)
+                        .padding(.horizontal, PlayerDockMetrics.progressHorizontalInset)
+                        .padding(.top, PlayerDockMetrics.progressTopInset)
+                }
             }
         }
-        .clipShape(shape)
-        .overlay(
-            RoundedRectangle(cornerRadius: AppleMusicTokens.capsuleCorner, style: .continuous)
-                .stroke(BrandColors.textPrimary.opacity(0.08), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
+        .task(id: playback.state.track?.id) {
+            songMetadata = nil
+            presentationRow = nil
+            guard let current = playback.state.track, let importService else { return }
+            presentationRow = importService.songPresentationRow(for: current)
+            let metadata = await importService.songMetadata(videoID: current.youTubeId)
+            guard !Task.isCancelled, playback.state.track?.id == current.id else { return }
+            songMetadata = metadata
+        }
         .contextMenu {
             Button(tr("Lyrics", "歌词")) { onLyricsTap() }
                 .disabled(playback.state.track == nil)
@@ -154,7 +169,7 @@ struct PlayerBar: View {
             Image(nsImage: TrayIcon.menuBarImage)
                 .resizable()
                 .scaledToFit()
-                .foregroundStyle(BrandColors.textPrimary)
+                .foregroundStyle(.primary)
                 .padding(8)
                 .frame(width: PlayerDockMetrics.art, height: PlayerDockMetrics.art)
                 .background(BrandColors.textPrimary.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
@@ -162,13 +177,13 @@ struct PlayerBar: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(tr("Not Playing", "未在播放"))
                     .font(MusesTypography.song(size: 13, emphasized: true))
-                    .foregroundStyle(BrandColors.textPrimary)
-                Text("Muses").font(.caption).foregroundStyle(BrandColors.textSecondary)
+                    .foregroundStyle(.primary)
+                Text("Muses").font(.caption).foregroundStyle(.primary).opacity(0.78)
             }
             .lineLimit(1)
             Spacer(minLength: 8)
             Text("— / —").font(.caption2.monospacedDigit())
-                .foregroundStyle(BrandColors.textSecondary)
+                .foregroundStyle(.primary).opacity(0.78)
                 .accessibilityHidden(true)
         }
         .accessibilityElement(children: .combine)
@@ -200,14 +215,14 @@ struct PlayerBar: View {
             ))
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(playback.state.track?.title ?? "")
-                    .font(MusesTypography.song(size: 13, emphasized: true, text: playback.state.track?.title ?? ""))
-                    .foregroundStyle(BrandColors.textPrimary)
+                Text(songInformation?.title ?? "")
+                    .font(MusesTypography.song(size: 13, emphasized: true, text: songInformation?.title ?? ""))
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                Text(playback.state.track?.artist ?? "")
+                Text(songInformation?.artist ?? "")
                     .font(MusesTypography.song(size: 12))
-                    .foregroundStyle(BrandColors.textSecondary)
+                    .foregroundStyle(.primary).opacity(0.78)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -217,7 +232,8 @@ struct PlayerBar: View {
             let currentPos = isDraggingScrubber ? scrubFraction * playback.state.duration : playback.state.position
             Text("\(format(currentPos))  /  \(format(playback.state.duration))")
                 .font(.caption2.monospacedDigit())
-                .foregroundStyle(isDraggingScrubber ? BrandColors.accent : BrandColors.textSecondary)
+                .foregroundStyle(isDraggingScrubber ? AnyShapeStyle(BrandColors.accent) : AnyShapeStyle(.primary))
+                .opacity(isDraggingScrubber ? 1 : 0.78)
                 .fixedSize()
         }
     }
@@ -239,7 +255,7 @@ struct PlayerBar: View {
                     ChromeGlyph(systemName: volumeIcon, selected: showVolume,
                                 size: 14, hit: PlayerDockMetrics.play)
                 }
-                .buttonStyle(.fullAreaPlain)
+                .buttonStyle(.musesTransport)
                 .help(tr("Volume", "音量"))
                 .accessibilityLabel(tr("Volume", "音量"))
                 .accessibilityValue("\(Int((playback.volume * 100).rounded()))%")
@@ -260,7 +276,7 @@ struct PlayerBar: View {
                 .frame(width: PlayerDockMetrics.icon, height: PlayerDockMetrics.icon)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.fullAreaPlain)
+        .buttonStyle(.musesTransport)
         .help(tr("Watch YouTube video", "观看 YouTube 视频"))
         .accessibilityLabel(tr("Watch YouTube video", "观看 YouTube 视频"))
         .opacity(playback.state.track?.youTubeId == nil ? 0.35 : 1)
@@ -280,7 +296,7 @@ struct PlayerBar: View {
         Button(action: action) {
             ChromeGlyph(systemName: system, selected: selected, size: 13, hit: PlayerDockMetrics.icon)
         }
-        .buttonStyle(.fullAreaPlain)
+        .buttonStyle(.musesTransport(selected: selected))
         .help(help)
         .accessibilityLabel(help)
         .accessibilityValue(selected ? tr("On", "开启") : tr("Off", "关闭"))
@@ -325,10 +341,10 @@ struct PlaybackTransport: View {
                             .rotationEffect(.degrees(-90))
                             .frame(width: playHit + 5, height: playHit + 5)
                     }
-                    Circle().fill(BrandColors.playback)
+                    Circle().fill(Color.clear)
                     Image(systemName: playback.state.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(BrandColors.onPlayback)
+                        .foregroundStyle(BrandColors.playback)
                         .offset(x: playback.state.isPlaying ? 0 : 1)
                 }
                 .frame(width: playHit, height: playHit)
@@ -337,6 +353,7 @@ struct PlaybackTransport: View {
                 .offset(y: isPlayHovered && !reduceMotion ? -1 : 0)
             }
             .buttonStyle(.fullAreaPlain)
+            .modifier(PlaybackCoreSurface())
             .onHover { isPlayHovered = $0 }
             .animation(MusesMotion.hoverAnimation(reduceMotion: reduceMotion), value: isPlayHovered)
             .help(playback.state.isPlaying ? tr("Pause", "暂停") : tr("Play", "播放"))
@@ -344,23 +361,7 @@ struct PlaybackTransport: View {
             transportButton("forward.fill", help: tr("Next", "下一首")) {
                 playback.next()
             }
-            transportButton(repeatIcon,
-                            selected: playback.queue.repeatMode != .off,
-                            help: repeatHelp) {
-                playback.queue.setRepeat(playback.queue.repeatMode.next)
-            }
-        }
-    }
-
-    private var repeatIcon: String {
-        playback.queue.repeatMode == .one ? "repeat.1" : "repeat"
-    }
-
-    private var repeatHelp: String {
-        switch playback.queue.repeatMode {
-        case .off: tr("Repeat: Off", "循环:关")
-        case .one: tr("Repeat: One", "循环:单曲")
-        case .all: tr("Repeat: Playlist", "循环:歌单")
+            RepeatPlaybackButton(hit: iconHit, iconSize: iconSize)
         }
     }
 
@@ -369,9 +370,39 @@ struct PlaybackTransport: View {
         Button(action: action) {
             ChromeGlyph(systemName: system, selected: selected, size: iconSize, hit: iconHit)
         }
-        .buttonStyle(.fullAreaPlain)
+        .buttonStyle(.musesTransport(selected: selected))
         .help(help)
         .accessibilityLabel(help)
+        .accessibilityValue(selected ? tr("On", "开启") : tr("Off", "关闭"))
+    }
+}
+
+/// Apple Music-style repeat state: no fill when off, highlighted only when enabled.
+struct RepeatPlaybackButton: View {
+    var hit: CGFloat = 28
+    var iconSize: CGFloat = 13
+    @Environment(PlaybackService.self) private var playback
+
+    private var selected: Bool { playback.queue.repeatMode != .off }
+    private var label: String {
+        switch playback.queue.repeatMode {
+        case .off: tr("Repeat: Off", "循环:关")
+        case .all: tr("Repeat: Playlist", "循环:歌单")
+        case .one: tr("Repeat: One", "循环:单曲")
+        }
+    }
+
+    var body: some View {
+        Button { playback.queue.setRepeat(playback.queue.repeatMode.next) } label: {
+            Image(systemName: playback.queue.repeatMode == .one ? "repeat.1" : "repeat")
+                .font(.system(size: iconSize, weight: .semibold))
+                .foregroundStyle(selected ? AnyShapeStyle(BrandColors.accent) : AnyShapeStyle(.primary))
+                .frame(width: max(28, hit), height: max(28, hit))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.musesTransport(selected: selected))
+        .help(label)
+        .accessibilityLabel(label)
         .accessibilityValue(selected ? tr("On", "开启") : tr("Off", "关闭"))
     }
 }

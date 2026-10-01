@@ -156,7 +156,7 @@ struct ChromeLayoutTests {
     func liveSpacingTokens() {
         #expect(AppleMusicTokens.sidebarInset == 8)
         #expect(AppleMusicTokens.sidebarWidth == 244)
-        #expect(AppleMusicTokens.playerBottomMargin == 64)
+        #expect(AppleMusicTokens.playerBottomMargin == 52)
         #expect(AppleMusicTokens.playerHorizontalMargin == 16)
         #expect(AppleMusicTokens.editorialWidth == 540)
         #expect(AppleMusicTokens.editorialHeight == 309)

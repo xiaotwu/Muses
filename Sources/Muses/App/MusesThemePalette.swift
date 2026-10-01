@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Approved T3C palette: indigo navigation, graphite playback, mist-gray surfaces.
+/// Approved G1 palette: champagne-gold accents, graphite playback, warm-white surfaces.
 enum MusesThemePalette {
     enum Role: CaseIterable {
         case accent, heading, selectionText, selectionFill, playback, onPlayback
@@ -10,14 +10,15 @@ enum MusesThemePalette {
 
     static func hex(_ role: Role, dark: Bool, highContrast: Bool = false) -> String {
         switch role {
-        case .accent: return dark ? "C0B0FF" : (highContrast ? "4D408D" : "6554C0")
-        case .heading, .selectionText: return dark ? "C0B0FF" : "4D408D"
-        case .selectionFill: return dark ? "353942" : "E6E7EB"
-        case .playback: return dark ? "BDCADD" : "465469"
-        case .onPlayback: return dark ? "151D29" : "FFFFFF"
-        case .page: return highContrast ? (dark ? "000000" : "FFFFFF") : (dark ? "191D25" : "FAFBFD")
-        case .surface: return dark ? "282D37" : "F1F2F5"
-        case .sidebar: return dark ? "282B32" : "F1F2F5"
+        // Deepen the light accent for small glyphs and text on warm glass surfaces.
+        case .accent: return dark ? "DFC28B" : (highContrast ? "6D522C" : "86632E")
+        case .heading, .selectionText: return dark ? "F5E3BF" : "6D522C"
+        case .selectionFill: return dark ? "4F4635" : "EEE4D1"
+        case .playback: return dark ? "C7CDD4" : "44505C"
+        case .onPlayback: return dark ? "182029" : "FFFFFF"
+        case .page: return highContrast ? (dark ? "000000" : "FFFFFF") : (dark ? "211F1B" : "FCFAF6")
+        case .surface: return dark ? "302B23" : "F0ECE4"
+        case .sidebar: return dark ? "2C2821" : "F2EEE6"
         }
     }
 

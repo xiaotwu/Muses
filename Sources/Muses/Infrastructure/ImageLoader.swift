@@ -11,11 +11,13 @@ import ImageIO
 final class ImageLoader {
     static let shared = ImageLoader()
 
+    private let session: URLSession
     private let memory: NSCache<NSString, NSImage> = .init()
     /// In-flight requests (URL -> Task), used for coalescing.
     private var inFlight: [String: Task<NSImage?, Never>] = [:]
 
-    init() {
+    init(session: URLSession = .shared) {
+        self.session = session
         // ~50MB memory cap, enough for dozens of covers on Home.
         memory.countLimit = 256
         memory.totalCostLimit = 50 * 1024 * 1024
@@ -38,10 +40,16 @@ final class ImageLoader {
         let task = Task<NSImage?, Never> { [self] in
             defer { self.inFlight[keyStr] = nil }
             do {
-                let (data, _) = try await URLSession.shared.data(from: url)
+                let (data, response) = try await session.data(from: url)
+                guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else { return nil }
                 guard !Task.isCancelled,
                       let decoded = await ArtworkImageDecoder.shared.decode(data, url: url),
                       !Task.isCancelled else { return nil }
+                // Missing high-resolution YouTube thumbnails can return a tiny placeholder with HTTP 200.
+                if url.host == "i.ytimg.com" || url.host == "img.youtube.com" {
+                    if ["maxresdefault", "sddefault"].contains(url.deletingPathExtension().lastPathComponent),
+                       decoded.width < 480 { return nil }
+                }
                 let img = NSImage(cgImage: decoded, size: NSSize(width: decoded.width, height: decoded.height))
                 self.memory.setObject(img, forKey: key, cost: decoded.bytesPerRow * decoded.height)
                 return img
@@ -60,6 +68,7 @@ final class ImageLoader {
 struct CachedAsyncImage<Content: View, Placeholder: View>: View {
     let url: URL?
     var lowResURL: URL? = nil
+    var fallbackURLs: [URL] = []
     private let renderer: (Image) -> Content
     private let placeholderView: Placeholder
 
@@ -67,15 +76,17 @@ struct CachedAsyncImage<Content: View, Placeholder: View>: View {
     @State private var loadedIdentity: String?
 
     private var requestIdentity: String {
-        "\(url?.absoluteString ?? "nil")#\(lowResURL?.absoluteString ?? "nil")"
+        "\(url?.absoluteString ?? "nil")#\(lowResURL?.absoluteString ?? "nil")#\(fallbackURLs.map(\.absoluteString).joined(separator: "|"))"
     }
 
     init(url: URL?,
          lowResURL: URL? = nil,
+         fallbackURLs: [URL] = [],
          @ViewBuilder content: @escaping (Image) -> Content,
          @ViewBuilder placeholder: () -> Placeholder) {
         self.url = url
         self.lowResURL = lowResURL
+        self.fallbackURLs = fallbackURLs
         self.renderer = content
         self.placeholderView = placeholder()
     }
@@ -109,12 +120,10 @@ struct CachedAsyncImage<Content: View, Placeholder: View>: View {
             PerfTrace.event("artwork.firstVisible")
             return
         }
-        // Low-resolution first: if provided and not cached, load the low-res
-        // image first, then upgrade.
-        if let low = lowResURL, low != url,
-           ImageLoader.shared.cachedImage(for: low) == nil {
-            let lowTask = ImageLoader.shared.load(low)
-            if let lowImg = await lowTask.value,
+        // Show the cached or fetched preview first, then upgrade without blanking it.
+        if let low = lowResURL, low != url {
+            let lowImg = await ImageLoader.shared.load(low).value
+            if let lowImg,
                requestIdentity == expectedIdentity,
                !Task.isCancelled {
                 image = lowImg
@@ -122,13 +131,15 @@ struct CachedAsyncImage<Content: View, Placeholder: View>: View {
                 PerfTrace.event("artwork.firstVisible")
             }
         }
-        let task = ImageLoader.shared.load(url)
-        if let img = await task.value,
-           requestIdentity == expectedIdentity,
-           !Task.isCancelled {
-            image = img
-            loadedIdentity = expectedIdentity
-            PerfTrace.event("artwork.firstVisible")
+        for candidate in [url] + fallbackURLs {
+            guard requestIdentity == expectedIdentity, !Task.isCancelled else { return }
+            if let img = await ImageLoader.shared.load(candidate).value,
+               requestIdentity == expectedIdentity, !Task.isCancelled {
+                image = img
+                loadedIdentity = expectedIdentity
+                PerfTrace.event("artwork.firstVisible")
+                return
+            }
         }
     }
 }

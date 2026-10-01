@@ -16,6 +16,8 @@ struct NowPlayingLayout: Equatable {
     static let liveCoverPlayingScale: CGFloat = 1.06
     static let vinylVerticalOffset: CGFloat = -12
     static let edgeInset: CGFloat = 22
+    static let dockBottomInset: CGFloat = 52
+    static let artworkIdentityGap: CGFloat = 32
     static let topControlHeight: CGFloat = 32
     static let trafficLightControlGap: CGFloat = edgeInset
 
@@ -77,7 +79,7 @@ struct NowPlayingLayout: Equatable {
         }
 
         let stageSide = min(showsLyrics ? 420 : 620,
-                            max(200, min(safeWidth - 64, safeHeight - 270)))
+                            max(200, min(safeWidth - 64, safeHeight - (showsLyrics ? 270 : 340))))
         let slotSide = stageSide / artworkScale
         return Self(
             presentation: presentation,
@@ -173,6 +175,10 @@ struct NowPlayingView: View {
     @State private var lyricsInteractionPresented = false
     @State private var chaptersPresented = false
     @State private var seekValue: Double = 0
+    @State private var volumePresented = false
+    @State private var lastVolumeEscapeTimestamp: TimeInterval?
+    @State private var volumeEscapeHandled = false
+    @State private var volumeEscapePending = false
     @State private var rememberedAudibleVolume = NowPlayingVolumePolicy.fallbackAudibleVolume
     @State private var presentationRow: CollectionTrackRow?
     @State private var songMetadata: YTDlpBridge.YTDlpPlaylistEntry?
@@ -216,16 +222,16 @@ struct NowPlayingView: View {
                         case .stacked:
                             stackedContent(layout)
                         case .centered:
-                            leftColumn(layout)
+                            leftColumn(layout, centered: true)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 .padding(.bottom, 180)
                         }
                     }
                 }
                 if playback.state.track != nil, !lyricsFullscreen {
-                    playbackDock(width: min(820, max(280, proxy.size.width - 48)))
+                    playbackDock(width: min(668, max(280, proxy.size.width - 48)))
                         .frame(maxWidth: .infinity)
-                        .padding(.bottom, 24)
+                        .padding(.bottom, NowPlayingLayout.dockBottomInset)
                 }
             }
         }
@@ -240,16 +246,16 @@ struct NowPlayingView: View {
         }
         .onExitCommand {
             guard acceptsGlobalKeyEvents, !chaptersPresented else { return }
-            isPresented = false
+            handleEscape()
         }
         .onKeyPress(.space) {
-            guard acceptsGlobalKeyEvents, !chaptersPresented else { return .ignored }
+            guard acceptsGlobalKeyEvents, !chaptersPresented, !volumePresented else { return .ignored }
             playback.toggle()
             return .handled
         }
         .onKeyPress(.escape) {
             guard acceptsGlobalKeyEvents, !chaptersPresented else { return .ignored }
-            isPresented = false
+            handleEscape()
             return .handled
         }
         .onAppear {
@@ -258,12 +264,18 @@ struct NowPlayingView: View {
                 previous: rememberedAudibleVolume
             )
             escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                if isPresented, volumeEscapePending, event.keyCode == 53 {
+                    dismissVolumeForEscape(event.timestamp)
+                    return nil
+                }
+                if event.keyCode == 53, event.timestamp == lastVolumeEscapeTimestamp { return nil }
                 if isPresented, chaptersPresented, event.keyCode == 53,
                    event.window?.identifier == MusesSingleInstance.mainWindowIdentifier {
                     chaptersPresented = false
                     return nil
                 }
-                guard acceptsGlobalKeyEvents, !chaptersPresented else { return event }
+                guard acceptsGlobalKeyEvents, !chaptersPresented,
+                      event.window?.identifier == MusesSingleInstance.mainWindowIdentifier else { return event }
                 if event.keyCode == 53 {
                     isPresented = false
                     return nil
@@ -274,6 +286,11 @@ struct NowPlayingView: View {
         .onChange(of: playback.state.track?.id) {
             seeking = false
             chaptersPresented = false
+        }
+        .onChange(of: volumePresented) { _, presented in
+            if !presented, NSApp.currentEvent?.type == .leftMouseDown {
+                volumeEscapePending = false
+            }
         }
         .onChange(of: playback.volume) { _, volume in
             rememberedAudibleVolume = NowPlayingVolumePolicy.rememberedAudibleVolume(
@@ -287,6 +304,22 @@ struct NowPlayingView: View {
                 self.escapeMonitor = nil
             }
         }
+    }
+
+    /// A native popover and its parent can both receive cancellation for the same key event.
+    private func dismissVolumeForEscape(_ timestamp: TimeInterval? = nil) {
+        lastVolumeEscapeTimestamp = timestamp ?? NSApp.currentEvent?.timestamp
+        volumePresented = false
+        volumeEscapePending = false
+        volumeEscapeHandled = true
+        DispatchQueue.main.async { volumeEscapeHandled = false }
+    }
+
+    private func handleEscape() {
+        if volumeEscapePending { dismissVolumeForEscape() }
+        else if volumeEscapeHandled { return }
+        else if let event = NSApp.currentEvent, event.timestamp == lastVolumeEscapeTimestamp { return }
+        else { isPresented = false }
     }
 
     private var acceptsGlobalKeyEvents: Bool {
@@ -330,15 +363,15 @@ struct NowPlayingView: View {
         .scrollIndicators(.hidden)
     }
 
-    private func leftColumn(_ layout: NowPlayingLayout) -> some View {
+    private func leftColumn(_ layout: NowPlayingLayout, centered: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack {
                 centerContent(size: layout.artworkSlotSide, scale: layout.artworkScale)
             }
             .frame(width: layout.stageSide, height: layout.stageSide)
 
-            trackIdentity
-                .padding(.top, 14)
+            trackIdentity(centered: centered)
+                .padding(.top, NowPlayingLayout.artworkIdentityGap)
 
         }
         .frame(width: layout.stageSide)
@@ -353,16 +386,16 @@ struct NowPlayingView: View {
                 }
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 20) {
-                        lyricsToggle
+                        RepeatPlaybackButton(hit: 34, iconSize: 14)
                         transportRow.frame(width: 300)
-                        LiquidGlassVolumeBar(width: 250, height: 36, drawsGlass: false)
+                        volumePopoverButton
                     }
                     VStack(spacing: 8) {
                         transportRow
                         HStack {
-                            lyricsToggle
+                            RepeatPlaybackButton(hit: 34, iconSize: 14)
                             Spacer()
-                            LiquidGlassVolumeBar(width: min(250, width - 100), height: 36, drawsGlass: false)
+                            volumePopoverButton
                         }
                     }
                 }
@@ -375,38 +408,76 @@ struct NowPlayingView: View {
         }
     }
 
+    private var volumePopoverButton: some View {
+        Button {
+            volumeEscapePending = !volumePresented
+            volumePresented.toggle()
+        } label: {
+            Image(systemName: playback.volume <= 0.001 ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .frame(width: 34, height: 34)
+        }
+        .buttonStyle(.musesTransport)
+        .help(tr("Volume", "音量"))
+        .accessibilityLabel(tr("Volume", "音量"))
+        .accessibilityValue("\(Int((playback.volume * 100).rounded()))%")
+        .popover(isPresented: $volumePresented, arrowEdge: .top) {
+            LiquidGlassVolumeBar(width: 330, height: 60, scaleStyle: .dots)
+                .padding(12)
+                .preferredColorScheme(.dark)
+                .onExitCommand { dismissVolumeForEscape() }
+                .onKeyPress(.escape) {
+                    dismissVolumeForEscape()
+                    return .handled
+                }
+        }
+    }
+
     private var lyricsToggle: some View {
         Button { showLyrics.toggle() } label: {
             Image(systemName: "quote.bubble")
                 .font(.system(size: 15, weight: .semibold))
                 .frame(width: 34, height: 34)
-                .background(showLyrics ? BrandColors.textPrimary.opacity(0.12) : .clear, in: Circle())
+                .overlay(alignment: .bottom) {
+                    if showLyrics { Circle().fill(BrandColors.accent).frame(width: 4, height: 4) }
+                }
         }
-        .buttonStyle(.fullAreaPlain)
+        .buttonStyle(.musesTransport(selected: showLyrics))
         .help(tr("Show lyrics", "显示歌词"))
         .accessibilityLabel(tr("Show lyrics", "显示歌词"))
         .accessibilityValue(showLyrics ? tr("On", "开") : tr("Off", "关"))
     }
 
-    private var trackIdentity: some View {
-        HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(songInformation?.title ?? "—")
-                    .font(MusesTypography.song(size: 20, emphasized: true, text: songInformation?.title ?? ""))
-                    .foregroundStyle(BrandColors.textPrimary)
-                    .lineLimit(2)
-
-                Text(subtitleLine)
-                    .font(MusesTypography.song(size: 14))
-                    .foregroundStyle(BrandColors.textPrimary.opacity(0.7))
-                    .lineLimit(1)
+    @ViewBuilder private func trackIdentity(centered: Bool = false) -> some View {
+        if centered {
+            VStack(spacing: 12) {
+                identityText(centered: true)
+                HStack(spacing: 10) { likeButton; moreMenu }
             }
-
-            Spacer(minLength: 8)
-            likeButton
-            moreMenu
+            .frame(maxWidth: .infinity)
+        } else {
+            HStack(alignment: .top, spacing: 10) {
+                identityText(centered: false)
+                Spacer(minLength: 8)
+                likeButton
+                moreMenu
+            }
+            .frame(minHeight: 48, alignment: .top)
         }
-        .frame(minHeight: 48, alignment: .top)
+    }
+
+    private func identityText(centered: Bool) -> some View {
+        VStack(alignment: centered ? .center : .leading, spacing: 3) {
+            Text(songInformation?.title ?? "—")
+                .font(MusesTypography.song(size: 20, emphasized: true, text: songInformation?.title ?? ""))
+                .foregroundStyle(BrandColors.textPrimary)
+                .lineLimit(2)
+            Text(subtitleLine)
+                .font(MusesTypography.song(size: 14))
+                .foregroundStyle(BrandColors.textPrimary.opacity(0.7))
+                .lineLimit(1)
+        }
+        .multilineTextAlignment(centered ? .center : .leading)
     }
 
     private var moreMenu: some View {
@@ -458,12 +529,11 @@ struct NowPlayingView: View {
         } label: {
             Image(systemName: liked ? "star.fill" : "star")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(liked ? BrandColors.accent : BrandColors.textPrimary.opacity(0.78))
+                .foregroundStyle(liked ? BrandColors.accent : BrandColors.textPrimary.opacity(0.85))
                 .frame(width: 28, height: 28)
-                .background(BrandColors.textPrimary.opacity(0.12), in: Circle())
                 .contentShape(Circle())
         }
-        .buttonStyle(.fullAreaPlain)
+        .buttonStyle(.musesTransport(selected: liked))
         .help(liked ? tr("Unlike", "取消收藏") : tr("Like", "收藏"))
         .accessibilityLabel(liked
             ? tr("Unlike current song", "取消收藏当前歌曲")
@@ -538,13 +608,14 @@ struct NowPlayingView: View {
                 Button { playback.toggle() } label: {
                     Image(systemName: playback.state.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(BrandColors.onPlayback)
+                        .foregroundStyle(BrandColors.playback)
                         .offset(x: playback.state.isPlaying ? 0 : 1)
-                        .frame(width: 38, height: 38)
-                        .background(BrandColors.playback, in: Circle())
+                        .frame(width: 44, height: 44)
+                        .background(Color.clear, in: Circle())
                         .contentShape(Circle())
                 }
                 .buttonStyle(.fullAreaPlain)
+                .modifier(PlaybackCoreSurface())
                 .help(playback.state.isPlaying ? tr("Pause", "暂停") : tr("Play", "播放"))
                 .accessibilityLabel(
                     playback.state.isPlaying ? tr("Pause", "暂停") : tr("Play", "播放")
@@ -560,14 +631,7 @@ struct NowPlayingView: View {
 
             Spacer()
 
-            transportButton(
-                systemName: repeatSymbol,
-                selected: playback.queue.repeatMode != .off,
-                drawsBackground: true,
-                help: repeatHelp
-            ) {
-                playback.queue.setRepeat(playback.queue.repeatMode.next)
-            }
+            lyricsToggle
         }
         .frame(height: 40)
     }
@@ -608,23 +672,18 @@ struct NowPlayingView: View {
     private func transportButton(
         systemName: String,
         selected: Bool = false,
-        drawsBackground: Bool = false,
         help: String,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(selected ? BrandColors.accent : BrandColors.textPrimary.opacity(0.78))
+                .foregroundStyle(selected ? BrandColors.accent : BrandColors.textPrimary.opacity(0.85))
                 .selectionHalo(selected)
                 .frame(width: 34, height: 34)
-                .background(
-                    drawsBackground ? BrandColors.textPrimary.opacity(0.12) : .clear,
-                    in: Circle()
-                )
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.fullAreaPlain)
+        .buttonStyle(.musesTransport(selected: selected))
         .help(help)
         .accessibilityLabel(help)
         .accessibilityValue(selected ? tr("On", "开启") : tr("Off", "关闭"))
@@ -690,18 +749,6 @@ struct NowPlayingView: View {
             rememberedAudibleVolume = playback.volume
         }
         playback.setVolume(target)
-    }
-
-    private var repeatSymbol: String {
-        playback.queue.repeatMode == .one ? "repeat.1" : "repeat"
-    }
-
-    private var repeatHelp: String {
-        switch playback.queue.repeatMode {
-        case .off: tr("Repeat: Off", "循环：关")
-        case .one: tr("Repeat: One", "循环：单曲")
-        case .all: tr("Repeat: Playlist", "循环：歌单")
-        }
     }
 
     private func formatTime(_ seconds: Double) -> String {

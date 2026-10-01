@@ -4,9 +4,9 @@ import SwiftUI
 private struct UnresolvedCatalogNotice: View {
     let count: Int
     var body: some View {
-        Label(tr("\(count) songs have unresolved catalog identities. They remain available in Songs.",
-                 "\(count) 首歌曲的目录身份尚未解析，仍可在「歌曲」中播放。",
-                 zhHant: "\(count) 首歌曲的目錄身分尚未解析，仍可在「歌曲」中播放。"),
+        Label(tr("\(count) songs do not yet have confirmed artist or album pages. They remain available in Songs.",
+                 "\(count) 首歌曲尚无可确认的艺人或专辑页面，仍可在「歌曲」中播放。",
+                 zhHant: "\(count) 首歌曲尚無可確認的藝人或專輯頁面，仍可在「歌曲」中播放。"),
               systemImage: "info.circle")
             .font(.callout)
             .foregroundStyle(.secondary)
@@ -53,6 +53,8 @@ struct CatalogReleasesView: View {
     @State private var releases: [CatalogReleaseProjection] = []
     @State private var unresolvedCount = 0
     @State private var loading = true
+    @State private var isRefreshing = false
+    @State private var refreshFailures = 0
     @State private var searchQuery = ""
     @State private var filter: ReleaseFilter = .all
     @State private var sort: ReleaseSort = .title
@@ -95,9 +97,21 @@ struct CatalogReleasesView: View {
             VStack(alignment: .leading, spacing: 20) {
                 pageHeader
                 filterBar
+                if isRefreshing {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text(tr("Refreshing catalog…", "正在刷新目录…", zhHant: "正在重新整理目錄…"))
+                            .foregroundStyle(.secondary)
+                    }
+                } else if refreshFailures > 0 {
+                    Text(tr("Some online metadata could not be refreshed. Cached items remain available; use Refresh to retry.",
+                            "部分在线信息暂时无法刷新，缓存内容仍然可用；可点击刷新重试。", zhHant: "部分線上資訊暫時無法重新整理，快取內容仍然可用；可點擊重新整理重試。"))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if unresolvedCount > 0 { UnresolvedCatalogNotice(count: unresolvedCount) }
 
-                if loading {
+                if loading && releases.isEmpty {
                     CatalogLoadingGrid()
                 } else if releases.isEmpty {
                     CatalogEmptyState(
@@ -167,6 +181,7 @@ struct CatalogReleasesView: View {
                 accessibility: tr("Refresh Catalog", "刷新目录"),
                 action: refresh
             )
+            .disabled(isRefreshing)
         }
     }
 
@@ -250,9 +265,15 @@ struct CatalogReleasesView: View {
     }
 
     private func refresh() {
+        guard !isRefreshing else { return }
+        isRefreshing = true
         loading = true
-        catalog.rebuildFromTrackMetadata()
-        load()
+        refreshFailures = 0
+        Task {
+            refreshFailures = await catalog.refreshCatalog()
+            load()
+            isRefreshing = false
+        }
     }
 
     private func releaseSubtitle(_ release: CatalogReleaseProjection) -> String {
@@ -281,17 +302,21 @@ struct CatalogReleaseDetailView: View {
     @Environment(LibraryService.self) private var library
     @Query(sort: \Playlist.name) private var playlists: [Playlist]
 
+    @State private var onlineTask: Task<Void, Never>?
+    @State private var refreshedRelease: CatalogReleaseProjection?
+    private var currentRelease: CatalogReleaseProjection { refreshedRelease ?? release }
+
     @State private var onlineTracks: [YTDlpBridge.YTDlpPlaylistEntry] = []
     @State private var isLoadingOnlineTracks = false
     @State private var onlineTracksError: String?
     @State private var hasCheckedOnline = false
 
     private var localVideoIDs: Set<String> {
-        Set(release.tracks.map(\.youTubeId))
+        Set(currentRelease.tracks.map(\.youTubeId))
     }
 
     private var totalDurationSeconds: Double {
-        release.tracks.reduce(0) { $0 + $1.durationSeconds }
+        currentRelease.tracks.reduce(0) { $0 + $1.durationSeconds }
     }
 
     private var formattedDuration: String {
@@ -319,6 +344,10 @@ struct CatalogReleaseDetailView: View {
             .padding(.bottom, AppleMusicTokens.scrollBottomInset)
         }
         .background(BrowseBackground())
+        .onDisappear { onlineTask?.cancel() }
+        .task(id: catalog.revision) {
+            refreshedRelease = catalog.release(byStableID: release.stableID)
+        }
     }
 
     private var topNavigationBar: some View {
@@ -335,8 +364,8 @@ struct CatalogReleaseDetailView: View {
             // Artwork
             ArtworkView(
                 source: ArtworkSource.resolve(
-                    remoteURL: release.artworkURL,
-                    youTubeId: release.tracks.first?.youTubeId
+                    remoteURL: currentRelease.artworkURL,
+                    youTubeId: currentRelease.tracks.first?.youTubeId
                 ),
                 cornerRadius: 14,
                 glyphSize: 64,
@@ -348,14 +377,14 @@ struct CatalogReleaseDetailView: View {
 
             // Metadata & Controls
             VStack(alignment: .leading, spacing: 10) {
-                Text(release.kind == .single ? tr("SINGLE", "单曲") : (release.kind == .ep ? tr("EP", "EP") : tr("ALBUM", "专辑")))
+                Text(currentRelease.kind == .single ? tr("SINGLE", "单曲") : (currentRelease.kind == .ep ? tr("EP", "EP") : tr("ALBUM", "专辑")))
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(BrandColors.accent)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(BrandColors.accent.opacity(0.12), in: Capsule())
 
-                Text(release.title)
+                Text(currentRelease.title)
                     .font(.system(size: 26, weight: .bold))
                     .foregroundStyle(BrandColors.textPrimary)
                     .lineLimit(2)
@@ -363,11 +392,11 @@ struct CatalogReleaseDetailView: View {
                 Button {
                     NotificationCenter.default.post(
                         name: .musesNavigateToArtist,
-                        object: release.artistStableID ?? release.artistName
+                        object: currentRelease.artistStableID ?? currentRelease.artistName
                     )
                 } label: {
                     HStack(spacing: 4) {
-                        Text(release.artistName)
+                        Text(currentRelease.artistName)
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(BrandColors.accent)
                         Image(systemName: "chevron.right")
@@ -378,11 +407,11 @@ struct CatalogReleaseDetailView: View {
                 .buttonStyle(.fullAreaPlain)
 
                 HStack(spacing: 6) {
-                    if let year = release.year {
+                    if let year = currentRelease.year {
                         Text("\(year)")
                         Text("•")
                     }
-                    Text(tr("\(release.tracks.count) songs", "\(release.tracks.count) 首歌曲", zhHant: "\(release.tracks.count) 首歌曲"))
+                    Text(tr("\(currentRelease.tracks.count) songs", "\(currentRelease.tracks.count) 首歌曲", zhHant: "\(currentRelease.tracks.count) 首歌曲"))
                     if totalDurationSeconds > 0 {
                         Text("•")
                         Text(formattedDuration)
@@ -444,7 +473,7 @@ struct CatalogReleaseDetailView: View {
                     }
                     .buttonStyle(.fullAreaPlain)
 
-                    if let url = YouTubeCatalogLink.releaseURL(stableID: release.stableID) {
+                    if let url = YouTubeCatalogLink.releaseURL(stableID: currentRelease.stableID) {
                         Button {
                             NSWorkspace.shared.open(url)
                         } label: {
@@ -470,8 +499,13 @@ struct CatalogReleaseDetailView: View {
                 .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(BrandColors.textPrimary)
 
-            VStack(spacing: 1) {
-                ForEach(Array(release.tracks.enumerated()), id: \.element.id) { index, track in
+            if currentRelease.tracks.isEmpty {
+                Text(tr("No tracks from this album are saved in your library. Open the online tracklist to browse its songs.",
+                        "资料库中暂未保存此专辑的曲目，可打开在线曲目单浏览歌曲。", zhHant: "資料庫中暫未儲存此專輯的曲目，可開啟線上曲目單瀏覽歌曲。"))
+                    .foregroundStyle(.secondary)
+            }
+            LazyVStack(spacing: 1) {
+                ForEach(Array(currentRelease.tracks.enumerated()), id: \.element.id) { index, track in
                     trackRow(index: index + 1, snapshot: track)
                 }
             }
@@ -505,7 +539,7 @@ struct CatalogReleaseDetailView: View {
                 .foregroundStyle(BrandColors.textSecondary)
 
             Button {
-                playback.playTrack(snapshot, context: release.tracks, from: .album)
+                playback.playTrack(snapshot, context: currentRelease.tracks, from: .album)
             } label: {
                 let playing = isCurrent && playback.state.isPlaying
                 Image(systemName: playing ? "pause.fill" : "play.fill")
@@ -519,12 +553,12 @@ struct CatalogReleaseDetailView: View {
         .padding(.vertical, 8)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
-            playback.playTrack(snapshot, context: release.tracks, from: .album)
+            playback.playTrack(snapshot, context: currentRelease.tracks, from: .album)
         }
         .trackContextMenu(
             snapshot: snapshot,
             playlists: playlists,
-            onPlay: { playback.playTrack(snapshot, context: release.tracks, from: .album) }
+            onPlay: { playback.playTrack(snapshot, context: currentRelease.tracks, from: .album) }
         )
     }
 
@@ -538,7 +572,7 @@ struct CatalogReleaseDetailView: View {
                 Spacer()
 
                 let missing = onlineTracks.filter { !localVideoIDs.contains($0.id) }
-                if !missing.isEmpty {
+                if !isLoadingOnlineTracks && onlineTracksError == nil && !missing.isEmpty {
                     Button {
                         importMissingTracks(missing)
                     } label: {
@@ -556,7 +590,27 @@ struct CatalogReleaseDetailView: View {
                 }
             }
 
-            VStack(spacing: 1) {
+            if isLoadingOnlineTracks {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text(tr("Loading official tracklist…", "正在载入官方曲目单…", zhHant: "正在載入官方曲目單…"))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 16)
+            } else if let onlineTracksError {
+                Text(tr("The online tracklist could not be refreshed. Your library tracks remain available.",
+                        "在线曲目单暂时无法刷新，资料库中的曲目仍然可用。", zhHant: "線上曲目單暫時無法重新整理，資料庫中的曲目仍然可用。"))
+                    .foregroundStyle(.secondary)
+                Text(onlineTracksError).font(.caption).foregroundStyle(.secondary)
+                Button(tr("Retry", "重试", zhHant: "重試"), systemImage: "arrow.clockwise", action: checkOnlineTracklist)
+                    .labelStyle(ActionIconLabelStyle())
+                    .help(tr("Retry", "重试", zhHant: "重試"))
+            } else if onlineTracks.isEmpty {
+                Text(tr("No online tracks are available for this album.", "此专辑暂无可用的在线曲目。", zhHant: "此專輯暫無可用的線上曲目。"))
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 16)
+            }
+            LazyVStack(spacing: 1) {
                 ForEach(Array(onlineTracks.enumerated()), id: \.element.id) { idx, entry in
                     let inLibrary = localVideoIDs.contains(entry.id)
                     HStack(spacing: 12) {
@@ -570,7 +624,7 @@ struct CatalogReleaseDetailView: View {
                                 .font(.system(size: 13))
                                 .foregroundStyle(BrandColors.textPrimary)
                                 .lineLimit(1)
-                            Text(entry.uploader ?? release.artistName)
+                            Text(entry.uploader ?? currentRelease.artistName)
                                 .font(.system(size: 11))
                                 .foregroundStyle(BrandColors.textSecondary)
                                 .lineLimit(1)
@@ -620,12 +674,12 @@ struct CatalogReleaseDetailView: View {
     }
 
     private func playAll() {
-        guard let first = release.tracks.first else { return }
-        playback.playTrack(first, context: release.tracks, from: .album)
+        guard let first = currentRelease.tracks.first else { return }
+        playback.playTrack(first, context: currentRelease.tracks, from: .album)
     }
 
     private func shuffle() {
-        let tracks = release.tracks.shuffled()
+        let tracks = currentRelease.tracks.shuffled()
         guard let first = tracks.first else { return }
         playback.playTrack(first, context: tracks, from: .album)
     }
@@ -635,13 +689,19 @@ struct CatalogReleaseDetailView: View {
         onlineTracksError = nil
         isLoadingOnlineTracks = true
         hasCheckedOnline = true
-        Task {
+        onlineTask = Task {
             do {
-                let entries = try await catalog.fetchAlbumOnlineTracks(release: release, forceRefresh: true)
+                let entries = try await catalog.fetchAlbumOnlineTracks(release: currentRelease, forceRefresh: true)
+                guard !Task.isCancelled else {
+                    isLoadingOnlineTracks = false
+                    return
+                }
                 await MainActor.run {
                     self.onlineTracks = entries
                     self.isLoadingOnlineTracks = false
                 }
+            } catch is CancellationError {
+                isLoadingOnlineTracks = false
             } catch {
                 await MainActor.run {
                     self.onlineTracksError = error.localizedDescription
@@ -652,37 +712,49 @@ struct CatalogReleaseDetailView: View {
     }
 
     private func importMissingTracks(_ missing: [YTDlpBridge.YTDlpPlaylistEntry]) {
-        for (idx, entry) in missing.enumerated() {
-            _ = try? catalog.importOnlineTrack(
-                entry: entry,
-                releaseStableID: release.stableID,
-                order: release.tracks.count + idx,
-                albumTitle: release.title,
-                artistName: release.artistName
-            )
+        do {
+            for entry in missing {
+                try catalog.importOnlineTrack(
+                    entry: entry,
+                    releaseStableID: currentRelease.stableID,
+                    order: onlineTracks.firstIndex(where: { $0.id == entry.id }),
+                    albumTitle: currentRelease.title,
+                    artistName: currentRelease.artistName
+                )
+            }
+        } catch {
+            onlineTracksError = error.localizedDescription
         }
     }
 
     private func importSingleTrack(_ entry: YTDlpBridge.YTDlpPlaylistEntry, order: Int) {
-        _ = try? catalog.importOnlineTrack(
-            entry: entry,
-            releaseStableID: release.stableID,
-            order: order,
-            albumTitle: release.title,
-            artistName: release.artistName
-        )
+        do {
+            try catalog.importOnlineTrack(
+                entry: entry,
+                releaseStableID: currentRelease.stableID,
+                order: order,
+                albumTitle: currentRelease.title,
+                artistName: currentRelease.artistName
+            )
+        } catch {
+            onlineTracksError = error.localizedDescription
+        }
     }
 
     private func playOnlineTrack(_ entry: YTDlpBridge.YTDlpPlaylistEntry) {
         Task {
-            if let snapshot = try? catalog.importOnlineTrack(
-                entry: entry,
-                releaseStableID: release.stableID,
-                albumTitle: release.title,
-                artistName: release.artistName,
-                saveToLibrary: false
-            ) {
-                playback.playTrack(snapshot, context: release.tracks, from: .album)
+            do {
+                let release = currentRelease
+                let snapshot = try catalog.importOnlineTrack(
+                    entry: entry, releaseStableID: release.stableID,
+                    order: onlineTracks.firstIndex(where: { $0.id == entry.id }),
+                    albumTitle: release.title, artistName: release.artistName,
+                    saveToLibrary: false)
+                let context = TrackSnapshot.playbackContext(
+                    playing: snapshot, youTubeEntries: onlineTracks)
+                playback.playTrack(snapshot, context: context, from: .album)
+            } catch {
+                onlineTracksError = error.localizedDescription
             }
         }
     }
@@ -717,6 +789,8 @@ struct CatalogArtistsView: View {
     @State private var artists: [CatalogArtistProjection] = []
     @State private var unresolvedCount = 0
     @State private var loading = true
+    @State private var isRefreshing = false
+    @State private var refreshFailures = 0
     @State private var searchQuery = ""
     @State private var sort: ArtistSort = .name
 
@@ -742,18 +816,30 @@ struct CatalogArtistsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 pageHeader
                 filterBar
+                if isRefreshing {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text(tr("Refreshing catalog…", "正在刷新目录…", zhHant: "正在重新整理目錄…"))
+                            .foregroundStyle(.secondary)
+                    }
+                } else if refreshFailures > 0 {
+                    Text(tr("Some online metadata could not be refreshed. Cached items remain available; use Refresh to retry.",
+                            "部分在线信息暂时无法刷新，缓存内容仍然可用；可点击刷新重试。", zhHant: "部分線上資訊暫時無法重新整理，快取內容仍然可用；可點擊重新整理重試。"))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if unresolvedCount > 0 { UnresolvedCatalogNotice(count: unresolvedCount) }
 
-                if loading {
+                if loading && artists.isEmpty {
                     CatalogLoadingGrid()
                 } else if artists.isEmpty {
                     CatalogEmptyState(
                         icon: "person.2",
                         title: tr("No artists yet", "还没有艺术家"),
                         subtitle: tr(
-                            "Artists appear when imported metadata includes a verified channel or browse ID.",
-                            "导入元数据包含可确认的频道或浏览 ID 时，会在此显示艺人。",
-                            zhHant: "匯入中繼資料包含可確認的頻道或瀏覽 ID 時，會在此顯示藝人。"
+                            "Artist profiles appear when your songs have a confirmed artist page.",
+                            "歌曲有可确认的艺人主页时，会在此显示。",
+                            zhHant: "歌曲有可確認的藝人主頁時，會在此顯示。"
                         ),
                         onRefresh: refresh
                     )
@@ -813,6 +899,7 @@ struct CatalogArtistsView: View {
                 accessibility: tr("Refresh Catalog", "刷新目录"),
                 action: refresh
             )
+            .disabled(isRefreshing)
         }
     }
 
@@ -872,9 +959,15 @@ struct CatalogArtistsView: View {
     }
 
     private func refresh() {
+        guard !isRefreshing else { return }
+        isRefreshing = true
         loading = true
-        catalog.rebuildFromTrackMetadata()
-        load()
+        refreshFailures = 0
+        Task {
+            refreshFailures = await catalog.refreshCatalog()
+            load()
+            isRefreshing = false
+        }
     }
 
     private func artistArtwork(_ artist: CatalogArtistProjection) -> ArtworkSource {
@@ -898,13 +991,17 @@ struct CatalogArtistDetailView: View {
     @Environment(LibraryService.self) private var library
     @Query(sort: \Playlist.name) private var playlists: [Playlist]
 
+    @State private var onlineTask: Task<Void, Never>?
+    @State private var refreshedArtist: CatalogArtistProjection?
+    private var currentArtist: CatalogArtistProjection { refreshedArtist ?? artist }
+
     @State private var discography: ArtistOnlineDiscography?
     @State private var isLoadingOnline = false
     @State private var onlineError: String?
     @State private var hasExpandedOnline = false
 
     private var orderedTracks: [TrackSnapshot] {
-        artist.tracks.sorted {
+        currentArtist.tracks.sorted {
             let result = $0.title.localizedStandardCompare($1.title)
             if result != .orderedSame { return result == .orderedAscending }
             return $0.id.uuidString < $1.id.uuidString
@@ -921,7 +1018,7 @@ struct CatalogArtistDetailView: View {
                 libraryTracksSection
 
                 // Section 2: Library Albums (if any)
-                if !artist.releases.isEmpty {
+                if !currentArtist.releases.isEmpty {
                     libraryAlbumsSection
                 }
 
@@ -933,6 +1030,10 @@ struct CatalogArtistDetailView: View {
             .padding(.bottom, AppleMusicTokens.scrollBottomInset)
         }
         .background(BrowseBackground())
+        .onDisappear { onlineTask?.cancel() }
+        .task(id: catalog.revision) {
+            refreshedArtist = catalog.artist(byStableID: artist.stableID)
+        }
     }
 
     private var topNavigationBar: some View {
@@ -949,8 +1050,8 @@ struct CatalogArtistDetailView: View {
             // Circular avatar
             ArtworkView(
                 source: ArtworkSource.resolve(
-                    remoteURL: artist.artworkURL,
-                    youTubeId: artist.tracks.first?.youTubeId
+                    remoteURL: currentArtist.artworkURL,
+                    youTubeId: currentArtist.tracks.first?.youTubeId
                 ),
                 cornerRadius: 70,
                 glyphSize: 50,
@@ -962,15 +1063,15 @@ struct CatalogArtistDetailView: View {
             .shadow(color: Color.black.opacity(0.35), radius: 12, y: 6)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text(artist.name)
+                Text(currentArtist.name)
                     .font(.system(size: 30, weight: .bold))
                     .foregroundStyle(BrandColors.textPrimary)
 
                 HStack(spacing: 8) {
-                    Text(tr("\(artist.tracks.count) songs in library", "\(artist.tracks.count) 首歌曲在资料库", zhHant: "\(artist.tracks.count) 首歌曲在資料庫"))
-                    if !artist.releases.isEmpty {
+                    Text(tr("\(currentArtist.tracks.count) songs in library", "\(currentArtist.tracks.count) 首歌曲在资料库", zhHant: "\(currentArtist.tracks.count) 首歌曲在資料庫"))
+                    if !currentArtist.releases.isEmpty {
                         Text("•")
-                        Text(tr("\(artist.releases.count) albums", "\(artist.releases.count) 张专辑", zhHant: "\(artist.releases.count) 張專輯"))
+                        Text(tr("\(currentArtist.releases.count) albums", "\(currentArtist.releases.count) 张专辑", zhHant: "\(currentArtist.releases.count) 張專輯"))
                     }
                 }
                 .font(.system(size: 13))
@@ -1025,7 +1126,7 @@ struct CatalogArtistDetailView: View {
                     }
                     .buttonStyle(.fullAreaPlain)
 
-                    if let url = YouTubeCatalogLink.artistURL(stableID: artist.stableID) {
+                    if let url = YouTubeCatalogLink.artistURL(stableID: currentArtist.stableID) {
                         Button {
                             NSWorkspace.shared.open(url)
                         } label: {
@@ -1051,7 +1152,12 @@ struct CatalogArtistDetailView: View {
                 .font(.system(size: 17, weight: .bold))
                 .foregroundStyle(BrandColors.textPrimary)
 
-            VStack(spacing: 1) {
+            if orderedTracks.isEmpty {
+                Text(tr("No songs from this artist are saved in your library. Explore online to find their music.",
+                        "资料库中暂未保存此艺人的歌曲，可通过在线探索查找作品。", zhHant: "資料庫中暫未儲存此藝人的歌曲，可透過線上探索尋找作品。"))
+                    .foregroundStyle(.secondary)
+            }
+            LazyVStack(spacing: 1) {
                 ForEach(Array(orderedTracks.enumerated()), id: \.element.id) { index, track in
                     let isCurrent = playback.state.track?.id == track.id
                     HStack(spacing: 12) {
@@ -1111,7 +1217,7 @@ struct CatalogArtistDetailView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 18) {
-                    ForEach(artist.releases) { release in
+                    ForEach(currentArtist.releases) { release in
                         AlbumObjectView(
                             title: release.title,
                             subtitle: release.year.map(String.init) ?? "",
@@ -1150,20 +1256,27 @@ struct CatalogArtistDetailView: View {
                             .foregroundStyle(BrandColors.textSecondary)
                     }
                     .padding(.vertical, 20)
-                } else if let onlineError {
+                }
+                if let onlineError {
                     Text(onlineError).foregroundStyle(.secondary)
                     Button(tr("Retry", "重试", zhHant: "重試"), systemImage: "arrow.clockwise", action: toggleOnlineDiscovery)
                         .labelStyle(ActionIconLabelStyle())
                         .help(tr("Retry", "重试", zhHant: "重試"))
-                } else if let disco = discography {
+                }
+                if let disco = discography {
                     // Popular Songs
+                    if disco.isEmpty && !isLoadingOnline && onlineError == nil {
+                        Text(tr("No online releases or songs are available for this channel.", "此频道暂无可用的在线作品或歌曲。", zhHant: "此頻道暫無可用的線上作品或歌曲。"))
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 16)
+                    }
                     if !disco.topTracks.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(tr("From this YouTube channel", "来自此 YouTube 频道", zhHant: "來自此 YouTube 頻道"))
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundStyle(BrandColors.textPrimary)
 
-                            VStack(spacing: 1) {
+                            LazyVStack(spacing: 1) {
                                 ForEach(Array(disco.topTracks.prefix(8).enumerated()), id: \.element.id) { idx, entry in
                                     onlineTrackRow(index: idx + 1, entry: entry)
                                 }
@@ -1222,7 +1335,7 @@ struct CatalogArtistDetailView: View {
                     .font(.system(size: 13))
                     .foregroundStyle(BrandColors.textPrimary)
                     .lineLimit(1)
-                Text(entry.uploader ?? artist.name)
+                Text(entry.uploader ?? currentArtist.name)
                     .font(.system(size: 11))
                     .foregroundStyle(BrandColors.textSecondary)
                     .lineLimit(1)
@@ -1316,13 +1429,19 @@ struct CatalogArtistDetailView: View {
         onlineError = nil
         hasExpandedOnline = true
         isLoadingOnline = true
-        Task {
+        onlineTask = Task {
             do {
-                let disco = try await catalog.fetchArtistOnlineDiscography(artist: artist, forceRefresh: true)
+                let disco = try await catalog.fetchArtistOnlineDiscography(artist: currentArtist, forceRefresh: true)
+                guard !Task.isCancelled else {
+                    isLoadingOnline = false
+                    return
+                }
                 await MainActor.run {
                     self.discography = disco
                     self.isLoadingOnline = false
                 }
+            } catch is CancellationError {
+                isLoadingOnline = false
             } catch {
                 await MainActor.run {
                     self.onlineError = error.localizedDescription
@@ -1333,13 +1452,23 @@ struct CatalogArtistDetailView: View {
     }
 
     private func importTrack(_ entry: YTDlpBridge.YTDlpPlaylistEntry) {
-        _ = try? catalog.importOnlineTrack(entry: entry, artistName: artist.name)
+        do {
+            try catalog.importOnlineTrack(entry: entry, artistName: currentArtist.name)
+        } catch {
+            onlineError = error.localizedDescription
+        }
     }
 
     private func playOnlineTrack(_ entry: YTDlpBridge.YTDlpPlaylistEntry) {
         Task {
-            if let snapshot = try? catalog.importOnlineTrack(entry: entry, artistName: artist.name, saveToLibrary: false) {
-                playback.playTrack(snapshot, context: orderedTracks, from: .artist)
+            do {
+                let snapshot = try catalog.importOnlineTrack(
+                    entry: entry, artistName: currentArtist.name, saveToLibrary: false)
+                let context = TrackSnapshot.playbackContext(
+                    playing: snapshot, youTubeEntries: discography?.topTracks ?? [])
+                playback.playTrack(snapshot, context: context, from: .artist)
+            } catch {
+                onlineError = error.localizedDescription
             }
         }
     }
@@ -1349,16 +1478,19 @@ struct CatalogArtistDetailView: View {
             let tempRelease = CatalogReleaseProjection(
                 stableID: release.stableID,
                 title: release.title,
-                artistName: artist.name,
-                artistStableID: artist.stableID,
+                artistName: currentArtist.name,
+                artistStableID: currentArtist.stableID,
                 artworkURL: release.artworkURL,
                 year: release.year,
                 kind: release.kind,
                 cacheState: .fresh,
                 tracks: []
             )
-            if let entries = try? await catalog.fetchAlbumOnlineTracks(release: tempRelease) {
-                try? catalog.importOnlineAlbum(release: release, tracks: entries, artistName: artist.name)
+            do {
+                let entries = try await catalog.fetchAlbumOnlineTracks(release: tempRelease)
+                try catalog.importOnlineAlbum(release: release, tracks: entries, artistName: currentArtist.name)
+            } catch {
+                onlineError = error.localizedDescription
             }
         }
     }

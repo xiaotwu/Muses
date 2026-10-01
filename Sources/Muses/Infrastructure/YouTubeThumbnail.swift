@@ -16,6 +16,21 @@ enum YouTubeThumbnail {
         URL(string: urlString(videoId: videoId))
     }
 
+    /// Upgrade display-only YouTube thumbnail requests; persisted artwork URLs stay stable.
+    static func displayCandidates(for url: URL, pixelSize: CGFloat) -> [URL] {
+        guard pixelSize > 480,
+              ["i.ytimg.com", "img.youtube.com"].contains(url.host?.lowercased() ?? ""),
+              url.pathComponents.count == 4,
+              ["vi", "vi_webp"].contains(url.pathComponents[1]),
+              ["default", "mqdefault", "hqdefault", "sddefault"].contains(url.deletingPathExtension().lastPathComponent)
+        else { return [url] }
+        let directory = url.deletingLastPathComponent()
+        let ext = url.pathExtension
+        return [directory.appendingPathComponent("maxresdefault.\(ext)"),
+                directory.appendingPathComponent("sddefault.\(ext)"), url]
+            .reduce(into: [URL]()) { if !$0.contains($1) { $0.append($1) } }
+    }
+
     static func isLetterboxed(_ url: URL) -> Bool {
         guard let host = url.host?.lowercased(), host.contains("ytimg.com") else {
             return false

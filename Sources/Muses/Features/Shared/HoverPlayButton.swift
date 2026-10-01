@@ -8,11 +8,10 @@ struct HoverPlayButton: View {
         Button(action: onPlay) {
             Image(systemName: "play.fill")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(BrandColors.onPlayback)
+                .foregroundStyle(BrandColors.heading)
                 .frame(width: 30, height: 30)
-                .background(BrandColors.playback, in: Circle())
         }
-        .buttonStyle(.fullAreaPlain)
+        .buttonStyle(.musesCompact)
         .help(tr("Play", "播放"))
         .accessibilityLabel(tr("Play", "播放"))
     }

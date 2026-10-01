@@ -30,7 +30,7 @@ struct ChromeIconButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemName).chromeActionCircle()
+            Image(systemName: systemName).chromeActionCircle(prominent: systemName == "play.fill")
         }
         .buttonStyle(.fullAreaPlain)
         .help(help ?? accessibility)
@@ -47,19 +47,22 @@ enum ChromeActionMetrics {
 
 private struct ChromeActionCircle: ViewModifier {
     var diameter: CGFloat
+    var prominent = false
+    @Environment(\.colorScheme) private var colorScheme
     func body(content: Content) -> some View {
         content
             .font(.system(size: ChromeActionMetrics.glyphSize, weight: .semibold))
-            .foregroundStyle(.primary)
+            .foregroundStyle(prominent ? (colorScheme == .dark ? Color.black.opacity(0.88) : Color.white) : BrandColors.textPrimary)
             .frame(width: diameter, height: diameter, alignment: .center)
             .contentShape(Circle())
-            .musesGlass(in: Circle(), role: .compactControl)
+            .background(prominent ? BrandColors.accent : .clear, in: Circle())
+            .modifier(CompactChromeSurface())
     }
 }
 
 extension View {
-    func chromeActionCircle(diameter: CGFloat = ChromeActionMetrics.diameter) -> some View {
-        modifier(ChromeActionCircle(diameter: diameter))
+    func chromeActionCircle(diameter: CGFloat = ChromeActionMetrics.diameter, prominent: Bool = false) -> some View {
+        modifier(ChromeActionCircle(diameter: diameter, prominent: prominent))
     }
 }
 
@@ -67,7 +70,7 @@ struct ChromeIconMenu<Items: View>: View {
     let systemName: String
     let title: String
     var diameter: CGFloat = ChromeActionMetrics.diameter
-    var foreground: Color = .primary
+    var foreground: Color = BrandColors.textPrimary
     @ViewBuilder var items: () -> Items
 
     var body: some View {
@@ -85,7 +88,7 @@ struct ChromeIconMenu<Items: View>: View {
                 .accessibilityHidden(true)
         }
         .contentShape(Circle())
-        .musesGlass(in: Circle(), role: .compactControl)
+        .modifier(CompactChromeSurface())
         .help(title)
         .accessibilityLabel(title)
     }

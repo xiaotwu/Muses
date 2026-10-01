@@ -78,8 +78,8 @@ struct CollectionDeckGeometry: Equatable, Sendable {
     let radius: Int
 
     var cardHeight: CGFloat { cardWidth + footerHeight }
-    /// The flat strip needs only the focused card's lift and shadow clearance.
-    var lowerFanClearance: CGFloat { 24 }
+    /// The overlapping strip reserves clearance for its restrained static tilts.
+    var lowerFanClearance: CGFloat { 44 }
     var viewportHeight: CGFloat { cardHeight + lowerFanClearance }
 
     static func resolve(containerWidth: CGFloat, containerHeight: CGFloat) -> Self {
@@ -206,9 +206,13 @@ struct CollectionDeckStage<Controls: View>: View {
         return min(rows.count - 1, max(0, Int(position.rounded())))
     }
 
-    private var metadataVideoID: String? {
-        isInteractionEnabled && environmentIsEnabled && rows.indices.contains(focusedIndex)
-            ? rows[focusedIndex].snapshot.youTubeId : nil
+    private var metadataVideoIDs: [String] {
+        guard isInteractionEnabled, environmentIsEnabled, rows.indices.contains(focusedIndex) else { return [] }
+        // Enrich the focused song first, then its visible neighbors, never the entire library.
+        return [0, -1, 1, -2, 2].compactMap { offset in
+            let index = focusedIndex + offset
+            return rows.indices.contains(index) ? rows[index].snapshot.youTubeId : nil
+        }
     }
 
     var body: some View {
@@ -304,13 +308,18 @@ struct CollectionDeckStage<Controls: View>: View {
         }
         // Persist only a settled anchor: UserDefaults notifications otherwise
         // invalidate unrelated @AppStorage consumers during every drag step.
-        .task(id: metadataVideoID) {
-            guard let videoID = metadataVideoID, songMetadata[videoID] == nil else { return }
+        .task(id: metadataVideoIDs) {
+            let videoIDs = metadataVideoIDs
             do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
-            let metadata = await importService.songMetadata(videoID: videoID)
-            guard !Task.isCancelled, metadataVideoID == videoID, let metadata else { return }
-            if songMetadata.count >= 96 { songMetadata.removeAll() }
-            songMetadata[videoID] = metadata
+            for videoID in videoIDs where songMetadata[videoID] == nil {
+                guard !Task.isCancelled else { return }
+                let metadata = await importService.songMetadata(videoID: videoID)
+                guard !Task.isCancelled, metadataVideoIDs == videoIDs else { return }
+                if let metadata {
+                    if songMetadata.count >= 96 { songMetadata.removeAll() }
+                    songMetadata[videoID] = metadata
+                }
+            }
         }
         .task(id: focusedID) {
             do { try await Task.sleep(for: .milliseconds(350)) }
@@ -342,12 +351,11 @@ struct CollectionDeckStage<Controls: View>: View {
                     } label: {
                         Image(systemName: layout.symbol)
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(artworkLayout == layout ? BrandColors.selectionText : BrandColors.textPrimary)
+                            .foregroundStyle(BrandColors.heading)
                             .frame(width: 36, height: 30)
-                            .background(artworkLayout == layout
-                                ? BrandColors.selectionFill : .clear, in: Capsule())
+
                     }
-                    .buttonStyle(.fullAreaPlain)
+                    .buttonStyle(.musesSegment(selected: artworkLayout == layout))
                     .help(layout.title)
                     .accessibilityLabel(layout.title)
                     .accessibilityValue(artworkLayout == layout ? tr("Selected", "已选中") : "")
@@ -359,7 +367,7 @@ struct CollectionDeckStage<Controls: View>: View {
                         .font(.system(size: 14, weight: .semibold))
                         .frame(width: 36, height: 30)
                 }
-                .buttonStyle(.fullAreaPlain)
+                .buttonStyle(.musesSegment(selected: false))
                 .help(tr("Show complete song list", "展开完整歌曲列表"))
                 .accessibilityLabel(tr("Show complete song list", "展开完整歌曲列表"))
                 .disabled(!isInteractionEnabled)
@@ -545,7 +553,7 @@ struct CollectionDeckStage<Controls: View>: View {
                         .accessibilityValue(
                             index == focusedIndex ? tr("Focused", "当前焦点") : ""
                         )
-                        cardActions(row: row, index: index)
+                        cardActions(row: row, index: index, visible: true)
                     }
 
                     Button(tr("Next song", "下一首")) {
@@ -576,7 +584,8 @@ struct CollectionDeckStage<Controls: View>: View {
         // Keep pointer targets stable: hovering must not spread the strip or
         // lift a neighbouring card above the canonical selection.
         let x = wall ? 0 : relative * geometry.spread
-        let y: CGFloat = wall ? 0 : (index == focusedIndex ? 0 : 12)
+        let y: CGFloat = wall || index == focusedIndex ? 0 : 12 + CGFloat(index % 3) * 4
+        let angle: Double = wall || index == focusedIndex ? 0 : (index.isMultiple(of: 2) ? -4 : 3)
         let scale: CGFloat = 1
         let selected = index == focusedIndex
 
@@ -619,9 +628,10 @@ struct CollectionDeckStage<Controls: View>: View {
         .focusable(wall)
         .focused($wallFocusedID, equals: row.id)
         .overlay(alignment: .topTrailing) {
-            cardActions(row: row, index: index)
+            cardActions(row: row, index: index, visible: hovered || (wall ? wallFocusedID == row.id : deckFocused && selected))
                 .padding(10)
         }
+        .rotationEffect(.degrees(angle))
         .offset(
             x: x,
             y: 18 + y
@@ -648,8 +658,8 @@ struct CollectionDeckStage<Controls: View>: View {
         .accessibilityValue(index == focusedIndex ? tr("Focused", "当前焦点") : "")
     }
 
-    private func cardActions(row: CollectionTrackRow, index: Int) -> some View {
-        CollectionDeckCardActions(row: row, index: index, playlists: playlists,
+    private func cardActions(row: CollectionTrackRow, index: Int, visible: Bool) -> some View {
+        CollectionDeckCardActions(isVisible: visible, row: row, index: index, playlists: playlists,
             isInteractionEnabled: isInteractionEnabled, position: $position,
             focusedID: $focusedID, onPlay: onPlay, onRemove: onRemove)
     }
@@ -662,11 +672,11 @@ struct CollectionDeckStage<Controls: View>: View {
         Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(BrandColors.textSecondary)
+                .foregroundStyle(BrandColors.heading)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.fullAreaPlain)
+        .buttonStyle(.musesCompact)
         .help(help)
         .accessibilityLabel(help)
     }
@@ -832,6 +842,8 @@ struct CollectionDeckStage<Controls: View>: View {
 /// Native menus do not depend on the fractional deck position. Keep their
 /// view inputs stable while transforms follow the pointer on every event.
 private struct CollectionDeckCardActions: View {
+    let isVisible: Bool
+    @FocusState private var actionsFocused: Bool
     let row: CollectionTrackRow
     let index: Int
     let playlists: [Playlist]
@@ -848,11 +860,12 @@ private struct CollectionDeckCardActions: View {
                     YouTubeMark(size: 12).chromeActionCircle(diameter: 28)
                 }
                 .buttonStyle(.fullAreaPlain)
+                .focused($actionsFocused)
                 .help(tr("Open on YouTube", "在 YouTube 打开"))
                 .accessibilityLabel(tr("Open on YouTube", "在 YouTube 打开"))
             }
             ChromeIconMenu(systemName: "ellipsis",
-                title: tr("Track options for \(row.title)", "\(row.title) 的曲目选项"), diameter: 28, foreground: .white) {
+                title: tr("Track options for \(row.title)", "\(row.title) 的曲目选项"), diameter: 28, foreground: BrandColors.heading) {
                 TrackContextMenuItems(
                     snapshot: row.snapshot,
                     playlists: playlists,
@@ -869,7 +882,10 @@ private struct CollectionDeckCardActions: View {
                     onRemoveFromContainer: onRemove.map { handler in { handler(row) } }
                 )
             }
+            .focused($actionsFocused)
         }
+        .opacity(isVisible || actionsFocused || NSWorkspace.shared.isVoiceOverEnabled ? 1 : 0)
+        .allowsHitTesting(isVisible || actionsFocused || NSWorkspace.shared.isVoiceOverEnabled)
         .disabled(!isInteractionEnabled)
         .environment(\.colorScheme, .dark)
     }
@@ -942,9 +958,9 @@ struct CollectionDeckCardSurface: View, Equatable {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: isPlaying ? "waveform" : (isFocused ? primaryAction.symbol : "viewfinder"))
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(isFocused ? BrandColors.onPlayback : BrandColors.textPrimary)
+                    .foregroundStyle(BrandColors.heading)
                     .frame(width: 28, height: 28)
-                    .background(isFocused ? BrandColors.playback : BrandColors.selectionFill, in: Circle())
+                    .modifier(CompactChromeSurface(selected: isFocused))
                     .accessibilityHidden(true)
             }
             .padding(.horizontal, 12)
@@ -1070,17 +1086,11 @@ struct CollectionExpansionHandle: View {
         Button(action: action) {
             Image(systemName: direction.systemName)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(BrandColors.textSecondary)
+                .foregroundStyle(BrandColors.heading)
                 .frame(width: 48, height: AppleMusicTokens.collectionDeckHandleHeight)
-                .background {
-                    if direction == .down {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(BrandColors.surface.opacity(0.72))
-                    }
-                }
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.fullAreaPlain)
+        .buttonStyle(.musesCompact)
         .simultaneousGesture(
             DragGesture(minimumDistance: 8)
                 .onEnded { value in

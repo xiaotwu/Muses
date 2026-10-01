@@ -257,7 +257,9 @@ final class YouTubeCatalogService {
             throw CatalogOnlineError.unresolvedArtist
         }
         if forceRefresh { await structuredCatalog.reset() }
-        let items = try await completeBrowse("browse:\(rawID)")
+        let page = try await completeBrowse("browse:\(rawID)", includeRelated: true)
+        updateBrowseMetadata(stableID: artist.stableID, artist: true, page: page)
+        let items = page.items
         var seenTracks = Set<String>()
         let tracks = items.compactMap { item -> YTDlpBridge.YTDlpPlaylistEntry? in
             guard [.song, .video].contains(item.kind),
@@ -290,8 +292,11 @@ final class YouTubeCatalogService {
             throw CatalogOnlineError.unresolvedRelease
         }
         if forceRefresh { await structuredCatalog.reset() }
-        let entries = try await completeBrowse(release.stableID)
-            .compactMap {
+        let browseID = release.stableID.hasPrefix("playlist:")
+            ? "browse:VL" + String(release.stableID.dropFirst("playlist:".count)) : release.stableID
+        let page = try await completeBrowse(browseID)
+        updateBrowseMetadata(stableID: release.stableID, artist: false, page: page)
+        let entries = page.items.compactMap {
                 catalogEntry(
                     $0, fallbackArtist: release.artistName,
                     channelID: release.artistStableID?.split(
@@ -304,20 +309,72 @@ final class YouTubeCatalogService {
         return tracks
     }
 
-    private func completeBrowse(_ id: String) async throws
-        -> [MusicCatalogItem] {
+    /// User-requested refresh retains cached collections on network failures.
+    func refreshCatalog() async -> Int {
+        rebuildFromTrackMetadata()
+        let releases = self.releases()
+        let artists = self.artists()
+        await structuredCatalog.reset()
+        albumTracksCache.removeAll()
+        discographyCache.removeAll()
+        var failures = 0
+        for release in releases {
+            guard !Task.isCancelled else { return failures }
+            do { _ = try await fetchAlbumOnlineTracks(release: release) }
+            catch { failures += 1 }
+        }
+        for artist in artists {
+            guard !Task.isCancelled else { return failures }
+            do { _ = try await fetchArtistOnlineDiscography(artist: artist) }
+            catch { failures += 1 }
+        }
+        return failures
+    }
+
+    private func updateBrowseMetadata(stableID: String, artist: Bool, page: MusicCatalogPage) {
+        guard !page.isStale, !page.refreshFailed else { return }
+        let context = ModelContext(modelContainer)
+        let key = stableID
+        let title = page.metadata?.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if artist {
+            if let row = try? context.fetch(FetchDescriptor<CatalogArtist>(predicate: #Predicate { $0.stableID == key })).first {
+                if let title, !title.isEmpty { row.name = title }
+                row.refreshedAt = page.fetchedAt
+                row.unavailable = false
+            }
+        } else {
+            if let row = try? context.fetch(FetchDescriptor<CatalogRelease>(predicate: #Predicate { $0.stableID == key })).first {
+                if let title, !title.isEmpty { row.title = title }
+                let credits = page.metadata?.artists.map(\.title).filter { !$0.isEmpty }.joined(separator: ", ")
+                if let credits, !credits.isEmpty { row.artistName = credits }
+                row.refreshedAt = page.fetchedAt
+                row.unavailable = false
+            }
+        }
+        try? context.save()
+        revision &+= 1
+    }
+
+    private func completeBrowse(_ id: String, includeRelated: Bool = false) async throws -> MusicCatalogPage {
         var page = try await structuredCatalog.browse(id)
-        var result = page.items + page.relatedItems
+        let firstPage = page
+        var result = page.items + (includeRelated ? page.relatedItems : [])
+        var stale = page.isStale
+        var failed = page.refreshFailed
         var pageCount = 1
         while let cursor = page.next, pageCount < 20, result.count < 5_000 {
             try Task.checkCancellation()
             page = try await structuredCatalog.next(cursor)
+            stale = stale || page.isStale
+            failed = failed || page.refreshFailed
             result += page.items
-            result += page.relatedItems
+            if includeRelated { result += page.relatedItems }
             pageCount += 1
         }
         guard page.next == nil else { throw CatalogOnlineError.incomplete }
-        return result
+        return MusicCatalogPage(items: result, filters: firstPage.filters, next: nil,
+            fetchedAt: firstPage.fetchedAt, region: firstPage.region, language: firstPage.language,
+            metadata: firstPage.metadata, isStale: stale, refreshFailed: failed)
     }
 
     private func catalogEntry(
@@ -337,7 +394,8 @@ final class YouTubeCatalogService {
             uploader: artist.isEmpty ? fallbackArtist : artist,
             channelID: channelID,
             track: item.kind == .song ? item.title : nil,
-            album: item.releases.first?.title)
+            album: item.releases.first?.title,
+            artist: artist.isEmpty ? nil : artist)
     }
 
     /// Imports an online discovery track into the local library, attaching release and artist catalog IDs.
@@ -368,7 +426,7 @@ final class YouTubeCatalogService {
             }
         } else {
             let durationMs = Int((entry.duration ?? 0) * 1000)
-            let resolvedArtist = artistName ?? entry.uploader ?? "Unknown"
+            let resolvedArtist = entry.artist ?? artistName ?? entry.uploader ?? "Unknown"
             let artistStableID = YouTubeCatalogIdentity.artist(
                 channelID: entry.channelID, browseID: nil)
             track = Track(

@@ -21,7 +21,11 @@ final class TrayController: NSObject, NSPopoverDelegate {
     private let onQuit: () -> Void
     private weak var playbackService: PlaybackService?
     private weak var audioDevices: AudioDeviceService?
+    private weak var importService: YouTubeImportService?
 
+    private var songInformation: SongDisplayInformation?
+    private var songInformationTrackID: UUID?
+    private var metadataTask: Task<Void, Never>?
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var localDismissMonitor: Any?
@@ -38,7 +42,8 @@ final class TrayController: NSObject, NSPopoverDelegate {
          onOpenMain: @escaping () -> Void,
          onQuit: @escaping () -> Void,
          playback: PlaybackService? = nil,
-         audioDevices: AudioDeviceService? = nil) {
+         audioDevices: AudioDeviceService? = nil,
+         importService: YouTubeImportService? = nil) {
         self.trackProvider = trackProvider
         self.isPlayingProvider = isPlayingProvider
         self.onPlayPause = onPlayPause
@@ -50,6 +55,7 @@ final class TrayController: NSObject, NSPopoverDelegate {
         self.onQuit = onQuit
         self.playbackService = playback
         self.audioDevices = audioDevices
+        self.importService = importService
         super.init()
     }
 
@@ -62,6 +68,8 @@ final class TrayController: NSObject, NSPopoverDelegate {
             }
             rebuild()
         } else {
+            metadataTask?.cancel()
+            metadataTask = nil
             removeDismissMonitors()
             popover?.performClose(nil)
             popover = nil
@@ -85,7 +93,22 @@ final class TrayController: NSObject, NSPopoverDelegate {
         item.button?.image = TrayIcon.menuBarImage
         item.button?.imagePosition = .imageOnly
         item.button?.imageScaling = .scaleProportionallyDown
-        item.button?.toolTip = track.map { "\($0.title) — \($0.artist)" } ?? tr("Muses", "Muses")
+        metadataTask?.cancel()
+        songInformationTrackID = track?.id
+        songInformation = track.map { SongDisplayInformation(row: importService?.songPresentationRow(for: $0)
+            ?? CollectionTrackRow(snapshot: $0, canonicalIndex: 0)) }
+        item.button?.toolTip = songInformation.map { "\($0.title) — \($0.artist)" } ?? tr("Muses", "Muses")
+        if let track, let importService {
+            let row = importService.songPresentationRow(for: track)
+            metadataTask = Task { [weak self] in
+                let metadata = await importService.songMetadata(videoID: track.youTubeId)
+                guard !Task.isCancelled, let self, self.trackProvider()?.id == track.id,
+                      self.statusItem != nil else { return }
+                let information = SongDisplayInformation(row: row, metadata: metadata)
+                self.songInformation = information
+                self.statusItem?.button?.toolTip = "\(information.title) — \(information.artist)"
+            }
+        }
         item.button?.target = self
         item.button?.action = #selector(statusItemClicked(_:))
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -106,7 +129,7 @@ final class TrayController: NSObject, NSPopoverDelegate {
         let playing = isPlayingProvider()
         let menu = NSMenu()
         menu.autoenablesItems = false
-        for spec in TrayMenuModel.items(track: track, isPlaying: playing) {
+        for spec in TrayMenuModel.items(track: track, isPlaying: playing, information: songInformationTrackID == track?.id ? songInformation : nil) {
             if spec.kind == .separator {
                 menu.addItem(.separator()); continue
             }
@@ -148,6 +171,7 @@ final class TrayController: NSObject, NSPopoverDelegate {
         )
         .environment(playback)
         .environment(audioDevices)
+        .environment(importService)
 
         let hosting = NSHostingController(rootView: cardView)
         p.contentViewController = hosting
@@ -211,7 +235,10 @@ enum TrayIcon {
     static let menuBarImage: NSImage = {
         let url = Bundle.module.url(forResource: "MenuBarMark", withExtension: "png", subdirectory: "Resources")
         let image = url.flatMap { NSImage(contentsOf: $0) }
-        return templateImage(from: image, pointSize: 18, sourceInsetFraction: 0.2)
+        // Center the lyre in the native 18pt canvas with a small symmetric inset.
+        // Avoid a baseline lift: the tall mark already reads high beside other symbols.
+        return templateImage(from: image, pointSize: 18, sourceInsetFraction: 0.2,
+                             contentInset: 0.25)
     }()
     static let settingsImage = templateImage(pointSize: 24)
 
@@ -222,7 +249,8 @@ enum TrayIcon {
         return url.flatMap { NSImage(contentsOf: $0) }
     }
 
-    static func templateImage(from source: NSImage? = nil, pointSize: CGFloat = 18, sourceInsetFraction: CGFloat = 0) -> NSImage {
+    static func templateImage(from source: NSImage? = nil, pointSize: CGFloat = 18,
+                              sourceInsetFraction: CGFloat = 0, contentInset: CGFloat = 0) -> NSImage {
         let src = source ?? logoImage ?? NSImage(size: NSSize(width: pointSize, height: pointSize))
         let scale: CGFloat = 2
         let px = max(Int((pointSize * scale).rounded()), 1)
@@ -244,7 +272,10 @@ enum TrayIcon {
         }
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-        src.draw(in: NSRect(x: 0, y: 0, width: px, height: px),
+        let inset = min(max(0, contentInset * scale), CGFloat(px) / 2)
+        let drawRect = NSRect(x: inset, y: inset,
+                              width: CGFloat(px) - inset * 2, height: CGFloat(px) - inset * 2)
+        src.draw(in: drawRect,
                  from: sourceInsetFraction > 0
                     ? NSRect(origin: .zero, size: src.size).insetBy(dx: src.size.width * sourceInsetFraction,
                                                                   dy: src.size.height * sourceInsetFraction)
@@ -307,11 +338,11 @@ enum TrayMenuModel {
     static func tag(for kind: Item.Kind) -> Int { kind.rawValue }
     static func kind(for tag: Int) -> Item.Kind? { Item.Kind(rawValue: tag) }
 
-    static func items(track: TrackSnapshot?, isPlaying: Bool) -> [Item] {
+    static func items(track: TrackSnapshot?, isPlaying: Bool, information: SongDisplayInformation? = nil) -> [Item] {
         var out: [Item] = []
         let headerTitle: String
         if let track {
-            headerTitle = "\(track.title) — \(track.artist)"
+            headerTitle = "\(information?.title ?? track.title) — \(information?.artist ?? track.artist)"
         } else {
             headerTitle = tr("Muses", "Muses")
         }

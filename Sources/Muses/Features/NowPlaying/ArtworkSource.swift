@@ -55,6 +55,7 @@ enum ArtworkPresentation: String, Equatable, Sendable {
 /// Hero/Home surfaces can opt into complete artwork over an ambient wash.
 struct ArtworkView: View {
     let source: ArtworkSource
+    @Environment(\.displayScale) private var displayScale
     var cornerRadius: CGFloat = 12
     var glyphSize: CGFloat = 80
     var clipCircle: Bool = false
@@ -71,8 +72,11 @@ struct ArtworkView: View {
         Group {
             switch source {
             case .remote(let url):
+                let candidates = YouTubeThumbnail.displayCandidates(for: url, pixelSize: max(targetSize, resolvedHeight) * displayScale)
                 CachedAsyncImage(
-                    url: url,
+                    url: candidates.first,
+                    lowResURL: candidates.count > 1 ? url : nil,
+                    fallbackURLs: Array(candidates.dropFirst()),
                     content: {
                         ResolvedArtworkImage(
                             image: $0,
@@ -116,6 +120,7 @@ private struct ResolvedArtworkImage: View {
         case .fill:
             image
                 .resizable()
+                .interpolation(.high)
                 .scaledToFill()
         case .fitOnAmbient:
             ZStack {
@@ -139,6 +144,7 @@ private struct ResolvedArtworkImage: View {
 
                 image
                     .resizable()
+                    .interpolation(.high)
                     .scaledToFit()
                     .saturation(0.96)
             }

@@ -103,7 +103,9 @@ final class YTDlpBridge {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             self.id = try c.decode(String.self, forKey: .id)
             self.title = try c.decode(String.self, forKey: .title)
-            self.uploader = try c.decodeIfPresent(String.self, forKey: .uploader)
+            let uploader = try c.decodeIfPresent(String.self, forKey: .uploader)
+            let channel = try c.decodeIfPresent(String.self, forKey: .channel)
+            self.uploader = Self.nonEmpty(uploader) ?? Self.nonEmpty(channel)
             self.duration = try c.decodeIfPresent(Double.self, forKey: .duration)
             let named = try c.decodeIfPresent(String.self, forKey: .playlistTitle)
             let playlist = try c.decodeIfPresent(String.self, forKey: .playlist)
@@ -139,6 +141,7 @@ final class YTDlpBridge {
         }
 
         private enum CodingKeys: String, CodingKey {
+            case channel
             case id, title, uploader, duration
             case playlistTitle = "playlist_title"
             case playlist

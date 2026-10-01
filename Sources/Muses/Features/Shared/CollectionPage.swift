@@ -266,7 +266,10 @@ struct CollectionPageHeader<Controls: View>: View {
                     .fixedSize()
                 }
             }
+            .padding(.horizontal, 8)
             .frame(minHeight: 44, alignment: .trailing)
+            .environment(\.groupedChromeActions, true)
+            .musesGlass(in: Capsule(), role: .compactControl)
             }
         }
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)

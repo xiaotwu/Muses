@@ -52,13 +52,19 @@ final class YouTubeImportService {
     private let log = AppLog.for("YouTubeImportService")
     @ObservationIgnored private var songMetadataCache: [String: (date: Date, entry: YTDlpBridge.YTDlpPlaylistEntry?)] = [:]
 
+    @ObservationIgnored private var songMetadataRequests: [String: Task<YTDlpBridge.YTDlpPlaylistEntry?, Never>] = [:]
+
     /// Presentation-only enrichment; persisted user edits and sync truth are untouched.
     func songMetadata(videoID: String) async -> YTDlpBridge.YTDlpPlaylistEntry? {
         if let cached = songMetadataCache[videoID], Date().timeIntervalSince(cached.date) < 300 {
             return cached.entry
         }
-        let entry = try? await bridge.fetchSongMetadata(videoId: videoID, timeout: 20)
-        guard !Task.isCancelled else { return nil }
+        if let request = songMetadataRequests[videoID] { return await request.value }
+        let bridge = self.bridge
+        let request = Task { try? await bridge.fetchSongMetadata(videoId: videoID, timeout: 20) }
+        songMetadataRequests[videoID] = request
+        let entry = await request.value
+        songMetadataRequests[videoID] = nil
         if songMetadataCache.count >= 96 { songMetadataCache.removeAll() }
         songMetadataCache[videoID] = (Date(), entry)
         return entry

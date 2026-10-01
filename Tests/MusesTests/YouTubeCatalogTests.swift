@@ -258,6 +258,34 @@ struct YouTubeCatalogTests {
         #expect(lastBrowseID == "browse:MPRE_album")
     }
 
+    @Test("Imported official album playlists use their corresponding Music browse identity")
+    func importedAlbumBrowseIdentity() async throws {
+        let provider = MockStructuredCatalogProvider(items: [
+            .init(id: "video:abcdefghijk", kind: .song, title: "Song", subtitle: "Singer", artwork: nil,
+                  artists: [.init(id: "browse:UC_singer", title: "Singer", kind: .artist)], releases: [], channels: [])
+        ])
+        let service = YouTubeCatalogService(modelContainer: try makeModelContainer(inMemory: true), structuredCatalog: provider)
+        let release = CatalogReleaseProjection(stableID: "playlist:OLAK_album", title: "Album", artistName: "Singer",
+            artistStableID: nil, artworkURL: nil, year: nil, kind: .album, cacheState: .stale, tracks: [])
+        let tracks = try await service.fetchAlbumOnlineTracks(release: release)
+        #expect(await provider.lastBrowseID == "browse:VLOLAK_album")
+        #expect(tracks.first?.artist == "Singer")
+    }
+
+    @Test("Verified browse metadata refreshes cached names and freshness without rewriting song credits")
+    func verifiedBrowseMetadataRefresh() async throws {
+        let container = try makeModelContainer(inMemory: true)
+        let provider = MockStructuredCatalogProvider(items: [], metadata: .init(title: "Verified Artist", subtitle: "", artists: []))
+        let service = YouTubeCatalogService(modelContainer: container, structuredCatalog: provider)
+        service.upsertArtist(stableID: "channel:UC_artist", name: "Old uploader", refreshedAt: .distantPast, unavailable: true)
+        let artist = try #require(service.artist(byStableID: "channel:UC_artist"))
+        _ = try await service.fetchArtistOnlineDiscography(artist: artist, forceRefresh: true)
+        let refreshed = try #require(service.artist(byStableID: "channel:UC_artist"))
+        #expect(refreshed.name == "Verified Artist")
+        #expect(refreshed.cacheState == .fresh)
+        #expect(try ModelContext(container).fetchCount(FetchDescriptor<Track>()) == 0)
+    }
+
     @Test("importing online track and album attaches release and artist catalog IDs")
     func importOnlineTrackAndAlbum() throws {
         let container = try makeModelContainer(inMemory: true)
@@ -462,12 +490,14 @@ struct YouTubeCatalogTests {
 
 private actor MockStructuredCatalogProvider: MusicCatalogProviding {
     private var items: [MusicCatalogItem]
+    private let metadata: MusicCatalogMetadata?
     private(set) var browseCallCount = 0
     private(set) var resetCount = 0
     private(set) var lastBrowseID: String?
 
-    init(items: [MusicCatalogItem]) {
+    init(items: [MusicCatalogItem], metadata: MusicCatalogMetadata? = nil) {
         self.items = items
+        self.metadata = metadata
     }
 
     func replaceItems(_ items: [MusicCatalogItem]) {
@@ -494,6 +524,6 @@ private actor MockStructuredCatalogProvider: MusicCatalogProviding {
 
     private func page() -> MusicCatalogPage {
         MusicCatalogPage(items: items, filters: [], next: nil,
-                         fetchedAt: Date(), region: "US", language: "en")
+                         fetchedAt: Date(), region: "US", language: "en", metadata: metadata)
     }
 }

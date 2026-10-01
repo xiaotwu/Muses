@@ -3,7 +3,7 @@ import Testing
 @testable import Muses
 
 struct MusesThemePaletteTests {
-    @Test("T3C foreground pairs remain legible in both appearances")
+    @Test("G1 foreground pairs remain legible in both appearances")
     func contrast() {
         let pairs: [(MusesThemePalette.Role, MusesThemePalette.Role)] = [
             (.heading, .page), (.selectionText, .selectionFill),
@@ -20,7 +20,7 @@ struct MusesThemePaletteTests {
         }
     }
 
-    @Test("Native appearance resolves indigo and graphite independently")
+    @Test("Native appearance resolves champagne gold and graphite independently")
     func appearances() throws {
         for name in [NSAppearance.Name.aqua, .darkAqua,
                      .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua] {

@@ -741,7 +741,7 @@ struct YouTubePlaylistItem: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.playlistItemId = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
         let s = try c.decode(Snippet.self, forKey: .snippet)
-        self.title = s.title; self.channelTitle = s.channelTitle
+        self.title = s.title; self.channelTitle = s.videoOwnerChannelTitle ?? ""
         self.thumbnailURL = s.thumbnails?.high?.url ?? s.thumbnails?.default?.url
         let d = try c.decodeIfPresent(ContentDetails.self, forKey: .contentDetails)
         self.videoId = d?.videoId ?? ""
@@ -758,11 +758,12 @@ struct YouTubePlaylistItem: Codable, Sendable, Equatable {
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         if !playlistItemId.isEmpty { try c.encode(playlistItemId, forKey: .id) }
-        try c.encode(Snippet(title: title, channelTitle: channelTitle, thumbnails: nil), forKey: .snippet)
+        try c.encode(Snippet(title: title, channelTitle: channelTitle, thumbnails: nil, videoOwnerChannelTitle: channelTitle), forKey: .snippet)
         try c.encodeIfPresent(ContentDetails(videoId: videoId), forKey: .contentDetails)
     }
     struct Snippet: Codable, Sendable {
         let title: String; let channelTitle: String; let thumbnails: YouTubeChannel.Thumbnails?
+        var videoOwnerChannelTitle: String? = nil
     }
     struct ContentDetails: Codable, Sendable { let videoId: String }
 }

@@ -20,7 +20,7 @@ struct CollectionTrackRow: Identifiable, Equatable, Sendable {
     var id: UUID { collectionItemID ?? snapshot.id }
     var title: String { snapshot.title }
     var artist: String {
-        snapshot.artist.isEmpty || snapshot.artist == collectionOwner
+        SongDisplayInformation.isMissingCredit(snapshot.artist) || snapshot.artist == collectionOwner
             ? tr("Artist unavailable", "艺人信息暂缺") : snapshot.artist
     }
     var album: String {

@@ -17,9 +17,9 @@ struct ChromeGlyph: View {
             .font(.system(size: size, weight: .semibold))
             .symbolRenderingMode(.monochrome)
             .foregroundStyle(selected && ChromeGlyphStyle.selectedUsesAccent
-                             ? BrandColors.accent : BrandColors.textPrimary)
+                             ? AnyShapeStyle(BrandColors.accent) : AnyShapeStyle(.primary))
             .selectionHalo(selected)
-            .opacity(selected ? 1.0 : (isHovered ? 0.95 : 0.7))
+            .opacity(selected ? 1.0 : (isHovered ? 1.0 : 0.9))
             .scaleEffect(isHovered && !reduceMotion ? 1.06 : 1.0)
             .offset(y: isHovered && !reduceMotion ? -1 : 0)
             .frame(width: max(28, hit), height: max(28, hit))

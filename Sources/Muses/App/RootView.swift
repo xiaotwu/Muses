@@ -153,6 +153,7 @@ struct RootView: View {
             } label: {
                 Label(tr("Toggle Sidebar", "切换边栏", zhHant: "切換側邊欄"), systemImage: "sidebar.leading")
             }
+            .buttonStyle(.automatic)
             .help(tr("Toggle Sidebar", "切换边栏", zhHant: "切換側邊欄"))
             Button {
                 if showNowPlaying { showNowPlaying = false }
@@ -160,12 +161,14 @@ struct RootView: View {
             } label: {
                 Label(tr("Back", "后退", zhHant: "返回"), systemImage: "arrow.left")
             }
+            .buttonStyle(.automatic)
             .help(tr("Back", "后退", zhHant: "返回"))
             .keyboardShortcut("[", modifiers: .command)
             .disabled((!showNowPlaying && !navigationHistory.canGoBack) || showYouTubeVideo)
             Button { navigateHistory(back: false) } label: {
                 Label(tr("Forward", "前进", zhHant: "前進"), systemImage: "arrow.right")
             }
+            .buttonStyle(.automatic)
             .help(tr("Forward", "前进", zhHant: "前進"))
             .keyboardShortcut("]", modifiers: .command)
             .disabled(!navigationHistory.canGoForward || showNowPlaying || showYouTubeVideo)
@@ -415,10 +418,12 @@ struct RootView: View {
 
     private let chromeTop: CGFloat = 0
     private let chromeSide: CGFloat = 0
+    private var showsPlayerBar: Bool {
+        section != .settings && !showYouTubeVideo
+            && !(showNowPlaying && NowPlayingChromePolicy.hidesDock)
+    }
     private var chromeBottom: CGFloat {
-        if showYouTubeVideo { return 0 }
-        if showNowPlaying, NowPlayingChromePolicy.hidesDock { return 0 }
-        return AppleMusicTokens.capsuleHeight + AppleMusicTokens.playerBottomMargin
+        showsPlayerBar ? AppleMusicTokens.capsuleHeight + AppleMusicTokens.playerBottomMargin : 0
     }
     private var splitView: some View {
         HStack(spacing: 0) {
@@ -433,8 +438,7 @@ struct RootView: View {
                     .id(section == .settings ? BrowseRoute.section(.settings) : browseRoute)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(BrowseBackground())
-                if !showYouTubeVideo,
-                   !(showNowPlaying && NowPlayingChromePolicy.hidesDock) {
+                if showsPlayerBar {
                     PlayerBar(lyricsActive: showLyricsDrawer,
                               queueActive: showQueue,
                               onArtworkTap: { openNowPlaying() },
@@ -782,7 +786,7 @@ extension Notification.Name {
 }
 
 enum BrandColors {
-    /// Semantic T3C surfaces and accents, with neutral reading colors.
+    /// Semantic G1 surfaces and accents, with neutral reading colors.
     /// Uses `NSColor(name:dynamicProvider:)` so every call site follows appearance changes with no extra code.
     private static func dynamic(_ dark: NSColor, _ light: NSColor) -> Color {
         Color(nsColor: NSColor(name: nil) { (appearance: NSAppearance) -> NSColor in

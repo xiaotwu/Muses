@@ -320,7 +320,8 @@ struct MusesApp: App {
             },
             onQuit: { NSApp.terminate(nil) },
             playback: playback,
-            audioDevices: audioDevices)
+            audioDevices: audioDevices,
+            importService: importService)
         self.trayController = tray
         let desktopLyrics = DesktopLyricsController()
         self.desktopLyricsController = desktopLyrics

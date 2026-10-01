@@ -10,9 +10,11 @@ struct LiquidGlassVolumeBar: View {
     @Environment(PlaybackService.self) private var playback
     @Environment(AudioDeviceService.self) private var audioDevices: AudioDeviceService?
 
+    enum ScaleStyle { case graduated, dots }
     var width: CGFloat = 220
     var height: CGFloat = 36
     var drawsGlass = true
+    var scaleStyle: ScaleStyle = .graduated
     var onDeviceSelected: (() -> Void)? = nil
 
     @State private var isDragging = false
@@ -29,7 +31,12 @@ struct LiquidGlassVolumeBar: View {
 
     var body: some View {
         if drawsGlass {
-            controls.musesGlass(in: Capsule(), role: .compactControl)
+            if scaleStyle == .dots {
+                controls.background(Color.black.opacity(0.75), in: Capsule())
+                    .musesGlass(in: Capsule(), role: .artworkControl)
+            } else {
+                controls.musesGlass(in: Capsule(), role: .compactControl)
+            }
         } else {
             controls
         }
@@ -37,7 +44,10 @@ struct LiquidGlassVolumeBar: View {
 
     private var controls: some View {
         HStack(spacing: 10) {
-            speakerButton
+            if scaleStyle == .dots {
+                speakerButton
+                Text(tr("Volume", "音量")).font(.system(size: 12)).foregroundStyle(BrandColors.heading)
+            } else { speakerButton }
             sliderTrack.frame(maxWidth: .infinity)
             Text("\(Int((currentVolume * 100).rounded()))%")
                 .font(.caption.monospacedDigit()).frame(width: 34)
@@ -80,13 +90,14 @@ struct LiquidGlassVolumeBar: View {
         } label: {
             Image(systemName: "hifispeaker.and.homepod")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(BrandColors.textPrimary)
+                .foregroundStyle(BrandColors.heading)
                 .frame(width: 26, height: 26)
                 .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .frame(width: 26, height: 26)
+        .modifier(CompactChromeSurface())
         .help(AudioOutputGlyphPolicy.accessibilityLabel(forDeviceName: currentOutputName))
         .accessibilityLabel(AudioOutputGlyphPolicy.accessibilityLabel(forDeviceName: currentOutputName))
     }
@@ -98,13 +109,28 @@ struct LiquidGlassVolumeBar: View {
             let availableWidth = max(10, geo.size.width)
             let fraction = CGFloat(min(1.0, max(0.0, currentVolume)))
 
-            HStack(spacing: 2) {
-                ForEach(0..<24, id: \.self) { index in
-                    RoundedRectangle(cornerRadius: 1.5)
-                        .fill(Double(index) / 24 < Double(fraction)
-                              ? BrandColors.accent : BrandColors.textPrimary.opacity(0.15))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 8 + CGFloat(index) * 0.45)
+            ZStack(alignment: .leading) {
+                if scaleStyle == .dots {
+                    HStack(spacing: 0) {
+                        ForEach(0..<9, id: \.self) { index in
+                            Circle().fill(Color.white.opacity(0.4))
+                                .frame(width: 4, height: 4)
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    Capsule().fill(Color.white)
+                        .frame(width: 3, height: 20)
+                        .offset(x: fraction * max(0, availableWidth - 3))
+                } else {
+                    HStack(spacing: 2) {
+                        ForEach(0..<24, id: \.self) { index in
+                            RoundedRectangle(cornerRadius: 1.5)
+                                .fill(Double(index) / 24 < Double(fraction)
+                                      ? BrandColors.accent : BrandColors.textPrimary.opacity(0.15))
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 8 + CGFloat(index) * 0.45)
+                        }
+                    }
                 }
             }
             .frame(height: geo.size.height)
@@ -149,11 +175,11 @@ struct LiquidGlassVolumeBar: View {
         Button(action: toggleMute) {
             Image(systemName: volumeIcon)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(BrandColors.textPrimary.opacity(0.85))
+                .foregroundStyle(BrandColors.heading.opacity(0.85))
                 .frame(width: 26, height: 26)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.fullAreaPlain)
+        .buttonStyle(.musesCompact)
         .help(playback.volume <= 0.001 ? tr("Unmute", "取消静音") : tr("Mute", "静音"))
         .accessibilityLabel(playback.volume <= 0.001 ? tr("Unmute", "取消静音") : tr("Mute", "静音"))
         .accessibilityValue("\(Int((currentVolume * 100).rounded()))%")

@@ -111,7 +111,7 @@ struct CollectionPresentationTests {
         #expect(CollectionTrackSort.rows(rows, using: playlistComparator).map(\.title) == ["B", "A"])
     }
 
-    @Test("Flat strip scales artwork and mounts only nearby covers")
+    @Test("Overlapping strip reserves tilt clearance and mounts only nearby covers")
     func responsiveDeckGeometry() {
         let roomy = CollectionDeckGeometry.resolve(containerWidth: 980, containerHeight: 760)
         let compact = CollectionDeckGeometry.resolve(containerWidth: 560, containerHeight: 760)
@@ -123,8 +123,8 @@ struct CollectionPresentationTests {
         #expect(CollectionDeckProjection.visibleIndices(count: 100, position: 50, radius: roomy.radius).count <= 13)
         #expect(CollectionDeckProjection.visibleIndices(count: 100, position: 50, radius: compact.radius).count == 5)
         #expect(roomy.cardHeight > roomy.cardWidth)
-        #expect(roomy.lowerFanClearance == 24)
-        #expect(compact.lowerFanClearance == 24)
+        #expect(roomy.lowerFanClearance == 44)
+        #expect(compact.lowerFanClearance == 44)
         #expect(roomy.viewportHeight >= roomy.cardHeight + CollectionDeckScrubberMetrics.thumbHeight)
         let wide = CollectionDeckGeometry.resolve(containerWidth: 1_800, containerHeight: 1_160)
         #expect(wide.cardWidth > roomy.cardWidth)

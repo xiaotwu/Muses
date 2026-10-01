@@ -43,7 +43,7 @@ enum AppleMusicTokens {
     static let navItemHeight: CGFloat = 34
     // Keep the floating player clear of the window edge while leaving more room
     // for collection previews above it. Shared by every browsing surface.
-    static let playerBottomMargin: CGFloat = 64
+    static let playerBottomMargin: CGFloat = 52
     static let playerHorizontalMargin: CGFloat = 16
     static let capsuleWidth: CGFloat = 668
     static let capsuleHeight: CGFloat = 56

@@ -84,6 +84,50 @@ struct CollectionArtworkLayoutTests {
         #expect(SongDisplayInformation(row: original, metadata: unrelated) == SongDisplayInformation(row: original))
     }
 
+    @Test("Missing performer falls back to the verified video publisher, even when it owns the playlist")
+    func publisherFallback() {
+        let original = row()
+        let publisher = YTDlpBridge.YTDlpPlaylistEntry(id: "abcdefghijk", title: "Video title", uploader: "Publisher")
+        #expect(SongDisplayInformation(row: original, metadata: publisher).artist == "Publisher")
+        let other = YTDlpBridge.YTDlpPlaylistEntry(id: "abcdefghijk", title: "Video title", uploader: "Actual video channel", artist: "  ")
+        #expect(SongDisplayInformation(row: original, metadata: other).artist == "Actual video channel")
+        let blank = YTDlpBridge.YTDlpPlaylistEntry(id: "abcdefghijk", title: "Video title", uploader: "  ", artist: " ")
+        #expect(SongDisplayInformation(row: original, metadata: blank).artist == original.artist)
+        #expect(original.snapshot.artist == "Publisher")
+        #expect(SongDisplayInformation(row: row(artist: "Unknown Artist"), metadata: other).artist == "Actual video channel")
+    }
+
+    @Test("Playlist API credits the video publisher rather than the playlist account")
+    func videoPublisherIdentity() throws {
+        let raw = Data(#"{"id":"item1","snippet":{"title":"Song","channelTitle":"My account","videoOwnerChannelTitle":"Video publisher"},"contentDetails":{"videoId":"abcdefghijk"}}"#.utf8)
+        let item = try JSONDecoder().decode(YouTubePlaylistItem.self, from: raw)
+        #expect(item.channelTitle == "Video publisher")
+        let roundTrip = try JSONDecoder().decode(YouTubePlaylistItem.self, from: JSONEncoder().encode(item))
+        #expect(roundTrip.channelTitle == "Video publisher")
+        let missing = Data(#"{"snippet":{"title":"Song","channelTitle":"My account"},"contentDetails":{"videoId":"abcdefghijk"}}"#.utf8)
+        #expect(try JSONDecoder().decode(YouTubePlaylistItem.self, from: missing).channelTitle.isEmpty)
+    }
+
+    @Test("Publisher channel is used when yt-dlp omits its uploader alias")
+    func channelPublisherFallback() throws {
+        let raw = Data(#"{"id":"abcdefghijk","title":"Video title","uploader":"  ","channel":"Video publisher"}"#.utf8)
+        let entry = try JSONDecoder().decode(YTDlpBridge.YTDlpPlaylistEntry.self, from: raw)
+        #expect(entry.uploader == "Video publisher")
+        #expect(SongDisplayInformation(row: row(), metadata: entry).artist == "Video publisher")
+    }
+
+    @Test("Online sibling queue preserves performer and album credits")
+    func siblingCredits() {
+        let playing = row().snapshot
+        let entries = [YTDlpBridge.YTDlpPlaylistEntry(id: playing.youTubeId, title: playing.title),
+                       YTDlpBridge.YTDlpPlaylistEntry(id: "bcdefghijkl", title: "Video title", uploader: "Channel", track: "Song", album: "Album", artist: "Singer")]
+        let context = TrackSnapshot.playbackContext(playing: playing, youTubeEntries: entries)
+        #expect(context[0].id == playing.id)
+        #expect(context[1].title == "Song")
+        #expect(context[1].artist == "Singer")
+        #expect(context[1].albumTitle == "Album")
+    }
+
     @Test("Light glass keeps artwork hues and falls back for grayscale covers")
     func lightArtworkPalette() {
         let purple = NSColor(srgbRed: 0.52, green: 0.24, blue: 0.72, alpha: 1)
