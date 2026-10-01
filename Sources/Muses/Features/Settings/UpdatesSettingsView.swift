@@ -6,8 +6,8 @@ enum MusesResources {
     static let infoPlistURL = Bundle.module.url(forResource: "Info", withExtension: "plist", subdirectory: "Resources")
     /// Entitlements template URL (used by codesign --entitlements).
     static let entitlementsURL = Bundle.module.url(forResource: "Muses", withExtension: "entitlements", subdirectory: "Resources")
-    /// MonteCarlo font URL (registered as an available font at app launch).
-    static let monteCarloFontURL = Bundle.module.url(forResource: "MonteCarlo", withExtension: "ttf", subdirectory: "Resources")
+    /// Bundled brand font URL (registered at application launch).
+    static let islandMomentsFontURL = Bundle.module.url(forResource: "IslandMoments-Regular", withExtension: "ttf", subdirectory: "Resources")
 }
 
 /// Update preferences and progress share the app-lifetime update facade.

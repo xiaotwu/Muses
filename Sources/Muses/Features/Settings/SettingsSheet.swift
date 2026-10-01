@@ -158,7 +158,9 @@ struct AboutSettingsView: View {
                 MusesMark(size: 40)
                     .accessibilityLabel("Muses")
                 VStack(alignment: .leading) {
-                    Text("Muses").font(BrandFont.muses(26))
+                    Text(BrandFont.wordmark).font(BrandFont.muses(36))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                         .foregroundStyle(BrandColors.textPrimary)
                     Text("\(tr("Version", "版本")) \(appVersion)")
                         .font(MusesTypography.caption).foregroundStyle(BrandColors.textSecondary)

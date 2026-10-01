@@ -118,3 +118,22 @@ Settings uses first-level categories with expanded sections. Shared glass action
 live in `Features/Shared/GlassControls.swift`; controls use capsule shapes while
 artwork and large reading surfaces preserve their aspect ratios. Native glass is
 availability-gated and retains older-system and accessibility fallbacks.
+
+### Brand wordmark
+
+The About-page product wordmark is `Muses · Polyhymnia`, rendered with the bundled
+`IslandMoments-Regular.ttf`. Registration happens before the first window appears,
+so no Google Fonts network request is required at runtime. The wordmark retains
+its brand typeface while following the interface text-size preference added in
+0.5.8. The source is the
+[Google Fonts Island Moments directory](https://github.com/google/fonts/tree/main/ofl/islandmoments);
+the bundled `IslandMoments-OFL.txt` preserves the font's license.
+
+The installer artwork uses the same bundled font. `Scripts/make-dmg.sh` renders
+the Retina background and writes a fixed Finder layout using `ds-store` and
+`mac-alias`, pinned in `Scripts/requirements-dmg.txt`. These build-only dependencies
+are installed into `.build/dmg-tools` on first use. The layout is written on the
+mounted image; it does not change global Finder preferences. Existing DMGs cannot
+be overwritten. Use `MUSES_DMG_OUTPUT` for a distinct preview path. Native
+`Muses.app` and `Applications` file labels remain visible; the artwork contains
+only the brand wordmark and directional arrow.

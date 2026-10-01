@@ -62,7 +62,7 @@ struct MusesApp: App {
         // Show All Tabs from View (no CommandGroupPlacement exists for those items).
         NSWindow.allowsAutomaticWindowTabbing = false
         // Register the bundled wordmark font before the first screen is presented.
-        FontLoader.registerMonteCarlo()
+        FontLoader.registerBrandFont()
         YTCookieSource.migrateChromeIfNeeded()
         // In-app feature flags enabled by default (the user opted into "enable all").
         // Registers only keys not explicitly set: anything the user turned off in Settings

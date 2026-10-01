@@ -69,7 +69,7 @@ chmod 700 "$CONTENTS/Helpers/MusesWebHomeHelper"
 # 4) 拷贝资源 + Info.plist。
 echo "[3/5] 拷贝 Resources / Info.plist"
 RES_DIR="Sources/Muses/Resources"
-for f in yt-dlp yt-dlp-LICENSE AppIcon.icns icon.png MonteCarlo.ttf; do
+for f in yt-dlp yt-dlp-LICENSE AppIcon.icns icon.png IslandMoments-Regular.ttf IslandMoments-OFL.txt; do
     [[ -f "$RES_DIR/$f" ]] && cp "$RES_DIR/$f" "$CONTENTS/Resources/"
 done
 cp "$RES_DIR/Info.plist" "$CONTENTS/Info.plist"
