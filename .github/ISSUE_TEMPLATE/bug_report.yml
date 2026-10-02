@@ -1,0 +1,59 @@
+name: Bug report / 问题报告
+description: Report a reproducible issue in Muses for macOS / 报告 macOS Muses 问题
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: "Please exclude cookies, OAuth tokens, account identifiers and private logs. / 请勿提交 Cookie、OAuth 令牌、账号标识或私人日志。"
+  - type: input
+    id: app-version
+    attributes:
+      label: Muses version / 应用版本
+      placeholder: "From Settings → About / 设置 → 关于"
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: macOS version and Mac model / 系统版本与机型
+      placeholder: "macOS 26, Apple silicon / Intel"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected feature / 功能
+      options:
+        - Playback / 播放
+        - Queue / 队列
+        - Home and discovery / 首页与发现
+        - Lyrics / 歌词
+        - Gestures and volume / 手势与音量
+        - Menu bar / 菜单栏
+        - Account or import / 账号或导入
+        - Other / 其他
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / 重现步骤
+      description: Include settings and public YouTube links if relevant. / 可附相关设置与公开 YouTube 链接。
+      placeholder: "1. …\n2. …\n3. …"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior / 预期行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior / 实际行为
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshots and sanitized diagnostics / 截图与脱敏诊断
+      description: Optional. Remove private information before attaching. / 可选，附加前请移除私人信息。
